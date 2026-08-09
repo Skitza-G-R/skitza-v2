@@ -77,6 +77,19 @@ import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
 import { getArtistProfile } from "~/server/artist/profile";
 import { deliverCalendarSyncJobBestEffort } from "~/server/calendar/drain";
 import { currentAgreementPdfRevision } from "~/server/domain/agreement-pdfs/contract";
+import { readGoogleCalendarBusyIntervals } from "~/server/google-calendar";
+
+type GoogleCalendarProtection = "active" | "reduced";
+
+function publicGoogleCalendarProtection(
+  protection: "google_aware" | "skitza_only",
+): GoogleCalendarProtection {
+  return protection === "google_aware" ? "active" : "reduced";
+}
+
+function sessionWindowEnd(startsAt: Date, durationMin: number): Date {
+  return new Date(startsAt.getTime() + Math.max(durationMin, 1) * 60 * 1000);
+}
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -1035,6 +1048,7 @@ function mapSessionBookingDomainError(error: unknown): never {
   if (
     error.code === "ALLOWANCE_EXHAUSTED" ||
     error.code === "BOOKING_CONFLICT" ||
+    error.code === "GOOGLE_BUSY" ||
     error.code === "BUFFER_CONFLICT" ||
     error.code === "DAILY_LIMIT" ||
     error.code === "OPERATION_KEY_CONFLICT" ||
@@ -1500,7 +1514,7 @@ const bookSubrouter = router({
           ),
       ]);
 
-      const generated = generateArtistExactSessionSlots({
+      const slotInput = {
         now,
         canBook: allowanceCanBook,
         producerTimeZone: producer.timeZone,
@@ -1513,11 +1527,34 @@ const bookSubrouter = router({
         blackouts: blackoutRows,
         existingBookings: bookingRows,
         ...(ignoredBookingId ? { ignoreBookingId: ignoredBookingId } : {}),
+      } as const;
+      const skitzaOnly = generateArtistExactSessionSlots(slotInput);
+      const candidateSlots = skitzaOnly.days.flatMap((day) => day.slots);
+      const timeMin = candidateSlots[0]?.startsAt ?? now;
+      const timeMax =
+        candidateSlots.reduce<Date | null>(
+          (latest, slot) =>
+            latest === null || slot.endsAt.getTime() > latest.getTime() ? slot.endsAt : latest,
+          null,
+        ) ?? new Date(now.getTime() + 60 * 1000);
+      const googleBusy = await readGoogleCalendarBusyIntervals({
+        db: ctx.db,
+        producerId: input.producerId,
+        timeMin,
+        timeMax,
       });
+      const generated =
+        googleBusy.intervals.length === 0
+          ? skitzaOnly
+          : generateArtistExactSessionSlots({
+              ...slotInput,
+              googleBusyIntervals: googleBusy.intervals,
+            });
 
       return {
         days: generated.days,
         artistTimeZone,
+        googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
         studioTimeZone: producer.timeZone,
         today: generated.today,
       };
@@ -1670,6 +1707,63 @@ const bookSubrouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const [existingOperation] = await ctx.db
+        .select({ id: bookings.id })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.producerId, input.producerId),
+            eq(bookings.operationKey, input.operationKey),
+          ),
+        )
+        .limit(1);
+      let googleBusy: Awaited<ReturnType<typeof readGoogleCalendarBusyIntervals>> | null = null;
+      if (!existingOperation) {
+        const [ownedAllowance] = await ctx.db
+          .select({ durationMin: purchaseSessionAllowances.durationMin })
+          .from(purchaseSessionAllowances)
+          .innerJoin(
+            purchases,
+            and(
+              eq(purchases.id, purchaseSessionAllowances.purchaseId),
+              eq(purchases.producerId, purchaseSessionAllowances.producerId),
+            ),
+          )
+          .innerJoin(
+            projects,
+            and(
+              eq(projects.id, purchases.projectId),
+              eq(projects.producerId, purchases.producerId),
+              eq(projects.clientContactId, purchases.clientContactId),
+            ),
+          )
+          .innerJoin(
+            clientContacts,
+            and(
+              eq(clientContacts.id, purchases.clientContactId),
+              eq(clientContacts.producerId, purchases.producerId),
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              isNull(clientContacts.archivedAt),
+            ),
+          )
+          .where(
+            and(
+              eq(purchaseSessionAllowances.id, input.sessionAllowanceId),
+              eq(purchaseSessionAllowances.purchaseId, input.purchaseId),
+              eq(purchaseSessionAllowances.producerId, input.producerId),
+              eq(purchases.projectId, input.projectId),
+            ),
+          )
+          .limit(1);
+        if (ownedAllowance) {
+          googleBusy = await readGoogleCalendarBusyIntervals({
+            db: ctx.db,
+            producerId: input.producerId,
+            timeMin: input.startsAt,
+            timeMax: sessionWindowEnd(input.startsAt, ownedAllowance.durationMin),
+          });
+        }
+      }
       let result;
       try {
         result = await createSessionBooking(sessionBookingRepository(ctx.db), {
@@ -1680,6 +1774,7 @@ const bookSubrouter = router({
           actorClerkUserId: ctx.clerkUserId,
           startsAt: input.startsAt,
           operationKey: input.operationKey,
+          ...(googleBusy ? { googleBusyIntervals: googleBusy.intervals } : {}),
         });
       } catch (error) {
         mapSessionBookingDomainError(error);
@@ -1734,6 +1829,9 @@ const bookSubrouter = router({
       return {
         id: result.booking.id,
         status: result.booking.status as "pending_approval" | "confirmed",
+        googleCalendarProtection: googleBusy
+          ? publicGoogleCalendarProtection(googleBusy.protection)
+          : ("active" as const),
       };
     }),
 
@@ -1910,6 +2008,7 @@ const bookSubrouter = router({
         } catch (error) {
           mapSessionBookingDomainError(error);
         }
+        deliverCalendarJobAfterResponse(ctx.db, withdrawal.calendarSyncJobId);
         if (withdrawal.changed) {
           after(async () => {
             try {
@@ -1971,6 +2070,24 @@ const bookSubrouter = router({
       const rows = await loadArtistSessionRows(ctx.db, ctx.clerkUserId, input.id);
       const before = rows[0];
       if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      const [existingRequest] = await ctx.db
+        .select({ id: bookingChangeRequests.id })
+        .from(bookingChangeRequests)
+        .where(
+          and(
+            eq(bookingChangeRequests.bookingId, input.id),
+            eq(bookingChangeRequests.requestOperationKey, input.operationKey),
+          ),
+        )
+        .limit(1);
+      const googleBusy = existingRequest
+        ? null
+        : await readGoogleCalendarBusyIntervals({
+            db: ctx.db,
+            producerId: before.booking.producerId,
+            timeMin: input.startsAt,
+            timeMax: sessionWindowEnd(input.startsAt, before.booking.durationMin),
+          });
       let result;
       try {
         result = await submitArtistSessionChangeRequest(sessionBookingRepository(ctx.db), {
@@ -1979,6 +2096,7 @@ const bookSubrouter = router({
           kind: "reschedule",
           proposedStartsAt: input.startsAt,
           operationKey: input.operationKey,
+          ...(googleBusy ? { googleBusyIntervals: googleBusy.intervals } : {}),
         });
       } catch (error) {
         mapSessionBookingDomainError(error);
@@ -1999,6 +2117,9 @@ const bookSubrouter = router({
         id: before.booking.id,
         status: "request_sent" as const,
         changeRequestId: result.request.id,
+        googleCalendarProtection: googleBusy
+          ? publicGoogleCalendarProtection(googleBusy.protection)
+          : ("active" as const),
       };
     }),
 

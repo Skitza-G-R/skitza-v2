@@ -16,6 +16,8 @@ export type CalendarDeliveryJob = Readonly<
     | "id"
     | "bookingId"
     | "producerId"
+    | "deliveryChannel"
+    | "bookingCalendarLinkId"
     | "operation"
     | "desiredRevision"
     | "idempotencyKey"
@@ -38,13 +40,19 @@ export interface CalendarDeliveryRepository {
   claimDueJobs(input: {
     now: Date;
     limit: number;
+    deliveryChannel: "ics";
     jobId?: string;
     leaseToken: string;
     leaseDurationMs: number;
     providerDedupeWindowMs: number;
   }): Promise<readonly CalendarDeliveryJob[]>;
   completeJob(
-    input: LeasedJobIdentity & { providerMessageId: string; completedAt: Date },
+    input: LeasedJobIdentity & {
+      bookingCalendarLinkId: string | null;
+      desiredRevision: number;
+      providerMessageId: string;
+      completedAt: Date;
+    },
   ): Promise<boolean>;
   retryJob(
     input: LeasedJobIdentity & { nextAttemptAt: Date; failedAt: Date; error: string },
@@ -102,6 +110,7 @@ export async function processCalendarSyncJobs(
     limit,
     ...(options.jobId ? { jobId: options.jobId } : {}),
     leaseToken,
+    deliveryChannel: "ics",
     leaseDurationMs: CALENDAR_DELIVERY_LEASE_MS,
     providerDedupeWindowMs: CALENDAR_PROVIDER_DEDUPE_WINDOW_MS,
   });
@@ -116,7 +125,12 @@ export async function processCalendarSyncJobs(
   for (const job of jobs) {
     const identity = leaseIdentity(job, leaseToken);
     const attemptedAt = currentTime();
-    if (job.payloadSnapshot.sequence !== job.desiredRevision) {
+    if (
+      job.deliveryChannel !== "ics" ||
+      job.operation !== "send_ics" ||
+      job.payloadSnapshot.schemaVersion !== 1 ||
+      job.payloadSnapshot.sequence !== job.desiredRevision
+    ) {
       const changed = await repository.terminalJob({
         ...identity,
         terminalAt: attemptedAt,
@@ -193,6 +207,8 @@ export async function processCalendarSyncJobs(
 
     const completed = await repository.completeJob({
       ...identity,
+      bookingCalendarLinkId: job.bookingCalendarLinkId,
+      desiredRevision: job.desiredRevision,
       providerMessageId,
       completedAt: currentTime(),
     });

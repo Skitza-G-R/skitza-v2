@@ -103,3 +103,7 @@ export function findGoogleCalendarOption(
   if (!selectionKey) return null;
   return calendars.find((calendar) => calendar.selectionKey === selectionKey) ?? null;
 }
+
+export function isGoogleBusyProtectionReduced(model: GoogleCalendarUiModel): boolean {
+  return model.status !== "not_connected" && model.status !== "connected";
+}

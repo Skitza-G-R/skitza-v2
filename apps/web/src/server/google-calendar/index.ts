@@ -10,16 +10,34 @@ export {
   type GoogleCalendarEnvironment,
   type GoogleCalendarServerConfig,
 } from "./config";
+export { readGoogleCalendarBusyIntervals } from "./busy-reader";
+export type { GoogleCalendarBusyInterval } from "./freebusy";
+export {
+  GoogleCalendarEventValidationError,
+  buildGoogleCalendarEventWrite,
+  deriveGoogleCalendarEventId,
+  isValidGoogleCalendarEventId,
+  type GoogleCalendarApprovedEventInput,
+  type GoogleCalendarEventBody,
+  type GoogleCalendarEventWrite,
+} from "./event";
 export {
   GoogleCalendarProviderError,
   createGoogleCalendarProvider,
+  type GoogleCalendarEventLinkage,
+  type GoogleCalendarEventRecord,
+  type GoogleCalendarEventStatus,
   type GoogleCalendarProvider,
+  type GoogleCalendarSendUpdates,
 } from "./provider";
 export { createGoogleCalendarRepository } from "./repository-drizzle";
+export { createGoogleCalendarWorkerAccess } from "./worker-access";
 export {
   GoogleCalendarServiceError,
   createGoogleCalendarService,
   type GoogleCalendarConnectionSnapshot,
+  type GoogleCalendarBusyHealth,
+  type GoogleCalendarBusyResult,
   type GoogleCalendarOAuthCompletion,
   type GoogleCalendarOAuthStart,
   type GoogleCalendarPublicCandidate,

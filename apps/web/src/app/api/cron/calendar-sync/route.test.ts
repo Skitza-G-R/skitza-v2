@@ -4,7 +4,14 @@ const mocks = vi.hoisted(() => ({
   createDb: vi.fn(),
   calendarDeliveryRepository: vi.fn(),
   processCalendarSyncJobs: vi.fn(),
+  processGoogleCalendarSyncJobs: vi.fn(),
   sendSessionCalendarEmail: vi.fn(),
+  createGoogleCalendarProvider: vi.fn(),
+  createGoogleCalendarRepository: vi.fn(),
+  createGoogleCalendarWorkerAccess: vi.fn(),
+  enqueueFutureConfirmedEvents: vi.fn(),
+  isGoogleCalendarServerConfigured: vi.fn(),
+  loadGoogleCalendarServerConfig: vi.fn(),
 }));
 
 vi.mock("@skitza/db", () => ({ createDb: mocks.createDb }));
@@ -14,8 +21,18 @@ vi.mock("~/server/calendar/repository", () => ({
 vi.mock("~/server/calendar/delivery", () => ({
   processCalendarSyncJobs: mocks.processCalendarSyncJobs,
 }));
+vi.mock("~/server/calendar/google-delivery", () => ({
+  processGoogleCalendarSyncJobs: mocks.processGoogleCalendarSyncJobs,
+}));
 vi.mock("~/server/email/send", () => ({
   sendSessionCalendarEmail: mocks.sendSessionCalendarEmail,
+}));
+vi.mock("~/server/google-calendar", () => ({
+  createGoogleCalendarProvider: mocks.createGoogleCalendarProvider,
+  createGoogleCalendarRepository: mocks.createGoogleCalendarRepository,
+  createGoogleCalendarWorkerAccess: mocks.createGoogleCalendarWorkerAccess,
+  isGoogleCalendarServerConfigured: mocks.isGoogleCalendarServerConfigured,
+  loadGoogleCalendarServerConfig: mocks.loadGoogleCalendarServerConfig,
 }));
 
 import { GET } from "./route";
@@ -32,6 +49,29 @@ describe("GET /api/cron/calendar-sync", () => {
     vi.stubEnv("DATABASE_URL", "postgresql://test.invalid/skitza");
     mocks.createDb.mockReset().mockReturnValue({ kind: "db" });
     mocks.calendarDeliveryRepository.mockReset().mockReturnValue({ kind: "repository" });
+    mocks.enqueueFutureConfirmedEvents.mockReset().mockResolvedValue({
+      scanned: 2,
+      linksCreated: 1,
+      jobsEnqueued: 1,
+      jobIds: ["00000000-0000-4000-8000-000000000003"],
+    });
+    mocks.createGoogleCalendarRepository.mockReset().mockReturnValue({
+      kind: "google-repository",
+      enqueueFutureConfirmedEvents: mocks.enqueueFutureConfirmedEvents,
+    });
+    mocks.createGoogleCalendarProvider.mockReset().mockReturnValue({ kind: "provider" });
+    mocks.createGoogleCalendarWorkerAccess.mockReset().mockReturnValue({ kind: "access" });
+    mocks.isGoogleCalendarServerConfigured.mockReset().mockReturnValue(true);
+    mocks.loadGoogleCalendarServerConfig.mockReset().mockReturnValue({ kind: "config" });
+    mocks.processGoogleCalendarSyncJobs.mockReset().mockResolvedValue({
+      claimed: 1,
+      completed: 0,
+      retried: 1,
+      terminal: 0,
+      leaseLost: 0,
+      fallbackEnqueued: 1,
+      fallbackJobIds: ["00000000-0000-4000-8000-000000000002"],
+    });
     mocks.processCalendarSyncJobs.mockReset().mockResolvedValue({
       claimed: 2,
       completed: 1,
@@ -78,18 +118,51 @@ describe("GET /api/cron/calendar-sync", () => {
 
     expect(mocks.createDb).toHaveBeenCalledWith("postgresql://test.invalid/skitza");
     expect(mocks.calendarDeliveryRepository).toHaveBeenCalledWith({ kind: "db" });
-    expect(mocks.processCalendarSyncJobs).toHaveBeenCalledWith(
+    expect(mocks.enqueueFutureConfirmedEvents).toHaveBeenCalledTimes(1);
+    const [initialSyncInput] = mocks.enqueueFutureConfirmedEvents.mock.calls[0] as [
+      { now: Date; limit: number },
+    ];
+    expect(initialSyncInput.now).toBeInstanceOf(Date);
+    expect(initialSyncInput.limit).toBe(100);
+    expect(mocks.processGoogleCalendarSyncJobs).toHaveBeenCalledWith({
+      repository: { kind: "repository" },
+      provider: { kind: "provider" },
+      access: { kind: "access" },
+    });
+    expect(mocks.processCalendarSyncJobs).toHaveBeenNthCalledWith(
+      1,
+      { kind: "repository" },
+      mocks.sendSessionCalendarEmail,
+      { jobId: "00000000-0000-4000-8000-000000000002", limit: 1 },
+    );
+    expect(mocks.processCalendarSyncJobs).toHaveBeenNthCalledWith(
+      2,
       { kind: "repository" },
       mocks.sendSessionCalendarEmail,
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      claimed: 2,
-      completed: 1,
-      retried: 1,
-      terminal: 0,
-      leaseLost: 0,
+      initialSync: {
+        scanned: 2,
+        linksCreated: 1,
+        jobsEnqueued: 1,
+      },
+      google: {
+        claimed: 1,
+        completed: 0,
+        retried: 1,
+        terminal: 0,
+        leaseLost: 0,
+        fallbackEnqueued: 1,
+      },
+      ics: {
+        claimed: 2,
+        completed: 1,
+        retried: 1,
+        terminal: 0,
+        leaseLost: 0,
+      },
     });
   });
 

@@ -185,4 +185,84 @@ describe("Google Calendar REST provider", () => {
       code: "provider_unavailable",
     });
   });
+
+  it("queries only the requested calendars with a minimal UTC FreeBusy payload", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        calendars: {
+          "private-one": {
+            busy: [
+              {
+                start: "2026-10-25T03:30:00+03:00",
+                end: "2026-10-25T03:30:00+02:00",
+                summary: "must never escape",
+              },
+            ],
+          },
+          "private-two": { busy: [] },
+        },
+        privateTitle: "must never escape",
+      }),
+    );
+    const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
+
+    const result = await provider.queryFreeBusy("access-token", {
+      calendarIds: ["private-one", "private-two"],
+      timeMin: new Date("2026-10-25T00:00:00.000Z"),
+      timeMax: new Date("2026-10-25T02:00:00.000Z"),
+    });
+
+    expect(result.failedCalendarCount).toBe(0);
+    expect(result.busyIntervals).toEqual([
+      {
+        startsAt: new Date("2026-10-25T00:30:00.000Z"),
+        endsAt: new Date("2026-10-25T01:30:00.000Z"),
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("private-one");
+    expect(JSON.stringify(result)).not.toContain("must never escape");
+
+    const [url, request] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("https://www.googleapis.com/calendar/v3/freeBusy");
+    expect(request?.method).toBe("POST");
+    expect(request?.headers).toEqual({
+      Authorization: "Bearer access-token",
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    });
+    if (typeof request?.body !== "string") throw new Error("Missing FreeBusy request body");
+    expect(JSON.parse(request.body)).toEqual({
+      timeMin: "2026-10-25T00:00:00.000Z",
+      timeMax: "2026-10-25T02:00:00.000Z",
+      timeZone: "UTC",
+      calendarExpansionMax: 50,
+      items: [{ id: "private-one" }, { id: "private-two" }],
+    });
+  });
+
+  it("counts per-calendar FreeBusy errors without returning private details", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        calendars: {
+          "private-one": {
+            errors: [{ domain: "calendar", reason: "notFound", message: "private detail" }],
+          },
+          "private-two": {
+            busy: [{ start: "2026-08-09T10:15:00Z", end: "2026-08-09T10:45:00Z" }],
+          },
+        },
+      }),
+    );
+    const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
+
+    const result = await provider.queryFreeBusy("access-token", {
+      calendarIds: ["private-one", "private-two"],
+      timeMin: new Date("2026-08-09T10:00:00Z"),
+      timeMax: new Date("2026-08-09T11:00:00Z"),
+    });
+
+    expect(result).toMatchObject({ failedCalendarCount: 1 });
+    expect(JSON.stringify(result)).not.toContain("private");
+    expect(JSON.stringify(result)).not.toContain("notFound");
+  });
 });

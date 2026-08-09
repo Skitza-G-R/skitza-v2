@@ -103,25 +103,28 @@ export async function decideSessionChangeRequest(input: {
   requestId: string;
   decision: "approved" | "rejected";
   operationKey: string;
-}): Promise<ActionResult> {
+}): Promise<
+  { ok: true; googleCalendarProtection: "active" | "reduced" } | { ok: false; error: string }
+> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.changeRequest.decide(input);
+    const result = await c.caller.booking.changeRequest.decide(input);
     revalidatePath(CALENDAR_PATH);
     revalidatePath("/artist/sessions");
-    return { ok: true };
+    return { ok: true, googleCalendarProtection: result.googleCalendarProtection };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
 }
 
 export type ManualBillingTreatment = "included" | "complimentary" | "billable_extra";
-export type ManualWarningCode =
+export type ProducerSchedulingWarningCode =
   | "OUTSIDE_AVAILABILITY"
   | "BLACKOUT"
   | "BUFFER_CONFLICT"
   | "DAILY_LIMIT";
+export type ManualWarningCode = ProducerSchedulingWarningCode | "GOOGLE_BUSY";
 
 export type ManualSessionFormInput = {
   clientId: string;
@@ -175,12 +178,14 @@ export async function rescheduleSession(
     operationKey: string;
     acknowledgedWarnings: ManualWarningCode[];
   },
-): Promise<ActionResult> {
+): Promise<
+  { ok: true; googleCalendarProtection: "active" | "reduced" } | { ok: false; error: string }
+> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
     const startsAt = await exactManualStart(c.caller, input);
-    await c.caller.booking.reschedule.create({
+    const result = await c.caller.booking.reschedule.create({
       id: input.id,
       startsAt,
       acknowledgedWarnings: input.acknowledgedWarnings,
@@ -188,7 +193,7 @@ export async function rescheduleSession(
     });
     revalidatePath(CALENDAR_PATH);
     revalidatePath("/artist/sessions");
-    return { ok: true };
+    return { ok: true, googleCalendarProtection: result.googleCalendarProtection };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

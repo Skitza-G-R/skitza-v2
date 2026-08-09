@@ -16,11 +16,13 @@ import {
   type GoogleCalendarOAuthIntent,
 } from "./oauth";
 import {
+  GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS,
   GoogleCalendarProviderError,
   hasRequiredGoogleCalendarScopes,
   type GoogleCalendarAccessRole,
   type GoogleCalendarProvider,
 } from "./provider";
+import type { GoogleCalendarBusyInterval } from "./freebusy";
 import type {
   GoogleCalendarCandidateRecord,
   GoogleCalendarConnectionRecord,
@@ -100,6 +102,24 @@ export type GoogleCalendarOAuthCompletion = Readonly<{
   status: "needs_selection" | "connected";
   calendars: readonly GoogleCalendarPublicCandidate[];
 }>;
+
+export type GoogleCalendarBusyHealth =
+  | "healthy"
+  | "not_connected"
+  | "reconnect_required"
+  | "unavailable";
+
+export type GoogleCalendarBusyResult = Readonly<{
+  protection: "google_aware" | "skitza_only";
+  health: GoogleCalendarBusyHealth;
+  intervals: readonly GoogleCalendarBusyInterval[];
+}>;
+
+function failOpenBusyResult(
+  health: Exclude<GoogleCalendarBusyHealth, "healthy">,
+): GoogleCalendarBusyResult {
+  return { protection: "skitza_only", health, intervals: [] };
+}
 
 function publicCandidate(candidate: GoogleCalendarCandidateRecord): GoogleCalendarPublicCandidate {
   return {
@@ -321,7 +341,129 @@ export function createGoogleCalendarService(
     return storeCandidates(connection, await fetchCalendars(connection, accessToken));
   }
 
+  async function readBusyIntervals(
+    options: Readonly<{
+      producerId: string;
+      timeMin: Date;
+      timeMax: Date;
+    }>,
+  ): Promise<GoogleCalendarBusyResult> {
+    const timeMin = new Date(options.timeMin.getTime());
+    const timeMax = new Date(options.timeMax.getTime());
+    if (
+      !Number.isFinite(timeMin.getTime()) ||
+      !Number.isFinite(timeMax.getTime()) ||
+      timeMin.getTime() >= timeMax.getTime()
+    ) {
+      return failOpenBusyResult("unavailable");
+    }
+
+    try {
+      const connection = await input.repository.getConnection(options.producerId);
+      if (!connection || connection.status === "disconnected") {
+        return failOpenBusyResult("not_connected");
+      }
+      if (connection.status === "reconnect_required") {
+        return failOpenBusyResult("reconnect_required");
+      }
+      if (connection.status !== "connected") {
+        return failOpenBusyResult("not_connected");
+      }
+
+      const candidates = await input.repository.listCalendarCandidates({
+        producerId: options.producerId,
+        connectionId: connection.id,
+        accountVersion: connection.accountVersion,
+      });
+      const selected = candidates.filter((candidate) => candidate.blocksAvailability);
+      if (selected.length < 1 || selected.length > GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS) {
+        return failOpenBusyResult("unavailable");
+      }
+      const selectedIds = selected.map((candidate) => candidate.id).sort();
+      const calendarIds = selected.map((candidate) =>
+        decryptGoogleCalendarValue(
+          candidate.providerCalendarId,
+          {
+            producerId: connection.producerId,
+            connectionId: connection.id,
+            selectionId: candidate.id,
+            accountVersion: connection.accountVersion,
+            purpose: "provider_calendar_id",
+          },
+          input.config.encryption,
+        ),
+      );
+      const accessToken = await activeAccessToken(connection);
+      let queried: Awaited<ReturnType<GoogleCalendarProvider["queryFreeBusy"]>>;
+      try {
+        // All repository reads above have completed before this network call.
+        // Booking callers can therefore run this before opening their lock.
+        queried = await input.provider.queryFreeBusy(accessToken, {
+          calendarIds,
+          timeMin,
+          timeMax,
+        });
+      } catch (error) {
+        if (error instanceof GoogleCalendarProviderError && error.code === "access_unauthorized") {
+          await markReconnect(connection, "access_unauthorized");
+        }
+        throw error;
+      }
+      if (queried.failedCalendarCount > 0) {
+        return failOpenBusyResult("unavailable");
+      }
+
+      const current = await input.repository.getConnection(options.producerId);
+      if (!current || current.status === "disconnected") {
+        return failOpenBusyResult("not_connected");
+      }
+      if (current.status === "reconnect_required") {
+        return failOpenBusyResult("reconnect_required");
+      }
+      if (
+        current.status !== "connected" ||
+        current.id !== connection.id ||
+        current.accountVersion !== connection.accountVersion
+      ) {
+        return failOpenBusyResult("unavailable");
+      }
+      const currentSelectedIds = (
+        await input.repository.listCalendarCandidates({
+          producerId: options.producerId,
+          connectionId: current.id,
+          accountVersion: current.accountVersion,
+        })
+      )
+        .filter((candidate) => candidate.blocksAvailability)
+        .map((candidate) => candidate.id)
+        .sort();
+      if (
+        currentSelectedIds.length !== selectedIds.length ||
+        currentSelectedIds.some((id, index) => id !== selectedIds[index])
+      ) {
+        return failOpenBusyResult("unavailable");
+      }
+      return {
+        protection: "google_aware",
+        health: "healthy",
+        intervals: queried.busyIntervals,
+      };
+    } catch (error) {
+      if (error instanceof GoogleCalendarServiceError) {
+        if (error.code === "reconnect_required") {
+          return failOpenBusyResult("reconnect_required");
+        }
+        if (error.code === "not_connected") {
+          return failOpenBusyResult("not_connected");
+        }
+      }
+      return failOpenBusyResult("unavailable");
+    }
+  }
+
   return {
+    busyIntervals: readBusyIntervals,
+
     async beginOAuth(
       options: Readonly<{
         producerId: string;
@@ -651,6 +793,17 @@ export function createGoogleCalendarService(
         throw new GoogleCalendarServiceError(
           result === "stale" ? "stale_connection" : "invalid_selection",
         );
+      }
+      try {
+        // Selection is already committed. This no-network repair is
+        // idempotent, and the cron repeats it if this request stops here.
+        await input.repository.enqueueFutureConfirmedEvents({
+          producerId: options.producerId,
+          now: now(),
+          limit: 100,
+        });
+      } catch {
+        // The durable cron repair closes this post-commit gap.
       }
     },
 

@@ -237,6 +237,17 @@ describe("SK-68 artist session router boundary", () => {
     expect(artistBook).not.toMatch(/\.delete\(bookings\)/);
   });
 
+  it("starts the durable calendar job after an artist withdraws a pending hold", () => {
+    const cancel = sourceBlock(
+      artistBook,
+      "cancel: artistProcedure",
+      "reschedule: artistProcedure",
+    );
+    expect(cancel).toMatch(
+      /cancelArtistSessionBooking[\s\S]*deliverCalendarJobAfterResponse\(ctx\.db, withdrawal\.calendarSyncJobId\)/,
+    );
+  });
+
   it("returns server truth for automatic confirmation and pending change requests", () => {
     expect(artistBook).toMatch(/return\s+\{[^}]*id:[^}]*status:/s);
     expect(artistBook).toMatch(/reschedule[\s\S]*status: "request_sent"/);

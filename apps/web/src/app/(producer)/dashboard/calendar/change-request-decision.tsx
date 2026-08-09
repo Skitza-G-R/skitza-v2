@@ -53,9 +53,17 @@ export function ChangeRequestDecision({
         toast(result.error, "error");
         return;
       }
+      const reducedProtection =
+        decision === "approved" &&
+        request.kind === "reschedule" &&
+        result.googleCalendarProtection === "reduced";
       toast(
-        decision === "approved" ? "Artist request approved." : "Artist request declined.",
-        "success",
+        reducedProtection
+          ? "Artist request approved. Google busy-time protection was limited for this check."
+          : decision === "approved"
+            ? "Artist request approved."
+            : "Artist request declined.",
+        reducedProtection ? "info" : "success",
       );
       router.refresh();
     });

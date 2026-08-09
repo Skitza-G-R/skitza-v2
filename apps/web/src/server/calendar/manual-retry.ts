@@ -90,8 +90,10 @@ export function calendarManualRetryIdempotencyKey(
   jobId: string,
   retryNumber: number,
   operationDigest: string,
+  deliveryChannel: CalendarSyncJob["deliveryChannel"] = "ics",
 ): string {
-  return `calendar:send_ics:manual:${jobId}:${String(retryNumber)}:${operationDigest.slice(7, 23)}`;
+  const prefix = deliveryChannel === "google" ? "google:manual" : "calendar:send_ics:manual";
+  return `${prefix}:${jobId}:${String(retryNumber)}:${operationDigest.slice(7, 23)}`;
 }
 
 function monotonicRetryAt(requested: Date, updatedAt: Date, terminalAt: Date): Date {
@@ -165,11 +167,14 @@ export function calendarManualRetryRepository(db: Db): CalendarManualRetryReposi
           };
         }
 
+        const providerDedupeShapeMatches =
+          (job.deliveryChannel === "ics" && job.providerDedupeExpiresAt !== null) ||
+          (job.deliveryChannel === "google" && job.providerDedupeExpiresAt === null);
         if (
           job.status !== "terminal" ||
           job.firstAttemptAt === null ||
           job.lastAttemptAt === null ||
-          job.providerDedupeExpiresAt === null ||
+          !providerDedupeShapeMatches ||
           job.terminalAt === null ||
           job.terminalError === null
         ) {
@@ -185,6 +190,7 @@ export function calendarManualRetryRepository(db: Db): CalendarManualRetryReposi
           job.id,
           retryNumber,
           input.operationDigest,
+          job.deliveryChannel,
         );
 
         await tx.insert(calendarSyncJobManualRetries).values({

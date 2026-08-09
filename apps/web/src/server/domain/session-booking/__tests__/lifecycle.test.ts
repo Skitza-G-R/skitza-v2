@@ -21,6 +21,7 @@ import {
   submitArtistSessionChangeRequest,
 } from "../service";
 import type {
+  BookingCalendarLinkRecord,
   CalendarSyncJobRecord,
   CreateSessionBookingInput,
   NewCalendarSyncJobRecord,
@@ -109,6 +110,11 @@ class MemorySessionBookingRepository
   readonly events: StoredSessionBookingTransitionEvent[] = [];
   readonly changeRequests: SessionBookingChangeRequestRecord[] = [];
   readonly calendarJobs: CalendarSyncJobRecord[] = [];
+  readonly bookingCalendarLinks: BookingCalendarLinkRecord[] = [];
+  readonly calendarJobOccurredAt = new Map<string, Date>();
+  googleConnected = false;
+  googleConnectionId = "google-connection-sk194";
+  googleAccountVersion = 1;
   failNextCalendarSyncInsert = false;
   #bookingSequence = 0;
   #eventSequence = 0;
@@ -139,8 +145,7 @@ class MemorySessionBookingRepository
       ? (this.calendarJobs.find(
           (job) =>
             job.bookingId === booking.id &&
-            job.payloadSnapshot.method === "REQUEST" &&
-            job.payloadSnapshot.dtstampUtc === event.occurredAt.toISOString(),
+            this.calendarJobOccurredAt.get(job.id)?.getTime() === event.occurredAt.getTime(),
         )?.id ?? null)
       : null;
     return { booking, event, calendarSyncJobId };
@@ -155,6 +160,8 @@ class MemorySessionBookingRepository
       const events = [...this.events];
       const changeRequests = [...this.changeRequests];
       const calendarJobs = [...this.calendarJobs];
+      const bookingCalendarLinks = [...this.bookingCalendarLinks];
+      const calendarJobOccurredAt = new Map(this.calendarJobOccurredAt);
       const sequences = {
         booking: this.#bookingSequence,
         event: this.#eventSequence,
@@ -168,6 +175,15 @@ class MemorySessionBookingRepository
         this.events.splice(0, this.events.length, ...events);
         this.changeRequests.splice(0, this.changeRequests.length, ...changeRequests);
         this.calendarJobs.splice(0, this.calendarJobs.length, ...calendarJobs);
+        this.bookingCalendarLinks.splice(
+          0,
+          this.bookingCalendarLinks.length,
+          ...bookingCalendarLinks,
+        );
+        this.calendarJobOccurredAt.clear();
+        for (const [jobId, occurredAt] of calendarJobOccurredAt) {
+          this.calendarJobOccurredAt.set(jobId, occurredAt);
+        }
         this.#bookingSequence = sequences.booking;
         this.#eventSequence = sequences.event;
         this.#changeRequestSequence = sequences.changeRequest;
@@ -496,25 +512,103 @@ class MemorySessionBookingRepository
     return (
       this.calendarJobs.find(
         (job) =>
-          job.payloadSnapshot.uid === input.uid && job.desiredRevision === input.desiredRevision,
+          job.deliveryChannel === "ics" &&
+          job.payloadSnapshot.schemaVersion === 1 &&
+          job.payloadSnapshot.uid === input.uid &&
+          job.desiredRevision === input.desiredRevision,
+      ) ?? null
+    );
+  }
+
+  async findGoogleCalendarSyncJob(input: {
+    producerId: string;
+    bookingCalendarLinkId: string;
+    desiredRevision: number;
+  }): Promise<CalendarSyncJobRecord | null> {
+    await Promise.resolve();
+    return (
+      this.calendarJobs.find(
+        (job) =>
+          job.deliveryChannel === "google" &&
+          job.producerId === input.producerId &&
+          job.bookingCalendarLinkId === input.bookingCalendarLinkId &&
+          job.desiredRevision === input.desiredRevision,
       ) ?? null
     );
   }
 
   async findCalendarSyncJobForEvent(input: {
     bookingId: string;
-    method: "REQUEST" | "CANCEL";
+    producerId: string;
     occurredAt: Date;
+    intent: "opaque_hold" | "confirmed" | "delete";
   }): Promise<CalendarSyncJobRecord | null> {
     await Promise.resolve();
     return (
       this.calendarJobs.find(
         (job) =>
           job.bookingId === input.bookingId &&
-          job.payloadSnapshot.method === input.method &&
-          job.payloadSnapshot.dtstampUtc === input.occurredAt.toISOString(),
+          job.producerId === input.producerId &&
+          this.calendarJobOccurredAt.get(job.id)?.getTime() === input.occurredAt.getTime() &&
+          (input.intent === "opaque_hold"
+            ? job.payloadSnapshot.schemaVersion === 2 &&
+              job.payloadSnapshot.action === "upsert" &&
+              job.payloadSnapshot.eventKind === "opaque_hold"
+            : input.intent === "confirmed"
+              ? (job.payloadSnapshot.schemaVersion === 1 &&
+                  job.payloadSnapshot.method === "REQUEST") ||
+                (job.payloadSnapshot.schemaVersion === 2 &&
+                  job.payloadSnapshot.action === "upsert" &&
+                  job.payloadSnapshot.eventKind === "confirmed")
+              : (job.payloadSnapshot.schemaVersion === 1 &&
+                  job.payloadSnapshot.method === "CANCEL") ||
+                (job.payloadSnapshot.schemaVersion === 2 &&
+                  job.payloadSnapshot.action === "delete")),
       ) ?? null
     );
+  }
+
+  async prepareBookingCalendarLink(input: {
+    bookingId: string;
+    producerId: string;
+    allowanceUseId: string;
+    desiredRevision: number;
+    allowCreate: boolean;
+    occurredAt: Date;
+  }): Promise<BookingCalendarLinkRecord | null> {
+    await Promise.resolve();
+    const index = this.bookingCalendarLinks.findIndex(
+      (link) =>
+        link.producerId === input.producerId &&
+        link.allowanceUseId === input.allowanceUseId &&
+        link.connectionId === this.googleConnectionId &&
+        link.accountVersion === this.googleAccountVersion,
+    );
+    const existing = this.bookingCalendarLinks[index];
+    if (existing) {
+      if (input.desiredRevision < existing.desiredRevision) {
+        throw new Error("calendar revision moved backwards");
+      }
+      const updated = {
+        ...existing,
+        currentBookingId: input.bookingId,
+        desiredRevision: input.desiredRevision,
+      };
+      this.bookingCalendarLinks[index] = updated;
+      return updated;
+    }
+    if (!input.allowCreate || !this.googleConnected) return null;
+    const link: BookingCalendarLinkRecord = {
+      id: `calendar-link-${String(this.bookingCalendarLinks.length + 1)}`,
+      producerId: input.producerId,
+      allowanceUseId: input.allowanceUseId,
+      currentBookingId: input.bookingId,
+      connectionId: this.googleConnectionId,
+      accountVersion: this.googleAccountVersion,
+      desiredRevision: input.desiredRevision,
+    };
+    this.bookingCalendarLinks.push(link);
+    return link;
   }
 
   async insertCalendarSyncJob(input: NewCalendarSyncJobRecord): Promise<CalendarSyncJobRecord> {
@@ -523,10 +617,10 @@ class MemorySessionBookingRepository
       this.failNextCalendarSyncInsert = false;
       throw new Error("calendar outbox unavailable");
     }
-    const { occurredAt: _occurredAt, ...values } = input;
-    void _occurredAt;
+    const { occurredAt, ...values } = input;
     const job = { ...values, id: `calendar-job-${String(++this.#calendarJobSequence)}` };
     this.calendarJobs.push(job);
+    this.calendarJobOccurredAt.set(job.id, occurredAt);
     return job;
   }
 }
@@ -572,6 +666,13 @@ function consumedUses(repository: MemorySessionBookingRepository): number {
       .filter((booking) => sessionUseConsumesAllowance(booking.outcome, booking.billingTreatment))
       .map((booking) => booking.allowanceUseId),
   ).size;
+}
+
+function googlePayload(job: CalendarSyncJobRecord | undefined) {
+  if (!job || job.deliveryChannel !== "google" || job.payloadSnapshot.schemaVersion !== 2) {
+    throw new Error("Expected a Google calendar job");
+  }
+  return job.payloadSnapshot;
 }
 
 describe("session booking lifecycle commands", () => {
@@ -733,6 +834,41 @@ describe("session booking lifecycle commands", () => {
     ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
   });
 
+  it("makes fresh Google busy overrideable only for a producer manual create", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const input = {
+      producerId: "producer-sk68",
+      clientContactId: "client-sk68",
+      projectId: "project-sk68",
+      purchaseId: "purchase-sk68",
+      sessionAllowanceId: "allowance-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt: new Date("2026-07-20T10:00:00.000Z"),
+      billingTreatment: "included" as const,
+      googleBusyIntervals: [
+        {
+          startsAt: new Date("2026-07-20T10:15:00.000Z"),
+          endsAt: new Date("2026-07-20T10:45:00.000Z"),
+        },
+      ],
+      operationKey: "manual-google-busy",
+      now: baseNow,
+    };
+
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...input,
+        acknowledgedWarnings: [],
+      }),
+    ).rejects.toMatchObject({ code: "WARNING_ACKNOWLEDGEMENT_REQUIRED" });
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...input,
+        acknowledgedWarnings: ["GOOGLE_BUSY"],
+      }),
+    ).resolves.toMatchObject({ created: true, booking: { status: "confirmed" } });
+  });
+
   it("replays the same create intent and conflicts on the same key with a different digest", async () => {
     const repository = new MemorySessionBookingRepository();
     const first = await createSessionBooking(repository, createInput());
@@ -760,6 +896,42 @@ describe("session booking lifecycle commands", () => {
         createInput({ startsAt: new Date("2026-07-20T12:00:00.000Z") }),
       ),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("hard-blocks a new artist command on Google busy but preserves an earlier replay", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const original = await createSessionBooking(repository, createInput());
+    const busy = [
+      {
+        startsAt: new Date("2026-07-20T10:15:00.000Z"),
+        endsAt: new Date("2026-07-20T10:45:00.000Z"),
+      },
+    ];
+
+    await expect(
+      createSessionBooking(repository, createInput({ googleBusyIntervals: busy })),
+    ).resolves.toMatchObject({ created: false, booking: { id: original.booking.id } });
+    await expect(
+      createSessionBooking(
+        repository,
+        createInput({ operationKey: "skitza-overlap-wins", googleBusyIntervals: busy }),
+      ),
+    ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
+    await expect(
+      createSessionBooking(
+        repository,
+        createInput({
+          operationKey: "artist-google-busy",
+          startsAt: new Date("2026-07-20T12:00:00.000Z"),
+          googleBusyIntervals: [
+            {
+              startsAt: new Date("2026-07-20T12:15:00.000Z"),
+              endsAt: new Date("2026-07-20T12:45:00.000Z"),
+            },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
   });
 
   it("binds normalized title, origin, and billing treatment to create idempotency", async () => {
@@ -885,6 +1057,132 @@ describe("session booking lifecycle commands", () => {
       "pending_approval",
     );
     expect((await createSessionBooking(automatic, createInput())).booking.status).toBe("confirmed");
+  });
+
+  it("creates a private Google hold and promotes the same event when confirmed", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: false, durationMin: 90 }),
+    );
+    repository.googleConnected = true;
+
+    const created = await createSessionBooking(
+      repository,
+      createInput({ title: "Private vocal session" }),
+    );
+    const holdJob = repository.calendarJobs[0];
+    const link = repository.bookingCalendarLinks[0];
+    expect(created.calendarSyncJobId).toBe(holdJob?.id);
+    expect(link).toMatchObject({
+      currentBookingId: created.booking.id,
+      desiredRevision: 1,
+    });
+    expect(googlePayload(holdJob)).toEqual({
+      schemaVersion: 2,
+      action: "upsert",
+      eventKind: "opaque_hold",
+      notificationMode: "none",
+      sequence: 1,
+      startsAtUtc: "2026-07-20T10:00:00.000Z",
+      endsAtUtc: "2026-07-20T11:30:00.000Z",
+      summary: "Reserved",
+      artistSafeUrl: null,
+      attendee: null,
+      privateProperties: {
+        skitzaLink: link?.id,
+        skitzaRevision: "1",
+        skitzaSchema: "1",
+      },
+    });
+    expect(JSON.stringify(googlePayload(holdJob))).not.toContain("Private vocal session");
+    expect(JSON.stringify(googlePayload(holdJob))).not.toContain("sk68-artist@example.invalid");
+
+    const command = producerCommand(created.booking.id, "confirm-google-hold");
+    const confirmed = await confirmSessionBooking(repository, command);
+    const replay = await confirmSessionBooking(repository, command);
+    const confirmedJob = repository.calendarJobs[1];
+    expect(confirmed.calendarSyncJobId).toBe(confirmedJob?.id);
+    expect(replay).toMatchObject({
+      changed: false,
+      calendarSyncJobId: confirmedJob?.id,
+    });
+    expect(repository.calendarJobs).toHaveLength(2);
+    expect(repository.bookingCalendarLinks).toHaveLength(1);
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      id: link?.id,
+      currentBookingId: created.booking.id,
+      desiredRevision: 2,
+    });
+    expect(googlePayload(confirmedJob)).toEqual({
+      schemaVersion: 2,
+      action: "upsert",
+      eventKind: "confirmed",
+      notificationMode: "all",
+      sequence: 2,
+      startsAtUtc: "2026-07-20T10:00:00.000Z",
+      endsAtUtc: "2026-07-20T11:30:00.000Z",
+      summary: "Private vocal session",
+      artistSafeUrl: `https://skitza.app/artist/sessions/${created.booking.id}`,
+      attendee: {
+        name: "SK-68 Artist",
+        email: "sk68-artist@example.invalid",
+      },
+      privateProperties: {
+        skitzaLink: link?.id,
+        skitzaRevision: "2",
+        skitzaSchema: "1",
+      },
+    });
+  });
+
+  it("deletes rejected, withdrawn, and expired Google holds without notifying the artist", async () => {
+    const cases = [
+      {
+        label: "rejected",
+        run: (repository: MemorySessionBookingRepository, booking: SessionBookingRecord) =>
+          rejectSessionBooking(repository, producerCommand(booking.id, "delete-rejected-hold")),
+      },
+      {
+        label: "withdrawn",
+        run: (repository: MemorySessionBookingRepository, booking: SessionBookingRecord) =>
+          cancelArtistSessionBooking(
+            repository,
+            artistCommand(booking.id, "delete-withdrawn-hold"),
+          ),
+      },
+      {
+        label: "expired",
+        run: (repository: MemorySessionBookingRepository, booking: SessionBookingRecord) =>
+          expireHeldSessionBooking(repository, {
+            bookingId: booking.id,
+            operationKey: "delete-expired-hold",
+            now: booking.heldExpiresAt ?? baseNow,
+          }),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const repository = new MemorySessionBookingRepository(
+        createContext({ autoConfirmBookings: false }),
+      );
+      repository.googleConnected = true;
+      const created = await createSessionBooking(
+        repository,
+        createInput({ operationKey: `create-${testCase.label}-hold` }),
+      );
+      const result = await testCase.run(repository, created.booking);
+      const deleteJob = repository.calendarJobs[1];
+      expect(result.calendarSyncJobId, testCase.label).toBe(deleteJob?.id);
+      expect(deleteJob, testCase.label).toMatchObject({
+        bookingCalendarLinkId: repository.bookingCalendarLinks[0]?.id,
+        operation: "delete_google_event",
+        desiredRevision: 2,
+      });
+      expect(googlePayload(deleteJob), testCase.label).toMatchObject({
+        action: "delete",
+        notificationMode: "none",
+        sequence: 2,
+      });
+    }
   });
 
   it("resolves create and reschedule wall-clock slots from the locked producer timezone", async () => {
@@ -1061,6 +1359,36 @@ describe("session booking lifecycle commands", () => {
       }),
     );
     expect(replacementUse.created).toBe(true);
+  });
+
+  it("deletes a confirmed Google event with notifications and reuses its link after reconnect", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    repository.googleConnected = true;
+    const created = await createSessionBooking(repository, createInput());
+    const linkId = repository.bookingCalendarLinks[0]?.id;
+
+    repository.googleConnected = false;
+    repository.googleConnected = true;
+    const command = producerCommand(created.booking.id, "cancel-google-confirmed");
+    const cancelled = await cancelProducerSessionBooking(repository, command);
+    const replay = await cancelProducerSessionBooking(repository, command);
+    const deleteJob = repository.calendarJobs[1];
+
+    expect(cancelled.calendarSyncJobId).toBe(deleteJob?.id);
+    expect(replay.calendarSyncJobId).toBe(deleteJob?.id);
+    expect(repository.bookingCalendarLinks).toHaveLength(1);
+    expect(deleteJob).toMatchObject({
+      bookingCalendarLinkId: linkId,
+      operation: "delete_google_event",
+      desiredRevision: 2,
+    });
+    expect(googlePayload(deleteJob)).toMatchObject({
+      action: "delete",
+      notificationMode: "all",
+      sequence: 2,
+    });
   });
 
   it("withdraws Held before the start even after the confirmed-session cutoff", async () => {
@@ -1283,43 +1611,54 @@ describe("session booking lifecycle commands", () => {
     expect(repository.events).toHaveLength(2);
   });
 
-  it.each(["no_show", "completed"] as const)("%s consumes a fixed use", async (terminalOutcome) => {
-    const repository = new MemorySessionBookingRepository(
-      createContext({ sessionLimit: 1, autoConfirmBookings: true }),
-    );
-    const created = await createSessionBooking(repository, createInput());
-    if (terminalOutcome === "no_show") {
-      await markSessionNoShow(
-        repository,
-        producerCommand(
-          created.booking.id,
-          "producer-no-show",
-          new Date("2026-07-20T10:00:00.000Z"),
-        ),
+  it.each(["no_show", "completed"] as const)(
+    "%s advances the booking audit revision without adding a calendar content job",
+    async (terminalOutcome) => {
+      const repository = new MemorySessionBookingRepository(
+        createContext({ sessionLimit: 1, autoConfirmBookings: true }),
       );
-    } else {
-      await completeSessionBooking(
-        repository,
-        producerCommand(
-          created.booking.id,
-          "producer-complete",
-          new Date("2026-07-20T11:00:00.000Z"),
+      repository.googleConnected = true;
+      const created = await createSessionBooking(repository, createInput());
+      const originalLink = repository.bookingCalendarLinks[0];
+      const terminal =
+        terminalOutcome === "no_show"
+          ? await markSessionNoShow(
+              repository,
+              producerCommand(
+                created.booking.id,
+                "producer-no-show",
+                new Date("2026-07-20T10:00:00.000Z"),
+              ),
+            )
+          : await completeSessionBooking(
+              repository,
+              producerCommand(
+                created.booking.id,
+                "producer-complete",
+                new Date("2026-07-20T11:00:00.000Z"),
+              ),
+            );
+      expect(repository.bookings[0]?.outcome).toBe(terminalOutcome);
+      expect(terminal.booking.calendarRevision).toBe(created.booking.calendarRevision + 1);
+      expect(repository.bookingCalendarLinks[0]).toMatchObject({
+        id: originalLink?.id,
+        currentBookingId: created.booking.id,
+        desiredRevision: created.booking.calendarRevision,
+      });
+      expect(repository.calendarJobs).toHaveLength(1);
+      expect(consumedUses(repository)).toBe(1);
+      await expect(
+        createSessionBooking(
+          repository,
+          createInput({
+            operationKey: `after-${terminalOutcome}`,
+            startsAt: new Date("2026-07-20T12:00:00.000Z"),
+            now: new Date("2026-07-20T11:00:00.000Z"),
+          }),
         ),
-      );
-    }
-    expect(repository.bookings[0]?.outcome).toBe(terminalOutcome);
-    expect(consumedUses(repository)).toBe(1);
-    await expect(
-      createSessionBooking(
-        repository,
-        createInput({
-          operationKey: `after-${terminalOutcome}`,
-          startsAt: new Date("2026-07-20T12:00:00.000Z"),
-          now: new Date("2026-07-20T11:00:00.000Z"),
-        }),
-      ),
-    ).rejects.toMatchObject({ code: "ALLOWANCE_EXHAUSTED" });
-  });
+      ).rejects.toMatchObject({ code: "ALLOWANCE_EXHAUSTED" });
+    },
+  );
 
   it("reschedules as an immutable replacement, net one use, and replays both events", async () => {
     const repository = new MemorySessionBookingRepository(
@@ -1378,6 +1717,58 @@ describe("session booking lifecycle commands", () => {
         startsAt: new Date("2026-07-20T14:00:00.000Z"),
       }),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("patches the same Google event for an immutable confirmed reschedule", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ sessionLimit: 1, autoConfirmBookings: true }),
+    );
+    repository.googleConnected = true;
+    const original = await createSessionBooking(
+      repository,
+      createInput({ title: "Tracking", operationKey: "google-reschedule-source" }),
+    );
+    const linkId = repository.bookingCalendarLinks[0]?.id;
+    const command = {
+      ...producerCommand(original.booking.id, "google-producer-reschedule"),
+      startsAt: new Date("2026-07-20T12:00:00.000Z"),
+      warningAcknowledgements: [] as string[],
+    };
+
+    const moved = await rescheduleProducerSessionBooking(repository, command);
+    const replay = await rescheduleProducerSessionBooking(repository, command);
+    const updateJob = repository.calendarJobs[1];
+
+    expect(moved).toMatchObject({
+      created: true,
+      booking: { status: "confirmed", calendarRevision: 2 },
+      replacedBooking: { id: original.booking.id, status: "cancelled" },
+      calendarSyncJobId: updateJob?.id,
+    });
+    expect(replay).toMatchObject({ created: false, calendarSyncJobId: updateJob?.id });
+    expect(repository.bookingCalendarLinks).toHaveLength(1);
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      id: linkId,
+      currentBookingId: moved.booking.id,
+      desiredRevision: 2,
+    });
+    expect(repository.calendarJobs).toHaveLength(2);
+    expect(repository.calendarJobs.map((job) => job.bookingCalendarLinkId)).toEqual([
+      linkId,
+      linkId,
+    ]);
+    expect(repository.calendarJobs.map((job) => job.operation)).toEqual([
+      "upsert_google_event",
+      "upsert_google_event",
+    ]);
+    expect(googlePayload(updateJob)).toMatchObject({
+      action: "upsert",
+      eventKind: "confirmed",
+      notificationMode: "all",
+      sequence: 2,
+      startsAtUtc: "2026-07-20T12:00:00.000Z",
+      summary: "Tracking",
+    });
   });
 
   it("transfers billable-extra treatment even after an included credit is restored", async () => {
@@ -1456,6 +1847,64 @@ describe("session booking lifecycle commands", () => {
       { status: "cancelled", outcome: "cancelled_on_time" },
     );
     expect(consumedUses(repository)).toBe(1);
+  });
+
+  it("does not overwrite the live Google event with a legacy pending replacement", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ sessionLimit: 1, autoConfirmBookings: true }),
+    );
+    repository.googleConnected = true;
+    const original = await createSessionBooking(repository, createInput());
+    const originalLink = repository.bookingCalendarLinks[0];
+    repository.context = createContext({ sessionLimit: 1, autoConfirmBookings: false });
+
+    const rescheduleCommand = {
+      ...artistCommand(original.booking.id, "legacy-pending-google-reschedule"),
+      startsAt: new Date("2026-07-20T12:00:00.000Z"),
+    };
+    const pending = await rescheduleArtistSessionBooking(repository, rescheduleCommand);
+    const rescheduleReplay = await rescheduleArtistSessionBooking(repository, rescheduleCommand);
+    expect(pending).toMatchObject({
+      booking: { status: "pending_approval", calendarRevision: 2 },
+      replacedBooking: { id: original.booking.id, status: "confirmed" },
+      calendarSyncJobId: null,
+    });
+    expect(rescheduleReplay.calendarSyncJobId).toBeNull();
+    expect(repository.calendarJobs).toHaveLength(1);
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      id: originalLink?.id,
+      currentBookingId: original.booking.id,
+      desiredRevision: 1,
+    });
+
+    const confirmationCommand = producerCommand(
+      pending.booking.id,
+      "confirm-legacy-google-reschedule",
+    );
+    const confirmed = await confirmSessionBooking(repository, confirmationCommand);
+    const confirmationReplay = await confirmSessionBooking(repository, confirmationCommand);
+    const updateJob = repository.calendarJobs[1];
+    expect(confirmed).toMatchObject({
+      booking: { id: pending.booking.id, status: "confirmed", calendarRevision: 3 },
+      calendarSyncJobId: updateJob?.id,
+    });
+    expect(confirmationReplay.calendarSyncJobId).toBe(updateJob?.id);
+    expect(repository.bookingCalendarLinks).toHaveLength(1);
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      id: originalLink?.id,
+      currentBookingId: pending.booking.id,
+      desiredRevision: 3,
+    });
+    expect(googlePayload(updateJob)).toMatchObject({
+      action: "upsert",
+      eventKind: "confirmed",
+      sequence: 3,
+      startsAtUtc: "2026-07-20T12:00:00.000Z",
+      privateProperties: {
+        skitzaLink: originalLink?.id,
+        skitzaRevision: "3",
+      },
+    });
   });
 
   it("uses the booking-time cancellation-policy snapshot after settings change", async () => {
@@ -1685,6 +2134,19 @@ describe("session booking lifecycle commands", () => {
         operationKey: "forged-outside-hours-request",
       }),
     ).rejects.toMatchObject({ code: "OUTSIDE_AVAILABILITY" });
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...base,
+        proposedStartsAt: new Date("2026-07-20T14:00:00.000Z"),
+        googleBusyIntervals: [
+          {
+            startsAt: new Date("2026-07-20T14:15:00.000Z"),
+            endsAt: new Date("2026-07-20T14:45:00.000Z"),
+          },
+        ],
+        operationKey: "google-busy-reschedule-request",
+      }),
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
     expect(repository.changeRequests).toEqual([]);
   });
 
@@ -1833,7 +2295,11 @@ describe("session booking lifecycle commands", () => {
     expect(result.request.replacementBookingId).toBe(result.replacementBooking?.id);
     expect(consumedUses(repository)).toBe(1);
     expect(repository.calendarJobs).toHaveLength(2);
-    expect(repository.calendarJobs.map((job) => job.payloadSnapshot.uid)).toEqual([
+    expect(
+      repository.calendarJobs.map((job) =>
+        job.payloadSnapshot.schemaVersion === 1 ? job.payloadSnapshot.uid : null,
+      ),
+    ).toEqual([
       `booking-${created.booking.allowanceUseId}@skitza.app`,
       `booking-${created.booking.allowanceUseId}@skitza.app`,
     ]);
@@ -1841,6 +2307,41 @@ describe("session booking lifecycle commands", () => {
       method: "REQUEST",
       sequence: 2,
     });
+  });
+
+  it("rechecks Google busy before approving an artist reschedule request", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const proposedStartsAt = new Date("2026-07-20T12:00:00.000Z");
+    const requested = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "reschedule",
+      proposedStartsAt,
+      operationKey: "artist-google-recheck-request",
+      now: baseNow,
+    });
+
+    await expect(
+      decideProducerSessionChangeRequest(repository, {
+        requestId: requested.request.id,
+        producerId: "producer-sk68",
+        actorClerkUserId: "producer-clerk-sk68",
+        decision: "approved",
+        operationKey: "approve-google-busy-request",
+        googleBusyIntervals: [
+          {
+            startsAt: proposedStartsAt,
+            endsAt: new Date(proposedStartsAt.getTime() + 30 * 60 * 1000),
+          },
+        ],
+        now: new Date("2026-07-19T07:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
+    expect(repository.changeRequests[0]).toMatchObject({ status: "pending" });
+    expect(repository.bookings).toHaveLength(1);
   });
 
   it("previews producer warnings and recomputes the exact acknowledgements under lock", async () => {
@@ -1898,6 +2399,48 @@ describe("session booking lifecycle commands", () => {
     expect(repository.calendarJobs).toHaveLength(2);
   });
 
+  it("lets the producer explicitly override Google busy during a direct reschedule", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const startsAt = new Date("2026-07-20T12:00:00.000Z");
+    const googleBusyIntervals = [
+      {
+        startsAt: startsAt,
+        endsAt: new Date(startsAt.getTime() + 30 * 60 * 1000),
+      },
+    ];
+    const preview = await previewProducerSessionReschedule(repository, {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      startsAt,
+      googleBusyIntervals,
+      now: baseNow,
+    });
+    expect(preview.warnings.map((warning) => warning.code)).toEqual(["GOOGLE_BUSY"]);
+
+    const command = {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt,
+      googleBusyIntervals,
+      warningAcknowledgements: [] as string[],
+      operationKey: "producer-google-busy-reschedule",
+      now: baseNow,
+    };
+    await expect(rescheduleProducerSessionBooking(repository, command)).rejects.toMatchObject({
+      code: "WARNING_ACKNOWLEDGEMENT_REQUIRED",
+    });
+    await expect(
+      rescheduleProducerSessionBooking(repository, {
+        ...command,
+        warningAcknowledgements: ["GOOGLE_BUSY"],
+      }),
+    ).resolves.toMatchObject({ created: true, booking: { startsAt } });
+  });
+
   it("rolls back an approved cancellation when its calendar outbox insert fails", async () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
@@ -1934,6 +2477,7 @@ describe("session booking lifecycle commands", () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true }),
     );
+    repository.googleConnected = true;
     repository.failNextCalendarSyncInsert = true;
 
     await expect(createSessionBooking(repository, createInput())).rejects.toThrow(
@@ -1942,5 +2486,6 @@ describe("session booking lifecycle commands", () => {
     expect(repository.bookings).toEqual([]);
     expect(repository.events).toEqual([]);
     expect(repository.calendarJobs).toEqual([]);
+    expect(repository.bookingCalendarLinks).toEqual([]);
   });
 });

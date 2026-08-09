@@ -14,6 +14,8 @@ function job(overrides: Partial<CalendarDeliveryJob> = {}): CalendarDeliveryJob 
     id: "00000000-0000-4000-8000-000000000001",
     bookingId: "00000000-0000-4000-8000-000000000002",
     producerId: "00000000-0000-4000-8000-000000000003",
+    deliveryChannel: "ics",
+    bookingCalendarLinkId: null,
     operation: "send_ics",
     desiredRevision: 3,
     idempotencyKey: "calendar:skitza-use-42:3",
@@ -78,6 +80,8 @@ describe("processCalendarSyncJobs", () => {
       jobId: "00000000-0000-4000-8000-000000000001",
       producerId: "00000000-0000-4000-8000-000000000003",
       leaseToken: "lease-42",
+      bookingCalendarLinkId: null,
+      desiredRevision: 3,
       providerMessageId: "email_calendar_42",
       completedAt: now,
     });
