@@ -13,7 +13,10 @@ import type {
   GoogleCalendarStoredOAuthState,
   GoogleCalendarWatchTarget,
 } from "./repository";
-import { GoogleCalendarServiceError, createGoogleCalendarService } from "./service";
+import {
+  GoogleCalendarServiceError,
+  createGoogleCalendarService as createGoogleCalendarServiceImpl,
+} from "./service";
 
 const PRODUCER_ID = "11111111-1111-4111-8111-111111111111";
 const ALL_SCOPES = [
@@ -34,6 +37,15 @@ const CONFIG = {
   encryption: { activeVersion: 1, keys: new Map([[1, ENCRYPTION_KEY]]) },
   calendarIdFingerprintSecret: FINGERPRINT_SECRET,
 } satisfies GoogleCalendarServerConfig;
+
+function createGoogleCalendarService(
+  input: Parameters<typeof createGoogleCalendarServiceImpl>[0],
+) {
+  return createGoogleCalendarServiceImpl({
+    now: () => new Date("2026-08-09T10:00:00.000Z"),
+    ...input,
+  });
+}
 
 function isReady(rows: readonly GoogleCalendarCandidateRecord[]): boolean {
   return (
