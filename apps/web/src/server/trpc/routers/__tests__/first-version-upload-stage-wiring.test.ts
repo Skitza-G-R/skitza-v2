@@ -12,7 +12,7 @@ describe("first-Version upload stage wiring", () => {
   });
 
   it("compensates a presigner failure only for the exact newly inserted producer intent", () => {
-    const prepare = source.slice(source.indexOf("  prepare:"), source.indexOf("\n\n  complete:"));
+    const prepare = source.slice(source.indexOf("  prepare:"), source.indexOf("\n\n  finalize:"));
 
     expect(prepare).toMatch(
       /presignFirstVersionUploadWithCompensation\(\{[\s\S]*?newlyInserted:\s*Boolean\(inserted\)[\s\S]*?ctx\.db[\s\S]*?\.delete\(firstVersionUploadIntents\)[\s\S]*?eq\(firstVersionUploadIntents\.id, intent\.id\)[\s\S]*?eq\(firstVersionUploadIntents\.producerId, ctx\.producerId\)[\s\S]*?isNull\(firstVersionUploadIntents\.completedAt\)[\s\S]*?isNull\(firstVersionUploadIntents\.canceledAt\)/,

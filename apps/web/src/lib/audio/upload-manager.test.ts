@@ -5,6 +5,7 @@ import {
   cancelManagedUpload,
   cancelManagedUploadsForAccount,
   dismissManagedUpload,
+  hasActiveManagedUploads,
   managedUploadsSnapshot,
   releaseManagedUploadsForAccount,
   retryManagedUpload,
@@ -105,6 +106,28 @@ describe("app-level upload registry", () => {
     });
     await expect(retryManagedUpload(upload.id)).resolves.toBe(true);
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps staged audio ready to save active and cancellable", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const cancel = vi.fn(() => Promise.resolve({ ok: true }));
+    const upload = beginManagedUpload({ fileName: "ready.wav", label: "New version" });
+    upload.setCancel(cancel);
+    upload.setUploading(100);
+
+    upload.setReadyToSave();
+
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "ready",
+      progress: 100,
+      canCancel: true,
+    });
+    expect(hasActiveManagedUploads(ACCOUNT_A)).toBe(true);
+    expect(dismissManagedUpload(upload.id)).toBe(false);
+
+    await expect(cancelManagedUploadsForAccount(ACCOUNT_A)).resolves.toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(managedUploadsSnapshot()).toEqual([]);
   });
 
   it("releases the retry closure after a successful upload", async () => {

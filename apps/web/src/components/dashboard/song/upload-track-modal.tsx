@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UploadCloud, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type ChangeEvent,
   type DragEvent,
@@ -19,46 +19,28 @@ import { Select } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { WORKFLOW_STAGES, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import {
-  abortMultipartAction,
-  addVersionAction,
-  cancelFirstVersionUploadAction,
-  completeFirstVersionUploadAction,
-  completeMultipartAction,
-  deleteVersionAction,
+  cancelStagedAudioUploadAction,
+  finalizeAudioUploadAction,
   getAudioStorageUsageAction,
-  initMultipartAction,
-  prepareFirstVersionUploadAction,
   reconcileAudioStorageUsageAction,
   setTrackStageAction,
-  signPartAction,
+  stageAudioUploadAction,
   type AudioStorageUsage,
 } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
 import {
-  AUDIO_MULTIPART_PART_SIZE_BYTES,
   AUDIO_STORAGE_FULL_MESSAGE,
   AUDIO_UPLOAD_MAX_BYTES,
   PRODUCER_AUDIO_STORAGE_LIMIT_BYTES,
 } from "~/lib/audio/storage-limits";
 import {
-  cancelInitializedUploadIfRequested,
   createUploadCancellationRequest,
-  markResumableProgress,
-  markVersionCleanupRequested,
-  persistResumableEntry,
-  removeResumableEntry,
-  removeVersionCleanupEntry,
-  requestExactMultipartCancellation,
   requestUploadCancellation,
-  requestVersionCleanup,
-  startMultipartCancellationRecovery,
-  type ResumableEntry,
   type UploadCancellationRequest,
   uploadCancellationRequested,
 } from "~/lib/audio/use-multipart-upload";
 import {
   beginManagedUpload,
   cancelManagedUpload,
-  requireUploadRuntimeAccountId,
   type ManagedUploadHandle,
 } from "~/lib/audio/upload-manager";
 import { uploadStageFailure, uploadTransferFailure } from "~/lib/audio/upload-stage-errors";
@@ -69,29 +51,35 @@ import {
   shouldShowLibraryUploadDestination,
 } from "./upload-destination";
 
-// One file-first surface serves all contextual entry points. New Songs use
-// a temporary intent and become durable only when Song + V1 commit together;
-// existing Songs retain the hardened multipart Version path.
+// One file-first surface serves all contextual entry points. Every supported
+// audio file first transfers into a producer-scoped temporary intent. The
+// producer's explicit final action is the only step that creates a Song or
+// Version, so transfer can overlap metadata entry without ghost records.
 
 const OFFLINE_UPLOAD_MESSAGE =
   "Reconnect to upload. This attempt has not started; your file and form details remain here.";
+const READY_TO_RETRY_UPLOAD_MESSAGE = "Connection restored. Retry the audio transfer.";
 const FILE_TOO_LARGE_MESSAGE = "Audio files can be up to 100 MB.";
 const STORAGE_WARNING_MESSAGE =
   "You're close to the 1 GB beta limit. Delete old Versions or Songs you no longer need.";
 
-type ActiveMultipartUpload = ResumableEntry & {
-  key: string;
-  uploadId: string;
-  trackVersionId: string;
-  sizeBytes: number;
-  completionToken: string;
-};
+type StagedUploadCancellationResult = { ok: true } | { ok: false; error: string };
 
-type FirstVersionCancellationResult = { ok: true } | { ok: false; error: string };
+type StagedTransferStatus = "idle" | "preparing" | "uploading" | "ready" | "error" | "cancelling";
 
-type ActiveFirstVersionCancellation = {
-  intentId: string;
-  cancel: () => Promise<FirstVersionCancellationResult>;
+type ActiveStagedUpload = {
+  token: string;
+  file: File;
+  operationKey: string;
+  intentId: string | null;
+  cancellation: UploadCancellationRequest;
+  putAbort: AbortController;
+  managed: ManagedUploadHandle;
+  duration: Promise<number | undefined>;
+  finished: Promise<void>;
+  finish: () => void;
+  abandonRequested: boolean;
+  cancel: () => Promise<StagedUploadCancellationResult>;
 };
 
 // M1 — some drag-and-drop scenarios (Finder, certain browsers) hand us
@@ -157,8 +145,10 @@ export function UploadTrackModal({
 }: UploadTrackModalProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const online = useOnlineStatus();
-  const [pending, startTransition] = useTransition();
+  const [finalizing, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Destination details stay hidden until the producer chooses a file.
@@ -181,26 +171,20 @@ export function UploadTrackModal({
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [transferStatus, setTransferStatus] = useState<StagedTransferStatus>("idle");
+  const [stagedIntentId, setStagedIntentId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<AudioStorageUsage | null>(null);
   const [storageUsageLoading, setStorageUsageLoading] = useState(false);
   const [storageUsageError, setStorageUsageError] = useState<string | null>(null);
+  const fileReplacementInFlightRef = useRef(false);
+  const closingRef = useRef(false);
 
-  // Active upload state — kept in a ref so the abort handler reads the
-  // freshest value even if the user closes mid-upload before React
-  // commits a re-render. The ref also lets us detect "in flight" for
-  // the Cancel button's destructive label.
-  const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
-  const activeFirstVersionIntentRef = useRef<string | null>(null);
-  const activeFirstVersionCancellationRef = useRef<ActiveFirstVersionCancellation | null>(null);
-  const activeCancellationRef = useRef<UploadCancellationRequest | null>(null);
-  const activePutAbortRef = useRef<AbortController | null>(null);
-  const managedUploadRef = useRef<ManagedUploadHandle | null>(null);
-  const firstVersionOperationKeyRef = useRef("");
-  const firstVersionFormSubmitRef = useRef(false);
-
-  useEffect(() => startMultipartCancellationRecovery(), []);
+  // The staged intent is the complete cancellation/retry authority for every
+  // destination. A generation token prevents a late callback from a replaced
+  // file from mutating the new file's UI state.
+  const activeStagedUploadRef = useRef<ActiveStagedUpload | null>(null);
 
   // Reset every time the modal opens. Carrying state across open/close
   // is confusing — same precedent as new-client-modal.
@@ -220,14 +204,13 @@ export function UploadTrackModal({
     setStage("no-change");
     setDescription("");
     setFile(null);
+    setTransferStatus("idle");
+    setStagedIntentId(null);
     setProgress(0);
     setUploadError(null);
     setIsDragging(false);
-    activeUploadRef.current = null;
-    if (!activeFirstVersionIntentRef.current) {
-      activeFirstVersionCancellationRef.current = null;
-      firstVersionOperationKeyRef.current = crypto.randomUUID();
-    }
+    fileReplacementInFlightRef.current = false;
+    closingRef.current = false;
   }, [open, mode, trackId, initialProjectId, defaultLabel, tracks, projects]);
 
   useEffect(() => {
@@ -260,7 +243,9 @@ export function UploadTrackModal({
 
   useEffect(() => {
     if (online) {
-      setUploadError((current) => (current === OFFLINE_UPLOAD_MESSAGE ? null : current));
+      setUploadError((current) =>
+        current === OFFLINE_UPLOAD_MESSAGE ? READY_TO_RETRY_UPLOAD_MESSAGE : current,
+      );
     }
   }, [online]);
 
@@ -293,6 +278,7 @@ export function UploadTrackModal({
   const projectedStorageBytes =
     storageUsage && file ? storageUsage.committedBytes + file.size : null;
   const storageLimitExceeded =
+    stagedIntentId === null &&
     storageUsage !== null &&
     (storageUsage.isFull ||
       (projectedStorageBytes !== null && projectedStorageBytes > storageUsage.limitBytes));
@@ -307,25 +293,23 @@ export function UploadTrackModal({
     (storageUsage.isAtOrAboveWarning ||
       (projectedStorageBytes !== null && projectedStorageBytes >= storageUsage.warningBytes));
   const submitDisabled =
-    pending ||
+    finalizing ||
     !online ||
     storageUsageLoading ||
     !storageUsage ||
     storageLimitExceeded ||
     !file ||
+    transferStatus !== "ready" ||
     (!isNewSong && label.trim().length === 0) ||
     needsSongName ||
     !selectedProjectId ||
     (mode === "new-version" && !trackId);
-
-  function clearActiveFirstVersionIntent(intentId: string): void {
-    if (activeFirstVersionIntentRef.current === intentId) {
-      activeFirstVersionIntentRef.current = null;
-    }
-    if (activeFirstVersionCancellationRef.current?.intentId === intentId) {
-      activeFirstVersionCancellationRef.current = null;
-    }
-  }
+  const filePickerDisabled = finalizing || transferStatus === "cancelling";
+  const transferVisible =
+    transferStatus === "preparing" ||
+    transferStatus === "uploading" ||
+    transferStatus === "ready" ||
+    transferStatus === "cancelling";
 
   async function refreshStorageUsageAfterQuotaRejection(): Promise<void> {
     setStorageUsageLoading(true);
@@ -363,100 +347,28 @@ export function UploadTrackModal({
     }
   }
 
-  function registerFirstVersionCancellation(
-    intentId: string,
-    managed: ManagedUploadHandle,
-  ): () => Promise<FirstVersionCancellationResult> {
-    let cancellationSucceeded = false;
-    let inFlight: Promise<FirstVersionCancellationResult> | null = null;
-    const cancel = (): Promise<FirstVersionCancellationResult> => {
-      if (cancellationSucceeded) return Promise.resolve({ ok: true });
-      if (inFlight) return inFlight;
-      const attempt = (async (): Promise<FirstVersionCancellationResult> => {
-        try {
-          const result = await cancelFirstVersionUploadAction({ intentId });
-          if (!result.ok) return { ok: false, error: result.error };
-          cancellationSucceeded = true;
-          clearActiveFirstVersionIntent(intentId);
-          return { ok: true };
-        } catch {
-          return { ok: false, error: uploadStageFailure("cancellation") };
-        }
-      })();
-      inFlight = attempt;
-      void attempt.then(() => {
-        if (!cancellationSucceeded && inFlight === attempt) inFlight = null;
-      });
-      return attempt;
-    };
-
-    activeFirstVersionCancellationRef.current = { intentId, cancel };
-    managed.setTerminalDispose(async () => {
-      const result = await cancel();
-      return { ok: result.ok };
-    });
-    return cancel;
+  function isCurrentStagedUpload(attempt: ActiveStagedUpload): boolean {
+    return activeStagedUploadRef.current?.token === attempt.token;
   }
 
-  async function cancelActiveFirstVersionIntent(): Promise<FirstVersionCancellationResult> {
-    const intentId = activeFirstVersionIntentRef.current;
-    if (!intentId) return { ok: true };
-    const registered = activeFirstVersionCancellationRef.current;
-    if (registered?.intentId === intentId) return registered.cancel();
-    try {
-      const result = await cancelFirstVersionUploadAction({ intentId });
-      if (!result.ok) return { ok: false, error: result.error };
-      clearActiveFirstVersionIntent(intentId);
-      return { ok: true };
-    } catch {
-      return { ok: false, error: uploadStageFailure("cancellation") };
+  async function retireStagedUpload(attempt: ActiveStagedUpload): Promise<boolean> {
+    if (isCurrentStagedUpload(attempt)) setTransferStatus("cancelling");
+    const result = await attempt.cancel();
+    if (!result.ok) {
+      if (isCurrentStagedUpload(attempt)) {
+        setTransferStatus("error");
+        setUploadError(result.error);
+      }
+      return false;
     }
-  }
-
-  async function retireActiveFirstVersionAttempt(): Promise<boolean> {
-    const previousIntentId = activeFirstVersionIntentRef.current;
-    if (!previousIntentId) return true;
-    const canceled = await cancelActiveFirstVersionIntent();
-    if (!canceled.ok || activeFirstVersionIntentRef.current === previousIntentId) return false;
-    firstVersionOperationKeyRef.current = crypto.randomUUID();
+    if (isCurrentStagedUpload(attempt)) {
+      activeStagedUploadRef.current = null;
+      setStagedIntentId(null);
+    }
+    attempt.managed.dismiss();
     return true;
   }
 
-  // ─── File handlers ─────────────────────────────────────────────────
-  const handleFilePick = async (f: File | null) => {
-    if (pending) return;
-    if (f && !isAudioFile(f)) {
-      toast("Please pick an audio file (WAV / MP3).", "error");
-      return;
-    }
-    if (f && f.size > AUDIO_UPLOAD_MAX_BYTES) {
-      setFile(null);
-      setUploadError(FILE_TOO_LARGE_MESSAGE);
-      toast(FILE_TOO_LARGE_MESSAGE, "error");
-      return;
-    }
-    if (!(await retireActiveFirstVersionAttempt())) return;
-    if (!f) {
-      setFile(null);
-      return;
-    }
-    setUploadError(null);
-    setFile(f);
-  };
-
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] ?? null;
-    void handleFilePick(f);
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const f = e.dataTransfer.files[0] ?? null;
-    void handleFilePick(f);
-  };
-
-  // ─── Submit / orchestration ────────────────────────────────────────
   function blockOfflineUpload(): boolean {
     const currentlyOnline = typeof navigator === "undefined" ? online : navigator.onLine;
     if (currentlyOnline) return false;
@@ -464,468 +376,363 @@ export function UploadTrackModal({
     return true;
   }
 
-  const handleClose = () => {
-    const cancellation = activeCancellationRef.current;
-    if (cancellation) requestUploadCancellation(cancellation);
-    activePutAbortRef.current?.abort();
-    const managed = managedUploadRef.current;
-    if (managed) {
-      void cancelManagedUpload(managed.id);
-    } else if (activeFirstVersionIntentRef.current) {
-      void cancelActiveFirstVersionIntent();
+  async function startStagedAudioTransfer(stagedFile: File): Promise<void> {
+    if (blockOfflineUpload()) {
+      setTransferStatus("error");
+      return;
     }
-    // Publish and reconcile an exact cancellation. Keep the identity in
-    // the ref until that finishes so any upload failure can safely await
-    // the same idempotent cancellation before deleting its placeholder.
-    const active = activeUploadRef.current;
-    if (active) {
-      const versionCleanup = markVersionCleanupRequested(
-        active.trackVersionId,
-        new Date(),
-        active.accountId,
-      );
-      void requestExactMultipartCancellation(active, abortMultipartAction).then(async (result) => {
-        if (result.ok) {
-          if (activeUploadRef.current === active) activeUploadRef.current = null;
-          await requestVersionCleanup(versionCleanup, deleteVersionAction);
+
+    const cancellation = createUploadCancellationRequest();
+    const putAbort = new AbortController();
+    const managed = beginManagedUpload({
+      fileName: stagedFile.name,
+      label:
+        mode === "library"
+          ? "Upload audio"
+          : mode === "new-version"
+            ? "Upload new Version"
+            : "Add Song",
+      terminalFeedback: "toast",
+    });
+    let finishOperation: () => void = () => {};
+    const operationFinished = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    let cancellationSucceeded = false;
+    let cancellationInFlight: Promise<StagedUploadCancellationResult> | null = null;
+    const attempt: ActiveStagedUpload = {
+      token: crypto.randomUUID(),
+      file: stagedFile,
+      operationKey: crypto.randomUUID(),
+      intentId: null,
+      cancellation,
+      putAbort,
+      managed,
+      duration: getDurationMs(stagedFile).catch(() => undefined),
+      finished: operationFinished,
+      finish: finishOperation,
+      abandonRequested: false,
+      cancel: () => Promise.resolve({ ok: true }),
+    };
+    const cancelExactIntent = (): Promise<StagedUploadCancellationResult> => {
+      if (cancellationSucceeded || !attempt.intentId) return Promise.resolve({ ok: true });
+      if (cancellationInFlight) return cancellationInFlight;
+      const intentId = attempt.intentId;
+      const request = (async (): Promise<StagedUploadCancellationResult> => {
+        try {
+          const result = await cancelStagedAudioUploadAction({ intentId });
+          if (!result.ok) return { ok: false, error: result.error };
+          cancellationSucceeded = true;
+          return { ok: true };
+        } catch {
+          return { ok: false, error: uploadStageFailure("cancellation") };
         }
+      })();
+      cancellationInFlight = request;
+      void request.then(() => {
+        if (!cancellationSucceeded && cancellationInFlight === request) {
+          cancellationInFlight = null;
+        }
+      });
+      return request;
+    };
+    attempt.cancel = async () => {
+      requestUploadCancellation(cancellation);
+      putAbort.abort();
+      await attempt.finished;
+      return cancelExactIntent();
+    };
+    activeStagedUploadRef.current = attempt;
+    setStagedIntentId(null);
+    managed.setCancel(async () => {
+      const result = await attempt.cancel();
+      if (result.ok && isCurrentStagedUpload(attempt)) {
+        activeStagedUploadRef.current = null;
+        setStagedIntentId(null);
+        setFile(null);
+        setProgress(0);
+        setTransferStatus("idle");
+      }
+      return { ok: result.ok };
+    });
+    managed.setTerminalDispose(async () => {
+      const result = await attempt.cancel();
+      if (result.ok && isCurrentStagedUpload(attempt)) {
+        activeStagedUploadRef.current = null;
+        setStagedIntentId(null);
+        setFile(null);
+        setProgress(0);
+        setTransferStatus("idle");
+      }
+      return { ok: result.ok };
+    });
+    managed.setRetry(async () => {
+      if (blockOfflineUpload()) throw new Error(OFFLINE_UPLOAD_MESSAGE);
+      if (attempt.abandonRequested) {
+        const canceled = await attempt.cancel();
+        if (!canceled.ok) throw new Error(canceled.error);
+        if (isCurrentStagedUpload(attempt)) {
+          activeStagedUploadRef.current = null;
+          setStagedIntentId(null);
+        }
+        attempt.managed.dismiss();
+        return;
+      }
+      if (!(await retireStagedUpload(attempt))) {
+        throw new Error(uploadStageFailure("cancellation"));
+      }
+      setTransferStatus("idle");
+      setUploadError(null);
+      await startStagedAudioTransfer(stagedFile);
+    });
+
+    setTransferStatus("preparing");
+    setProgress(0);
+    setUploadError(null);
+    managed.setPreparing();
+    try {
+      const prepared = await stageAudioUploadAction({
+        operationKey: attempt.operationKey,
+        filename: stagedFile.name,
+        sizeBytes: stagedFile.size,
+        contentType: audioContentType(stagedFile),
+      });
+      if (!prepared.ok) throw new Error(prepared.error);
+      if (prepared.data.status === "completed") {
+        activeStagedUploadRef.current = null;
+        finishSuccessfulUpload(managed, prepared.data.versionId);
+        return;
+      }
+
+      attempt.intentId = prepared.data.intentId;
+      if (isCurrentStagedUpload(attempt)) setStagedIntentId(prepared.data.intentId);
+      if (uploadCancellationRequested(cancellation)) {
+        const canceled = await cancelExactIntent();
+        if (!canceled.ok) throw new Error(canceled.error);
+        throw new Error("Upload stopped.");
+      }
+
+      if (isCurrentStagedUpload(attempt)) {
+        setTransferStatus("uploading");
+        setProgress(8);
+      }
+      managed.setUploading(8);
+      let putResponse: Response;
+      try {
+        putResponse = await fetch(prepared.data.uploadUrl, {
+          method: "PUT",
+          body: stagedFile,
+          headers: prepared.data.headers,
+          signal: putAbort.signal,
+        });
+      } catch {
+        if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
+        throw new Error(uploadTransferFailure());
+      }
+      // Write-once retries may observe the exact prior PUT. Finalization is
+      // still the authoritative token/size/type verification step.
+      if (!putResponse.ok && putResponse.status !== 409 && putResponse.status !== 412) {
+        throw new Error(uploadTransferFailure({ status: putResponse.status }));
+      }
+      if (uploadCancellationRequested(cancellation)) {
+        const canceled = await cancelExactIntent();
+        if (!canceled.ok) throw new Error(canceled.error);
+        throw new Error("Upload stopped.");
+      }
+      if (isCurrentStagedUpload(attempt)) {
+        setProgress(100);
+        setTransferStatus("ready");
+      }
+      managed.setReadyToSave();
+    } catch (error) {
+      let message = error instanceof Error ? error.message : uploadStageFailure("initiation");
+      if (uploadCancellationRequested(cancellation)) {
+        const canceled = await cancelExactIntent();
+        if (!canceled.ok) message = canceled.error;
+      }
+      if (isCurrentStagedUpload(attempt)) {
+        setProgress(0);
+        setTransferStatus("error");
+        setUploadError(message);
+      }
+      if (message.includes(AUDIO_STORAGE_FULL_MESSAGE)) {
+        managed.dismiss();
+        if (isCurrentStagedUpload(attempt)) {
+          activeStagedUploadRef.current = null;
+          setStagedIntentId(null);
+        }
+        await refreshStorageUsageAfterQuotaRejection();
+      } else if (message !== "Upload stopped.") {
+        managed.fail(message);
+      }
+    } finally {
+      attempt.finish();
+    }
+  }
+
+  // ─── File handlers ─────────────────────────────────────────────────
+  const handleFilePick = async (nextFile: File | null) => {
+    if (finalizing || fileReplacementInFlightRef.current) return;
+    if (nextFile && !isAudioFile(nextFile)) {
+      toast("Please choose a supported audio file.", "error");
+      return;
+    }
+    if (nextFile && nextFile.size > AUDIO_UPLOAD_MAX_BYTES) {
+      setUploadError(FILE_TOO_LARGE_MESSAGE);
+      toast(FILE_TOO_LARGE_MESSAGE, "error");
+      return;
+    }
+
+    fileReplacementInFlightRef.current = true;
+    try {
+      const previous = activeStagedUploadRef.current;
+      if (previous && !(await retireStagedUpload(previous))) return;
+
+      setUploadError(null);
+      setProgress(0);
+      setFile(nextFile);
+      if (!nextFile) {
+        setTransferStatus("idle");
+        return;
+      }
+      void startStagedAudioTransfer(nextFile);
+    } finally {
+      fileReplacementInFlightRef.current = false;
+    }
+  };
+
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    void handleFilePick(nextFile);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    const nextFile = event.dataTransfer.files[0] ?? null;
+    void handleFilePick(nextFile);
+  };
+
+  async function retryStagedTransfer(): Promise<void> {
+    const attempt = activeStagedUploadRef.current;
+    if (finalizing || blockOfflineUpload()) return;
+    if (!attempt) {
+      if (file) await startStagedAudioTransfer(file);
+      return;
+    }
+    const retryFile = attempt.file;
+    if (!(await retireStagedUpload(attempt))) return;
+    setTransferStatus("idle");
+    setUploadError(null);
+    await startStagedAudioTransfer(retryFile);
+  }
+
+  const handleClose = () => {
+    if (finalizing || closingRef.current) return;
+    closingRef.current = true;
+    const active = activeStagedUploadRef.current;
+    if (active) {
+      active.abandonRequested = true;
+      requestUploadCancellation(active.cancellation);
+      active.putAbort.abort();
+      void cancelManagedUpload(active.managed.id).then(async (managedCanceled) => {
+        if (managedCanceled) return;
+        const result = await active.cancel();
+        if (result.ok) active.managed.dismiss();
       });
     }
     onClose();
   };
 
-  const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (blockOfflineUpload()) return;
-    if (submitDisabled) return;
-    // submitDisabled already guarantees `file !== null` (one of its
-    // disqualifying predicates), so TS has narrowed file to File here.
-    // We re-bind via const so the async closure below keeps the
-    // narrowed type even after React re-renders.
-    const submittedFile = file;
-    if (isNewSong && (firstVersionFormSubmitRef.current || managedUploadRef.current)) return;
-    if (!isNewSong) {
-      startUpload(submittedFile);
-      return;
-    }
-    firstVersionFormSubmitRef.current = true;
-    void (async () => {
-      try {
-        if (!(await retireActiveFirstVersionAttempt())) return;
-        startUpload(submittedFile);
-      } finally {
-        firstVersionFormSubmitRef.current = false;
-      }
-    })();
-  };
+  function versionHref(versionId: string): string {
+    const requestedOrigin = searchParams.get("from");
+    const projectOrigin = pathname.startsWith("/dashboard/clients-projects/")
+      ? selectedProjectId
+      : requestedOrigin;
+    const base = `/dashboard/music/${encodeURIComponent(versionId)}`;
+    return projectOrigin ? `${base}?from=${encodeURIComponent(projectOrigin)}` : base;
+  }
 
-  function finishSuccessfulUpload(managed: ManagedUploadHandle) {
+  function finishSuccessfulUpload(managed: ManagedUploadHandle, versionId: string) {
     managed.succeed();
     toast("Upload complete", "success");
     onCreated?.();
     router.refresh();
+    // Some callers canonicalize their modal-close route. Close first, then
+    // make the exact Version replacement last so it cannot be overwritten.
+    closingRef.current = true;
     onClose();
+    router.replace(versionHref(versionId));
   }
 
-  function startFirstVersionUpload(submittedFile: File) {
-    if (blockOfflineUpload()) return;
+  const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (blockOfflineUpload() || submitDisabled) return;
+    const attempt = activeStagedUploadRef.current;
+    if (!attempt?.intentId) return;
+
+    const submittedIntentId = attempt.intentId;
+    const submittedProjectId = selectedProjectId;
+    const submittedTrackId = selectedTrackId;
+    const submittedTitle = newSongName.trim();
+    const submittedLabel = isNewSong ? "V1" : label.trim();
+    const submittedDescription = description.trim();
+    const submittedStage = stage;
+    const acknowledgesPublicExposure = selectedPublicExposure !== "none";
+    attempt.managed.setCompleting();
     setUploadError(null);
-    const cancellation = createUploadCancellationRequest();
-    activeCancellationRef.current = cancellation;
-    const putAbort = new AbortController();
-    activePutAbortRef.current = putAbort;
-    const managed = beginManagedUpload({
-      fileName: submittedFile.name,
-      label: mode === "library" ? "Upload audio" : "Add Song",
-      terminalFeedback: "toast",
-    });
-    managedUploadRef.current = managed;
-    let finishOperation: () => void = () => {};
-    const operationFinished = new Promise<void>((resolve) => {
-      finishOperation = resolve;
-    });
-    managed.setCancel(async () => {
-      requestUploadCancellation(cancellation);
-      putAbort.abort();
-      await operationFinished;
-      return { ok: activeFirstVersionIntentRef.current === null };
-    });
-    managed.setRetry(() => {
-      if (blockOfflineUpload()) return Promise.reject(new Error(OFFLINE_UPLOAD_MESSAGE));
-      managed.dismiss();
-      startFirstVersionUpload(submittedFile);
-      return Promise.resolve();
-    });
 
     startTransition(async () => {
-      setProgress(0);
-      managed.setPreparing();
-      let cancelPreparedIntent: (() => Promise<FirstVersionCancellationResult>) | null = null;
-      const cancellationState: { attempted: boolean; failure: string | null } = {
-        attempted: false,
-        failure: null,
-      };
       try {
-        let durationMs: number | undefined;
-        try {
-          durationMs = await getDurationMs(submittedFile);
-        } catch {
-          // Duration is decorative; the upload remains valid without it.
-        }
-        const trimmedDescription = description.trim();
-        const prepared = await prepareFirstVersionUploadAction({
-          operationKey: firstVersionOperationKeyRef.current,
-          projectId: selectedProjectId,
-          title: newSongName.trim(),
-          label: "V1",
-          ...(trimmedDescription ? { description: trimmedDescription } : {}),
-          filename: submittedFile.name,
-          sizeBytes: submittedFile.size,
-          contentType: audioContentType(submittedFile),
+        const durationMs = await attempt.duration;
+        const result = await finalizeAudioUploadAction({
+          intentId: submittedIntentId,
+          destination: isNewSong
+            ? {
+                kind: "new-song",
+                projectId: submittedProjectId,
+                title: submittedTitle,
+              }
+            : {
+                kind: "new-version",
+                projectId: submittedProjectId,
+                trackId: submittedTrackId,
+              },
+          label: submittedLabel,
+          ...(submittedDescription ? { description: submittedDescription } : {}),
           ...(durationMs ? { durationMs } : {}),
+          acknowledgePublicExposure: acknowledgesPublicExposure,
         });
-        if (!prepared.ok) throw new Error(prepared.error);
-        if (prepared.data.status === "completed") {
-          clearActiveFirstVersionIntent(prepared.data.intentId);
-          finishSuccessfulUpload(managed);
-          return;
-        }
+        if (!result.ok) throw new Error(result.error);
 
-        const intentId = prepared.data.intentId;
-        activeFirstVersionIntentRef.current = intentId;
-        const cancelExactIntent = registerFirstVersionCancellation(intentId, managed);
-        cancelPreparedIntent = async () => {
-          cancellationState.attempted = true;
-          const result = await cancelExactIntent();
-          if (!result.ok) cancellationState.failure = result.error;
-          return result;
-        };
-        if (uploadCancellationRequested(cancellation)) {
-          const canceled = await cancelPreparedIntent();
-          if (!canceled.ok) throw new Error(canceled.error);
-          throw new Error("Upload stopped.");
-        }
-
-        setProgress(8);
-        managed.setUploading(8);
-        let putResponse: Response;
-        try {
-          putResponse = await fetch(prepared.data.uploadUrl, {
-            method: "PUT",
-            body: submittedFile,
-            headers: prepared.data.headers,
-            signal: putAbort.signal,
-          });
-        } catch {
-          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-          throw new Error(uploadTransferFailure());
-        }
-        // A write-once retry can race or find the exact prior PUT already at
-        // the key. Completion is the authoritative token/size/type check, so
-        // conditional 409/412 responses continue there instead of re-uploading.
-        if (!putResponse.ok && putResponse.status !== 409 && putResponse.status !== 412) {
-          throw new Error(uploadTransferFailure({ status: putResponse.status }));
-        }
-        if (uploadCancellationRequested(cancellation)) {
-          const canceled = await cancelPreparedIntent();
-          if (!canceled.ok) throw new Error(canceled.error);
-          throw new Error("Upload stopped.");
-        }
-        setProgress(90);
-        managed.setUploading(90);
-        managed.setCompleting();
-        const completed = await completeFirstVersionUploadAction({ intentId });
-        if (!completed.ok) throw new Error(completed.error);
-        clearActiveFirstVersionIntent(intentId);
-        if (stage !== "no-change") {
+        if (submittedStage !== "no-change") {
           const stageResult = await setTrackStageAction({
-            trackId: completed.data.trackId,
-            workflowStage: stage,
+            trackId: result.data.trackId,
+            workflowStage: submittedStage,
           });
           if (!stageResult.ok) {
             toast(`Uploaded — but stage didn't update: ${stageResult.error}`, "error");
           }
         }
-        setProgress(100);
-        finishSuccessfulUpload(managed);
+        if (isCurrentStagedUpload(attempt)) {
+          activeStagedUploadRef.current = null;
+          setStagedIntentId(null);
+        }
+        finishSuccessfulUpload(attempt.managed, result.data.versionId);
       } catch (error) {
-        const intentId = activeFirstVersionIntentRef.current;
-        if (intentId && uploadCancellationRequested(cancellation) && !cancellationState.attempted) {
-          cancellationState.attempted = true;
-          const canceled = cancelPreparedIntent
-            ? await cancelPreparedIntent()
-            : await cancelActiveFirstVersionIntent();
-          if (!canceled.ok) cancellationState.failure = canceled.error;
-        }
-        const message =
-          cancellationState.failure ??
-          (error instanceof Error ? error.message : uploadStageFailure("initiation"));
-        setProgress(0);
-        if (message.includes(AUDIO_STORAGE_FULL_MESSAGE)) {
-          setUploadError(AUDIO_STORAGE_FULL_MESSAGE);
-          managed.dismiss();
-          await refreshStorageUsageAfterQuotaRejection();
-        } else {
-          managed.fail(message);
-        }
-      } finally {
-        finishOperation();
-        if (activeCancellationRef.current === cancellation) activeCancellationRef.current = null;
-        if (activePutAbortRef.current === putAbort) activePutAbortRef.current = null;
-        if (managedUploadRef.current === managed) managedUploadRef.current = null;
+        const message = error instanceof Error ? error.message : uploadStageFailure("completion");
+        setUploadError(message);
+        setTransferStatus("ready");
+        attempt.managed.setCancel(async () => {
+          const result = await attempt.cancel();
+          return { ok: result.ok };
+        });
+        attempt.managed.setReadyToSave();
+        toast(message, "error");
       }
     });
-  }
-
-  function startUpload(submittedFile: File) {
-    if (isNewSong) {
-      startFirstVersionUpload(submittedFile);
-      return;
-    }
-    if (blockOfflineUpload()) return;
-    setUploadError(null);
-    const uploadAccountId = requireUploadRuntimeAccountId();
-    const cancellation = createUploadCancellationRequest();
-    activeCancellationRef.current = cancellation;
-    const putAbort = new AbortController();
-    activePutAbortRef.current = putAbort;
-    const managed = beginManagedUpload({
-      fileName: submittedFile.name,
-      label: mode === "new-version" ? "Upload new version" : "Add song",
-      terminalFeedback: "toast",
-    });
-    managedUploadRef.current = managed;
-    let finishOperation: () => void = () => {};
-    const operationFinished = new Promise<void>((resolve) => {
-      finishOperation = resolve;
-    });
-    managed.setCancel(async () => {
-      requestUploadCancellation(cancellation);
-      putAbort.abort();
-      await operationFinished;
-      return { ok: activeUploadRef.current === null };
-    });
-    managed.setRetry(() => {
-      if (blockOfflineUpload()) {
-        return Promise.reject(new Error(OFFLINE_UPLOAD_MESSAGE));
-      }
-      managed.dismiss();
-      startUpload(submittedFile);
-      return Promise.resolve();
-    });
-
-    startTransition(async () => {
-      setProgress(0);
-      managed.setPreparing();
-      // Track the version row id outside the try so a catch can clean up
-      // the orphan when any later step (R2 init, chunk PUT, finalise)
-      // fails. I1 — without this, a failed upload left a permanent
-      // audioUrl=null row in the DB even after R2 multipart was aborted.
-      let createdVersionId: string | null = null;
-      let versionCleanup: ReturnType<typeof markVersionCleanupRequested> | null = null;
-      try {
-        const resolvedTrackId = selectedTrackId;
-
-        // 2. Create the track_versions row with audioUrl=null. The R2
-        //    completion step patches this same row once parts upload.
-        //    description is forwarded only when non-empty so the column
-        //    stays NULL for blank textareas rather than storing "".
-        const trimmedDescription = description.trim();
-        const vres = await addVersionAction({
-          trackId: resolvedTrackId,
-          label: label.trim(),
-          audioUrl: null,
-          ...(trimmedDescription.length > 0 ? { description: trimmedDescription } : {}),
-        });
-        if (!vres.ok) throw new Error(vres.error);
-        const versionId = vres.data.id;
-        createdVersionId = versionId;
-        versionCleanup = markVersionCleanupRequested(versionId, new Date(), uploadAccountId);
-        if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-
-        // 3. Init multipart upload on R2.
-        const ires = await initMultipartAction({
-          trackVersionId: versionId,
-          filename: submittedFile.name,
-          sizeBytes: submittedFile.size,
-          contentType: submittedFile.type || "audio/mpeg",
-        });
-        if (!ires.ok) throw new Error(ires.error);
-        const { uploadId, key, completionToken } = ires.data;
-        const parts: { partNumber: number; eTag: string }[] = [];
-        const recoveryStartedAt = new Date().toISOString();
-        const recoveryEntry: ActiveMultipartUpload = {
-          accountId: uploadAccountId,
-          key,
-          uploadId,
-          trackVersionId: versionId,
-          sizeBytes: submittedFile.size,
-          totalBytes: submittedFile.size,
-          completionToken,
-          completed: parts,
-          createdAt: recoveryStartedAt,
-          lastProgressAt: recoveryStartedAt,
-        };
-        activeUploadRef.current = recoveryEntry;
-        persistResumableEntry(recoveryEntry);
-        managed.setUploading(0);
-        const initializedCancellation = await cancelInitializedUploadIfRequested(
-          cancellation,
-          recoveryEntry,
-          abortMultipartAction,
-        );
-        if (initializedCancellation) {
-          if (initializedCancellation.ok && activeUploadRef.current === recoveryEntry) {
-            activeUploadRef.current = null;
-          }
-          if (!initializedCancellation.ok) {
-            throw new Error(uploadStageFailure("cancellation"));
-          }
-          throw new Error("Upload stopped.");
-        }
-
-        // 4. Slice + sign + PUT each chunk in series. We stay serial
-        //    rather than parallel so the progress bar tracks honestly
-        //    and a network blip aborts cleanly without orphaning N
-        //    parallel signed URLs.
-        const partCount = Math.max(
-          1,
-          Math.ceil(submittedFile.size / AUDIO_MULTIPART_PART_SIZE_BYTES),
-        );
-        for (let i = 0; i < partCount; i++) {
-          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-          const partNumber = i + 1;
-          const start = i * AUDIO_MULTIPART_PART_SIZE_BYTES;
-          const end = Math.min(start + AUDIO_MULTIPART_PART_SIZE_BYTES, submittedFile.size);
-          const chunk = submittedFile.slice(start, end);
-
-          const sres = await signPartAction({
-            key,
-            uploadId,
-            partNumber,
-            trackVersionId: versionId,
-          });
-          if (!sres.ok) throw new Error(sres.error);
-          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-
-          let putRes: Response;
-          try {
-            putRes = await fetch(sres.data.url, {
-              method: "PUT",
-              body: chunk,
-              signal: putAbort.signal,
-            });
-          } catch {
-            if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-            throw new Error(uploadTransferFailure({ partNumber }));
-          }
-          if (!putRes.ok) {
-            throw new Error(uploadTransferFailure({ partNumber, status: putRes.status }));
-          }
-          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-          const eTag = (putRes.headers.get("ETag") ?? "").replaceAll('"', "");
-          parts.push({ partNumber, eTag });
-          markResumableProgress(recoveryEntry);
-          const nextProgress = Math.round((parts.length / partCount) * 100);
-          setProgress(nextProgress);
-          managed.setUploading(nextProgress);
-        }
-
-        // 5. Best-effort duration probe via <audio> metadata. We never
-        //    block the upload on this — duration is decorative, not
-        //    load-bearing.
-        let durationMs: number | undefined;
-        try {
-          durationMs = await getDurationMs(submittedFile);
-        } catch {
-          // Skip — completeMultipart accepts undefined durationMs.
-        }
-        if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
-
-        // 6. Finalise the multipart on R2 + patch the trackVersion row.
-        managed.setCompleting();
-        const cres = await completeMultipartAction({
-          key,
-          uploadId,
-          parts,
-          trackVersionId: versionId,
-          sizeBytes: submittedFile.size,
-          completionToken,
-          acknowledgePublicExposure: selectedPublicExposure !== "none",
-          ...(durationMs ? { durationMs } : {}),
-        });
-        if (!cres.ok) throw new Error(cres.error);
-        removeResumableEntry(uploadId, uploadAccountId);
-        removeVersionCleanupEntry(versionId, uploadAccountId);
-        activeUploadRef.current = null;
-        managed.succeed();
-
-        // 7. Optional stage advance. We treat a stage failure as a soft
-        //    error — the upload itself succeeded, we just couldn't
-        //    bump the workflow. Surface a friendly toast.
-        if (stage !== "no-change") {
-          const stres = await setTrackStageAction({
-            trackId: resolvedTrackId,
-            workflowStage: stage,
-          });
-          if (!stres.ok) {
-            toast(`Uploaded — but stage didn't update: ${stres.error}`, "error");
-          }
-        }
-
-        // Clear the orphan-cleanup handle — the row is now legitimate.
-        createdVersionId = null;
-        finishSuccessfulUpload(managed);
-      } catch (err) {
-        // A pending multipart identity must be durably cancelled and
-        // reconciled before its placeholder can be deleted. If cancel
-        // fails, leave both the row and identity available for retry.
-        if (versionCleanup === null && createdVersionId) {
-          versionCleanup = markVersionCleanupRequested(
-            createdVersionId,
-            new Date(),
-            uploadAccountId,
-          );
-        }
-        const active = activeUploadRef.current;
-        let cancellationFinished = active === null;
-        let cancellationFailure: string | null = null;
-        if (active) {
-          const aborted = await requestExactMultipartCancellation(active, abortMultipartAction);
-          cancellationFinished = aborted.ok;
-          if (aborted.ok && activeUploadRef.current === active) {
-            activeUploadRef.current = null;
-          }
-          if (!aborted.ok) cancellationFailure = uploadStageFailure("cancellation");
-        }
-        if (versionCleanup && cancellationFinished) {
-          await requestVersionCleanup(versionCleanup, deleteVersionAction);
-        }
-        const msg =
-          cancellationFailure ??
-          (err instanceof Error ? err.message : uploadStageFailure("initiation"));
-        setProgress(0);
-        if (msg.includes(AUDIO_STORAGE_FULL_MESSAGE)) {
-          setUploadError(AUDIO_STORAGE_FULL_MESSAGE);
-          managed.dismiss();
-          await refreshStorageUsageAfterQuotaRejection();
-        } else {
-          managed.fail(msg);
-        }
-      } finally {
-        finishOperation();
-        if (activeCancellationRef.current === cancellation) {
-          activeCancellationRef.current = null;
-        }
-        if (activePutAbortRef.current === putAbort) {
-          activePutAbortRef.current = null;
-        }
-        if (managedUploadRef.current === managed) {
-          managedUploadRef.current = null;
-        }
-      }
-    });
-  }
+  };
 
   // Display label for the locked song picker (new-version mode).
   const lockedSongTitle = useMemo(() => {
@@ -971,9 +778,9 @@ export function UploadTrackModal({
               aria-label="Close"
               onPointerDown={(event) => {
                 event.preventDefault();
-                handleClose();
               }}
               onClick={handleClose}
+              disabled={finalizing}
               className="-mt-2 -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
             >
               <X size={16} strokeWidth={2.2} />
@@ -1023,26 +830,32 @@ export function UploadTrackModal({
                   </FieldLabel>
                   <div
                     role="button"
-                    aria-disabled={pending}
-                    tabIndex={pending ? -1 : 0}
+                    aria-disabled={filePickerDisabled}
+                    tabIndex={filePickerDisabled ? -1 : 0}
                     onClick={() => {
-                      if (!pending) fileInputRef.current?.click();
+                      if (!filePickerDisabled) fileInputRef.current?.click();
                     }}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
+                      if (!filePickerDisabled && (event.key === "Enter" || event.key === " ")) {
                         event.preventDefault();
                         fileInputRef.current?.click();
                       }
                     }}
                     onDragOver={(event) => {
                       event.preventDefault();
-                      setIsDragging(true);
+                      if (!filePickerDisabled) setIsDragging(true);
                     }}
                     onDragLeave={() => {
                       setIsDragging(false);
                     }}
-                    onDrop={handleDrop}
-                    className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-5 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
+                    onDrop={(event) => {
+                      if (filePickerDisabled) {
+                        event.preventDefault();
+                        return;
+                      }
+                      handleDrop(event);
+                    }}
+                    className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-5 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
                     style={{
                       borderColor: isDragging
                         ? "rgb(var(--brand-primary))"
@@ -1070,7 +883,7 @@ export function UploadTrackModal({
                     ) : (
                       <div>
                         <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                          Drop WAV / MP3 here
+                          Drop an audio file here
                         </p>
                         <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
                           or click to browse
@@ -1083,7 +896,7 @@ export function UploadTrackModal({
                     id="upload-track-file"
                     type="file"
                     accept="audio/*,.mp3,.m4a,.wav,.flac,.aif,.aiff"
-                    disabled={pending}
+                    disabled={filePickerDisabled}
                     onChange={handleFileInputChange}
                     className="sr-only"
                   />
@@ -1120,7 +933,7 @@ export function UploadTrackModal({
                               id="upload-track-project"
                               aria-label="Project"
                               value={selectedProjectId}
-                              disabled={pending}
+                              disabled={finalizing}
                               onChange={(event) => {
                                 const nextProjectId = event.target.value;
                                 const nextProject = projects.find(
@@ -1149,7 +962,7 @@ export function UploadTrackModal({
                             <Select
                               id="upload-track-song"
                               value={selectedTrackId}
-                              disabled={pending}
+                              disabled={finalizing}
                               onChange={(event) => {
                                 setSelectedTrackId(event.target.value);
                                 setLabelTouched(false);
@@ -1192,7 +1005,7 @@ export function UploadTrackModal({
                           required
                           autoFocus
                           value={newSongName}
-                          disabled={pending}
+                          disabled={finalizing}
                           maxLength={120}
                           onChange={(event) => {
                             setNewSongName(event.target.value);
@@ -1231,6 +1044,7 @@ export function UploadTrackModal({
                           type="text"
                           required
                           value={label}
+                          disabled={finalizing}
                           maxLength={40}
                           onChange={(e) => {
                             setLabel(e.target.value);
@@ -1253,6 +1067,7 @@ export function UploadTrackModal({
                           <select
                             id="upload-track-stage"
                             value={stage}
+                            disabled={finalizing}
                             onChange={(e) => {
                               setStage(e.target.value as "no-change" | WorkflowStage);
                             }}
@@ -1274,6 +1089,7 @@ export function UploadTrackModal({
                           <textarea
                             id="upload-track-description"
                             value={description}
+                            disabled={finalizing}
                             rows={2}
                             maxLength={500}
                             onChange={(e) => {
@@ -1290,8 +1106,8 @@ export function UploadTrackModal({
                 ) : null}
 
                 {/* ─── Progress bar ───────────────────────────────── */}
-                {pending ? (
-                  <div>
+                {transferVisible ? (
+                  <div aria-live="polite">
                     <div
                       className="h-1.5 w-full overflow-hidden rounded-full"
                       style={{ background: "rgb(17_16_9/0.08)" }}
@@ -1299,6 +1115,13 @@ export function UploadTrackModal({
                       aria-valuemin={0}
                       aria-valuemax={100}
                       aria-valuenow={progress}
+                      aria-valuetext={
+                        transferStatus === "ready"
+                          ? "Audio ready to save"
+                          : transferStatus === "cancelling"
+                            ? "Stopping audio transfer"
+                            : `Uploading audio, ${String(progress)} percent`
+                      }
                     >
                       <div
                         className="h-full transition-[width]"
@@ -1309,7 +1132,13 @@ export function UploadTrackModal({
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]">
-                      Uploading… {progress}%
+                      {transferStatus === "ready"
+                        ? "Audio ready — finish the details, then save."
+                        : transferStatus === "cancelling"
+                          ? "Stopping audio transfer…"
+                          : transferStatus === "preparing"
+                            ? "Preparing secure audio transfer…"
+                            : `Uploading audio… ${String(progress)}%`}
                     </p>
                   </div>
                 ) : null}
@@ -1362,13 +1191,25 @@ export function UploadTrackModal({
                 ) : null}
 
                 {visibleUploadError ? (
-                  <p
-                    id="upload-track-error"
-                    role="alert"
-                    className="text-sm text-[rgb(var(--fg-danger))]"
-                  >
-                    {visibleUploadError}
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p
+                      id="upload-track-error"
+                      role="alert"
+                      className="text-sm text-[rgb(var(--fg-danger))]"
+                    >
+                      {visibleUploadError}
+                    </p>
+                    {file && transferStatus === "error" && !storageLimitExceeded ? (
+                      <button
+                        type="button"
+                        onClick={() => void retryStagedTransfer()}
+                        disabled={!online || finalizing}
+                        className="sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 py-2 text-xs font-semibold text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
+                      >
+                        Retry transfer
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -1378,9 +1219,14 @@ export function UploadTrackModal({
               <button
                 type="button"
                 onClick={handleClose}
+                disabled={finalizing}
                 className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:min-h-0"
               >
-                {pending ? "Stop uploading" : "Cancel"}
+                {finalizing
+                  ? "Saving…"
+                  : transferStatus === "preparing" || transferStatus === "uploading"
+                    ? "Stop upload"
+                    : "Cancel"}
               </button>
               <button
                 type="submit"
@@ -1395,7 +1241,19 @@ export function UploadTrackModal({
                 className="sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none sm:min-h-0"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
-                {pending ? "Uploading…" : !online ? "Reconnect to upload" : "Upload"}
+                {finalizing
+                  ? isNewSong
+                    ? "Creating Song…"
+                    : "Adding Version…"
+                  : !online
+                    ? "Reconnect to upload"
+                    : transferStatus === "preparing" || transferStatus === "uploading"
+                      ? "Uploading audio…"
+                      : transferStatus === "cancelling"
+                        ? "Stopping audio…"
+                        : isNewSong
+                          ? "Create Song"
+                          : "Add Version"}
               </button>
             </div>
           </form>

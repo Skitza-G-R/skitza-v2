@@ -617,6 +617,7 @@ export function SongPage({
     () =>
       resolveInitialSongPageVersion(versions, data.selectedVersionId)?.id ?? data.selectedVersionId,
   );
+  const previousRouteVersionIdRef = useRef(data.selectedVersionId);
   const activeVersion = useMemo(
     () =>
       versions.find((v) => v.id === activeVersionId) ??
@@ -625,6 +626,18 @@ export function SongPage({
   );
   const activeVersionPlayable = activeVersion ? isSongPageVersionPlayable(activeVersion) : false;
   const activeVersionDeleted = activeVersion?.audioDeletedAtIso != null;
+
+  // App Router can preserve this client component while navigating between
+  // two exact /music/[versionId] URLs. Follow that route-prop change, but do
+  // not reset a version the listener deliberately chose when the same route
+  // merely refreshes with a new versions array.
+  useEffect(() => {
+    if (previousRouteVersionIdRef.current === data.selectedVersionId) return;
+    previousRouteVersionIdRef.current = data.selectedVersionId;
+    setActiveVersionId(
+      resolveInitialSongPageVersion(versions, data.selectedVersionId)?.id ?? data.selectedVersionId,
+    );
+  }, [data.selectedVersionId, versions]);
 
   // A refresh can tombstone the version that was active before the mutation.
   // Move to the newest surviving audio. A later deliberate click on a deleted

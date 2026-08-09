@@ -35,7 +35,7 @@ describe("producer audio quota wiring", () => {
   it("serializes and reserves a first-Version intent in the same transaction", () => {
     const prepare = firstVersionSource.slice(
       firstVersionSource.indexOf("  prepare:"),
-      firstVersionSource.indexOf("\n\n  complete:"),
+      firstVersionSource.indexOf("\n\n  finalize:"),
     );
     const transaction = prepare.indexOf("ctx.db.transaction");
     const producerLock = prepare.indexOf("lockProducerAudioStorageQuota", transaction);
@@ -53,7 +53,7 @@ describe("producer audio quota wiring", () => {
   it("holds the producer quota lock while rechecking an intent and issuing its upload URL", () => {
     const prepare = firstVersionSource.slice(
       firstVersionSource.indexOf("  prepare:"),
-      firstVersionSource.indexOf("\n\n  complete:"),
+      firstVersionSource.indexOf("\n\n  finalize:"),
     );
     const presign = prepare.slice(
       prepare.indexOf("presign: () =>"),

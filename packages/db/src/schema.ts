@@ -3667,9 +3667,10 @@ export const purchases = pgTable(
 export type Purchase = typeof purchases.$inferSelect;
 export type NewPurchase = typeof purchases.$inferInsert;
 
-// File-first first-Version uploads live here until storage has verified the
-// exact object. These rows are upload intents, not Songs: project_tracks and
-// track_versions are inserted together only when completion succeeds.
+// File-first audio uploads live here until storage has verified the exact
+// object. Despite the historical table name, these rows are generic upload
+// intents, not Songs or Versions: destination and metadata are bound only
+// when finalization succeeds.
 export const firstVersionUploadIntents = pgTable(
   "first_version_upload_intents",
   {
@@ -3677,15 +3678,17 @@ export const firstVersionUploadIntents = pgTable(
     producerId: uuid("producer_id")
       .notNull()
       .references(() => producers.id, { onDelete: "cascade" }),
-    projectId: uuid("project_id").notNull(),
-    purchaseId: uuid("purchase_id").notNull(),
+    projectId: uuid("project_id"),
+    purchaseId: uuid("purchase_id"),
     operationKey: text("operation_key").notNull(),
     requestDigest: text("request_digest").notNull(),
+    finalizationDigest: text("finalization_digest"),
+    createsTrack: boolean("creates_track"),
     trackId: uuid("track_id").notNull(),
     versionId: uuid("version_id").notNull(),
-    title: text("title").notNull(),
+    title: text("title"),
     artist: text("artist"),
-    label: text("label").notNull(),
+    label: text("label"),
     description: text("description"),
     stagingAudioR2Key: text("staging_audio_r2_key").notNull(),
     audioR2Key: text("audio_r2_key").notNull(),
@@ -3717,7 +3720,6 @@ export const firstVersionUploadIntents = pgTable(
       t.producerId,
       t.operationKey,
     ),
-    trackUnique: unique("first_version_upload_intents_track_unique").on(t.trackId),
     versionUnique: unique("first_version_upload_intents_version_unique").on(t.versionId),
     stagingAudioKeyUnique: unique("first_version_upload_intents_staging_audio_key_unique").on(
       t.stagingAudioR2Key,
@@ -3744,6 +3746,7 @@ export const firstVersionUploadIntents = pgTable(
       t.canceledAt,
       t.expiresAt,
     ),
+    trackIdx: index("first_version_upload_intents_track_idx").on(t.trackId),
     producerUnsealedIdx: index("first_version_upload_intents_producer_unsealed_idx")
       .on(t.producerId, t.expiresAt)
       .where(sql`${t.stagingSealedAt} IS NULL`),
@@ -3758,6 +3761,10 @@ export const firstVersionUploadIntents = pgTable(
     stateShape: check(
       "first_version_upload_intents_state_shape",
       sql`NOT (${t.canceledAt} IS NOT NULL AND ${t.completedAt} IS NOT NULL) AND ${t.expiresAt} > ${t.createdAt} AND ${t.updatedAt} >= ${t.createdAt}`,
+    ),
+    finalizationShape: check(
+      "first_version_upload_intents_finalization_shape",
+      sql`((${t.finalizationDigest} IS NULL AND ${t.createsTrack} IS NULL AND ${t.projectId} IS NULL AND ${t.purchaseId} IS NULL AND ${t.title} IS NULL AND ${t.label} IS NULL) OR (${t.finalizationDigest} ~ '^sha256:[0-9a-f]{64}$' AND ${t.createsTrack} IS NOT NULL AND ${t.projectId} IS NOT NULL AND ${t.purchaseId} IS NOT NULL AND ${t.title} IS NOT NULL AND ${t.label} IS NOT NULL)) AND (${t.completedAt} IS NULL OR ${t.finalizationDigest} IS NOT NULL)`,
     ),
     stagingSealShape: check(
       "first_version_upload_intents_staging_seal_shape",

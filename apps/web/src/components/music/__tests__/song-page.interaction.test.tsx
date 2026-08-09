@@ -350,6 +350,75 @@ describe("SongPage professional player interactions", () => {
     });
   });
 
+  it("selects the exact version when the route-selected version changes", async () => {
+    installMatchMedia(true);
+    const data = songData(false);
+    const firstVersion = data.versions[0];
+    if (!firstVersion) throw new Error("Expected the song fixture to include a version.");
+    const secondVersion = {
+      ...firstVersion,
+      id: "version-2",
+      label: "Mix v2",
+      audioUrl: "/audio/after-the-rain-v2.mp3",
+      uploadedAtIso: "2026-07-19T09:30:00.000Z",
+    };
+    data.versions = [secondVersion, firstVersion];
+    data.selectedVersionId = firstVersion.id;
+    const actions = songActions();
+
+    const view = render(<SongPage data={data} actions={actions} />);
+    expect(screen.getByRole("button", { name: "Choose version. Mix v1 selected" })).not.toBeNull();
+
+    view.rerender(
+      <SongPage data={{ ...data, selectedVersionId: secondVersion.id }} actions={actions} />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Choose version. Mix v2 selected" }),
+      ).not.toBeNull();
+    });
+  });
+
+  it("preserves a deliberate local version selection when the same route refreshes", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    const data = songData(false);
+    const firstVersion = data.versions[0];
+    if (!firstVersion) throw new Error("Expected the song fixture to include a version.");
+    const secondVersion = {
+      ...firstVersion,
+      id: "version-2",
+      label: "Mix v2",
+      audioUrl: "/audio/after-the-rain-v2.mp3",
+      uploadedAtIso: "2026-07-19T09:30:00.000Z",
+    };
+    data.versions = [secondVersion, firstVersion];
+    data.selectedVersionId = firstVersion.id;
+    const actions = songActions();
+
+    const view = render(<SongPage data={data} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: /Choose version/i }));
+    await user.click(screen.getByRole("button", { name: /Mix v2/i }));
+    expect(screen.getByRole("button", { name: "Choose version. Mix v2 selected" })).not.toBeNull();
+
+    view.rerender(
+      <SongPage
+        data={{
+          ...data,
+          versions: data.versions.map((version) => ({ ...version })),
+        }}
+        actions={actions}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Choose version. Mix v2 selected" }),
+      ).not.toBeNull();
+    });
+  });
+
   it("opens Notes as a mobile sheet and preserves its draft when closed", async () => {
     installMatchMedia(false);
     const user = userEvent.setup();

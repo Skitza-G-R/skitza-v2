@@ -74,16 +74,14 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/<textarea[\s\S]*?id="upload-track-description"/);
   });
 
-  // C2 — the description value must be threaded into addVersionAction
+  // C2 — the description value must be threaded into staged finalization
   // so it lands on track_versions.description. Pre-fix the textarea was
   // pure UI: the user typed notes, hit Upload, and the value evaporated.
-  it("forwards the trimmed description into addVersionAction (only when non-empty)", () => {
-    // We trim before forwarding so a textarea full of whitespace stays
-    // NULL rather than storing "   ".
-    expect(SRC).toMatch(/description\.trim\(\)/);
-    // The action call must include a `description:` key under the
-    // conditional spread that drops it when empty.
-    expect(SRC).toMatch(/description:\s*trimmedDescription/);
+  it("forwards trimmed notes only when the staged upload is finalized", () => {
+    expect(SRC).toContain("const submittedDescription = description.trim()");
+    expect(SRC).toMatch(
+      /finalizeAudioUploadAction\(\{[\s\S]*?\.\.\.\(submittedDescription \? \{ description: submittedDescription \} : \{\}\)/,
+    );
   });
 
   it("advertises every supported audio extension to the native file picker", () => {
@@ -113,12 +111,13 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   it("continues to authoritative completion after conditional PUT conflicts", () => {
     expect(SRC).toContain("putResponse.status !== 409");
     expect(SRC).toContain("putResponse.status !== 412");
-    expect(SRC).toContain("completeFirstVersionUploadAction");
+    expect(SRC).toContain("managed.setReadyToSave()");
+    expect(SRC).toContain("finalizeAudioUploadAction");
   });
 
   it("rejects files over the decimal 100 MB maximum in the browser", () => {
     expect(SRC).toContain("AUDIO_UPLOAD_MAX_BYTES");
-    expect(SRC).toMatch(/f\.size > AUDIO_UPLOAD_MAX_BYTES/);
+    expect(SRC).toMatch(/nextFile\.size > AUDIO_UPLOAD_MAX_BYTES/);
     expect(SRC).toContain("Audio files can be up to 100 MB.");
   });
 
@@ -162,86 +161,56 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   // both fire handleClose (which aborts R2). Inconsistent. The button
   // now fires handleClose directly and re-labels to "Stop uploading"
   // during pending so the destructive action is honest.
-  it("Cancel button stays clickable during pending state (fires handleClose)", () => {
-    // The Cancel button must NOT carry `disabled={pending}` — the same
-    // handler that X uses needs to fire mid-upload to abort R2.
-    expect(SRC).not.toMatch(/onClick=\{handleClose\}[\s\S]{0,200}?disabled=\{pending\}/);
-    // Label flips to "Stop uploading" during pending.
-    expect(SRC).toMatch(/Stop\s+uploading/);
+  it("keeps the close action available during transfer and labels it honestly", () => {
+    expect(SRC).not.toMatch(
+      /onClick=\{handleClose\}[\s\S]{0,200}?disabled=\{transferStatus === "uploading"\}/,
+    );
+    expect(SRC).toContain('"Stop upload"');
   });
 
-  it("uses atomic V1 actions and preserves the hardened V2+ multipart actions", () => {
-    expect(SRC).toContain("prepareFirstVersionUploadAction");
-    expect(SRC).toContain("completeFirstVersionUploadAction");
-    expect(SRC).toContain("cancelFirstVersionUploadAction");
+  it("uses one staged action contract for every upload destination", () => {
+    expect(SRC).toContain("stageAudioUploadAction");
+    expect(SRC).toContain("finalizeAudioUploadAction");
+    expect(SRC).toContain("cancelStagedAudioUploadAction");
+    expect(SRC).not.toContain("prepareFirstVersionUploadAction");
+    expect(SRC).not.toContain("completeFirstVersionUploadAction");
+    expect(SRC).not.toContain("cancelFirstVersionUploadAction");
     expect(SRC).not.toContain("addTrackAction");
-    expect(SRC).toContain("addVersionAction");
-    expect(SRC).toContain("initMultipartAction");
-    expect(SRC).toContain("signPartAction");
-    expect(SRC).toContain("completeMultipartAction");
-    expect(SRC).toContain("abortMultipartAction");
+    expect(SRC).not.toContain("addVersionAction");
+    expect(SRC).not.toContain("initMultipartAction");
     expect(SRC).toContain("setTrackStageAction");
-    // I1 — orphan cleanup on upload failure.
-    expect(SRC).toContain("deleteVersionAction");
   });
 
   it("keeps purchase selection off the form and lets the server bind commercial access", () => {
-    expect(SRC).not.toMatch(/purchaseId,[\s\S]{0,120}prepareFirstVersionUploadAction/);
+    const submit = SRC.slice(SRC.indexOf("const handleSubmit"), SRC.indexOf("// Display label"));
+    expect(submit).not.toContain("purchaseId");
     expect(SRC).toMatch(
-      /prepareFirstVersionUploadAction\(\{[\s\S]*?projectId:\s*selectedProjectId,[\s\S]*?title:\s*newSongName\.trim\(\),[\s\S]*?label:\s*["']V1["']/,
+      /finalizeAudioUploadAction\(\{[\s\S]*?kind: "new-song",[\s\S]*?projectId: submittedProjectId,[\s\S]*?title: submittedTitle/,
     );
     expect(SRC).not.toContain("No active purchase has an available song space");
   });
 
-  it("reuses an intent operation key and retains exact cancellation until it succeeds", () => {
-    expect(SRC).toContain("firstVersionOperationKeyRef");
-    expect(SRC).toContain("operationKey: firstVersionOperationKeyRef.current");
-    expect(SRC).toContain("activeFirstVersionIntentRef.current = intentId");
-    expect(SRC).toMatch(
-      /registerFirstVersionCancellation\([\s\S]*?cancelFirstVersionUploadAction\(\{ intentId \}\)[\s\S]*?if \(!result\.ok\) return[\s\S]*?clearActiveFirstVersionIntent\(intentId\)/,
-    );
-    expect(SRC).toMatch(
-      /else if \(activeFirstVersionIntentRef\.current\)[\s\S]*?cancelActiveFirstVersionIntent\(\)/,
-    );
-    expect(SRC).toMatch(
-      /completeFirstVersionUploadAction\(\{ intentId \}\)[\s\S]*?clearActiveFirstVersionIntent\(intentId\)/,
-    );
+  it("retains the exact staged intent as cancellation authority until cleanup succeeds", () => {
+    expect(SRC).toContain("activeStagedUploadRef");
+    expect(SRC).toContain("operationKey: crypto.randomUUID()");
+    expect(SRC).toContain("attempt.intentId = prepared.data.intentId");
+    expect(SRC).toContain("cancelStagedAudioUploadAction({ intentId })");
+    expect(SRC).toContain("if (!result.ok) return { ok: false, error: result.error }");
+    expect(SRC).toContain("cancellationSucceeded = true");
     expect(SRC).toContain("managed.setTerminalDispose");
-    expect(SRC).not.toContain("allocatedNewTrackIdRef");
+    expect(SRC).toContain("cancellationInFlight = null");
   });
 
   it("blocks offline submit and retry before allocating upload work", () => {
     expect(SRC).toContain("useOnlineStatus");
     expect(SRC).toContain("const online = useOnlineStatus()");
     expect(SRC).toMatch(/const submitDisabled =[\s\S]{0,220}?!online/);
-
-    const submitStart = SRC.indexOf("const handleSubmit");
-    const uploadStart = SRC.indexOf("function startUpload", submitStart);
-    const handleSubmit = SRC.slice(submitStart, uploadStart);
-    expect(handleSubmit.indexOf("blockOfflineUpload()")).toBeGreaterThanOrEqual(0);
-    expect(handleSubmit.indexOf("blockOfflineUpload()")).toBeLessThan(
-      handleSubmit.indexOf("submitDisabled"),
+    expect(SRC).toMatch(
+      /async function startStagedAudioTransfer[\s\S]*?if \(blockOfflineUpload\(\)\)[\s\S]*?beginManagedUpload/,
     );
-
-    const upload = SRC.slice(uploadStart, SRC.indexOf("// Display label", uploadStart));
-    const firstOfflineGate = upload.indexOf("if (blockOfflineUpload()) return;");
-    expect(firstOfflineGate).toBeGreaterThanOrEqual(0);
-    for (const allocation of [
-      "requireUploadRuntimeAccountId()",
-      "beginManagedUpload(",
-      "addVersionAction(",
-      "initMultipartAction(",
-    ]) {
-      expect(firstOfflineGate).toBeLessThan(upload.indexOf(allocation));
-    }
-
-    const retryStart = upload.indexOf("managed.setRetry");
-    const retryEnd = upload.indexOf("startTransition", retryStart);
-    const retry = upload.slice(retryStart, retryEnd);
-    expect(retry).toContain("if (blockOfflineUpload())");
-    expect(retry).toContain("Promise.reject(new Error(OFFLINE_UPLOAD_MESSAGE))");
-    expect(retry.indexOf("blockOfflineUpload()")).toBeLessThan(retry.indexOf("managed.dismiss()"));
-
+    expect(SRC).toContain("if (finalizing || blockOfflineUpload()) return");
+    expect(SRC).toContain("if (blockOfflineUpload()) throw new Error(OFFLINE_UPLOAD_MESSAGE)");
+    expect(SRC).toContain("if (blockOfflineUpload() || submitDisabled) return");
     expect(SRC).toContain(
       "Reconnect to upload. This attempt has not started; your file and form details remain here.",
     );
@@ -249,98 +218,71 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
       /visibleUploadError = !online[\s\S]{0,80}?OFFLINE_UPLOAD_MESSAGE[\s\S]{0,220}?: uploadError/,
     );
     expect(SRC).toMatch(/role="alert"[\s\S]{0,180}?\{visibleUploadError\}/);
-    expect(SRC).toMatch(/pending \? "Uploading…" : !online \? "Reconnect to upload" : "Upload"/);
+    expect(SRC).toContain('"Reconnect to upload"');
   });
 
-  // I1 — on upload failure, the modal must cleanup the orphan
-  // track_versions row created at step 2 of the chain. R2 multipart
-  // abort happens for storage cleanup, but the DB row stayed forever
-  // before this fix.
-  it("finishes exact multipart cancellation before deleting the ghost version", () => {
-    expect(SRC).toMatch(/createdVersionId/);
-    expect(SRC).toMatch(
-      /await requestExactMultipartCancellation\(active, abortMultipartAction\)[\s\S]*?await requestVersionCleanup\(versionCleanup, deleteVersionAction\)/,
+  it("retires the exact staged intent before accepting a replacement file", () => {
+    const filePick = SRC.slice(
+      SRC.indexOf("const handleFilePick"),
+      SRC.indexOf("const handleFileInputChange"),
     );
-    expect(SRC).not.toMatch(/void requestVersionCleanup/);
+    expect(filePick).toMatch(
+      /const previous = activeStagedUploadRef\.current[\s\S]*?await retireStagedUpload\(previous\)[\s\S]*?setFile\(nextFile\)/,
+    );
+    expect(SRC).toMatch(
+      /async function retireStagedUpload[\s\S]*?await attempt\.cancel\(\)[\s\S]*?if \(!result\.ok\)[\s\S]*?return false/,
+    );
   });
 
-  it("binds every abort to the exact persisted upload identity", () => {
+  it("binds cancellation to the staged file, intent, and transfer controller", () => {
     const activeUploadType = SRC.slice(
-      SRC.indexOf("type ActiveMultipartUpload"),
+      SRC.indexOf("type ActiveStagedUpload"),
       SRC.indexOf("export function UploadTrackModal"),
     );
-    expect(activeUploadType).toMatch(/key:\s*string/);
-    expect(activeUploadType).toMatch(/uploadId:\s*string/);
-    expect(activeUploadType).toMatch(/trackVersionId:\s*string/);
-    expect(activeUploadType).toMatch(/sizeBytes:\s*number/);
-    expect(activeUploadType).toMatch(/completionToken:\s*string/);
+    expect(activeUploadType).toMatch(/file:\s*File/);
+    expect(activeUploadType).toMatch(/operationKey:\s*string/);
+    expect(activeUploadType).toMatch(/intentId:\s*string \| null/);
+    expect(activeUploadType).toMatch(/putAbort:\s*AbortController/);
+    expect(activeUploadType).toMatch(/cancel:\s*\(\) => Promise<StagedUploadCancellationResult>/);
+  });
+
+  it("keeps cancellation owned by the upload dock after the modal closes", () => {
+    expect(SRC).toContain("managed.setCancel");
+    expect(SRC).toContain("managed.setTerminalDispose");
     expect(SRC).toMatch(
-      /const recoveryEntry[\s\S]*?key,[\s\S]*?uploadId,[\s\S]*?trackVersionId:\s*versionId,[\s\S]*?sizeBytes:\s*submittedFile\.size,[\s\S]*?completionToken/,
+      /const handleClose[\s\S]*?active\.abandonRequested = true[\s\S]*?cancelManagedUpload\(active\.managed\.id\)/,
     );
-  });
-
-  it("durably owns exact cancellation and orphan cleanup across unmounts", () => {
-    expect(SRC).toContain("startMultipartCancellationRecovery");
-    expect(SRC).toMatch(/useEffect\(\(\) => startMultipartCancellationRecovery\(\), \[\]\)/);
-    const initSuccess = SRC.indexOf("if (!ires.ok)");
-    const persistExact = SRC.indexOf("persistResumableEntry(recoveryEntry)", initSuccess);
-    const firstSign = SRC.indexOf("signPartAction", initSuccess);
-    expect(persistExact).toBeGreaterThan(initSuccess);
-    expect(persistExact).toBeLessThan(firstSign);
     expect(SRC).toMatch(
-      /markVersionCleanupRequested\(\s*createdVersionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+      /if \(managedCanceled\) return;[\s\S]*?await active\.cancel\(\)[\s\S]*?active\.managed\.dismiss\(\)/,
     );
-    expect(SRC).toContain("requestExactMultipartCancellation(active, abortMultipartAction)");
-    expect(SRC).toContain("await requestVersionCleanup(versionCleanup, deleteVersionAction)");
   });
 
-  it("keeps ambiguous init cleanup durable until deleteVersion confirms success", () => {
-    const catchStart = SRC.indexOf("} catch (err) {");
-    const catchSource = SRC.slice(catchStart, SRC.indexOf("// Display label", catchStart));
-    const persistCleanup = catchSource.search(
-      /markVersionCleanupRequested\(\s*createdVersionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+  it("creates no durable Song or Version before explicit finalization", () => {
+    const transfer = SRC.slice(
+      SRC.indexOf("async function startStagedAudioTransfer"),
+      SRC.indexOf("// ─── File handlers"),
     );
-    const cleanupAttempt = catchSource.indexOf("requestVersionCleanup(", persistCleanup);
-    expect(persistCleanup).toBeGreaterThanOrEqual(0);
-    expect(cleanupAttempt).toBeGreaterThan(persistCleanup);
-    expect(catchSource).not.toContain("createdVersionId = null");
+    expect(transfer).toContain("stageAudioUploadAction");
+    expect(transfer).not.toContain("finalizeAudioUploadAction");
+    expect(transfer).not.toContain("addTrackAction");
+    expect(transfer).not.toContain("addVersionAction");
+    expect(SRC).toMatch(
+      /const handleSubmit[\s\S]*?finalizeAudioUploadAction\(\{[\s\S]*?intentId: submittedIntentId/,
+    );
   });
 
-  it("persists placeholder cleanup before multipart init and clears it only after attach", () => {
-    const versionCreated = SRC.indexOf("if (!vres.ok)");
-    const cleanupPersistedOffset = SRC.slice(versionCreated).search(
-      /versionCleanup = markVersionCleanupRequested\(\s*versionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+  it("checks cancellation before and after the direct R2 transfer", () => {
+    const transfer = SRC.slice(
+      SRC.indexOf("async function startStagedAudioTransfer"),
+      SRC.indexOf("// ─── File handlers"),
     );
-    const cleanupPersisted =
-      cleanupPersistedOffset < 0 ? -1 : versionCreated + cleanupPersistedOffset;
-    const initStarted = SRC.indexOf("await initMultipartAction", versionCreated);
-    expect(cleanupPersisted).toBeGreaterThan(versionCreated);
-    expect(cleanupPersisted).toBeLessThan(initStarted);
-
-    const attachConfirmed = SRC.indexOf("if (!cres.ok)");
-    const cleanupRemovedOffset = SRC.slice(attachConfirmed).search(
-      /removeVersionCleanupEntry\(\s*versionId,\s*uploadAccountId\s*\)/,
+    const put = transfer.indexOf("putResponse = await fetch");
+    const checks = [...transfer.matchAll(/uploadCancellationRequested\(cancellation\)/g)].map(
+      (match) => match.index,
     );
-    const cleanupRemoved = cleanupRemovedOffset < 0 ? -1 : attachConfirmed + cleanupRemovedOffset;
-    expect(cleanupRemoved).toBeGreaterThan(attachConfirmed);
-  });
-
-  it("records Stop uploading during multipart init and cancels before any part or completion", () => {
-    const submitStart = SRC.indexOf("const handleSubmit");
-    const submit = SRC.slice(submitStart, SRC.indexOf("// Display label", submitStart));
-    const init = submit.indexOf("await initMultipartAction");
-    const cancellationCheck = submit.indexOf("cancelInitializedUploadIfRequested", init);
-    const firstPart = submit.indexOf("await signPartAction", init);
-    const completion = submit.indexOf("await completeMultipartAction", init);
-    const close = SRC.slice(SRC.indexOf("const handleClose"), submitStart);
-
-    expect(SRC).toContain("activeCancellationRef");
-    expect(close).toContain("requestUploadCancellation(cancellation)");
-    expect(cancellationCheck).toBeGreaterThan(init);
-    expect(cancellationCheck).toBeLessThan(firstPart);
-    expect(cancellationCheck).toBeLessThan(completion);
-    expect(submit.slice(cancellationCheck, firstPart)).toContain("recoveryEntry");
-    expect(submit.slice(cancellationCheck, firstPart)).toContain("abortMultipartAction");
+    expect(checks.some((index) => index < put)).toBe(true);
+    expect(checks.some((index) => index > put)).toBe(true);
+    expect(transfer).toContain("putAbort.abort()");
   });
 
   it("imports Server Actions from the clients-projects upload-actions module", () => {
@@ -352,19 +294,23 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).not.toMatch(/trpc\.\w+\.\w+\.\bmutate\b/);
   });
 
-  it("uses fetch() for chunked PUT (NOT a Server Action — body must stay in the browser)", () => {
+  it("uses fetch() for the presigned R2 PUT so the file stays in the browser", () => {
     expect(SRC).toMatch(/fetch\(/);
     expect(SRC).toMatch(/method:\s*["']PUT["']/);
+    expect(SRC).toContain("body: stagedFile");
+    expect(SRC).toContain("headers: prepared.data.headers");
   });
 
-  it("uses the shared server-aligned multipart chunk size", () => {
-    expect(SRC).toContain("AUDIO_MULTIPART_PART_SIZE_BYTES");
-    expect(SRC).not.toMatch(/CHUNK_SIZE\s*=/);
+  it("does not create legacy client multipart placeholders", () => {
+    expect(SRC).not.toContain("AUDIO_MULTIPART_PART_SIZE_BYTES");
+    expect(SRC).not.toContain("initMultipartAction");
+    expect(SRC).not.toContain("signPartAction");
+    expect(SRC).not.toContain("completeMultipartAction");
   });
 
-  it("reads the ETag header off the PUT response and strips quotes", () => {
-    expect(SRC).toMatch(/headers\.get\(["']ETag["']\)/);
-    expect(SRC).toMatch(/replaceAll\(["']"["'],\s*["']["']\)/);
+  it("leaves upload verification to staged finalization instead of browser ETags", () => {
+    expect(SRC).not.toMatch(/headers\.get\(["']ETag["']\)/);
+    expect(SRC).toContain("finalizeAudioUploadAction");
   });
 
   it("uses useTransition for the submit handler (pending state)", () => {
@@ -392,8 +338,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   });
 
   it("aborts mid-flight uploads on modal close (reclaims R2 storage)", () => {
-    expect(SRC).toContain("abortMultipartAction");
-    expect(SRC).toMatch(/activeUploadRef/);
+    expect(SRC).toContain("active.putAbort.abort()");
+    expect(SRC).toContain("cancelManagedUpload(active.managed.id)");
+    expect(SRC).toContain("await active.cancel()");
   });
 
   it("keeps the close button usable when the focused field blurs", () => {

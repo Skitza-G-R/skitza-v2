@@ -5,6 +5,7 @@ import { useSyncExternalStore } from "react";
 export type ManagedUploadStatus =
   | "preparing"
   | "uploading"
+  | "ready"
   | "completing"
   | "cancelling"
   | "error"
@@ -240,6 +241,7 @@ export type ManagedUploadHandle = {
   id: string;
   setPreparing: () => void;
   setUploading: (progress: number) => void;
+  setReadyToSave: () => void;
   setCompleting: () => void;
   setCancel: (cancel: () => Promise<UploadActionResult>) => void;
   setRetry: (retry: () => Promise<void>) => void;
@@ -304,6 +306,14 @@ export function beginManagedUpload(input: {
         error: null,
       }));
     },
+    setReadyToSave() {
+      updateRecord(id, (record) => ({
+        ...record,
+        status: "ready",
+        progress: 100,
+        error: null,
+      }));
+    },
     setCompleting() {
       const current = actions.get(id);
       if (current) {
@@ -365,6 +375,7 @@ export function managedUploadIsActive(record: ManagedUploadRecord): boolean {
   return (
     record.status === "preparing" ||
     record.status === "uploading" ||
+    record.status === "ready" ||
     record.status === "completing" ||
     record.status === "cancelling"
   );
