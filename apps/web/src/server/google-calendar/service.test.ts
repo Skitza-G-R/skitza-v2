@@ -351,7 +351,15 @@ function createProvider() {
         grantedScopes: ALL_SCOPES,
       }),
     ),
-    listCalendars: vi.fn(() => Promise.resolve(calendar())),
+    listCalendars: vi.fn<GoogleCalendarProvider["listCalendars"]>(() =>
+      Promise.resolve(calendar()),
+    ),
+    queryFreeBusy: vi.fn<GoogleCalendarProvider["queryFreeBusy"]>(() =>
+      Promise.resolve({
+        busyIntervals: [],
+        failedCalendarCount: 0,
+      }),
+    ),
     revokeToken: vi.fn(() => Promise.resolve()),
   } satisfies GoogleCalendarProvider;
 }
@@ -676,5 +684,200 @@ describe("Google Calendar service lifecycle", () => {
     expect(storedConnection(repository).status).toBe("disconnected");
     expect(storedConnection(repository).accessToken).toBeNull();
     expect(storedConnection(repository).refreshToken).toBeNull();
+  });
+});
+
+describe("Google Calendar FreeBusy service", () => {
+  it("queries only selected busy calendars and returns fresh half-open UTC intervals", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    provider.listCalendars.mockResolvedValue([
+      ...calendar(),
+      {
+        providerCalendarId: "private-busy-calendar-id",
+        displayName: "Personal calendar",
+        timezone: "America/New_York",
+        accessRole: "reader",
+        isPrimary: false,
+      },
+    ]);
+    provider.queryFreeBusy.mockResolvedValue({
+      busyIntervals: [
+        {
+          startsAt: new Date("2026-11-01T05:30:00.000Z"),
+          endsAt: new Date("2026-11-01T06:30:00.000Z"),
+        },
+      ],
+      failedCalendarCount: 0,
+    });
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
+    const connected = await connect(service);
+    const destinationId = connected.calendars[0]?.id;
+    const busyId = connected.calendars[1]?.id;
+    if (!destinationId || !busyId) throw new Error("Missing test calendars");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: destinationId,
+      availabilityCalendarIds: [busyId],
+    });
+
+    const result = await service.busyIntervals({
+      producerId: PRODUCER_ID,
+      timeMin: new Date("2026-11-01T04:00:00.000Z"),
+      timeMax: new Date("2026-11-01T08:00:00.000Z"),
+    });
+
+    expect(provider.queryFreeBusy).toHaveBeenCalledWith("access-google-subject-a", {
+      calendarIds: ["private-busy-calendar-id"],
+      timeMin: new Date("2026-11-01T04:00:00.000Z"),
+      timeMax: new Date("2026-11-01T08:00:00.000Z"),
+    });
+    expect(result).toEqual({
+      protection: "google_aware",
+      health: "healthy",
+      intervals: [
+        {
+          startsAt: new Date("2026-11-01T05:30:00.000Z"),
+          endsAt: new Date("2026-11-01T06:30:00.000Z"),
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("private-busy-calendar-id");
+  });
+
+  it("fails open for per-calendar errors and temporary provider failures", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
+    const connected = await connect(service);
+    const selectedId = connected.calendars[0]?.id;
+    if (!selectedId) throw new Error("Missing test calendar");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: selectedId,
+      availabilityCalendarIds: [selectedId],
+    });
+    const window = {
+      producerId: PRODUCER_ID,
+      timeMin: new Date("2026-08-10T10:00:00.000Z"),
+      timeMax: new Date("2026-08-10T11:00:00.000Z"),
+    };
+
+    provider.queryFreeBusy.mockResolvedValueOnce({
+      busyIntervals: [
+        {
+          startsAt: new Date("2026-08-10T10:15:00.000Z"),
+          endsAt: new Date("2026-08-10T10:45:00.000Z"),
+        },
+      ],
+      failedCalendarCount: 1,
+    });
+    await expect(service.busyIntervals(window)).resolves.toEqual({
+      protection: "skitza_only",
+      health: "unavailable",
+      intervals: [],
+    });
+
+    provider.queryFreeBusy.mockRejectedValueOnce(
+      new GoogleCalendarProviderError("provider_unavailable"),
+    );
+    await expect(service.busyIntervals(window)).resolves.toEqual({
+      protection: "skitza_only",
+      health: "unavailable",
+      intervals: [],
+    });
+  });
+
+  it("marks revoked access for reconnect while always returning a fail-open result", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
+    const connected = await connect(service);
+    const selectedId = connected.calendars[0]?.id;
+    if (!selectedId) throw new Error("Missing test calendar");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: selectedId,
+      availabilityCalendarIds: [selectedId],
+    });
+    provider.queryFreeBusy.mockRejectedValueOnce(
+      new GoogleCalendarProviderError("access_unauthorized"),
+    );
+
+    await expect(
+      service.busyIntervals({
+        producerId: PRODUCER_ID,
+        timeMin: new Date("2026-08-10T10:00:00.000Z"),
+        timeMax: new Date("2026-08-10T11:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      protection: "skitza_only",
+      health: "reconnect_required",
+      intervals: [],
+    });
+    expect(storedConnection(repository).status).toBe("reconnect_required");
+    expect(storedConnection(repository).lastErrorCode).toBe("access_unauthorized");
+  });
+
+  it("discards a response when the selected calendars change during the network request", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
+    const connected = await connect(service);
+    const selectedId = connected.calendars[0]?.id;
+    if (!selectedId) throw new Error("Missing test calendar");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: selectedId,
+      availabilityCalendarIds: [selectedId],
+    });
+    provider.queryFreeBusy.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      repository.candidates = repository.candidates.map((candidate) => ({
+        ...candidate,
+        blocksAvailability: false,
+      }));
+      return {
+        busyIntervals: [
+          {
+            startsAt: new Date("2026-08-10T10:15:00.000Z"),
+            endsAt: new Date("2026-08-10T10:45:00.000Z"),
+          },
+        ],
+        failedCalendarCount: 0,
+      };
+    });
+
+    await expect(
+      service.busyIntervals({
+        producerId: PRODUCER_ID,
+        timeMin: new Date("2026-08-10T10:00:00.000Z"),
+        timeMax: new Date("2026-08-10T11:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      protection: "skitza_only",
+      health: "unavailable",
+      intervals: [],
+    });
   });
 });

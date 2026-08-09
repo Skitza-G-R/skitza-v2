@@ -99,6 +99,46 @@ describe("shared slot classification", () => {
       ]),
     );
   });
+
+  it("treats only overlapping Google instants as busy and keeps producer override explicit", () => {
+    const base = {
+      startsAt: new Date("2026-07-20T10:00:00.000Z"),
+      durationMin: 60,
+      bufferMinutes: 0,
+      producerTimeZone: "UTC",
+      availabilityBlocks: [{ weekday: 1, startMin: 9 * 60, endMin: 12 * 60 }],
+      blackouts: [],
+      existingBookings: [],
+      googleBusyIntervals: [
+        {
+          startsAt: new Date("2026-07-20T10:30:00.000Z"),
+          endsAt: new Date("2026-07-20T10:45:00.000Z"),
+        },
+        {
+          startsAt: new Date("2026-07-20T11:00:00.000Z"),
+          endsAt: new Date("2026-07-20T12:00:00.000Z"),
+        },
+      ],
+    } as const;
+
+    expect(classifySessionSlot({ ...base, actor: "artist" })).toContainEqual({
+      code: "GOOGLE_BUSY",
+      severity: "hard_conflict",
+      message: "This time overlaps a busy time in Google Calendar",
+    });
+    expect(classifySessionSlot({ ...base, actor: "producer" })).toContainEqual({
+      code: "GOOGLE_BUSY",
+      severity: "warning",
+      message: "This time overlaps a busy time in Google Calendar",
+    });
+    expect(
+      classifySessionSlot({
+        ...base,
+        startsAt: new Date("2026-07-20T09:00:00.000Z"),
+        actor: "artist",
+      }).some((issue) => issue.code === "GOOGLE_BUSY"),
+    ).toBe(false);
+  });
 });
 
 describe("artist exact-slot generation", () => {
@@ -124,6 +164,34 @@ describe("artist exact-slot generation", () => {
       "2026-11-01T06:30:00.000Z",
     ]);
     expect(repeatedSlots.map((slot) => slot.studioStartMin)).toEqual([90, 90]);
+  });
+
+  it("removes only the repeated DST instant that Google marks busy", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-10-31T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      artistTimeZone: "UTC",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityBlocks: [{ weekday: 0, startMin: 90, endMin: 120 }],
+      blackouts: [],
+      existingBookings: [],
+      googleBusyIntervals: [
+        {
+          startsAt: new Date("2026-11-01T05:30:00.000Z"),
+          endsAt: new Date("2026-11-01T06:00:00.000Z"),
+        },
+      ],
+    });
+
+    expect(
+      generated.days
+        .flatMap((day) => day.slots)
+        .filter((slot) => slot.studioDate === "2026-11-01")
+        .map((slot) => slot.startsAt.toISOString()),
+    ).toEqual(["2026-11-01T06:30:00.000Z"]);
   });
 
   it("authors studio blocks but groups results by artist-local date", () => {

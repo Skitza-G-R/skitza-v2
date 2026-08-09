@@ -7,6 +7,7 @@ import { useTabSwipe } from "~/components/native/use-tab-swipe";
 
 import { CalendarTabs } from "./calendar-tabs";
 import type { CalendarTabKey } from "./calendar-tab-key";
+import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
 import { ManualSessionModal } from "./manual-session-modal";
 import type { ProducerManualSessionOptions } from "~/server/domain/session-booking/manual";
 
@@ -25,6 +26,7 @@ export function CalendarSwipeSurface({
   availabilityContent,
   manualOptions,
   googleCalendarControl,
+  googleBusyProtectionReduced = false,
 }: {
   active: CalendarTabKey;
   eyebrows: Record<CalendarTabKey, string>;
@@ -33,6 +35,7 @@ export function CalendarSwipeSurface({
   availabilityContent: ReactNode;
   manualOptions: ProducerManualSessionOptions;
   googleCalendarControl?: ReactNode;
+  googleBusyProtectionReduced?: boolean;
 }) {
   const router = useRouter();
   const [optimistic, setOptimistic] = useState<{
@@ -40,6 +43,7 @@ export function CalendarSwipeSurface({
     value: CalendarSwipeItem;
   } | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualCheckReduced, setManualCheckReduced] = useState(false);
   const displayActive: CalendarTabKey = optimistic?.source === active ? optimistic.value : active;
   const displaySwipeItem = normalizeCalendarSwipeItem(displayActive);
   const sessionsActive = displaySwipeItem === "sessions";
@@ -122,7 +126,16 @@ export function CalendarSwipeSurface({
         </div>
       </header>
 
-      <ManualSessionModal open={manualOpen} onOpenChange={setManualOpen} options={manualOptions} />
+      {googleBusyProtectionReduced || manualCheckReduced ? <GoogleBusyProtectionWarning /> : null}
+
+      <ManualSessionModal
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        options={manualOptions}
+        onGoogleBusyProtectionReduced={() => {
+          setManualCheckReduced(true);
+        }}
+      />
 
       <div
         data-tab-swipe-surface

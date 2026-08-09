@@ -8,6 +8,7 @@ import { AvailabilityPanel } from "./availability-panel";
 import { GoogleCalendarControlBoundary } from "./google-calendar-control-boundary";
 import type { GoogleCalendarCallbackStatus } from "./google-calendar-control-boundary";
 import { presentGoogleCalendar } from "./google-calendar-presentation";
+import { isGoogleBusyProtectionReduced } from "./google-calendar-ui-model";
 
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
@@ -179,6 +180,7 @@ export default async function CalendarPage({
   // post-toggle persisted state.
   const availabilityWeekStart: "sunday" | "monday" =
     profile.weekStart === "monday" ? "monday" : "sunday";
+  const googleCalendarModel = googleStatus ? presentGoogleCalendar(googleStatus) : null;
 
   // Tab-aware eyebrow — gives the section dynamic context. Schedule
   // shows the current week date; Sessions shows totals; Availability
@@ -237,10 +239,13 @@ export default async function CalendarPage({
           eyebrows={eyebrows}
           scheduleEyebrow={scheduleEyebrow}
           manualOptions={manualOptions}
+          googleBusyProtectionReduced={
+            googleCalendarModel ? isGoogleBusyProtectionReduced(googleCalendarModel) : false
+          }
           googleCalendarControl={
-            googleStatus ? (
+            googleCalendarModel ? (
               <GoogleCalendarControlBoundary
-                model={presentGoogleCalendar(googleStatus)}
+                model={googleCalendarModel}
                 {...(googleCallbackStatus ? { callbackStatus: googleCallbackStatus } : {})}
               />
             ) : undefined

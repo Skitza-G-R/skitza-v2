@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   canUseAsGoogleCalendarDestination,
   googleCalendarAccessRoleLabel,
+  isGoogleBusyProtectionReduced,
   type GoogleCalendarAccessRole,
 } from "../google-calendar-ui-model";
 
@@ -13,6 +14,10 @@ const controlSource = readFileSync(
 );
 const modelSource = readFileSync(
   new URL("../google-calendar-ui-model.ts", import.meta.url),
+  "utf8",
+);
+const busyProtectionWarningSource = readFileSync(
+  new URL("../google-busy-protection-warning.tsx", import.meta.url),
   "utf8",
 );
 
@@ -31,7 +36,7 @@ describe("Google Calendar browser-safe UI contract", () => {
   });
 
   it("does not add secret or provider identifiers to the browser UI contract", () => {
-    const browserSources = `${controlSource}\n${modelSource}`;
+    const browserSources = `${controlSource}\n${modelSource}\n${busyProtectionWarningSource}`;
     const forbiddenIdentifiers = [
       "accessToken",
       "refreshToken",
@@ -45,5 +50,21 @@ describe("Google Calendar browser-safe UI contract", () => {
       expect(browserSources).not.toContain(identifier);
     }
     expect(browserSources).not.toMatch(/console\.(?:log|debug|info|warn|error)\s*\(/);
+  });
+
+  it("warns only when a configured or connecting add-on has reduced busy-time protection", () => {
+    expect(isGoogleBusyProtectionReduced({ status: "not_connected" })).toBe(false);
+    expect(isGoogleBusyProtectionReduced({ status: "connecting" })).toBe(true);
+    expect(
+      isGoogleBusyProtectionReduced({ status: "disconnected", accountLabel: "Producer account" }),
+    ).toBe(true);
+    expect(
+      isGoogleBusyProtectionReduced({
+        status: "selection_required",
+        accountLabel: "Producer account",
+        calendars: [],
+        selection: { destinationSelectionKey: null, busySelectionKeys: [] },
+      }),
+    ).toBe(true);
   });
 });

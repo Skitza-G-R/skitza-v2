@@ -15,6 +15,11 @@ export type SessionBookingScheduleEntry = Readonly<{
   bufferMinutes: number;
 }>;
 
+export type SessionBusyInterval = Readonly<{
+  startsAt: Date;
+  endsAt: Date;
+}>;
+
 export type SessionAvailabilityBlock = Readonly<{
   weekday: number;
   startMin: number;
