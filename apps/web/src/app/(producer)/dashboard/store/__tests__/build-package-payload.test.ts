@@ -59,7 +59,7 @@ describe("buildPackagePayload", () => {
         composition: { mode: "none" },
       },
       agreementText: null,
-      contractUrl: null,
+      agreementPdf: { kind: "remove" },
       pricingModel: "flat",
       volumeTiers: [],
     });
@@ -174,8 +174,29 @@ describe("buildPackagePayload", () => {
 
     const payload = buildPackagePayload(legacyShapedDraft);
 
-    expect(payload.contractUrl).toBeNull();
+    expect(payload.agreementPdf).toEqual({ kind: "remove" });
     expect(payload.agreementText).toBe("The exact terms the artist accepts.");
+  });
+
+  it("sends only the signed upload capability for a new private PDF", () => {
+    const payload = buildPackagePayload(
+      flatDraft({
+        agreementMode: "pdf",
+        agreementPdf: {
+          documentId: null,
+          originalFileName: "exact-terms.pdf",
+          sizeBytes: 512,
+        },
+      }),
+      undefined,
+      "signed-upload-token",
+    );
+
+    expect(payload.agreementPdf).toEqual({
+      kind: "replace",
+      uploadToken: "signed-upload-token",
+    });
+    expect(JSON.stringify(payload)).not.toContain("storageKey");
   });
 
   it("preserves unlimited sessions and the existing product kind", () => {

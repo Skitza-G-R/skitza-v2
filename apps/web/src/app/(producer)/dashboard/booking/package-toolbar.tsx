@@ -54,8 +54,6 @@ function templateToInitial(t: ServiceTemplate): InitialPackageValues {
     bufferMinutes: t.defaults.bufferMinutes,
     minLeadHours: t.defaults.minLeadHours,
     paymentPlans: [...t.defaults.paymentPlans],
-    // Legacy column stays clear; Store agreements are exact inline text.
-    contractUrl: null,
   };
 }
 

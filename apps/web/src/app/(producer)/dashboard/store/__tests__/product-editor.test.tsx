@@ -118,7 +118,7 @@ describe("ProductEditor orchestrator", () => {
     const handlerStart = SRC.indexOf("function handleEditorOpenChange");
     const handlerEnd = SRC.indexOf("function handleSuccessfulSubmit", handlerStart);
     const handler = SRC.slice(handlerStart, handlerEnd);
-    const persistIndex = handler.indexOf("onPersistDraft(latest)");
+    const persistIndex = handler.indexOf("onPersistDraft(safeLatest)");
     const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
     const closeIndex = handler.indexOf("onOpenChange(nextOpen)");
 
@@ -231,9 +231,11 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toContain('toast("Could not save this product. Please try again.", "error")');
   });
 
-  it("uses read-only global tax state in the product flow", () => {
+  it("writes global tax only from the required onboarding tax step", () => {
     expect(SRC).not.toMatch(/function onTaxChange/);
-    expect(SRC).not.toMatch(/updateProducer/);
     expect(SRC).not.toMatch(/onTaxChange=/);
+    expect(SRC).toContain('newProductFlow === "onboarding"');
+    expect(SRC).toContain("await updateProducer({");
+    expect(SRC).toContain('currentStep !== "tax" || newProductFlow !== "onboarding"');
   });
 });

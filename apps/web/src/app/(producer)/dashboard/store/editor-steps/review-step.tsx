@@ -6,7 +6,7 @@ import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import type { VolumeTier } from "~/lib/pricing";
 import type { TaxMode } from "~/lib/tax-mode";
 import { ArtistProductPreview } from "../artist-product-preview";
-import type { AgreementMode } from "../product-editor-draft";
+import type { AgreementMode, AgreementPdfDraft } from "../product-editor-draft";
 
 export type ReviewEditStep = "type" | "details" | "price" | "payment" | "delivery" | "rights";
 
@@ -33,6 +33,7 @@ interface ReviewStepProps {
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementMode: AgreementMode;
   agreementText: string;
+  agreementPdf?: AgreementPdfDraft | null;
   producerName?: string;
   taxMode?: TaxMode;
   taxRatePct?: number;
@@ -119,6 +120,7 @@ export function ReviewStep({
   royaltyTerms,
   agreementMode,
   agreementText,
+  agreementPdf = null,
   producerName = "Your studio",
   taxMode = "tax_free",
   taxRatePct = 18,
@@ -270,6 +272,15 @@ export function ReviewStep({
             </div>
             <p className="mt-1 break-words whitespace-pre-wrap text-[rgb(var(--fg-default))]">
               {agreementText.trim()}
+            </p>
+          </div>
+        ) : agreementMode === "pdf" && agreementPdf ? (
+          <div className="mt-3 border-t border-[rgb(var(--border-subtle))] pt-3">
+            <div className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
+              Private PDF agreement
+            </div>
+            <p className="mt-1 break-words text-[rgb(var(--fg-default))]">
+              {agreementPdf.originalFileName}
             </p>
           </div>
         ) : (

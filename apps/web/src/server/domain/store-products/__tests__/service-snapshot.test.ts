@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { encodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 import { digestCommercialSnapshot } from "~/server/domain/purchases/policy";
+import type { AgreementPdfClientSnapshot } from "~/lib/agreement-pdf";
 import {
   buildStorePurchaseSnapshot,
   deriveStoreProductRights,
@@ -64,6 +65,7 @@ function build(
     taxMode: string;
     taxRatePct: number;
     selectedPaymentPlan: PaymentPlan;
+    agreementPdf: AgreementPdfClientSnapshot | null;
   }> = {},
 ) {
   return buildStorePurchaseSnapshot({
@@ -91,6 +93,49 @@ function expectError(
 }
 
 describe("Store purchase snapshot", () => {
+  it("hashes only client-safe PDF identity and changes the digest with the live revision", () => {
+    const first: AgreementPdfClientSnapshot = {
+      documentId: "f1f11111-1111-4111-8111-111111111111",
+      originalFileName: "terms.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 512,
+      objectEtag: '"etag-1"',
+      sha256: "a".repeat(64),
+    };
+    const second = { ...first, documentId: "f2f22222-2222-4222-8222-222222222222" };
+
+    const before = build(product({ hasAgreementPdf: true }), { agreementPdf: first });
+    const after = build(product({ hasAgreementPdf: true }), { agreementPdf: second });
+
+    expect(before.snapshot.agreementPdf).toEqual(first);
+    expect(before.snapshotDigest).not.toBe(after.snapshotDigest);
+    expect(JSON.stringify(before.snapshot)).not.toMatch(/storageKey|storageBucket/);
+  });
+
+  it("allows agreement-defined royalties when an exact private PDF exists", () => {
+    const pdf: AgreementPdfClientSnapshot = {
+      documentId: "f3f33333-3333-4333-8333-333333333333",
+      originalFileName: "royalties.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 512,
+      objectEtag: '"etag-3"',
+      sha256: "c".repeat(64),
+    };
+    expect(() =>
+      build(
+        product({
+          agreementText: null,
+          hasAgreementPdf: true,
+          royaltyTerms: {
+            master: { mode: "agreement" },
+            composition: { mode: "none" },
+          },
+        }),
+        { agreementPdf: pdf },
+      ),
+    ).not.toThrow();
+  });
+
   it("freezes every authored and derived term for a flat product", () => {
     const { snapshot, snapshotDigest } = build();
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
@@ -65,12 +66,34 @@ import {
 import { deliverPushToProjectArtist } from "~/server/push/delivery";
 import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
 import { deliverCalendarSyncJobBestEffort } from "~/server/calendar/drain";
+import { agreementPdfFileError } from "~/lib/agreement-pdf";
+import {
+  agreementPdfProducerSummary,
+  appendAgreementPdfRevision,
+  currentAgreementPdfRevision,
+  type AgreementPdfDocument,
+} from "~/server/domain/agreement-pdfs/contract";
+import {
+  createPrivateAgreementPdfUpload,
+  deletePrivateAgreementPdfStaging,
+  finalizePrivateAgreementPdfUpload,
+} from "~/server/domain/agreement-pdfs/storage";
+import {
+  createAgreementPdfUploadToken,
+  verifyOwnedAgreementPdfUploadToken,
+} from "~/server/domain/agreement-pdfs/tokens";
 
 function mapStoreProductCommercialError(error: unknown): never {
   if (error instanceof StoreProductCommercialError) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
   }
   throw error;
+}
+
+function agreementPdfServerSecret(): string {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret) throw new Error("Missing CLERK_SECRET_KEY");
+  return secret;
 }
 
 function mapSessionBookingDomainError(error: unknown): never {
@@ -294,6 +317,12 @@ const ProductRoyaltyTermsInput = z
   })
   .transform((terms) => terms as ProductRoyaltyTerms);
 
+const AgreementPdfChange = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("remove") }),
+  z.object({ kind: z.literal("keep"), documentId: z.string().uuid() }),
+  z.object({ kind: z.literal("replace"), uploadToken: z.string().min(1).max(4_096) }),
+]);
+
 // Product template input. Commercial payment plans are Full, 50/50, or
 // Monthly; deposits and Milestone plans are not part of the model.
 const ProductInputShape = {
@@ -336,6 +365,7 @@ const ProductInputShape = {
   // Mutable external agreements are not valid Store terms. Null remains
   // accepted so an editor can clear the legacy column without a migration.
   contractUrl: z.null().optional(),
+  agreementPdf: AgreementPdfChange.optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
   // Visibility is part of creation so "Save hidden" never exposes a product
   // between two mutations. Existing callers omit it and stay live by default.
@@ -417,6 +447,7 @@ const ProductUpdateInput = z.object({
   royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
   // Clear-only compatibility for the legacy external-agreement column.
   contractUrl: z.null().optional(),
+  agreementPdf: AgreementPdfChange.optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
 });
 
@@ -669,6 +700,70 @@ export const __wallClockInTzToUtcForTests = wallClockInTzToUtc;
 // name) and `packages` (the legacy name used by onboarding + existing
 // callers). One definition means the two sub-routers stay in sync
 // while we migrate.
+type AgreementPdfChangeInput = z.infer<typeof AgreementPdfChange>;
+
+function privateAgreementInputError(error: unknown): never {
+  if (error instanceof Error) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  throw error;
+}
+
+async function finalizeAgreementPdfChange(
+  change: AgreementPdfChangeInput | undefined,
+  expected: { producerId: string; viewerClerkUserId: string },
+): Promise<AgreementPdfDocument | null> {
+  if (change?.kind !== "replace") return null;
+  try {
+    const secret = agreementPdfServerSecret();
+    const token = verifyOwnedAgreementPdfUploadToken(secret, change.uploadToken, expected);
+    return await finalizePrivateAgreementPdfUpload(secret, token);
+  } catch (error) {
+    privateAgreementInputError(error);
+  }
+}
+
+function nextAgreementPdfContract(input: {
+  current: string | null;
+  change: AgreementPdfChangeInput | undefined;
+  replacement: AgreementPdfDocument | null;
+  now: Date;
+}): string | null {
+  if (!input.change) return input.current;
+  const currentRevision = currentAgreementPdfRevision(input.current);
+  if (input.change.kind === "keep") {
+    if (!currentRevision?.document || currentRevision.revisionId !== input.change.documentId) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "The agreement PDF changed. Review the product again before saving.",
+      });
+    }
+    return input.current;
+  }
+  if (input.change.kind === "remove" && input.current === null) return null;
+  if (input.change.kind === "remove" && currentRevision?.document === null) return input.current;
+  if (input.change.kind === "replace" && !input.replacement) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Upload the agreement PDF again." });
+  }
+  const previousTime = currentRevision ? new Date(currentRevision.effectiveAt).getTime() : 0;
+  const effectiveAt = new Date(Math.max(input.now.getTime(), previousTime)).toISOString();
+  return appendAgreementPdfRevision(input.current, {
+    revisionId: randomUUID(),
+    effectiveAt,
+    document: input.change.kind === "replace" ? input.replacement : null,
+  });
+}
+
+function producerSafeProduct<Row extends { contractUrl: string | null }>(row: Row) {
+  const summary = agreementPdfProducerSummary(row.contractUrl);
+  const { contractUrl: privateContractUrl, ...safeRow } = row;
+  void privateContractUrl;
+  return {
+    ...safeRow,
+    ...summary,
+  };
+}
+
 const productsRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db
@@ -705,17 +800,74 @@ const productsRouter = router({
         .map((row) => row.productId)
         .filter((id): id is string => id !== null),
     );
-    return rows.map((row) => ({
-      ...row,
-      removalAction: historyIds.has(row.id) ? ("archive" as const) : ("delete" as const),
-    }));
+    return rows.map((row) =>
+      producerSafeProduct({
+        ...row,
+        removalAction: historyIds.has(row.id) ? ("archive" as const) : ("delete" as const),
+      }),
+    );
   }),
+
+  prepareAgreementPdfUpload: producerProcedure
+    .input(
+      z.object({
+        originalFileName: z.string().min(1).max(200),
+        contentType: z.literal("application/pdf"),
+        sizeBytes: z
+          .number()
+          .int()
+          .positive()
+          .max(15 * 1024 * 1024),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const fileError = agreementPdfFileError(input);
+      if (fileError) throw new TRPCError({ code: "BAD_REQUEST", message: fileError });
+      try {
+        const secret = agreementPdfServerSecret();
+        const signed = createAgreementPdfUploadToken(secret, {
+          producerId: ctx.producerId,
+          viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+          originalFileName: input.originalFileName,
+          contentType: input.contentType,
+          sizeBytes: input.sizeBytes,
+        });
+        const upload = await createPrivateAgreementPdfUpload(secret, signed.payload);
+        return { ...upload, uploadToken: signed.token };
+      } catch (error) {
+        privateAgreementInputError(error);
+      }
+    }),
+
+  cancelAgreementPdfUpload: producerProcedure
+    .input(z.object({ uploadToken: z.string().min(1).max(4_096) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const secret = agreementPdfServerSecret();
+        const token = verifyOwnedAgreementPdfUploadToken(secret, input.uploadToken, {
+          producerId: ctx.producerId,
+          viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+        });
+        await deletePrivateAgreementPdfStaging(secret, token);
+        return { cancelled: true as const };
+      } catch (error) {
+        privateAgreementInputError(error);
+      }
+    }),
 
   create: producerProcedure.input(ProductInput).mutation(async ({ ctx, input }) => {
     // Pre-H.3 callers (onboarding wizard) pass in only a minimal set
     // of fields. The DB expects durationMin NOT NULL, so default it
     // to 0 when the caller doesn't pass one.
-    const { durationMin = 0, priceCents = 0, sessionCount = 1, ...rest } = input;
+    const {
+      durationMin = 0,
+      priceCents = 0,
+      sessionCount = 1,
+      agreementPdf,
+      contractUrl: legacyContractUrl,
+      ...rest
+    } = input;
+    void legacyContractUrl;
     const values = {
       ...stripUndefined(rest),
       durationMin,
@@ -743,12 +895,21 @@ const productsRouter = router({
         paymentPlans: values.paymentPlans ?? [{ kind: "full" }],
         royaltyTerms: values.royaltyTerms ?? null,
         agreementText: values.agreementText ?? null,
+        hasAgreementPdf: agreementPdf?.kind === "replace",
         active: values.active,
         archivedAt: null,
       });
     } catch (error) {
       mapStoreProductCommercialError(error);
     }
+
+    if (agreementPdf?.kind === "keep") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Upload the agreement PDF again." });
+    }
+    const replacement = await finalizeAgreementPdfChange(agreementPdf, {
+      producerId: ctx.producerId,
+      viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+    });
 
     return ctx.db.transaction(async (tx) => {
       await tx.execute(
@@ -761,17 +922,28 @@ const productsRouter = router({
         .orderBy(asc(products.position));
       const nextPos =
         existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
+      const contractUrl = nextAgreementPdfContract({
+        current: null,
+        change: agreementPdf,
+        replacement,
+        now: new Date(),
+      });
       const [row] = await tx
         .insert(products)
-        .values({ ...values, position: nextPos })
+        .values({ ...values, contractUrl, position: nextPos })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
+      return producerSafeProduct(row);
     });
   }),
 
   update: producerProcedure.input(ProductUpdateInput).mutation(async ({ ctx, input }) => {
-    const { id, ...patch } = input;
+    const { id, agreementPdf, contractUrl: legacyContractUrl, ...patch } = input;
+    void legacyContractUrl;
+    const replacement = await finalizeAgreementPdfChange(agreementPdf, {
+      producerId: ctx.producerId,
+      viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+    });
     return ctx.db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
@@ -780,8 +952,15 @@ const productsRouter = router({
         .limit(1)
         .for("update");
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      const contractUrl = nextAgreementPdfContract({
+        current: existing.contractUrl,
+        change: agreementPdf,
+        replacement,
+        now: new Date(),
+      });
       const persistedPatch = {
         ...stripUndefined(patch),
+        ...(agreementPdf ? { contractUrl } : {}),
         ...(patch.paymentPlans
           ? {
               paymentPlans: mergePreservedPaymentPlans(patch.paymentPlans, existing.paymentPlans),
@@ -791,7 +970,10 @@ const productsRouter = router({
       try {
         mergeAndValidateStoreProduct(
           existing as StoreProductCommercialInput,
-          persistedPatch as Partial<StoreProductCommercialInput>,
+          {
+            ...(persistedPatch as Partial<StoreProductCommercialInput>),
+            hasAgreementPdf: Boolean(currentAgreementPdfRevision(contractUrl)?.document),
+          },
         );
       } catch (error) {
         mapStoreProductCommercialError(error);
@@ -802,7 +984,7 @@ const productsRouter = router({
         .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
         .returning();
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-      return row;
+      return producerSafeProduct(row);
     });
   }),
 
@@ -987,6 +1169,7 @@ const productsRouter = router({
         try {
           mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
             active: input.active,
+            hasAgreementPdf: Boolean(currentAgreementPdfRevision(existing.contractUrl)?.document),
           });
         } catch (error) {
           mapStoreProductCommercialError(error);
@@ -1026,6 +1209,14 @@ const productsRouter = router({
           .where(eq(products.producerId, ctx.producerId))
           .orderBy(asc(products.position));
         const nextPos = all.length === 0 ? 0 : (all[all.length - 1]?.position ?? 0) + 1;
+        const sourceAgreement = currentAgreementPdfRevision(existing.contractUrl)?.document ?? null;
+        const duplicatedContractUrl = sourceAgreement
+          ? appendAgreementPdfRevision(null, {
+              revisionId: randomUUID(),
+              effectiveAt: new Date().toISOString(),
+              document: sourceAgreement,
+            })
+          : null;
         const [row] = await tx
           .insert(products)
           .values({
@@ -1049,13 +1240,14 @@ const productsRouter = router({
             deliverables: existing.deliverables,
             paymentPlans: existing.paymentPlans,
             royaltyTerms: existing.royaltyTerms,
-            // A duplicate is a future product and must not inherit mutable terms.
-            contractUrl: null,
+            // Reuse only the immutable object identity under a new product-local
+            // revision. Legacy external links never carry into a duplicate.
+            contractUrl: duplicatedContractUrl,
             agreementText: existing.agreementText,
           })
           .returning();
         if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        return row;
+        return producerSafeProduct(row);
       });
     }),
 });

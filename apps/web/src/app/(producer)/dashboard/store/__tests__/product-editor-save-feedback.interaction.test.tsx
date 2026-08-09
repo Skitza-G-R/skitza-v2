@@ -7,10 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProducerStoreProductDraft } from "~/lib/runtime-state/runtime-state";
 
 const mocks = vi.hoisted(() => ({
+  cancelAgreementPdfUpload: vi.fn(),
   createPackage: vi.fn(),
+  prepareAgreementPdfUpload: vi.fn(),
   refresh: vi.fn(),
   toast: vi.fn(),
   updatePackage: vi.fn(),
+  updateProducer: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,8 +21,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("~/app/(producer)/dashboard/booking/actions", () => ({
+  cancelAgreementPdfUpload: mocks.cancelAgreementPdfUpload,
   createPackage: mocks.createPackage,
+  prepareAgreementPdfUpload: mocks.prepareAgreementPdfUpload,
   updatePackage: mocks.updatePackage,
+}));
+
+vi.mock("~/app/(producer)/dashboard/settings/actions", () => ({
+  updateProducer: mocks.updateProducer,
 }));
 
 vi.mock("~/components/runtime-state/online-required-link", () => ({
@@ -177,9 +186,12 @@ async function flushReact(): Promise<void> {
 beforeEach(() => {
   vi.useFakeTimers();
   mocks.createPackage.mockReset();
+  mocks.cancelAgreementPdfUpload.mockReset();
+  mocks.prepareAgreementPdfUpload.mockReset();
   mocks.refresh.mockReset();
   mocks.toast.mockReset();
   mocks.updatePackage.mockReset();
+  mocks.updateProducer.mockReset();
 });
 
 afterEach(() => {

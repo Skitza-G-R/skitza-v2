@@ -125,6 +125,36 @@ function mapPurchase(row: PaymentPurchaseProjection) {
 }
 
 describe("artist payment record status", () => {
+  it("keeps only the accepted PDF file name in the client history model", () => {
+    const baseSnapshot = commercialSnapshot(100_000, { kind: "full" });
+    const snapshot = {
+      ...baseSnapshot,
+      agreementPdf: {
+        documentId: "00000000-0000-4000-8000-000000000301",
+        originalFileName: "frozen-production-terms.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 1_024,
+        objectEtag: "private-object-etag",
+        sha256: "a".repeat(64),
+      },
+    } as PurchaseCommercialSnapshot;
+    const row = mapPurchase(
+      purchase({
+        id: "accepted-pdf",
+        commercialSnapshot: snapshot,
+        acceptance: {
+          id: "acceptance-pdf",
+          acceptedAt: new Date("2026-07-01T09:00:00.000Z"),
+          acceptedSnapshot: snapshot,
+        },
+      }),
+    );
+
+    expect(row?.frozenTerms.agreementPdfFileName).toBe("frozen-production-terms.pdf");
+    expect(JSON.stringify(row)).not.toContain("private-object-etag");
+    expect(JSON.stringify(row)).not.toContain('"sha256"');
+  });
+
   it("does not call a true zero-total accepted purchase paid in full", () => {
     const snapshot = commercialSnapshot(0, null);
     const row = mapPurchase(

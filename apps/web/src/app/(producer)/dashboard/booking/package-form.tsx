@@ -40,9 +40,6 @@ export type InitialPackageValues = {
   bufferMinutes: number;
   minLeadHours: number;
   paymentPlans?: PaymentPlan[];
-  // Legacy read compatibility only. Store editing clears this value and no
-  // longer lets producers publish mutable external agreement terms.
-  contractUrl: string | null;
 };
 
 const CURRENCY_SYMBOL: Record<Currency, string> = {
@@ -202,7 +199,6 @@ export function NewPackageForm({
       bufferMinutes,
       minLeadHours,
       paymentPlans,
-      contractUrl: null,
     };
     startTransition(async () => {
       const res = isEdit

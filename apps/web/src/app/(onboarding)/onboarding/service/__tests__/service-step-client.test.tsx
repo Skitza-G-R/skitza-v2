@@ -127,12 +127,22 @@ describe("onboarding first-product editor", () => {
       notes: "Headline terms only.",
     });
     expect(payload.agreementText).toBe("Credit and delivery terms.");
-    expect(payload.contractUrl).toBeNull();
+    expect(payload.agreementPdf).toEqual({ kind: "remove" });
     expect(decodeDescription(payload.description)).toEqual({
       tagline: "From demo to master.",
       revisions: 3,
       unlimitedRevisions: false,
       contractText: "",
     });
+  });
+
+  it("requires and saves the canonical studio tax choice before pricing", () => {
+    expect(editorSource).toMatch(
+      /ONBOARDING_NEW_STEPS:[\s\S]*"details",[\s\S]*"tax",[\s\S]*"price"/,
+    );
+    expect(editorSource).toContain('newProductFlow !== "onboarding"');
+    expect(editorSource).toMatch(
+      /currentStep !== "tax"[\s\S]*updateProducer\(\{[\s\S]*taxMode:[\s\S]*taxRatePct:/,
+    );
   });
 });

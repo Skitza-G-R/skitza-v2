@@ -76,6 +76,7 @@ import { deliverPushToProducer, deliverPushToVersionProducer } from "~/server/pu
 import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
 import { getArtistProfile } from "~/server/artist/profile";
 import { deliverCalendarSyncJobBestEffort } from "~/server/calendar/drain";
+import { currentAgreementPdfRevision } from "~/server/domain/agreement-pdfs/contract";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -2112,6 +2113,9 @@ const storeSubrouter = router({
           deliverables: products.deliverables,
           royaltyTerms: products.royaltyTerms,
           agreementText: products.agreementText,
+          // Server-only append-only ledger. It is parsed only to validate
+          // sellability and is never returned in the artist catalog.
+          contractUrl: products.contractUrl,
           locationType: products.locationType,
           bufferMinutes: products.bufferMinutes,
           minLeadHours: products.minLeadHours,
@@ -2140,7 +2144,15 @@ const storeSubrouter = router({
       const sellableRows = rows.flatMap((row) => {
         if (row.pricingModel === "hourly") return [];
         try {
-          return [{ row, commercial: assertArtistStoreProductSellable(row) }];
+          return [
+            {
+              row,
+              commercial: assertArtistStoreProductSellable({
+                ...row,
+                hasAgreementPdf: Boolean(currentAgreementPdfRevision(row.contractUrl)?.document),
+              }),
+            },
+          ];
         } catch (error) {
           if (error instanceof StoreProductCommercialError) return [];
           throw error;
@@ -2203,6 +2215,8 @@ const storeSubrouter = router({
           minLeadHours: products.minLeadHours,
           active: products.active,
           archivedAt: products.archivedAt,
+          // Kept server-only; see the sellability check below.
+          contractUrl: products.contractUrl,
           ...(hasCommercialTermsColumns
             ? {
                 royaltyTerms: products.royaltyTerms,
@@ -2241,6 +2255,7 @@ const storeSubrouter = router({
           ...row,
           royaltyTerms: "royaltyTerms" in row ? (row.royaltyTerms ?? null) : null,
           agreementText: "agreementText" in row ? (row.agreementText ?? null) : null,
+          hasAgreementPdf: Boolean(currentAgreementPdfRevision(row.contractUrl)?.document),
         });
       } catch (error) {
         if (error instanceof StoreProductCommercialError) {

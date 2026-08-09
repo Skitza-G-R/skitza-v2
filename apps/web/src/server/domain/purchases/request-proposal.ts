@@ -1,5 +1,6 @@
 import type { PurchaseCommercialSnapshot } from "@skitza/db";
 
+import type { AgreementPdfClientSnapshot } from "~/lib/agreement-pdf";
 import {
   buildStorePurchaseProposalAgreementText,
   buildStorePurchaseSnapshot,
@@ -10,6 +11,7 @@ import {
 export type PurchaseRequestCommercialProposal = Readonly<
   Omit<PurchaseCommercialSnapshot, "selectedPaymentPlan"> & {
     selectedPaymentPlan: null;
+    agreementPdf?: AgreementPdfClientSnapshot;
   }
 >;
 
@@ -32,6 +34,7 @@ export function buildPurchaseRequestCommercialProposal(input: {
   product: StoreProductCommercialInput;
   taxMode: string;
   taxRatePct: number;
+  agreementPdf?: AgreementPdfClientSnapshot | null;
   allowUnpublished?: boolean;
 }): PurchaseRequestCommercialProposal {
   const initialPlan = input.product.paymentPlans[0];
@@ -55,6 +58,7 @@ export function buildPurchaseRequestCommercialProposal(input: {
     taxMode: input.taxMode,
     taxRatePct: input.taxRatePct,
     selectedPaymentPlan: initialPlan,
+    ...(input.agreementPdf !== undefined ? { agreementPdf: input.agreementPdf } : {}),
   });
 
   return Object.freeze({

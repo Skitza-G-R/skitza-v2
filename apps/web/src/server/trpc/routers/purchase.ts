@@ -63,6 +63,10 @@ import {
   type PurchaseRequestCommercialProposal,
 } from "~/server/domain/purchases/request-proposal";
 import {
+  agreementPdfClientSnapshot,
+  currentAgreementPdfRevision,
+} from "~/server/domain/agreement-pdfs/contract";
+import {
   assertPurchaseRequestOperationReplay,
   preparePurchaseRequestOperation,
   purchaseRequestApprovalUndoDeadline,
@@ -210,6 +214,16 @@ function effectiveAgreementText(
   return decodeDescription(product.description).contractText || null;
 }
 
+function currentAgreementPdfTerms<ProductRow extends { contractUrl: string | null }>(
+  product: ProductRow,
+) {
+  const agreementPdf = agreementPdfClientSnapshot(currentAgreementPdfRevision(product.contractUrl));
+  return {
+    product: { ...product, hasAgreementPdf: agreementPdf !== null },
+    agreementPdf,
+  };
+}
+
 function requestPrice(
   request: Pick<PurchaseRequest, "requestedSongQty">,
   product: Pick<Product, "pricingModel" | "priceCents" | "hourlyRateCents" | "volumeTiers">,
@@ -345,7 +359,7 @@ async function applyProducerRequestTransition(
       try {
         commercialProposal = buildPurchaseRequestCommercialProposal({
           requestedSongQty: loaded.request.requestedSongQty,
-          product: loaded.product,
+          ...currentAgreementPdfTerms(loaded.product),
           taxMode: loaded.producerTaxMode,
           taxRatePct: loaded.producerTaxRatePct,
         });
@@ -481,7 +495,7 @@ export const artistPurchaseRouter = router({
       if (!commercialOwner || !initialPlan) throw new TRPCError({ code: "NOT_FOUND" });
       try {
         buildStorePurchaseSnapshot({
-          product,
+          ...currentAgreementPdfTerms(product),
           requestedSongQty: input.songQty,
           taxMode: commercialOwner.taxMode,
           taxRatePct: commercialOwner.taxRatePct,
@@ -562,7 +576,7 @@ export const artistPurchaseRouter = router({
         if (!availableProduct) throw new TRPCError({ code: "NOT_FOUND" });
         try {
           buildStorePurchaseSnapshot({
-            product: availableProduct,
+            ...currentAgreementPdfTerms(availableProduct),
             requestedSongQty: input.songQty,
             taxMode: commercialOwner.taxMode,
             taxRatePct: commercialOwner.taxRatePct,
@@ -788,7 +802,7 @@ export const artistPurchaseRouter = router({
       try {
         proposal = buildPurchaseRequestCommercialProposal({
           requestedSongQty: request.requestedSongQty,
-          product,
+          ...currentAgreementPdfTerms(product),
           taxMode: row.producerTaxMode,
           taxRatePct: row.producerTaxRatePct,
           allowUnpublished: true,
@@ -833,7 +847,7 @@ export const artistPurchaseRouter = router({
         let exactTerms;
         try {
           exactTerms = buildStorePurchaseSnapshot({
-            product,
+            ...currentAgreementPdfTerms(product),
             requestedSongQty: request.requestedSongQty,
             taxMode: producerTaxMode,
             taxRatePct: producerTaxRatePct,
@@ -1307,7 +1321,7 @@ export const producerPurchaseRouter = router({
         requests: rows.map(({ request, product, producerTaxMode, producerTaxRatePct }) => {
           const proposal = tryBuildPurchaseRequestCommercialProposal({
             requestedSongQty: request.requestedSongQty,
-            product,
+            ...currentAgreementPdfTerms(product),
             taxMode: producerTaxMode,
             taxRatePct: producerTaxRatePct,
             allowUnpublished: true,
@@ -1388,7 +1402,7 @@ export const producerPurchaseRouter = router({
 
       const commercialProposal = tryBuildPurchaseRequestCommercialProposal({
         requestedSongQty: request.requestedSongQty,
-        product,
+        ...currentAgreementPdfTerms(product),
         taxMode: producerTaxMode,
         taxRatePct: producerTaxRatePct,
         allowUnpublished: true,

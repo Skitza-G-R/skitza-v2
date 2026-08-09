@@ -5,6 +5,7 @@ import type {
 } from "@skitza/db";
 
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import type { AgreementPdfClientSnapshot } from "~/lib/agreement-pdf";
 import type { TaxMode } from "~/lib/tax-mode";
 import { assertCommercialSnapshotMatchesAcceptance } from "~/server/domain/purchases/commercial-snapshot";
 import { digestCommercialSnapshot } from "~/server/domain/purchases/policy";
@@ -43,6 +44,8 @@ export type StoreProductCommercialInput = Readonly<{
   paymentPlans: readonly PaymentPlan[];
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementText: string | null;
+  /** Server-derived; never accept object identity from a Store client. */
+  hasAgreementPdf?: boolean;
   active: boolean;
   archivedAt: Date | null;
 }>;
@@ -541,6 +544,7 @@ function normalizeProduct(
     paymentPlans: normalizePaymentPlans(product.paymentPlans),
     royaltyTerms: normalizeRoyaltyTerms(product.royaltyTerms),
     agreementText: product.agreementText,
+    hasAgreementPdf: product.hasAgreementPdf === true,
     active: product.active,
     archivedAt,
   });
@@ -568,10 +572,14 @@ function normalizeProduct(
     const royaltiesUseAgreement =
       normalized.royaltyTerms?.master.mode === "agreement" ||
       normalized.royaltyTerms?.composition.mode === "agreement";
-    if (royaltiesUseAgreement && effectiveProducerAgreement(normalized).length === 0) {
+    if (
+      royaltiesUseAgreement &&
+      effectiveProducerAgreement(normalized).length === 0 &&
+      !normalized.hasAgreementPdf
+    ) {
       fail(
         "IMMUTABLE_AGREEMENT_REQUIRED",
-        "Royalty terms that refer to an agreement require exact inline agreement text",
+        "Royalty terms that refer to an agreement require exact inline terms or a private PDF",
         "agreementText",
       );
     }
@@ -910,15 +918,18 @@ export type BuildStorePurchaseSnapshotInput = Readonly<{
   taxMode: string;
   taxRatePct: number;
   selectedPaymentPlan: PaymentPlan;
+  agreementPdf?: AgreementPdfClientSnapshot | null;
 }>;
 
-type PurchaseCommercialSnapshotV2 = PurchaseCommercialSnapshot & Readonly<{
-  version: 2;
-  bookingEnabled: boolean;
-}>;
+export type StorePurchaseCommercialSnapshot = PurchaseCommercialSnapshot &
+  Readonly<{
+    version: 2;
+    bookingEnabled: boolean;
+    agreementPdf?: AgreementPdfClientSnapshot;
+  }>;
 
 export type BuiltStorePurchaseSnapshot = Readonly<{
-  snapshot: PurchaseCommercialSnapshotV2;
+  snapshot: StorePurchaseCommercialSnapshot;
   snapshotDigest: string;
 }>;
 
@@ -965,7 +976,7 @@ export function buildStorePurchaseSnapshot(
         ? 0
         : 1;
 
-  const withoutAgreement: Omit<PurchaseCommercialSnapshotV2, "agreementText"> = {
+  const withoutAgreement: Omit<StorePurchaseCommercialSnapshot, "agreementText"> = {
     version: 2,
     bookingEnabled: product.bookingEnabled,
     productOrOfferName: product.name,
@@ -990,8 +1001,9 @@ export function buildStorePurchaseSnapshot(
     rights,
     selectedPaymentPlan: paymentPlan,
     offeredPaymentPlans: product.paymentPlans.map((plan) => ({ ...plan })),
+    ...(input.agreementPdf ? { agreementPdf: input.agreementPdf } : {}),
   };
-  const snapshot: PurchaseCommercialSnapshotV2 = {
+  const snapshot: StorePurchaseCommercialSnapshot = {
     ...withoutAgreement,
     agreementText: finalAgreementText(withoutAgreement, effectiveProducerAgreement(product)),
   };

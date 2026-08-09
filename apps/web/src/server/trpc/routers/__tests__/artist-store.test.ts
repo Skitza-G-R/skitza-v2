@@ -73,6 +73,7 @@ const {
     paymentPlans: { __column: "products.payment_plans" },
     royaltyTerms: { __column: "products.royalty_terms" },
     agreementText: { __column: "products.agreement_text" },
+    contractUrl: { __column: "products.contract_url" },
     position: { __column: "products.position" },
     active: { __column: "products.active" },
     archivedAt: { __column: "products.archived_at" },
@@ -243,6 +244,7 @@ vi.mock("~/lib/rate-limit/in-memory", () => ({
 // Re-import the mocked symbols so auth-boundary tests assert column
 // marker identity against the same objects the router references.
 import { clientContacts, products } from "@skitza/db";
+import { appendAgreementPdfRevision } from "~/server/domain/agreement-pdfs/contract";
 
 beforeEach(() => {
   contactsSelectQueue.length = 0;
@@ -265,6 +267,19 @@ const buildCaller = async (userId: string | null = "user_test_artist_1") => {
 const PRODUCER_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const OTHER_PRODUCER_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const PRODUCT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const PDF_CONTRACT = appendAgreementPdfRevision(null, {
+  revisionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  effectiveAt: "2026-08-09T00:00:00.000Z",
+  document: {
+    storageBucket: "docs",
+    storageKey: `agreement-pdfs/${"a".repeat(64)}`,
+    originalFileName: "private-terms.pdf",
+    contentType: "application/pdf",
+    sizeBytes: 1_024,
+    objectEtag: '"etag"',
+    sha256: "b".repeat(64),
+  },
+});
 
 function findPredicate(
   where: unknown,
@@ -556,6 +571,41 @@ describe("artist.store.products (query)", () => {
     expect(findPredicate(where, "inArray", products.pricingModel)).toBeNull();
   });
 
+  it("keeps a PDF-only agreement product sellable without returning its ledger", async () => {
+    seedValidContact();
+    productsSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        name: "PDF terms production",
+        description: null,
+        priceCents: 10000,
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "production",
+        pricingModel: "flat",
+        paymentPlans: [{ kind: "full" }],
+        royaltyTerms: {
+          master: { mode: "agreement" },
+          composition: { mode: "none" },
+        },
+        agreementText: null,
+        contractUrl: PDF_CONTRACT,
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.store.products({ producerId: PRODUCER_ID });
+
+    expect(result.products).toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain("skitza-private-agreement");
+    expect(JSON.stringify(result)).not.toContain("storageKey");
+  });
+
   // Test 6
   it("scopes by clerkUserId in the gating contacts SELECT (auth boundary)", async () => {
     contactsSelectQueue.push([
@@ -662,6 +712,41 @@ describe("artist.store.product (query)", () => {
     expect(result.revisions).toBe(2);
     expect(result.royaltyTerms).toBeNull();
     expect(result.agreementText).toBe("Legacy inline terms");
+  });
+
+  it("opens PDF-only agreement detail without returning private object identity", async () => {
+    productsSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        name: "PDF terms production",
+        description: null,
+        priceCents: 10000,
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "production",
+        pricingModel: "flat",
+        paymentPlans: [{ kind: "full" }],
+        royaltyTerms: {
+          master: { mode: "agreement" },
+          composition: { mode: "none" },
+        },
+        agreementText: null,
+        contractUrl: PDF_CONTRACT,
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha Studio",
+        producerSlug: "alpha",
+      },
+    ]);
+    seedValidContact();
+
+    const caller = await buildCaller();
+    const result = await caller.artist.store.product({ productId: PRODUCT_ID });
+
+    expect(result.id).toBe(PRODUCT_ID);
+    expect(JSON.stringify(result)).not.toContain("skitza-private-agreement");
+    expect(JSON.stringify(result)).not.toContain("storageKey");
   });
 
   // Test 8

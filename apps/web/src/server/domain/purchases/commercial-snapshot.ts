@@ -1,5 +1,7 @@
 import type { PurchaseCommercialSnapshot } from "@skitza/db";
 
+import { parseAgreementPdfClientSnapshot } from "~/lib/agreement-pdf";
+
 import type { PurchasePaymentPlan } from "./ledger";
 
 type JsonRecord = Record<string, unknown>;
@@ -26,10 +28,15 @@ const SNAPSHOT_KEYS = [
   "selectedPaymentPlan",
   "offeredPaymentPlans",
   "agreementText",
+  "agreementPdf",
 ] as const;
 
 const REQUIRED_SNAPSHOT_KEYS = SNAPSHOT_KEYS.filter(
-  (key) => key !== "tagline" && key !== "service" && key !== "bookingEnabled",
+  (key) =>
+    key !== "tagline" &&
+    key !== "service" &&
+    key !== "bookingEnabled" &&
+    key !== "agreementPdf",
 );
 
 function record(value: unknown, label: string): JsonRecord {
@@ -376,6 +383,12 @@ export function assertCommercialSnapshotMatchesAcceptance(
   validateRoyaltyTerms(candidate.royaltyTerms);
   stringArray(candidate.rights, "commercialSnapshot.rights");
   stringValue(candidate.agreementText, "commercialSnapshot.agreementText", true);
+  if (
+    Object.prototype.hasOwnProperty.call(candidate, "agreementPdf") &&
+    parseAgreementPdfClientSnapshot(candidate.agreementPdf) === null
+  ) {
+    throw new Error("commercialSnapshot.agreementPdf must contain exact private PDF metadata");
+  }
 
   const offeredPlans = denseArray(
     candidate.offeredPaymentPlans,

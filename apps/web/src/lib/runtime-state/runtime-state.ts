@@ -67,6 +67,7 @@ export interface ProducerPortfolioSafeView {
 export type ProducerStoreDraftStep =
   | "type"
   | "details"
+  | "tax"
   | "price"
   | "payment"
   | "delivery"
@@ -92,6 +93,9 @@ export interface ProducerStoreProductDraft {
     unlimitedSessions: boolean;
     /** Added by the artist-platform release. Missing only on older saved drafts. */
     bookingEnabled?: boolean;
+    /** Added in SK-204. Null means onboarding still requires an explicit choice. */
+    taxMode?: "tax_free" | "tax_included" | "tax_added" | null;
+    taxRatePct?: number;
     payment: {
       full: boolean;
       split50: boolean;
@@ -102,8 +106,13 @@ export interface ProducerStoreProductDraft {
     duration: string;
     revisions: number;
     unlimitedRevisions: boolean;
-    agreementMode: "none" | "text";
+    agreementMode: "none" | "text" | "pdf";
     agreementText: string;
+    agreementPdf?: {
+      documentId: string | null;
+      originalFileName: string;
+      sizeBytes: number;
+    } | null;
     royalty: {
       masterMode: "none" | "percentage" | "agreement" | null;
       masterPercentage: string;
@@ -503,9 +512,16 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     (value.mode !== "new" && value.mode !== "edit") ||
     (value.productId !== null && !isBoundedString(value.productId, 128)) ||
     (value.mode === "new" ? value.productId !== null : value.productId === null) ||
-    !["type", "details", "price", "payment", "delivery", "rights", "review"].includes(
-      String(value.currentStep),
-    ) ||
+    ![
+      "type",
+      "details",
+      "tax",
+      "price",
+      "payment",
+      "delivery",
+      "rights",
+      "review",
+    ].includes(String(value.currentStep)) ||
     !isRecord(value.draft)
   ) {
     return false;
@@ -523,6 +539,8 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     "sessions",
     "unlimitedSessions",
     "bookingEnabled",
+    "taxMode",
+    "taxRatePct",
     "payment",
     "includes",
     "duration",
@@ -530,20 +548,26 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     "unlimitedRevisions",
     "agreementMode",
     "agreementText",
+    "agreementPdf",
     "royalty",
     "pricingModel",
     "volumeTiers",
   ] as const;
-  const withoutIncludesSessions = currentDraftKeys.filter((key) => key !== "includesSessions");
-  const withoutBookingEnabled = currentDraftKeys.filter((key) => key !== "bookingEnabled");
-  const legacyDraftKeys = currentDraftKeys.filter(
-    (key) => key !== "includesSessions" && key !== "bookingEnabled",
-  );
+  const optionalDraftKeys = new Set([
+    "includesSessions",
+    "bookingEnabled",
+    "taxMode",
+    "taxRatePct",
+    "agreementPdf",
+  ]);
+  const actualDraftKeys = Object.keys(value.draft);
+  const allowedDraftKeys = new Set<string>(currentDraftKeys);
   if (
-    !hasExactKeys(value.draft, currentDraftKeys) &&
-    !hasExactKeys(value.draft, withoutIncludesSessions) &&
-    !hasExactKeys(value.draft, withoutBookingEnabled) &&
-    !hasExactKeys(value.draft, legacyDraftKeys)
+    actualDraftKeys.some((key) => !allowedDraftKeys.has(key)) ||
+    currentDraftKeys.some(
+      (key) =>
+        !optionalDraftKeys.has(key) && !Object.prototype.hasOwnProperty.call(value.draft, key),
+    )
   ) {
     return false;
   }
@@ -564,6 +588,12 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     isSafeInteger(draft.sessions, 0, 10_000) &&
     typeof draft.unlimitedSessions === "boolean" &&
     (draft.bookingEnabled === undefined || typeof draft.bookingEnabled === "boolean") &&
+    (draft.taxMode === undefined ||
+      draft.taxMode === null ||
+      draft.taxMode === "tax_free" ||
+      draft.taxMode === "tax_included" ||
+      draft.taxMode === "tax_added") &&
+    (draft.taxRatePct === undefined || isSafeInteger(draft.taxRatePct, 0, 100)) &&
     isProducerStorePaymentDraft(draft.payment) &&
     Array.isArray(draft.includes) &&
     draft.includes.length <= 100 &&
@@ -571,8 +601,18 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     isBoundedString(draft.duration, 80, true) &&
     isSafeInteger(draft.revisions, 0, 1_000) &&
     typeof draft.unlimitedRevisions === "boolean" &&
-    (draft.agreementMode === "none" || draft.agreementMode === "text") &&
+    (draft.agreementMode === "none" ||
+      draft.agreementMode === "text" ||
+      draft.agreementMode === "pdf") &&
     isBoundedString(draft.agreementText, 20_000, true) &&
+    (draft.agreementPdf === undefined ||
+      draft.agreementPdf === null ||
+      (isRecord(draft.agreementPdf) &&
+        hasExactKeys(draft.agreementPdf, ["documentId", "originalFileName", "sizeBytes"]) &&
+        (draft.agreementPdf.documentId === null ||
+          isBoundedString(draft.agreementPdf.documentId, 128)) &&
+        isBoundedString(draft.agreementPdf.originalFileName, 200) &&
+        isSafeInteger(draft.agreementPdf.sizeBytes, 1, 15 * 1024 * 1024))) &&
     isProducerStoreRoyaltyDraft(draft.royalty) &&
     (draft.pricingModel === "flat" || draft.pricingModel === "per_song") &&
     Array.isArray(draft.volumeTiers) &&

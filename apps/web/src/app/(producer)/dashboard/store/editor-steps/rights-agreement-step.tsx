@@ -2,6 +2,7 @@
 
 import type {
   AgreementMode,
+  AgreementPdfDraft,
   ProductRoyaltyDraft,
   RoyaltyDraftErrors,
   RoyaltyMode,
@@ -11,6 +12,8 @@ interface RightsAgreementStepProps {
   royalty: ProductRoyaltyDraft;
   agreementMode: AgreementMode;
   agreementText: string;
+  agreementPdf?: AgreementPdfDraft | null;
+  pdfUploadPending?: boolean;
   errors: RoyaltyDraftErrors;
   agreementError?: string;
   legacyUnspecified?: boolean;
@@ -21,6 +24,8 @@ interface RightsAgreementStepProps {
       agreementText: string;
     }>,
   ) => void;
+  onAgreementPdfSelect?: (file: File) => void;
+  onAgreementPdfRemove?: () => void;
 }
 
 const ROYALTY_MODES: readonly { id: RoyaltyMode; label: string }[] = [
@@ -32,7 +37,14 @@ const ROYALTY_MODES: readonly { id: RoyaltyMode; label: string }[] = [
 const AGREEMENT_MODES: readonly { id: AgreementMode; label: string }[] = [
   { id: "none", label: "No attachment" },
   { id: "text", label: "Write exact terms" },
+  { id: "pdf", label: "Upload PDF" },
 ];
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${String(sizeBytes)} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function RoyaltyModePicker({
   name,
@@ -121,11 +133,15 @@ export function RightsAgreementStep({
   royalty,
   agreementMode,
   agreementText,
+  agreementPdf = null,
+  pdfUploadPending = false,
   errors,
   agreementError,
   legacyUnspecified = false,
   onRoyaltyChange,
   onAgreementChange,
+  onAgreementPdfSelect,
+  onAgreementPdfRemove,
 }: RightsAgreementStepProps) {
   return (
     <div className="flex flex-col gap-5">
@@ -304,9 +320,9 @@ export function RightsAgreementStep({
           Agreement <span className="font-normal text-[rgb(var(--fg-faint))]">(optional)</span>
         </legend>
         <p className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Write terms here so the artist accepts an exact, unchangeable copy with the purchase.
+          Add inline terms or one private PDF. The artist reviews the exact accepted copy in Skitza.
         </p>
-        <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           {AGREEMENT_MODES.map((option) => (
             <label
               key={option.id}
@@ -353,6 +369,51 @@ export function RightsAgreementStep({
             />
             <div className="text-right text-[11px] text-[rgb(var(--fg-faint))] tabular-nums">
               {agreementText.length} characters
+            </div>
+          </div>
+        ) : null}
+
+        {agreementMode === "pdf" ? (
+          <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:rounded-[var(--radius-md)]">
+            {agreementPdf ? (
+              <div className="flex min-w-0 flex-col gap-1">
+                <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  {agreementPdf.originalFileName}
+                </p>
+                <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  PDF · {formatFileSize(agreementPdf.sizeBytes)}
+                </p>
+              </div>
+            ) : (
+              <p className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                PDF only, up to 15 MB. It stays private and is opened through Skitza.
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <label className="sk-press inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]">
+                {pdfUploadPending ? "Uploading…" : agreementPdf ? "Replace PDF" : "Choose PDF"}
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  disabled={pdfUploadPending}
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (file) onAgreementPdfSelect?.(file);
+                  }}
+                />
+              </label>
+              {agreementPdf ? (
+                <button
+                  type="button"
+                  disabled={pdfUploadPending}
+                  onClick={onAgreementPdfRemove}
+                  className="sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                >
+                  Remove
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}

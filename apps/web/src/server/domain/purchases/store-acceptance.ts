@@ -23,6 +23,11 @@ import { createInstallmentSchedule } from "./ledger";
 import { purchaseRepositoryForTransaction } from "./db";
 import { digestCommercialSnapshot } from "./policy";
 import { acceptPurchase, PurchaseDomainError } from "./service";
+import {
+  AgreementPdfContractError,
+  agreementPdfClientSnapshot,
+  currentAgreementPdfRevision,
+} from "~/server/domain/agreement-pdfs/contract";
 
 export type StoreAcceptanceErrorCode = "NOT_FOUND" | "NOT_APPROVED" | "TERMS_CHANGED" | "INVALID";
 
@@ -142,12 +147,16 @@ function buildTerms(
   target: StoreAcceptancePreview["target"],
 ) {
   try {
+    const agreementPdf = agreementPdfClientSnapshot(
+      currentAgreementPdfRevision(context.product.contractUrl),
+    );
     const built = buildStorePurchaseSnapshot({
-      product: context.product,
+      product: { ...context.product, hasAgreementPdf: agreementPdf !== null },
       requestedSongQty: context.request.requestedSongQty,
       taxMode: context.taxMode,
       taxRatePct: context.taxRatePct,
       selectedPaymentPlan,
+      agreementPdf,
     });
     const installments = createInstallmentSchedule(selectedPaymentPlan, built.snapshot.totalCents);
     const schedule = installments.map((installment) => ({
@@ -179,6 +188,12 @@ function buildTerms(
       schedule,
     };
   } catch (error) {
+    if (error instanceof AgreementPdfContractError) {
+      throw new StoreAcceptanceError(
+        "INVALID",
+        "The private agreement PDF is unavailable. Ask the producer to review this product.",
+      );
+    }
     if (
       !(error instanceof StoreProductCommercialError) &&
       !(error instanceof PurchaseDomainError)

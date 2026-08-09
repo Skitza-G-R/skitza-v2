@@ -236,7 +236,8 @@ describe("cached-first and draft integration contracts", () => {
     expect(STORE_SCREEN).toContain("onSubmitted={storeDraft.clear}");
     expect(STORE_EDITOR).toContain("persistedDraft?.mode === mode");
     expect(STORE_EDITOR).toContain("onPersistDraft(nextRecord)");
-    expect(STORE_EDITOR).toContain("if (latest) onPersistDraft(latest)");
+    expect(STORE_EDITOR).toContain("if (safeLatest) onPersistDraft(safeLatest)");
+    expect(STORE_EDITOR).toContain("agreementPdf: null");
     expect(STORE_EDITOR).toContain('window.addEventListener("pagehide", flush)');
   });
 

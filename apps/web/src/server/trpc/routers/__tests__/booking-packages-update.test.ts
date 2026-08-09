@@ -157,7 +157,12 @@ describe("booking.packages.update", () => {
     productSelectQueue.push([{ producerId: PRODUCER_ID }]);
     const caller = await buildCaller();
     const row = await caller.booking.packages.update(fullEditInput());
-    expect(row).toEqual({ id: PRODUCT_ID, name: "Renamed" });
+    expect(row).toEqual({
+      id: PRODUCT_ID,
+      name: "Renamed",
+      agreementPdf: null,
+      legacyAgreementLinkPresent: false,
+    });
     expect(updateReturningSpy).toHaveBeenCalledOnce();
   });
 
@@ -197,7 +202,12 @@ describe("booking.packages.update", () => {
       id: PRODUCT_ID,
       name: "Only name changed",
     });
-    expect(row).toEqual({ id: PRODUCT_ID, name: "Renamed" });
+    expect(row).toEqual({
+      id: PRODUCT_ID,
+      name: "Renamed",
+      agreementPdf: null,
+      legacyAgreementLinkPresent: false,
+    });
   });
 
   it("rejects an explicitly empty payment-plan selection", async () => {
