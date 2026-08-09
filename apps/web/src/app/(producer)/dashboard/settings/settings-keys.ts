@@ -61,13 +61,13 @@ export const LEGACY_IN_BRANCH_TO_SECTION: Record<string, SettingsSectionKey> = {
 export interface NavItem {
   key: SettingsSectionKey;
   label: string;
-  iconKey: "user" | "bolt" | "bell" | "plug" | "globe";
+  iconKey: "user" | "bolt" | "bell" | "wallet" | "globe";
 }
 
 export const SUB_NAV: readonly NavItem[] = [
   { key: "profile", label: "Profile", iconKey: "user" },
   { key: "plan", label: "Plan & billing", iconKey: "bolt" },
   { key: "notif", label: "Notifications", iconKey: "bell" },
-  { key: "int", label: "Getting paid", iconKey: "plug" },
+  { key: "int", label: "Getting paid", iconKey: "wallet" },
   { key: "region", label: "Currency & region", iconKey: "globe" },
 ];
