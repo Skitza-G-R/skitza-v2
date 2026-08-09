@@ -57,7 +57,12 @@ const producerPaymentWorkspaceData = read(
   "payments",
   "producer-payment-workspace-data.ts",
 );
-const paymentHistoryAdapter = read("components", "payments", "payment-history-adapter.ts");
+const producerPaymentsDashboard = read("components", "payments", "producer-payments-dashboard.tsx");
+const producerPaymentsDashboardData = read(
+  "components",
+  "payments",
+  "producer-payments-dashboard-data.ts",
+);
 const purchaseLedgerRouter = read("server", "trpc", "routers", "purchase-ledger.ts");
 const projectPage = read("app", "(producer)", "dashboard", "clients-projects", "[id]", "page.tsx");
 const songPage = read(
@@ -106,8 +111,9 @@ describe("SK-69 payment surface wiring", () => {
     for (const bucket of ["waiting", "active", "history"]) {
       expect(artistPayments).toContain(`model.artistBuckets.${bucket}`);
     }
-    expect(producerPayments).toContain("toProducerPaymentWorkspaceBuckets(model.producerBuckets)");
-    expect(producerPayments).toContain("ProducerPaymentWorkspace");
+    expect(producerPayments).toContain("toProducerPaymentsDashboardData(model)");
+    expect(producerPayments).toContain("ProducerPaymentsDashboard");
+    expect(producerPayments).not.toContain("ProducerPaymentWorkspace");
     expect(producerPayments).not.toContain("PaymentHistoryView");
     expect(artistPayments).toContain("ArtistPaymentsOverview");
     expect(artistPayments).not.toMatch(/\bPaymentHistoryView\b/);
@@ -192,15 +198,17 @@ describe("SK-69 payment surface wiring", () => {
     expect(readDb).not.toMatch(/paymentProofs\.(storageKey|objectEtag|storageBucket)/);
   });
 
-  it("filters exact owned artists only after the producer-scoped overview read", () => {
+  it("maps exact owned Artists only after the producer-scoped overview read", () => {
     expect(producerPayments).toContain("purchaseLedger.overview()");
     expect(purchaseLedgerRouter).toMatch(
       /overview: producerProcedure\.query[\s\S]*?producerId: ctx\.producerId/,
     );
-    expect(paymentHistoryAdapter).toContain("counterpartyId:");
-    expect(paymentHistoryAdapter).toContain("purchase.clientContactId");
-    expect(producerPaymentWorkspace).toContain('aria-label="Filter by artist"');
-    expect(producerPaymentWorkspace).toContain("row.purchase.counterpartyId");
+    expect(producerPaymentsDashboardData).toContain("purchase.clientContactId");
+    expect(producerPaymentsDashboardData).toContain("purchase.producerId");
+    expect(producerPaymentsDashboardData).not.toMatch(/storageKey|objectEtag|storageBucket/);
+    expect(producerPaymentsDashboard).toContain("clientPaymentsHref(artist.clientContactId)");
+    expect(producerPaymentsDashboard).toContain("/dashboard/payments/");
+    expect(producerPaymentsDashboard).not.toContain("PaymentHistoryPurchaseDetails");
   });
 
   it("completes payment through the exact purchase and installment returned by the existing flow", () => {
