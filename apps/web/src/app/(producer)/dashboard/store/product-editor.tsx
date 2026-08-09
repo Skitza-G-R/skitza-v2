@@ -137,7 +137,10 @@ interface ProductEditorProps {
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
   onSubmitted: () => void;
-  onSubmittedResult?: (result: { includesSessions: boolean; bookingEnabled: boolean }) => void;
+  onSubmittedResult?: (result: {
+    includesSessions: boolean;
+    bookingEnabled: boolean;
+  }) => void;
   onDiscardDraft?: () => void;
   persistedDraft: ProducerStoreProductDraft | null;
   onPersistDraft: (draft: ProducerStoreProductDraft) => boolean;

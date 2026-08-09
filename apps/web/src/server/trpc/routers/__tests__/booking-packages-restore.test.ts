@@ -38,14 +38,19 @@ const dbMock = {
         return [];
       };
       return {
-        where: () => ({
-          limit: () => Promise.resolve(handler()),
-          orderBy: () => Promise.resolve(handler()),
-        }),
+        where: () => {
+          const result = Promise.resolve(handler());
+          return {
+            limit: () => Object.assign(result, { for: () => result }),
+            orderBy: () => result,
+          };
+        },
       };
     },
   }),
   update: () => ({ set: updateSetSpy }),
+  execute: () => Promise.resolve(),
+  transaction: (callback: (tx: unknown) => Promise<unknown>) => callback(dbMock),
 };
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -76,6 +81,7 @@ vi.mock("@skitza/db", () => ({
   gte: (col: unknown, val: unknown) => ({ gte: [col, val] }),
   lte: (col: unknown, val: unknown) => ({ lte: [col, val] }),
   inArray: (col: unknown, vals: unknown) => ({ inArray: [col, vals] }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
 }));
 
 beforeEach(() => {
