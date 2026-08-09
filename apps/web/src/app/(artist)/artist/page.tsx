@@ -158,8 +158,9 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     });
   }
 
+  let newSongAction: ArtistHomeAction | null = null;
   if (home.latestMix?.unread) {
-    candidates.push({
+    newSongAction = {
       id: home.latestMix.id,
       kind: "new_song",
       title: home.latestMix.trackTitle,
@@ -175,7 +176,8 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
         subtitle: activeStudio.name,
         durationMs: null,
       },
-    });
+    };
+    candidates.push(newSongAction);
   }
 
   const serviceAction: ArtistHomeAction = {
@@ -257,6 +259,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
         greeting={greeting}
         studioName={activeStudio.name}
         main={main}
+        newSong={main.kind === "new_song" ? null : newSongAction}
         supporting={quietRows}
         welcome={!meaningfulItems}
       />
