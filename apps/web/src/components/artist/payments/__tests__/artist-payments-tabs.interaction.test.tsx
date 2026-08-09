@@ -57,6 +57,12 @@ function section(
 }
 
 const waitingPurchase = purchase("00000000-0000-4000-8000-000000000101", "Waiting purchase");
+const waitingForReviewPurchase = {
+  ...purchase("00000000-0000-4000-8000-000000000104", "Proof under review"),
+  status: { label: "Needs review", tone: "accent" },
+  dueNowCents: 0,
+  showPayNextPayment: false,
+} as unknown as PaymentHistoryPurchase;
 const activePurchase = purchase("00000000-0000-4000-8000-000000000102", "Active purchase");
 const historyPurchase = {
   ...purchase("00000000-0000-4000-8000-000000000103", "History purchase"),
@@ -109,6 +115,27 @@ describe("ArtistPaymentsOverview tabs", () => {
     expect(screen.queryByText("History purchase")).toBeNull();
   });
 
+  it("defaults to Balance & actions when Waiting has no purchase requiring payment", () => {
+    render(
+      <ArtistPaymentsOverview
+        sections={[
+          section("waiting", "Waiting for payment", [waitingForReviewPurchase]),
+          section("active", "Balances and actions", []),
+          section("history", "History", [historyPurchase]),
+        ]}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole("tab", { name: "Balance & actions, 0 purchases" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByText("No balances and actions")).toBeTruthy();
+    expect(screen.queryByText("Proof under review")).toBeNull();
+    expect(screen.queryByText("History purchase")).toBeNull();
+  });
+
   it("switches one visible group at a time and supports arrow keys", () => {
     render(
       <ArtistPaymentsOverview
@@ -134,7 +161,7 @@ describe("ArtistPaymentsOverview tabs", () => {
     expect(screen.queryByText("Active purchase")).toBeNull();
   });
 
-  it("keeps Waiting as the honest default when every group is empty", () => {
+  it("defaults to Balance & actions when every group is empty", () => {
     render(
       <ArtistPaymentsOverview
         sections={[
@@ -146,8 +173,10 @@ describe("ArtistPaymentsOverview tabs", () => {
     );
 
     expect(
-      screen.getByRole("tab", { name: "Waiting, 0 purchases" }).getAttribute("aria-selected"),
+      screen
+        .getByRole("tab", { name: "Balance & actions, 0 purchases" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
-    expect(screen.getByText("No waiting for payment")).toBeTruthy();
+    expect(screen.getByText("No balances and actions")).toBeTruthy();
   });
 });

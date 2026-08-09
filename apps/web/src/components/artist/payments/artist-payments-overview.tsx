@@ -40,11 +40,7 @@ export function ArtistPaymentsOverview({
   ] as const;
   type TabKey = (typeof tabs)[number]["key"];
   const [activeTab, setActiveTab] = useState<TabKey>(() =>
-    purchaseCount(sections[0]) > 0
-      ? "waiting"
-      : purchaseCount(sections[1]) > 0
-        ? "active"
-        : "waiting",
+    hasPurchaseRequiringPayment(sections[0]) ? "waiting" : "active",
   );
   const activeIndex = tabs.findIndex((tab) => tab.key === activeTab);
   const active = tabs[activeIndex] ?? tabs[0];
@@ -127,6 +123,12 @@ export function ArtistPaymentsOverview({
 
 function purchaseCount(data: PaymentHistoryViewData): number {
   return data.projects.reduce((total, project) => total + project.purchases.length, 0);
+}
+
+function hasPurchaseRequiringPayment(data: PaymentHistoryViewData): boolean {
+  return data.projects.some((project) =>
+    project.purchases.some((purchase) => purchase.showPayNextPayment),
+  );
 }
 
 function ArtistPaymentSection({ data }: { data: PaymentHistoryViewData }) {
