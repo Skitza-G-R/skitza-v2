@@ -57,7 +57,12 @@ export interface StoreProduct extends ProductCardData {
   locationType: string;
   bufferMinutes: number;
   minLeadHours: number;
-  contractUrl: string | null;
+  agreementPdf: {
+    documentId: string;
+    originalFileName: string;
+    sizeBytes: number;
+  } | null;
+  legacyAgreementLinkPresent: boolean;
   royaltyTerms: import("@skitza/db").ProductRoyaltyTerms | null;
   agreementText: string | null;
   deliverables: string[];

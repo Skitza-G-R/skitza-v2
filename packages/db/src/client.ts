@@ -1,4 +1,5 @@
 import { neon, neonConfig, Pool } from "@neondatabase/serverless";
+import { sql } from "drizzle-orm";
 import { drizzle as createHttpDb, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { drizzle as createTransactionDb } from "drizzle-orm/neon-serverless";
 import WebSocket from "ws";
@@ -20,6 +21,41 @@ export function createNeonPool(connectionString: string, max = 1): Pool {
     throw new Error("Interactive database pools must use exactly one connection");
   }
   return new Pool({ connectionString, max });
+}
+
+/**
+ * Run autocommit work while one dedicated Neon session holds an advisory
+ * lock. This is for storage coordination that must not occur inside a DB
+ * transaction: the single-connection pool keeps the session lock stable
+ * across awaited network work, and closing the pool releases it fail-safe.
+ */
+export async function withNeonSessionAdvisoryLock<Result>(
+  connectionString: string,
+  lockKey: string,
+  callback: (db: Db) => Promise<Result>,
+): Promise<Result> {
+  const pool = createNeonPool(connectionString);
+  const sessionDb = createTransactionDb(pool, { schema }) as unknown as Db;
+  let acquired = false;
+  try {
+    await sessionDb.execute(sql`select pg_advisory_lock(hashtextextended(${lockKey}, 0))`);
+    acquired = true;
+    return await callback(sessionDb);
+  } finally {
+    if (acquired) {
+      try {
+        await sessionDb.execute(sql`select pg_advisory_unlock(hashtextextended(${lockKey}, 0))`);
+      } catch {
+        // Closing the dedicated connection below releases the session lock.
+        console.error("[db] session advisory unlock failed");
+      }
+    }
+    try {
+      await pool.end();
+    } catch {
+      console.error("[db] session advisory pool cleanup failed");
+    }
+  }
 }
 
 type TransactionFn = Db["transaction"];

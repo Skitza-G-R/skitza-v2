@@ -95,6 +95,16 @@ const preview: PurchaseAcceptancePreview = {
     selectedPaymentPlan: { kind: "split_50_50" },
     offeredPaymentPlans: product.paymentPlans,
     agreementText: "This exact agreement is frozen at acceptance.",
+    ...{
+      agreementPdf: {
+        documentId: "00000000-0000-4000-8000-000000000089",
+        originalFileName: "private-terms.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 1_024,
+        objectEtag: '"private-etag"',
+        sha256: "a".repeat(64),
+      },
+    },
   },
 };
 
@@ -171,6 +181,12 @@ describe("artist commercial-term rendering", () => {
     expect(exactAgreementDetails).toContain("<summary");
     expect(exactAgreementDetails).toContain("View full exact agreement");
     expect(exactAgreementDetails).toContain("This exact agreement is frozen at acceptance.");
+    expect(html).toContain("Open PDF agreement · private-terms.pdf");
+    expect(html).toContain(
+      "purchaseRequestId=00000000-0000-4000-8000-000000000088&amp;documentId=00000000-0000-4000-8000-000000000089",
+    );
+    expect(html).not.toContain("private-etag");
+    expect(html).not.toMatch(/agreement-pdfs\/[a-f0-9]{64}/);
     expect(html).toContain("I accept this exact agreement and payment plan.");
   });
 });

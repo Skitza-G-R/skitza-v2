@@ -32,6 +32,11 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/<StepBar/);
   });
 
+  it("renders the accessible inline save status without the old Draft saved copy", () => {
+    expect(SRC).toMatch(/<SaveIndicator\s+status=\{saveStatus\}/);
+    expect(SRC).not.toContain("Draft saved");
+  });
+
   it("renders Back and Continue labels in the footer", () => {
     expect(SRC).toContain("Back");
     expect(SRC).toContain("Continue");
@@ -56,6 +61,8 @@ describe("EditorShell shell", () => {
 
   it("has a close X button in the header", () => {
     expect(SRC).toMatch(/aria-label="Close"/);
+    expect(SRC).toMatch(/DialogPrimitive\.Close[\s\S]*?disabled=\{pending\}/);
+    expect(SRC).toContain("if (!nextOpen && pending) return");
   });
 
   it("uses popIn animation per the design brief", () => {

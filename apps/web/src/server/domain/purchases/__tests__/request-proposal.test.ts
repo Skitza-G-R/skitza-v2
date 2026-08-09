@@ -46,6 +46,39 @@ function product(
 }
 
 describe("purchase request commercial proposal", () => {
+  it("uses the current private PDF revision for every pre-acceptance rebuild", () => {
+    const first = {
+      documentId: "a1a11111-1111-4111-8111-111111111111",
+      originalFileName: "terms-v1.pdf",
+      contentType: "application/pdf" as const,
+      sizeBytes: 512,
+      objectEtag: '"etag-1"',
+      sha256: "a".repeat(64),
+    };
+    const second = {
+      ...first,
+      documentId: "a2a22222-2222-4222-8222-222222222222",
+      originalFileName: "terms-v2.pdf",
+    };
+    const firstProposal = buildPurchaseRequestCommercialProposal({
+      requestedSongQty: 3,
+      product: product({ hasAgreementPdf: true }),
+      taxMode: "tax_free",
+      taxRatePct: 18,
+      agreementPdf: first,
+    });
+    const secondProposal = buildPurchaseRequestCommercialProposal({
+      requestedSongQty: 3,
+      product: product({ hasAgreementPdf: true }),
+      taxMode: "tax_free",
+      taxRatePct: 18,
+      agreementPdf: second,
+    });
+
+    expect(firstProposal.agreementPdf).toEqual(first);
+    expect(secondProposal.agreementPdf).toEqual(second);
+  });
+
   it("keeps readable history separate from approval publication state", () => {
     expect(isPurchaseRequestApprovalAvailable(product())).toBe(true);
     expect(isPurchaseRequestApprovalAvailable(product({ active: false }))).toBe(false);

@@ -65,6 +65,7 @@ export interface PaymentHistoryFrozenTerms {
   detailRows: readonly PaymentHistoryFrozenTermDetail[];
   rights: readonly string[];
   agreementText: string | null;
+  agreementPdfFileName?: string | null;
 }
 
 export interface PaymentHistoryAcceptance {
@@ -452,6 +453,7 @@ export function PaymentHistoryPurchaseDetails({
       <FrozenAgreement
         terms={purchase.frozenTerms}
         currency={purchase.currency}
+        purchaseId={purchase.id}
         headingId={`${idPrefix}-frozen-terms`}
       />
       <AcceptanceAndPlan acceptance={purchase.acceptance} plan={purchase.plan} />
@@ -644,10 +646,12 @@ function PurchaseDelivery({
 function FrozenAgreement({
   terms,
   currency,
+  purchaseId,
   headingId,
 }: {
   terms: PaymentHistoryFrozenTerms;
   currency: string;
+  purchaseId: string;
   headingId: string;
 }) {
   return (
@@ -718,6 +722,17 @@ function FrozenAgreement({
             <p className="mt-1.5 text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
               {terms.agreementText ?? "No additional agreement text."}
             </p>
+            {terms.agreementPdfFileName ? (
+              <a
+                href={`/api/agreement-pdfs/evidence?purchaseId=${encodeURIComponent(purchaseId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerPolicy="no-referrer"
+                className="sk-press mt-2 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[11.5px] font-bold text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              >
+                Open frozen PDF · {terms.agreementPdfFileName}
+              </a>
+            ) : null}
           </div>
         </div>
       </div>

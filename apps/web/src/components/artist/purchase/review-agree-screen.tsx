@@ -15,6 +15,7 @@ import { useOnlineStatus } from "~/components/runtime-state/online-required-link
 import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import { acceptPurchaseAction } from "./actions";
 import { paymentPlanLabel } from "./pay-data";
 import {
@@ -178,6 +179,7 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const operationKeyRef = useRef<string | null>(null);
   const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
+  const agreementPdf = agreementPdfFromCommercialSnapshot(snapshot);
   const selectedPlan = snapshot.selectedPaymentPlan;
 
   async function acceptExactAgreement() {
@@ -496,6 +498,17 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
                 {snapshot.agreementText || "No additional agreement text."}
               </p>
             </details>
+            {agreementPdf && isExactReview(props) ? (
+              <a
+                href={`/api/agreement-pdfs/evidence?purchaseRequestId=${encodeURIComponent(props.purchaseRequestId)}&documentId=${encodeURIComponent(agreementPdf.documentId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerPolicy="no-referrer"
+                className="sk-press mt-2.5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] px-3.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              >
+                Open PDF agreement · {agreementPdf.originalFileName}
+              </a>
+            ) : null}
             <div className="mt-2.5 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
               <LockIcon />
               <span>Product edits after acceptance cannot change this purchase snapshot.</span>

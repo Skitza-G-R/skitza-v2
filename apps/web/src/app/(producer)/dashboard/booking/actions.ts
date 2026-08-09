@@ -56,6 +56,10 @@ function toMessage(err: unknown): string {
 // the preset list; description is plain free-text.
 export type PackageKind = "session" | "mixing" | "mastering" | "producing" | "other";
 export type PackageLocationType = "studio" | "remote" | "client_space";
+export type AgreementPdfChange =
+  | { kind: "remove" }
+  | { kind: "keep"; documentId: string }
+  | { kind: "replace"; uploadToken: string };
 
 export async function createPackage(input: {
   name: string;
@@ -72,7 +76,7 @@ export async function createPackage(input: {
   deliverables?: string[];
   paymentPlans?: PaymentPlan[];
   royaltyTerms?: ProductRoyaltyTerms | null;
-  contractUrl?: null;
+  agreementPdf?: AgreementPdfChange;
   agreementText?: string | null;
   // Per-song pricing. pricingModel='per_song' requires volumeTiers to
   // include a base tier at minQty=1 (server-side zod superRefine
@@ -111,7 +115,7 @@ export async function updatePackage(input: {
   deliverables?: string[];
   paymentPlans?: PaymentPlan[];
   royaltyTerms?: ProductRoyaltyTerms | null;
-  contractUrl?: null;
+  agreementPdf?: AgreementPdfChange;
   agreementText?: string | null;
   // Per-song pricing — see createPackage's input comment.
   pricingModel?: "flat" | "per_song";
@@ -124,6 +128,36 @@ export async function updatePackage(input: {
     revalidatePath(PATH);
     revalidatePath("/dashboard/profile");
     revalidatePath("/dashboard/store");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function prepareAgreementPdfUpload(input: {
+  originalFileName: string;
+  contentType: "application/pdf";
+  sizeBytes: number;
+}): Promise<
+  ActionDataResult<{ uploadUrl: string; uploadToken: string; expiresInSeconds: number }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.booking.packages.prepareAgreementPdfUpload(input);
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function cancelAgreementPdfUpload(input: {
+  uploadToken: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.cancelAgreementPdfUpload(input);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

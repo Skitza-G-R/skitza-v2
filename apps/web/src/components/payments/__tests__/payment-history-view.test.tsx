@@ -58,6 +58,7 @@ const purchase: PaymentHistoryPurchase = {
     ],
     rights: ["Artist owns the approved masters"],
     agreementText: "Credit the producer in release metadata.",
+    agreementPdfFileName: "frozen-production-terms.pdf",
   },
   acceptance: {
     acceptedAtIso: "2026-07-01T09:00:00.000Z",
@@ -283,6 +284,8 @@ describe("PaymentHistoryView", () => {
     expect(html.indexOf("Debut EP")).toBeLessThan(html.indexOf("Debut EP production"));
     expect(html.indexOf("Summer Single")).toBeLessThan(html.indexOf("Single production"));
     expect(html).toContain("Credit the producer in release metadata.");
+    expect(html).toContain("Open frozen PDF · frozen-production-terms.pdf");
+    expect(html).toContain('href="/api/agreement-pdfs/evidence?purchaseId=purchase-1"');
     expect(html).toContain("Song spaces");
     expect(html).toContain("Two 4-hour sessions");
     expect(html).toContain("2 rounds");

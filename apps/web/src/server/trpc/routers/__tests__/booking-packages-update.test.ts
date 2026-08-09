@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  appendAgreementPdfRevision,
+  markAgreementPdfContractForCleanup,
+  type AgreementPdfDocument,
+} from "~/server/domain/agreement-pdfs/contract";
+
 // Tests for booking.packages.update — the mutation the Task 14 Edit
 // button dispatches. Verifies the mutation exists on the legacy
 // `.packages.*` alias (still used by the dashboard action), accepts
@@ -11,6 +17,34 @@ const PRODUCT_ID = "00000000-0000-0000-0000-000000000b01";
 
 const producersMarker = { __table: "producers" };
 const productsMarker = { __table: "products" };
+
+const agreementPdfDocument: AgreementPdfDocument = {
+  storageBucket: "docs",
+  storageKey: `agreement-pdfs/${"a".repeat(64)}`,
+  originalFileName: "terms.pdf",
+  contentType: "application/pdf",
+  sizeBytes: 128,
+  objectEtag: '"agreement-etag"',
+  sha256: "b".repeat(64),
+};
+
+const agreementPdfCandidate = {
+  storageBucket: "docs" as const,
+  storageKey: agreementPdfDocument.storageKey,
+  originalFileName: agreementPdfDocument.originalFileName,
+  contentType: agreementPdfDocument.contentType,
+  sizeBytes: agreementPdfDocument.sizeBytes,
+};
+
+const agreementPdfMocks = vi.hoisted(() => ({
+  candidate: vi.fn(),
+  deleteFinal: vi.fn<(document: AgreementPdfDocument) => Promise<void>>(),
+  finalize: vi.fn(),
+  resolveCandidate: vi.fn(),
+  verify: vi.fn(),
+}));
+
+const commercialValidation = vi.hoisted(() => ({ rejectMergedActiveProduct: false }));
 
 type Row = Record<string, unknown>;
 
@@ -49,21 +83,20 @@ const dbMock = {
       // producer-procedure uses .where().limit(1); the router's
       // ownership check does .where().limit(1) too.
       return {
-        where: () => ({
-          limit: () => {
-            const result = Promise.resolve(handler());
-            return Object.assign(result, { for: () => result });
-          },
-          orderBy: () => Promise.resolve(handler()),
-        }),
+        where: () => {
+          const result = Promise.resolve(handler());
+          return Object.assign(result, {
+            limit: () => Object.assign(result, { for: () => result }),
+            orderBy: () => result,
+          });
+        },
       };
     },
   }),
   update: () => ({ set: updateSetSpy }),
   insert: () => ({ values: insertValuesSpy }),
   execute: () => Promise.resolve(),
-  transaction: (callback: unknown) =>
-    (callback as (tx: unknown) => Promise<unknown>)(dbMock),
+  transaction: (callback: unknown) => (callback as (tx: unknown) => Promise<unknown>)(dbMock),
 };
 
 vi.mock("~/server/domain/store-products/service", () => {
@@ -71,7 +104,13 @@ vi.mock("~/server/domain/store-products/service", () => {
   return {
     StoreProductCommercialError,
     validateStoreProductCommercialState: () => undefined,
-    mergeAndValidateStoreProduct: (_existing: unknown, patch: { paymentPlans?: unknown[] }) => {
+    mergeAndValidateStoreProduct: (
+      existing: { active?: boolean },
+      patch: { paymentPlans?: unknown[] },
+    ) => {
+      if (commercialValidation.rejectMergedActiveProduct && existing.active === true) {
+        throw new StoreProductCommercialError("Active product is commercially incomplete");
+      }
       if (patch.paymentPlans?.length === 0) {
         throw new StoreProductCommercialError("Choose at least one payment option");
       }
@@ -79,6 +118,21 @@ vi.mock("~/server/domain/store-products/service", () => {
     },
   };
 });
+
+vi.mock("~/server/domain/agreement-pdfs/storage", () => ({
+  agreementPdfFinalCandidate: agreementPdfMocks.candidate,
+  createPrivateAgreementPdfUpload: vi.fn(),
+  deletePrivateAgreementPdfFinalIfExact: agreementPdfMocks.deleteFinal,
+  deletePrivateAgreementPdfStaging: vi.fn(),
+  finalizePrivateAgreementPdfUpload: agreementPdfMocks.finalize,
+  resolvePrivateAgreementPdfFinalCandidate: agreementPdfMocks.resolveCandidate,
+}));
+
+vi.mock("~/server/domain/agreement-pdfs/tokens", () => ({
+  createAgreementPdfUploadToken: vi.fn(),
+  verifyOwnedAgreementPdfUploadToken: agreementPdfMocks.verify,
+  verifyOwnedAgreementPdfUploadTokenForCleanup: agreementPdfMocks.verify,
+}));
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_1" }),
@@ -123,7 +177,14 @@ beforeEach(() => {
   });
   insertReturningSpy.mockReset().mockResolvedValue([{ id: PRODUCT_ID, name: "Created" }]);
   insertValuesSpy.mockClear();
+  agreementPdfMocks.candidate.mockReset().mockReturnValue(agreementPdfCandidate);
+  agreementPdfMocks.deleteFinal.mockReset().mockResolvedValue();
+  agreementPdfMocks.finalize.mockReset().mockResolvedValue(agreementPdfDocument);
+  agreementPdfMocks.resolveCandidate.mockReset().mockResolvedValue(agreementPdfDocument);
+  agreementPdfMocks.verify.mockReset().mockReturnValue({ uploadId: "signed-upload" });
+  commercialValidation.rejectMergedActiveProduct = false;
   process.env.DATABASE_URL = "postgresql://test/test";
+  process.env.CLERK_SECRET_KEY = "test-clerk-secret-key-at-least-twenty";
 });
 
 const buildCaller = async () => {
@@ -157,7 +218,12 @@ describe("booking.packages.update", () => {
     productSelectQueue.push([{ producerId: PRODUCER_ID }]);
     const caller = await buildCaller();
     const row = await caller.booking.packages.update(fullEditInput());
-    expect(row).toEqual({ id: PRODUCT_ID, name: "Renamed" });
+    expect(row).toEqual({
+      id: PRODUCT_ID,
+      name: "Renamed",
+      agreementPdf: null,
+      legacyAgreementLinkPresent: false,
+    });
     expect(updateReturningSpy).toHaveBeenCalledOnce();
   });
 
@@ -189,6 +255,185 @@ describe("booking.packages.update", () => {
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
 
+  it("does not finalize a replacement for an unknown or foreign product", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([]);
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(agreementPdfMocks.finalize).not.toHaveBeenCalled();
+  });
+
+  it("does not finalize a replacement when merged commercial validation rejects the patch", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([
+      { id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null, active: true },
+    ]);
+    commercialValidation.rejectMergedActiveProduct = true;
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/commercially incomplete/i);
+
+    expect(agreementPdfMocks.finalize).not.toHaveBeenCalled();
+  });
+
+  it("rejects updates to a terminal agreement cleanup tombstone", async () => {
+    const cleanupContract = markAgreementPdfContractForCleanup(
+      appendAgreementPdfRevision(null, {
+        revisionId: "00000000-0000-4000-8000-000000000009",
+        effectiveAt: "2026-08-09T00:00:00.000Z",
+        document: agreementPdfDocument,
+      }),
+    );
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([
+      { id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: cleanupContract },
+    ]);
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({ id: PRODUCT_ID, name: "Cannot restore me" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(updateReturningSpy).not.toHaveBeenCalled();
+    expect(agreementPdfMocks.finalize).not.toHaveBeenCalled();
+  });
+
+  it("rejects replay attachment while the same final key is reserved by a cleanup tombstone", async () => {
+    const cleanupContract = markAgreementPdfContractForCleanup(
+      appendAgreementPdfRevision(null, {
+        revisionId: "00000000-0000-4000-8000-000000000010",
+        effectiveAt: "2026-08-09T00:00:00.000Z",
+        document: agreementPdfDocument,
+      }),
+    );
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([], [{ contractUrl: cleanupContract }]);
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.create({
+        name: "Replay",
+        priceCents: 20_000,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/already being cleaned up/i);
+
+    expect(agreementPdfMocks.finalize).not.toHaveBeenCalled();
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+    expect(agreementPdfMocks.deleteFinal).not.toHaveBeenCalled();
+  });
+
+  it("conditionally cleans an unreferenced final replacement after a database failure", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }], []);
+    updateReturningSpy.mockRejectedValueOnce(new Error("database write failed"));
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/database write failed/i);
+
+    expect(agreementPdfMocks.finalize).toHaveBeenCalledOnce();
+    expect(agreementPdfMocks.deleteFinal).toHaveBeenCalledWith(agreementPdfDocument);
+  });
+
+  it("cleans a deterministic final candidate when copy succeeds but verification throws", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }], []);
+    agreementPdfMocks.finalize.mockRejectedValueOnce(
+      new Error("final verification was temporarily unavailable"),
+    );
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/final verification was temporarily unavailable/i);
+
+    expect(agreementPdfMocks.candidate).toHaveBeenCalledOnce();
+    expect(agreementPdfMocks.resolveCandidate).toHaveBeenCalledWith(agreementPdfCandidate);
+    expect(agreementPdfMocks.deleteFinal).toHaveBeenCalledWith(agreementPdfDocument);
+  });
+
+  it("keeps a replayed final object when another product ledger references it", async () => {
+    const referencedContract = appendAgreementPdfRevision(null, {
+      revisionId: "00000000-0000-4000-8000-000000000001",
+      effectiveAt: "2026-08-09T00:00:00.000Z",
+      document: agreementPdfDocument,
+    });
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push(
+      [{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }],
+      [{ contractUrl: referencedContract }],
+      [{ contractUrl: referencedContract }],
+    );
+    updateReturningSpy.mockRejectedValueOnce(new Error("database write failed"));
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/database write failed/i);
+
+    expect(agreementPdfMocks.deleteFinal).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before finalization when any producer product ledger is malformed", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push(
+      [{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }],
+      [{ contractUrl: "skitza-private-agreement:v1:not-canonical" }],
+    );
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/private agreement metadata is invalid/i);
+
+    expect(agreementPdfMocks.finalize).not.toHaveBeenCalled();
+    expect(agreementPdfMocks.deleteFinal).not.toHaveBeenCalled();
+  });
+
+  it("cleans an unreferenced final replacement when product creation fails after finalization", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([], []);
+    insertReturningSpy.mockRejectedValueOnce(new Error("insert failed"));
+    const caller = await buildCaller();
+
+    await expect(
+      caller.booking.packages.create({
+        name: "Product with PDF",
+        priceCents: 20_000,
+        agreementPdf: { kind: "replace", uploadToken: "signed-upload" },
+      }),
+    ).rejects.toThrow(/insert failed/i);
+
+    expect(agreementPdfMocks.finalize).toHaveBeenCalledOnce();
+    expect(agreementPdfMocks.deleteFinal).toHaveBeenCalledWith(agreementPdfDocument);
+  });
+
   it("accepts a minimal patch (just name) for partial edits", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     productSelectQueue.push([{ producerId: PRODUCER_ID }]);
@@ -197,7 +442,12 @@ describe("booking.packages.update", () => {
       id: PRODUCT_ID,
       name: "Only name changed",
     });
-    expect(row).toEqual({ id: PRODUCT_ID, name: "Renamed" });
+    expect(row).toEqual({
+      id: PRODUCT_ID,
+      name: "Renamed",
+      agreementPdf: null,
+      legacyAgreementLinkPresent: false,
+    });
   });
 
   it("rejects an explicitly empty payment-plan selection", async () => {

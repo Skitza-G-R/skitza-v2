@@ -9,8 +9,13 @@ const mocks = vi.hoisted(() => {
   const transactionDbs: Array<{
     pool: PoolMock;
     transaction: ReturnType<typeof vi.fn>;
+    execute: ReturnType<typeof vi.fn>;
+    db: Record<string, unknown>;
   }> = [];
-  const state: { nextEndError: Error | undefined } = { nextEndError: undefined };
+  const state: {
+    nextEndError: Error | undefined;
+    executeErrors: Array<Error | undefined>;
+  } = { nextEndError: undefined, executeErrors: [] };
 
   const neon = vi.fn(() => neonClient);
   const httpSelect = vi.fn(() => "http-result");
@@ -36,8 +41,14 @@ const mocks = vi.hoisted(() => {
       async (callback: (tx: typeof transactionToken) => Promise<unknown>, _config?: unknown) =>
         callback(transactionToken),
     );
-    transactionDbs.push({ pool, transaction });
-    return { transaction };
+    const execute = vi.fn(async () => {
+      const error = state.executeErrors.shift();
+      if (error) throw error;
+      return undefined;
+    });
+    const db = { transaction, execute };
+    transactionDbs.push({ pool, transaction, execute, db });
+    return db;
   });
 
   class WebSocketMock {}
@@ -74,7 +85,7 @@ vi.mock("drizzle-orm/neon-serverless", () => ({
 
 vi.mock("ws", () => ({ default: mocks.WebSocketMock }));
 
-import { createDb } from "../client";
+import { createDb, withNeonSessionAdvisoryLock } from "../client";
 
 describe("createDb transaction adapter", () => {
   const connectionString = "postgresql://user:secret@example.test/skitza";
@@ -84,6 +95,7 @@ describe("createDb transaction adapter", () => {
     mocks.pools.length = 0;
     mocks.transactionDbs.length = 0;
     mocks.state.nextEndError = undefined;
+    mocks.state.executeErrors.length = 0;
   });
 
   afterEach(() => {
@@ -174,5 +186,72 @@ describe("createDb transaction adapter", () => {
     await expect(Promise.all([first, second])).resolves.toEqual(["first", "second"]);
     expect(mocks.pools[0]!.end).toHaveBeenCalledOnce();
     expect(mocks.pools[1]!.end).toHaveBeenCalledOnce();
+  });
+});
+
+describe("withNeonSessionAdvisoryLock", () => {
+  const connectionString = "postgresql://user:secret@example.test/skitza";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.pools.length = 0;
+    mocks.transactionDbs.length = 0;
+    mocks.state.nextEndError = undefined;
+    mocks.state.executeErrors.length = 0;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("holds one max=1 session from lock through callback and unlock", async () => {
+    const callback = vi.fn(async (db) => {
+      expect(db).toBe(mocks.transactionDbs[0]?.db);
+      return "cleaned";
+    });
+
+    await expect(
+      withNeonSessionAdvisoryLock(connectionString, "store-products:producer", callback),
+    ).resolves.toBe("cleaned");
+
+    expect(mocks.pools).toHaveLength(1);
+    expect(mocks.pools[0]?.options).toEqual({ connectionString, max: 1 });
+    const execute = mocks.transactionDbs[0]!.execute;
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]!);
+    expect(callback.mock.invocationCallOrder[0]).toBeLessThan(execute.mock.invocationCallOrder[1]!);
+    expect(execute.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.pools[0]!.end.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("preserves a callback failure while still unlocking and closing", async () => {
+    const expected = new Error("R2 cleanup failed");
+
+    await expect(
+      withNeonSessionAdvisoryLock(connectionString, "store-products:producer", async () => {
+        throw expected;
+      }),
+    ).rejects.toBe(expected);
+
+    expect(mocks.transactionDbs[0]!.execute).toHaveBeenCalledTimes(2);
+    expect(mocks.pools[0]!.end).toHaveBeenCalledOnce();
+  });
+
+  it("closes fail-safe and logs no credentials when explicit unlock fails", async () => {
+    mocks.state.executeErrors.push(undefined, new Error(`unlock failed for ${connectionString}`));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      withNeonSessionAdvisoryLock(
+        connectionString,
+        "store-products:producer",
+        async () => "cleaned",
+      ),
+    ).resolves.toBe("cleaned");
+
+    expect(mocks.pools[0]!.end).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith("[db] session advisory unlock failed");
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain("user:secret");
   });
 });

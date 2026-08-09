@@ -118,7 +118,7 @@ describe("ProductEditor orchestrator", () => {
     const handlerStart = SRC.indexOf("function handleEditorOpenChange");
     const handlerEnd = SRC.indexOf("function handleSuccessfulSubmit", handlerStart);
     const handler = SRC.slice(handlerStart, handlerEnd);
-    const persistIndex = handler.indexOf("onPersistDraft(latest)");
+    const persistIndex = handler.indexOf("onPersistDraft(safeLatest)");
     const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
     const closeIndex = handler.indexOf("onOpenChange(nextOpen)");
 
@@ -218,14 +218,24 @@ describe("ProductEditor orchestrator", () => {
   });
 
   it("shows actual draft persistence and supports an explicit discard", () => {
-    expect(SRC).toMatch(/draftSaved=\{draftSaved\}/);
+    expect(SRC).toMatch(/saveStatus=\{saveStatus\}/);
     expect(SRC).toMatch(/onDiscardDraft/);
     expect(SRC).toMatch(/onDiscard=/);
   });
 
-  it("uses read-only global tax state in the product flow", () => {
+  it("keeps routine saves inline while preserving important publish and error toasts", () => {
+    expect(SRC).not.toContain('`${draft.name.trim()} saved hidden.`');
+    expect(SRC).not.toContain('toast(`${draft.name.trim()} saved.`, "success")');
+    expect(SRC).toContain("`${draft.name.trim()} published.`");
+    expect(SRC).toContain('toast(result.error, "error")');
+    expect(SRC).toContain('toast("Could not save this product. Please try again.", "error")');
+  });
+
+  it("writes global tax only from the required onboarding tax step", () => {
     expect(SRC).not.toMatch(/function onTaxChange/);
-    expect(SRC).not.toMatch(/updateProducer/);
     expect(SRC).not.toMatch(/onTaxChange=/);
+    expect(SRC).toContain('newProductFlow === "onboarding"');
+    expect(SRC).toContain("await updateProducer({");
+    expect(SRC).toContain('currentStep !== "tax" || newProductFlow !== "onboarding"');
   });
 });

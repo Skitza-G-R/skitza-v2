@@ -171,7 +171,12 @@ export function hasPaymentOption(selection: PaymentSelectionDraft): boolean {
 }
 
 export type RoyaltyMode = "none" | "percentage" | "agreement";
-export type AgreementMode = "none" | "text";
+export type AgreementMode = "none" | "text" | "pdf";
+export type AgreementPdfDraft = Readonly<{
+  documentId: string | null;
+  originalFileName: string;
+  sizeBytes: number;
+}>;
 export type CompositionRole =
   | "composer"
   | "lyricist"
@@ -198,6 +203,7 @@ export type RoyaltyDraftErrors = {
 export function validateAgreementDraft(
   mode: AgreementMode,
   agreementText: string,
+  agreementPdf: AgreementPdfDraft | null = null,
 ): string | null {
   if (mode === "text") {
     if (!agreementText.trim()) {
@@ -207,15 +213,20 @@ export function validateAgreementDraft(
       return "Agreement text must be 20,000 characters or fewer.";
     }
   }
+  if (mode === "pdf" && agreementPdf === null) {
+    return "Upload the agreement PDF or choose no attachment.";
+  }
   return null;
 }
 
 export function seedStoreAgreementDraft(
   agreementText: string,
   legacyContractUrl: string | null | undefined,
+  existingPdf: AgreementPdfDraft | null = null,
 ): {
   agreementMode: AgreementMode;
   agreementText: string;
+  agreementPdf: AgreementPdfDraft | null;
   requiresLegacyLinkReplacement: boolean;
 } {
   const hasInlineTerms = Boolean(agreementText.trim());
@@ -223,9 +234,13 @@ export function seedStoreAgreementDraft(
     !hasInlineTerms && Boolean(legacyContractUrl?.trim());
 
   return {
-    agreementMode:
-      hasInlineTerms || requiresLegacyLinkReplacement ? "text" : "none",
+    agreementMode: existingPdf
+      ? "pdf"
+      : hasInlineTerms || requiresLegacyLinkReplacement
+        ? "text"
+        : "none",
     agreementText,
+    agreementPdf: existingPdf,
     requiresLegacyLinkReplacement,
   };
 }

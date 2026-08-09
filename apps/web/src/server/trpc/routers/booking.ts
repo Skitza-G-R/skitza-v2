@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
@@ -25,6 +26,8 @@ import {
   type Product,
   type PurchaseCommercialSnapshot,
   type ProductRoyaltyTerms,
+  type Db,
+  withNeonSessionAdvisoryLock,
 } from "@skitza/db";
 import { z } from "zod";
 
@@ -69,6 +72,32 @@ import {
 import { deliverPushToProjectArtist } from "~/server/push/delivery";
 import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
 import { deliverCalendarSyncJobBestEffort } from "~/server/calendar/drain";
+import { agreementPdfFileError } from "~/lib/agreement-pdf";
+import {
+  agreementPdfProducerSummary,
+  agreementPdfContractDocumentsForCleanup,
+  agreementPdfContractStorageKeys,
+  appendAgreementPdfRevision,
+  assertAgreementPdfContractCanAppend,
+  currentAgreementPdfRevision,
+  isAgreementPdfContractPendingCleanup,
+  markAgreementPdfContractForCleanup,
+  type AgreementPdfDocument,
+} from "~/server/domain/agreement-pdfs/contract";
+import {
+  agreementPdfFinalCandidate,
+  createPrivateAgreementPdfUpload,
+  deletePrivateAgreementPdfFinalIfExact,
+  deletePrivateAgreementPdfStaging,
+  finalizePrivateAgreementPdfUpload,
+  resolvePrivateAgreementPdfFinalCandidate,
+  type AgreementPdfFinalCandidate,
+} from "~/server/domain/agreement-pdfs/storage";
+import {
+  createAgreementPdfUploadToken,
+  verifyOwnedAgreementPdfUploadToken,
+  verifyOwnedAgreementPdfUploadTokenForCleanup,
+} from "~/server/domain/agreement-pdfs/tokens";
 import { readGoogleCalendarBusyIntervals } from "~/server/google-calendar";
 
 type GoogleCalendarProtection = "active" | "reduced";
@@ -88,6 +117,12 @@ function mapStoreProductCommercialError(error: unknown): never {
     throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
   }
   throw error;
+}
+
+function agreementPdfServerSecret(): string {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret) throw new Error("Missing CLERK_SECRET_KEY");
+  return secret;
 }
 
 function mapSessionBookingDomainError(error: unknown): never {
@@ -313,6 +348,12 @@ const ProductRoyaltyTermsInput = z
   })
   .transform((terms) => terms as ProductRoyaltyTerms);
 
+const AgreementPdfChange = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("remove") }),
+  z.object({ kind: z.literal("keep"), documentId: z.string().uuid() }),
+  z.object({ kind: z.literal("replace"), uploadToken: z.string().min(1).max(4_096) }),
+]);
+
 // Product template input. Commercial payment plans are Full, 50/50, or
 // Monthly; deposits and Milestone plans are not part of the model.
 const ProductInputShape = {
@@ -355,6 +396,7 @@ const ProductInputShape = {
   // Mutable external agreements are not valid Store terms. Null remains
   // accepted so an editor can clear the legacy column without a migration.
   contractUrl: z.null().optional(),
+  agreementPdf: AgreementPdfChange.optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
   // Visibility is part of creation so "Save hidden" never exposes a product
   // between two mutations. Existing callers omit it and stay live by default.
@@ -436,6 +478,7 @@ const ProductUpdateInput = z.object({
   royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
   // Clear-only compatibility for the legacy external-agreement column.
   contractUrl: z.null().optional(),
+  agreementPdf: AgreementPdfChange.optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
 });
 
@@ -688,13 +731,191 @@ export const __wallClockInTzToUtcForTests = wallClockInTzToUtc;
 // name) and `packages` (the legacy name used by onboarding + existing
 // callers). One definition means the two sub-routers stay in sync
 // while we migrate.
+type AgreementPdfChangeInput = z.infer<typeof AgreementPdfChange>;
+
+function privateAgreementInputError(error: unknown): never {
+  if (error instanceof Error) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  throw error;
+}
+
+async function finalizeAgreementPdfChange(
+  change: AgreementPdfChangeInput | undefined,
+  expected: { producerId: string; viewerClerkUserId: string },
+  onCandidate?: (candidate: AgreementPdfFinalCandidate) => void | Promise<void>,
+): Promise<AgreementPdfDocument | null> {
+  if (change?.kind !== "replace") return null;
+  try {
+    const secret = agreementPdfServerSecret();
+    const token = verifyOwnedAgreementPdfUploadToken(secret, change.uploadToken, expected);
+    await onCandidate?.(agreementPdfFinalCandidate(secret, token));
+    return await finalizePrivateAgreementPdfUpload(secret, token);
+  } catch (error) {
+    privateAgreementInputError(error);
+  }
+}
+
+async function assertAgreementPdfCandidateIsNotPendingCleanup(
+  db: Pick<Db, "select">,
+  producerId: string,
+  candidate: AgreementPdfFinalCandidate,
+): Promise<void> {
+  const rows = await db
+    .select({ contractUrl: products.contractUrl })
+    .from(products)
+    .where(eq(products.producerId, producerId));
+  if (
+    rows.some(
+      (row) =>
+        isAgreementPdfContractPendingCleanup(row.contractUrl) &&
+        agreementPdfContractStorageKeys(row.contractUrl).includes(candidate.storageKey),
+    )
+  ) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "This private agreement upload is already being cleaned up.",
+    });
+  }
+}
+
+type AgreementPdfCleanupCandidate = AgreementPdfDocument | AgreementPdfFinalCandidate;
+const AGREEMENT_PDF_CLEANUP_CONCURRENCY = 16;
+
+function isVerifiedAgreementPdfDocument(
+  candidate: AgreementPdfCleanupCandidate,
+): candidate is AgreementPdfDocument {
+  return "objectEtag" in candidate && "sha256" in candidate;
+}
+
+async function deleteUnreferencedAgreementPdfFinals(
+  db: Db,
+  producerId: string,
+  candidates: readonly AgreementPdfCleanupCandidate[],
+): Promise<void> {
+  if (candidates.length === 0) return;
+  let cleanupIncomplete = false;
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${producerId}`}, 0))`,
+      );
+      const rows = await tx
+        .select({ contractUrl: products.contractUrl })
+        .from(products)
+        .where(eq(products.producerId, producerId));
+      const referencedStorageKeys = new Set(
+        rows.flatMap((row) => agreementPdfContractStorageKeys(row.contractUrl)),
+      );
+
+      const candidatesByStorageKey = new Map<string, AgreementPdfCleanupCandidate>();
+      for (const candidate of candidates) {
+        const existing = candidatesByStorageKey.get(candidate.storageKey);
+        if (!existing || isVerifiedAgreementPdfDocument(candidate)) {
+          candidatesByStorageKey.set(candidate.storageKey, candidate);
+        }
+      }
+      const unreferenced = [...candidatesByStorageKey.values()].filter(
+        (candidate) => !referencedStorageKeys.has(candidate.storageKey),
+      );
+      const documents: AgreementPdfDocument[] = [];
+      for (const candidate of unreferenced) {
+        if (isVerifiedAgreementPdfDocument(candidate)) {
+          documents.push(candidate);
+          continue;
+        }
+        const resolved = await resolvePrivateAgreementPdfFinalCandidate(candidate);
+        if (resolved) documents.push(resolved);
+      }
+
+      for (let offset = 0; offset < documents.length; offset += AGREEMENT_PDF_CLEANUP_CONCURRENCY) {
+        const batch = documents.slice(offset, offset + AGREEMENT_PDF_CLEANUP_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map((document) => deletePrivateAgreementPdfFinalIfExact(document)),
+        );
+        if (results.some((result) => result.status === "rejected")) cleanupIncomplete = true;
+      }
+    });
+  } catch {
+    cleanupIncomplete = true;
+  }
+  if (cleanupIncomplete) {
+    // Fail closed: uncertainty about references or R2 state preserves the object.
+    console.error("[agreement-pdf] unreferenced final-object cleanup failed");
+  }
+}
+
+function nextAgreementPdfPresence(
+  current: string | null,
+  change: AgreementPdfChangeInput | undefined,
+): boolean {
+  const currentRevision = currentAgreementPdfRevision(current);
+  if (!change) return Boolean(currentRevision?.document);
+  if (change.kind === "keep") {
+    if (!currentRevision?.document || currentRevision.revisionId !== change.documentId) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "The agreement PDF changed. Review the product again before saving.",
+      });
+    }
+    return true;
+  }
+  if (change.kind === "remove") return false;
+  assertAgreementPdfContractCanAppend(current);
+  return true;
+}
+
+function nextAgreementPdfContract(input: {
+  current: string | null;
+  change: AgreementPdfChangeInput | undefined;
+  replacement: AgreementPdfDocument | null;
+  now: Date;
+}): string | null {
+  if (!input.change) return input.current;
+  const currentRevision = currentAgreementPdfRevision(input.current);
+  if (input.change.kind === "keep") {
+    if (!currentRevision?.document || currentRevision.revisionId !== input.change.documentId) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "The agreement PDF changed. Review the product again before saving.",
+      });
+    }
+    return input.current;
+  }
+  if (input.change.kind === "remove" && input.current === null) return null;
+  if (input.change.kind === "remove" && currentRevision?.document === null) return input.current;
+  if (input.change.kind === "replace" && !input.replacement) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Upload the agreement PDF again." });
+  }
+  const previousTime = currentRevision ? new Date(currentRevision.effectiveAt).getTime() : 0;
+  const effectiveAt = new Date(Math.max(input.now.getTime(), previousTime)).toISOString();
+  return appendAgreementPdfRevision(input.current, {
+    revisionId: randomUUID(),
+    effectiveAt,
+    document: input.change.kind === "replace" ? input.replacement : null,
+  });
+}
+
+function producerSafeProduct<Row extends { contractUrl: string | null }>(row: Row) {
+  const summary = agreementPdfProducerSummary(row.contractUrl);
+  const { contractUrl: privateContractUrl, ...safeRow } = row;
+  void privateContractUrl;
+  return {
+    ...safeRow,
+    ...summary,
+  };
+}
+
 const productsRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
+    const storedRows = await ctx.db
       .select()
       .from(products)
       .where(and(eq(products.producerId, ctx.producerId), isNull(products.archivedAt)))
       .orderBy(asc(products.position), asc(products.createdAt));
+    // A rolling-deploy restore from older code can clear archivedAt, but the
+    // terminal cleanup discriminator must remain invisible and non-editable.
+    const rows = storedRows.filter((row) => !isAgreementPdfContractPendingCleanup(row.contractUrl));
     if (rows.length === 0) return [];
 
     const ids = rows.map((row) => row.id);
@@ -724,17 +945,74 @@ const productsRouter = router({
         .map((row) => row.productId)
         .filter((id): id is string => id !== null),
     );
-    return rows.map((row) => ({
-      ...row,
-      removalAction: historyIds.has(row.id) ? ("archive" as const) : ("delete" as const),
-    }));
+    return rows.map((row) =>
+      producerSafeProduct({
+        ...row,
+        removalAction: historyIds.has(row.id) ? ("archive" as const) : ("delete" as const),
+      }),
+    );
   }),
+
+  prepareAgreementPdfUpload: producerProcedure
+    .input(
+      z.object({
+        originalFileName: z.string().min(1).max(200),
+        contentType: z.literal("application/pdf"),
+        sizeBytes: z
+          .number()
+          .int()
+          .positive()
+          .max(15 * 1024 * 1024),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const fileError = agreementPdfFileError(input);
+      if (fileError) throw new TRPCError({ code: "BAD_REQUEST", message: fileError });
+      try {
+        const secret = agreementPdfServerSecret();
+        const signed = createAgreementPdfUploadToken(secret, {
+          producerId: ctx.producerId,
+          viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+          originalFileName: input.originalFileName,
+          contentType: input.contentType,
+          sizeBytes: input.sizeBytes,
+        });
+        const upload = await createPrivateAgreementPdfUpload(secret, signed.payload);
+        return { ...upload, uploadToken: signed.token };
+      } catch (error) {
+        privateAgreementInputError(error);
+      }
+    }),
+
+  cancelAgreementPdfUpload: producerProcedure
+    .input(z.object({ uploadToken: z.string().min(1).max(4_096) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const secret = agreementPdfServerSecret();
+        const token = verifyOwnedAgreementPdfUploadTokenForCleanup(secret, input.uploadToken, {
+          producerId: ctx.producerId,
+          viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+        });
+        await deletePrivateAgreementPdfStaging(secret, token);
+        return { cancelled: true as const };
+      } catch (error) {
+        privateAgreementInputError(error);
+      }
+    }),
 
   create: producerProcedure.input(ProductInput).mutation(async ({ ctx, input }) => {
     // Pre-H.3 callers (onboarding wizard) pass in only a minimal set
     // of fields. The DB expects durationMin NOT NULL, so default it
     // to 0 when the caller doesn't pass one.
-    const { durationMin = 0, priceCents = 0, sessionCount = 1, ...rest } = input;
+    const {
+      durationMin = 0,
+      priceCents = 0,
+      sessionCount = 1,
+      agreementPdf,
+      contractUrl: legacyContractUrl,
+      ...rest
+    } = input;
+    void legacyContractUrl;
     const values = {
       ...stripUndefined(rest),
       durationMin,
@@ -762,6 +1040,7 @@ const productsRouter = router({
         paymentPlans: values.paymentPlans ?? [{ kind: "full" }],
         royaltyTerms: values.royaltyTerms ?? null,
         agreementText: values.agreementText ?? null,
+        hasAgreementPdf: agreementPdf?.kind === "replace",
         active: values.active,
         archivedAt: null,
       });
@@ -769,60 +1048,137 @@ const productsRouter = router({
       mapStoreProductCommercialError(error);
     }
 
-    return ctx.db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
-      );
-      const existing = await tx
-        .select({ position: products.position })
-        .from(products)
-        .where(eq(products.producerId, ctx.producerId))
-        .orderBy(asc(products.position));
-      const nextPos =
-        existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
-      const [row] = await tx
-        .insert(products)
-        .values({ ...values, position: nextPos })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
-    });
+    if (agreementPdf?.kind === "keep") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Upload the agreement PDF again." });
+    }
+    const finalization = {
+      replacement: null as AgreementPdfDocument | null,
+      cleanupCandidate: null as AgreementPdfCleanupCandidate | null,
+    };
+    try {
+      return await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
+        );
+        const existing = await tx
+          .select({ position: products.position })
+          .from(products)
+          .where(eq(products.producerId, ctx.producerId))
+          .orderBy(asc(products.position));
+        const nextPos =
+          existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
+        if (agreementPdf?.kind === "replace") assertAgreementPdfContractCanAppend(null);
+        finalization.replacement = await finalizeAgreementPdfChange(
+          agreementPdf,
+          {
+            producerId: ctx.producerId,
+            viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+          },
+          async (candidate) => {
+            await assertAgreementPdfCandidateIsNotPendingCleanup(tx, ctx.producerId, candidate);
+            finalization.cleanupCandidate = candidate;
+          },
+        );
+        if (finalization.replacement) finalization.cleanupCandidate = finalization.replacement;
+        const contractUrl = nextAgreementPdfContract({
+          current: null,
+          change: agreementPdf,
+          replacement: finalization.replacement,
+          now: new Date(),
+        });
+        const [row] = await tx
+          .insert(products)
+          .values({ ...values, contractUrl, position: nextPos })
+          .returning();
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        return producerSafeProduct(row);
+      });
+    } catch (error) {
+      if (finalization.cleanupCandidate) {
+        await deleteUnreferencedAgreementPdfFinals(ctx.db, ctx.producerId, [
+          finalization.cleanupCandidate,
+        ]);
+      }
+      throw error;
+    }
   }),
 
   update: producerProcedure.input(ProductUpdateInput).mutation(async ({ ctx, input }) => {
-    const { id, ...patch } = input;
-    return ctx.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(products)
-        .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
-        .limit(1)
-        .for("update");
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      const persistedPatch = {
-        ...stripUndefined(patch),
-        ...(patch.paymentPlans
-          ? {
-              paymentPlans: mergePreservedPaymentPlans(patch.paymentPlans, existing.paymentPlans),
-            }
-          : {}),
-      };
-      try {
-        mergeAndValidateStoreProduct(
-          existing as StoreProductCommercialInput,
-          persistedPatch as Partial<StoreProductCommercialInput>,
+    const { id, agreementPdf, contractUrl: legacyContractUrl, ...patch } = input;
+    void legacyContractUrl;
+    const finalization = {
+      replacement: null as AgreementPdfDocument | null,
+      cleanupCandidate: null as AgreementPdfCleanupCandidate | null,
+    };
+    try {
+      return await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
         );
-      } catch (error) {
-        mapStoreProductCommercialError(error);
+        const [existing] = await tx
+          .select()
+          .from(products)
+          .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
+          .limit(1)
+          .for("update");
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (isAgreementPdfContractPendingCleanup(existing.contractUrl)) {
+          throw new TRPCError({ code: "CONFLICT" });
+        }
+        const persistedPatch = {
+          ...stripUndefined(patch),
+          ...(patch.paymentPlans
+            ? {
+                paymentPlans: mergePreservedPaymentPlans(patch.paymentPlans, existing.paymentPlans),
+              }
+            : {}),
+        };
+        const hasAgreementPdf = nextAgreementPdfPresence(existing.contractUrl, agreementPdf);
+        try {
+          mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
+            ...(persistedPatch as Partial<StoreProductCommercialInput>),
+            hasAgreementPdf,
+          });
+        } catch (error) {
+          mapStoreProductCommercialError(error);
+        }
+        finalization.replacement = await finalizeAgreementPdfChange(
+          agreementPdf,
+          {
+            producerId: ctx.producerId,
+            viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+          },
+          async (candidate) => {
+            await assertAgreementPdfCandidateIsNotPendingCleanup(tx, ctx.producerId, candidate);
+            finalization.cleanupCandidate = candidate;
+          },
+        );
+        if (finalization.replacement) finalization.cleanupCandidate = finalization.replacement;
+        const contractUrl = nextAgreementPdfContract({
+          current: existing.contractUrl,
+          change: agreementPdf,
+          replacement: finalization.replacement,
+          now: new Date(),
+        });
+        const [row] = await tx
+          .update(products)
+          .set({
+            ...persistedPatch,
+            ...(agreementPdf ? { contractUrl } : {}),
+          })
+          .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
+          .returning();
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+        return producerSafeProduct(row);
+      });
+    } catch (error) {
+      if (finalization.cleanupCandidate) {
+        await deleteUnreferencedAgreementPdfFinals(ctx.db, ctx.producerId, [
+          finalization.cleanupCandidate,
+        ]);
       }
-      const [row] = await tx
-        .update(products)
-        .set(persistedPatch)
-        .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
-        .returning();
-      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-      return row;
-    });
+      throw error;
+    }
   }),
 
   // The user-facing remove action is decided under a product row lock:
@@ -831,9 +1187,12 @@ const productsRouter = router({
   archive: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.transaction(async (tx) => {
+      const decision = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
+        );
         const [existing] = await tx
-          .select({ id: products.id })
+          .select({ id: products.id, contractUrl: products.contractUrl })
           .from(products)
           .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
           .limit(1)
@@ -873,7 +1232,29 @@ const productsRouter = router({
             .update(products)
             .set({ archivedAt: new Date(), active: false })
             .where(and(eq(products.id, existing.id), eq(products.producerId, ctx.producerId)));
-          return { ok: true as const, outcome: "archived" as const };
+          return {
+            outcome: "archived" as const,
+            cleanupContractUrl: null,
+            cleanupDocuments: [] as readonly AgreementPdfDocument[],
+            currentStorageKey: null,
+          };
+        }
+
+        const cleanupDocuments = agreementPdfContractDocumentsForCleanup(existing.contractUrl);
+        if (cleanupDocuments.length > 0) {
+          const cleanupContractUrl = markAgreementPdfContractForCleanup(existing.contractUrl);
+          const currentStorageKey = currentAgreementPdfRevision(existing.contractUrl)?.document
+            ?.storageKey;
+          await tx
+            .update(products)
+            .set({ archivedAt: new Date(), active: false, contractUrl: cleanupContractUrl })
+            .where(and(eq(products.id, existing.id), eq(products.producerId, ctx.producerId)));
+          return {
+            outcome: "cleanup" as const,
+            cleanupContractUrl,
+            cleanupDocuments,
+            currentStorageKey: currentStorageKey ?? null,
+          };
         }
 
         const [deleted] = await tx
@@ -881,8 +1262,120 @@ const productsRouter = router({
           .where(and(eq(products.id, existing.id), eq(products.producerId, ctx.producerId)))
           .returning({ id: products.id });
         if (!deleted) throw new TRPCError({ code: "CONFLICT" });
-        return { ok: true as const, outcome: "deleted" as const };
+        return {
+          outcome: "deleted" as const,
+          cleanupContractUrl: null,
+          cleanupDocuments: [] as readonly AgreementPdfDocument[],
+          currentStorageKey: null,
+        };
       });
+
+      if (decision.outcome === "archived") {
+        return { ok: true as const, outcome: "archived" as const };
+      }
+      if (decision.outcome === "deleted") {
+        return { ok: true as const, outcome: "deleted" as const };
+      }
+
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await withNeonSessionAdvisoryLock(
+        databaseUrl,
+        `store-products:${ctx.producerId}`,
+        async (lockedDb) => {
+          const [tombstone] = await lockedDb
+            .select({
+              id: products.id,
+              active: products.active,
+              archivedAt: products.archivedAt,
+              contractUrl: products.contractUrl,
+            })
+            .from(products)
+            .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+            .limit(1);
+          if (
+            !tombstone ||
+            tombstone.active ||
+            !tombstone.archivedAt ||
+            tombstone.contractUrl !== decision.cleanupContractUrl ||
+            !isAgreementPdfContractPendingCleanup(tombstone.contractUrl)
+          ) {
+            throw new TRPCError({ code: "CONFLICT" });
+          }
+
+          const ledgers = await lockedDb
+            .select({ id: products.id, contractUrl: products.contractUrl })
+            .from(products)
+            .where(eq(products.producerId, ctx.producerId));
+          const referencedStorageKeys = new Set(
+            ledgers
+              .filter((row) => row.id !== tombstone.id)
+              .flatMap((row) => agreementPdfContractStorageKeys(row.contractUrl)),
+          );
+          const unreferencedDocuments = [
+            ...decision.cleanupDocuments.filter(
+              (document) => !referencedStorageKeys.has(document.storageKey),
+            ),
+          ].sort((left, right) => {
+            if (left.storageKey === decision.currentStorageKey) return 1;
+            if (right.storageKey === decision.currentStorageKey) return -1;
+            return 0;
+          });
+
+          let cleanupIncomplete = false;
+          for (
+            let offset = 0;
+            offset < unreferencedDocuments.length;
+            offset += AGREEMENT_PDF_CLEANUP_CONCURRENCY
+          ) {
+            const batch = unreferencedDocuments.slice(
+              offset,
+              offset + AGREEMENT_PDF_CLEANUP_CONCURRENCY,
+            );
+            const results = await Promise.allSettled(
+              batch.map((document) => deletePrivateAgreementPdfFinalIfExact(document)),
+            );
+            if (results.some((result) => result.status === "rejected")) cleanupIncomplete = true;
+          }
+          if (cleanupIncomplete) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "The product was archived, but its private agreement cleanup is incomplete.",
+            });
+          }
+
+          await lockedDb.transaction(async (tx) => {
+            const [lockedTombstone] = await tx
+              .select({
+                id: products.id,
+                active: products.active,
+                archivedAt: products.archivedAt,
+                contractUrl: products.contractUrl,
+              })
+              .from(products)
+              .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+              .limit(1)
+              .for("update");
+            if (
+              !lockedTombstone ||
+              lockedTombstone.active ||
+              !lockedTombstone.archivedAt ||
+              lockedTombstone.contractUrl !== decision.cleanupContractUrl ||
+              !isAgreementPdfContractPendingCleanup(lockedTombstone.contractUrl)
+            ) {
+              throw new TRPCError({ code: "CONFLICT" });
+            }
+            const [deleted] = await tx
+              .delete(products)
+              .where(
+                and(eq(products.id, lockedTombstone.id), eq(products.producerId, ctx.producerId)),
+              )
+              .returning({ id: products.id });
+            if (!deleted) throw new TRPCError({ code: "CONFLICT" });
+          });
+        },
+      );
+      return { ok: true as const, outcome: "deleted" as const };
     }),
 
   // Phase 2 store redesign — Undo counterpart to `archive`. Surfaces
@@ -893,17 +1386,26 @@ const productsRouter = router({
   restore: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({ id: products.id })
-        .from(products)
-        .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      await ctx.db
-        .update(products)
-        .set({ archivedAt: null, active: false })
-        .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)));
-      return { ok: true as const };
+      return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
+        );
+        const [existing] = await tx
+          .select({ id: products.id, contractUrl: products.contractUrl })
+          .from(products)
+          .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+          .limit(1)
+          .for("update");
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (isAgreementPdfContractPendingCleanup(existing.contractUrl)) {
+          throw new TRPCError({ code: "CONFLICT" });
+        }
+        await tx
+          .update(products)
+          .set({ archivedAt: null, active: false })
+          .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)));
+        return { ok: true as const };
+      });
     }),
 
   // Phase 3 store redesign — drag-to-reorder. Writes the new ordinals
@@ -978,6 +1480,9 @@ const productsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
+        );
         if (input.active && input.requireAvailability) {
           await tx.execute(
             sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
@@ -990,6 +1495,9 @@ const productsRouter = router({
           .limit(1)
           .for("update");
         if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (isAgreementPdfContractPendingCleanup(existing.contractUrl)) {
+          throw new TRPCError({ code: "CONFLICT" });
+        }
         if (input.active && input.requireAvailability && existing.bookingEnabled) {
           const [availability] = await tx
             .select({ id: availabilityBlocks.id })
@@ -1006,6 +1514,7 @@ const productsRouter = router({
         try {
           mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
             active: input.active,
+            hasAgreementPdf: Boolean(currentAgreementPdfRevision(existing.contractUrl)?.document),
           });
         } catch (error) {
           mapStoreProductCommercialError(error);
@@ -1038,6 +1547,9 @@ const productsRouter = router({
           .limit(1)
           .for("share");
         if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (isAgreementPdfContractPendingCleanup(existing.contractUrl)) {
+          throw new TRPCError({ code: "CONFLICT" });
+        }
         // Compute next position at the tail of this producer's list.
         const all = await tx
           .select({ position: products.position })
@@ -1045,6 +1557,14 @@ const productsRouter = router({
           .where(eq(products.producerId, ctx.producerId))
           .orderBy(asc(products.position));
         const nextPos = all.length === 0 ? 0 : (all[all.length - 1]?.position ?? 0) + 1;
+        const sourceAgreement = currentAgreementPdfRevision(existing.contractUrl)?.document ?? null;
+        const duplicatedContractUrl = sourceAgreement
+          ? appendAgreementPdfRevision(null, {
+              revisionId: randomUUID(),
+              effectiveAt: new Date().toISOString(),
+              document: sourceAgreement,
+            })
+          : null;
         const [row] = await tx
           .insert(products)
           .values({
@@ -1068,13 +1588,14 @@ const productsRouter = router({
             deliverables: existing.deliverables,
             paymentPlans: existing.paymentPlans,
             royaltyTerms: existing.royaltyTerms,
-            // A duplicate is a future product and must not inherit mutable terms.
-            contractUrl: null,
+            // Reuse only the immutable object identity under a new product-local
+            // revision. Legacy external links never carry into a duplicate.
+            contractUrl: duplicatedContractUrl,
             agreementText: existing.agreementText,
           })
           .returning();
         if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        return row;
+        return producerSafeProduct(row);
       });
     }),
 });

@@ -1,6 +1,7 @@
 import type { PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
 
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import type {
   PaymentBucketProjection,
   PaymentProjectProjection,
@@ -57,6 +58,7 @@ function frozenTerms(
 ): PaymentHistoryFrozenTerms {
   const snapshot = purchase.commercialSnapshot;
   const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
+  const agreementPdf = agreementPdfFromCommercialSnapshot(snapshot);
   const royaltyValue = royalty.specified
     ? [royalty.master, royalty.composition, snapshot.royaltyTerms?.notes]
         .filter((value): value is string => Boolean(value))
@@ -85,6 +87,7 @@ function frozenTerms(
     ],
     rights: snapshot.rights,
     agreementText: snapshot.agreementText,
+    agreementPdfFileName: agreementPdf?.originalFileName ?? null,
   };
 }
 

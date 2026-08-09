@@ -1,6 +1,6 @@
 import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 
-import type { PackageKind } from "~/app/(producer)/dashboard/booking/actions";
+import type { AgreementPdfChange, PackageKind } from "~/app/(producer)/dashboard/booking/actions";
 import type { VolumeTier } from "~/lib/pricing";
 
 import { encodeDescription } from "./description-encoding";
@@ -8,6 +8,7 @@ import {
   buildPaymentPlans,
   royaltyDraftToTerms,
   type AgreementMode,
+  type AgreementPdfDraft,
   type PaymentSelectionDraft,
   type ProductRoyaltyDraft,
 } from "./product-editor-draft";
@@ -33,6 +34,7 @@ export interface PackageDraft {
   unlimitedRevisions: boolean;
   agreementMode: AgreementMode;
   agreementText: string;
+  agreementPdf?: AgreementPdfDraft | null;
   royalty: ProductRoyaltyDraft;
   pricingModel: "flat" | "per_song";
   volumeTiers: VolumeTier[];
@@ -51,7 +53,7 @@ export interface PackagePayload {
   deliverables: string[];
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementText: string | null;
-  contractUrl: null;
+  agreementPdf: AgreementPdfChange;
   pricingModel: "flat" | "per_song";
   volumeTiers: VolumeTier[];
 }
@@ -72,9 +74,21 @@ function resolveAgreementText(
   return trimmed || null;
 }
 
+export function resolveAgreementPdfChange(
+  mode: AgreementMode,
+  pdf: AgreementPdfDraft | null | undefined,
+  uploadToken: string | null = null,
+): AgreementPdfChange {
+  if (mode !== "pdf") return { kind: "remove" };
+  if (uploadToken) return { kind: "replace", uploadToken };
+  if (pdf?.documentId) return { kind: "keep", documentId: pdf.documentId };
+  throw new Error("Upload the agreement PDF or choose no attachment.");
+}
+
 export function buildPackagePayload(
   draft: PackageDraft,
   existingProductKind?: string,
+  agreementPdfUploadToken: string | null = null,
 ): PackagePayload {
   // Description remains the compatibility carrier for tagline/revisions.
   // Inline agreement text is deliberately excluded and written to its own
@@ -113,14 +127,12 @@ export function buildPackagePayload(
       .map((item) => item.trim())
       .filter(Boolean),
     royaltyTerms: royaltyDraftToTerms(draft.royalty),
-    agreementText: resolveAgreementText(
+    agreementText: resolveAgreementText(draft.agreementMode, draft.agreementText),
+    agreementPdf: resolveAgreementPdfChange(
       draft.agreementMode,
-      draft.agreementText,
+      draft.agreementPdf,
+      agreementPdfUploadToken,
     ),
-    // Store purchases must freeze the exact terms the artist accepted. External
-    // links can change after acceptance, so every create/edit clears any legacy
-    // URL and persists only the inline agreement text above.
-    contractUrl: null,
     pricingModel: draft.pricingModel,
     volumeTiers: draft.volumeTiers,
   };
@@ -129,6 +141,7 @@ export function buildPackagePayload(
 export function buildPackageUpdatePayload(
   draft: PackageDraft,
   existingProductKind: string,
+  agreementPdfUploadToken: string | null = null,
 ): PackageUpdatePayload {
-  return buildPackagePayload(draft, existingProductKind);
+  return buildPackagePayload(draft, existingProductKind, agreementPdfUploadToken);
 }

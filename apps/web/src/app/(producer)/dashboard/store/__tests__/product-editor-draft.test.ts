@@ -302,6 +302,7 @@ describe("agreement validation", () => {
     ).toEqual({
       agreementMode: "text",
       agreementText: "",
+      agreementPdf: null,
       requiresLegacyLinkReplacement: true,
     });
     expect(
@@ -309,6 +310,7 @@ describe("agreement validation", () => {
     ).toEqual({
       agreementMode: "text",
       agreementText: "Exact saved terms.",
+      agreementPdf: null,
       requiresLegacyLinkReplacement: false,
     });
   });
