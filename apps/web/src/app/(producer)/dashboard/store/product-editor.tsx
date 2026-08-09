@@ -300,7 +300,7 @@ export function ProductEditor({
     const statusRequest = ++saveStatusRequestRef.current;
     const persisted = onPersistDraft(nextRecord);
     if (saveStatusRequestRef.current === statusRequest) {
-      setSaveStatus(persisted ? "saved" : "idle");
+      setSaveStatus(persisted ? "saved" : "error");
     }
   }, [defaultCurrency, mode, onPersistDraft, open, persistedDraft, product, steps]);
 
@@ -320,7 +320,7 @@ export function ProductEditor({
       const latest = latestPersistedDraftRef.current;
       const persisted = Boolean(latest && onPersistDraft(latest));
       if (saveStatusRequestRef.current === statusRequest) {
-        setSaveStatus(persisted ? "saved" : "idle");
+        setSaveStatus(persisted ? "saved" : "error");
       }
     }, 250);
     return () => {
