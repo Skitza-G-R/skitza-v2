@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
-import {
-  createDb,
-  producers,
-  portfolioTracks,
-} from "../index";
+import { eq, inArray, sql } from "drizzle-orm";
+import { createDb, producers, portfolioTracks } from "../index";
 
 const url = process.env.DATABASE_URL_TEST;
 const describeIfDb = url ? describe : describe.skip;
@@ -18,10 +14,12 @@ describeIfDb("Extended tables (portfolio_tracks)", () => {
 
   async function makeProducer(): Promise<string> {
     const key = `test_${randomUUID()}`;
-    const [row] = await db!
-      .insert(producers)
-      .values({ clerkUserId: key, email: `${key}@example.com`, slug: key })
-      .returning();
+    const result = await db!.execute<{ id: string }>(sql`
+      INSERT INTO producers (clerk_user_id, email, slug)
+      VALUES (${key}, ${`${key}@example.com`}, ${key})
+      RETURNING id
+    `);
+    const row = result.rows[0];
     createdProducerIds.push(row!.id);
     return row!.id;
   }

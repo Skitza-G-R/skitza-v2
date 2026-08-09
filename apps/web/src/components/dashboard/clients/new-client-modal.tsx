@@ -149,9 +149,10 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="new-client-modal-body"
-          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[440px] flex-col overflow-hidden rounded-[18px] bg-[rgb(var(--bg-background))] p-0 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] md:-translate-x-1/2 md:-translate-y-1/2"
+          style={{ overflow: "hidden", paddingBottom: 0 }}
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
                 New client
@@ -160,7 +161,8 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
                 id="new-client-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                Add their details and send an invite.
+                Most artists can join through your permanent public link. Adding them here is
+                optional.
               </DialogPrimitive.Description>
             </div>
             <button
@@ -177,106 +179,115 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-            <FieldLabel htmlFor="new-client-name" required>
-              Name
-            </FieldLabel>
-            <div>
-              <input
-                id="new-client-name"
-                type="text"
-                required
-                autoFocus
-                value={name}
-                maxLength={80}
-                onChange={(e) => {
-                  setName(e.target.value);
-                }}
-                onBlur={() => {
-                  setNameTouched(true);
-                }}
-                aria-invalid={nameState.kind === "invalid" || nameState.kind === "required"}
-                placeholder="Artist or band name"
-                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                style={{ borderColor: "rgb(var(--border-subtle))" }}
-              />
-              <ValidationHint state={nameState} />
-            </div>
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-4">
+              <div className="flex flex-col gap-3">
+                <FieldLabel htmlFor="new-client-name" required>
+                  Name
+                </FieldLabel>
+                <div>
+                  <input
+                    id="new-client-name"
+                    type="text"
+                    required
+                    autoFocus
+                    value={name}
+                    maxLength={80}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                    }}
+                    onBlur={() => {
+                      setNameTouched(true);
+                    }}
+                    aria-invalid={nameState.kind === "invalid" || nameState.kind === "required"}
+                    placeholder="Artist or band name"
+                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                    style={{ borderColor: "rgb(var(--border-subtle))" }}
+                  />
+                  <ValidationHint state={nameState} />
+                </div>
 
-            {/* Email + Phone in a 2-column row on the desktop modal.
+                {/* Email + Phone in a 2-column row on the desktop modal.
                 Collapses to single-column on very narrow viewports
                 (the modal is desktop-first but defensive against
                 480px-wide phones in case the producer opens it on
                 their phone). */}
-            {/* Email + Phone share a row. The form's parent gap-3 +
+                {/* Email + Phone share a row. The fields wrapper's gap-3 +
                 FieldLabel's -mb-2.5 offsets keep label/input spacing
                 visually identical to the stacked Name field above.
                 Collapses to single-column under sm: in case the
                 producer opens the modal on a phone. */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-3">
-                <FieldLabel htmlFor="new-client-email" required>
-                  Email
-                </FieldLabel>
-                <div>
-                  <input
-                    id="new-client-email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                    }}
-                    onBlur={() => {
-                      setEmailTouched(true);
-                    }}
-                    aria-invalid={emailState.kind === "invalid" || emailState.kind === "required"}
-                    placeholder="they@example.com"
-                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                    style={{ borderColor: "rgb(var(--border-subtle))" }}
-                  />
-                  <ValidationHint state={emailState} />
-                </div>
-              </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-3">
+                    <FieldLabel htmlFor="new-client-email" required>
+                      Email
+                    </FieldLabel>
+                    <div>
+                      <input
+                        id="new-client-email"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                        }}
+                        onBlur={() => {
+                          setEmailTouched(true);
+                        }}
+                        aria-invalid={
+                          emailState.kind === "invalid" || emailState.kind === "required"
+                        }
+                        placeholder="they@example.com"
+                        className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                        style={{ borderColor: "rgb(var(--border-subtle))" }}
+                      />
+                      <ValidationHint state={emailState} />
+                    </div>
+                  </div>
 
-              <div className="flex flex-col gap-3">
-                <FieldLabel htmlFor="new-client-phone">Phone</FieldLabel>
-                <input
-                  id="new-client-phone"
-                  type="tel"
-                  value={phone}
-                  maxLength={40}
+                  <div className="flex flex-col gap-3">
+                    <FieldLabel htmlFor="new-client-phone">Phone</FieldLabel>
+                    <input
+                      id="new-client-phone"
+                      type="tel"
+                      value={phone}
+                      maxLength={40}
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                      }}
+                      placeholder="+972 50 ..."
+                      className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                      style={{ borderColor: "rgb(var(--border-subtle))" }}
+                    />
+                  </div>
+                </div>
+
+                <FieldLabel htmlFor="new-client-notes">
+                  Notes <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
+                </FieldLabel>
+                <textarea
+                  id="new-client-notes"
+                  value={notes}
+                  rows={2}
+                  maxLength={2000}
                   onChange={(e) => {
-                    setPhone(e.target.value);
+                    setNotes(e.target.value);
                   }}
-                  placeholder="+972 50 ..."
-                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                  placeholder="Genre, references, anything to remember..."
+                  className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                   style={{ borderColor: "rgb(var(--border-subtle))" }}
                 />
+
+                <p className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+                  We&rsquo;ll email an invite after you add them.
+                </p>
               </div>
             </div>
 
-            <FieldLabel htmlFor="new-client-notes">
-              Notes <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
-            </FieldLabel>
-            <textarea
-              id="new-client-notes"
-              value={notes}
-              rows={2}
-              maxLength={2000}
-              onChange={(e) => {
-                setNotes(e.target.value);
-              }}
-              placeholder="Genre, references, anything to remember..."
-              className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-              style={{ borderColor: "rgb(var(--border-subtle))" }}
-            />
-
-            <p className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-              We&rsquo;ll email an invite after you add them.
-            </p>
-
-            <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
+            <div
+              className="flex shrink-0 flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 pt-3 sm:flex-row sm:items-center sm:justify-end"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
+            >
               <button
                 type="button"
                 onClick={onClose}

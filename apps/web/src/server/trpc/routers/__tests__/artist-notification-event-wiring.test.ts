@@ -59,7 +59,7 @@ describe("artist notification event wiring", () => {
     );
   });
 
-  it("emits self-serve events only for created, auto-confirmed sessions", () => {
+  it("notifies artists for auto-confirmed creation and producers for change requests", () => {
     const confirm = procedure(
       artistSource,
       "  confirm: artistProcedure",
@@ -70,13 +70,14 @@ describe("artist notification event wiring", () => {
       "  reschedule: artistProcedure",
       "  // Payment belongs to Purchase",
     );
-    for (const source of [confirm, reschedule]) {
-      expect(source).toMatch(/if \(result\.created\)/);
-      expect(source).toMatch(/result\.booking\.status === "confirmed"/);
-      expect(source).toContain("emitArtistSessionNotificationBestEffort");
-    }
+    expect(confirm).toMatch(/if \(result\.created\)/);
+    expect(confirm).toMatch(/result\.booking\.status === "confirmed"/);
+    expect(confirm).toContain("emitArtistSessionNotificationBestEffort");
     expect(confirm).toContain('kind: "booking_confirmed"');
-    expect(reschedule).toContain('kind: "booking_changed"');
+    expect(reschedule).toContain("submitArtistSessionChangeRequest(");
+    expect(reschedule).toContain('kind: "reschedule"');
+    expect(reschedule).toContain("deliverPushToProducer");
+    expect(reschedule).not.toContain("emitArtistSessionNotificationBestEffort");
   });
 
   it("emits producer comments only after the exact comment and active contact exist", () => {

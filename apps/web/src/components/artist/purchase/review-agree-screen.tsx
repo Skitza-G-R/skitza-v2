@@ -488,11 +488,14 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
             <h2 id="agreement-heading" className="mb-2.5">
               <Eyebrow>Exact agreement text</Eyebrow>
             </h2>
-            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-4">
-              <p className="text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
+            <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))]">
+              <summary className="min-h-11 cursor-pointer px-4 py-3 text-[13px] font-semibold text-[rgb(var(--fg-default))] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset">
+                View full exact agreement
+              </summary>
+              <p className="border-t border-[rgb(var(--border-subtle))] px-4 py-4 text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                 {snapshot.agreementText || "No additional agreement text."}
               </p>
-            </div>
+            </details>
             <div className="mt-2.5 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
               <LockIcon />
               <span>Product edits after acceptance cannot change this purchase snapshot.</span>

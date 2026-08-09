@@ -43,7 +43,17 @@ describe("PaymentStep", () => {
     expect(html).toContain("$50.02");
     expect(html).toContain("$25.03");
     expect(html).toContain("$100.03 at acceptance");
-    expect(html).toContain("$50.01 when the artist approves the final version");
+    const splitOptionStart = html.indexOf('<label for="payment-plan-split"');
+    const splitOption = html.slice(splitOptionStart, html.indexOf("</label>", splitOptionStart));
+
+    expect(splitOptionStart).toBeGreaterThan(-1);
+    expect(splitOption).toMatch(
+      /50% \/ 50%[\s\S]*<span class="block">\$50\.02 at acceptance<\/span><span class="block">\$50\.01 after final approval<\/span>/,
+    );
+    expect(splitOption.match(/<span class="block">/g)).toHaveLength(2);
+    expect(splitOption).not.toContain(" · ");
+    expect(html.match(/after final approval/g)).toHaveLength(1);
+    expect(html).not.toContain("Half at agreement acceptance");
     expect(html).not.toMatch(/after approval|on delivery/i);
     expect(html).toContain('aria-label="Decrease monthly payments"');
     expect(html).toContain('aria-label="Increase monthly payments"');

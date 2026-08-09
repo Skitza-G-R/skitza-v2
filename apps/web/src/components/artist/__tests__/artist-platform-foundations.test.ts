@@ -43,8 +43,10 @@ describe("artist notification surface", () => {
     expect(acknowledger).toContain("acknowledgeArtistTrackVersionAction");
     expect(home).toContain('main.kind === "new_song"');
     expect(home).toContain("trackVersionId: main.id");
-    expect(home).toContain("main.audio?.url");
-    expect(home).not.toContain("disabled={!main.audio.url}");
+    expect(home).toContain('item.kind === "new_song"');
+    expect(home).toContain("trackVersionId: item.id");
+    expect(home).toContain("item.audio?.url");
+    expect(home).not.toContain("disabled={!item.audio.url}");
   });
 });
 
