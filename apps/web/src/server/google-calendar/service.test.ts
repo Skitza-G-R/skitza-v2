@@ -870,7 +870,12 @@ describe("Google Calendar service lifecycle", () => {
   it("refreshes CalendarList before save and rejects a destination that lost write access", async () => {
     const repository = new MemoryGoogleCalendarRepository();
     const provider = createProvider();
-    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
     const connected = await connect(service);
     const calendarId = connected.calendars[0]?.id;
     if (!calendarId) throw new Error("Missing test calendar");
@@ -1027,7 +1032,12 @@ describe("Google Calendar service lifecycle", () => {
     const repository = new MemoryGoogleCalendarRepository();
     const provider = createProvider();
     provider.listCalendars.mockResolvedValue(calendarsForDestinationSwitch());
-    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
     const connected = await connect(service);
     const firstId = connected.calendars[0]?.id;
     const secondId = connected.calendars[1]?.id;
@@ -1148,7 +1158,12 @@ describe("Google Calendar service lifecycle", () => {
   it("revokes any independently readable token and always completes local disconnect", async () => {
     const repository = new MemoryGoogleCalendarRepository();
     const provider = createProvider();
-    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
     const connected = await connect(service);
     const calendarId = connected.calendars[0]?.id;
     if (!calendarId) throw new Error("Missing test calendar");
