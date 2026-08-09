@@ -2870,6 +2870,21 @@ describe("session booking lifecycle commands", () => {
       currentBookingId: repository.bookings[1]?.id,
       desiredRevision: 2,
     });
+    const rescheduleEvents = repository.events.filter((event) => event.kind === "rescheduled");
+    expect(rescheduleEvents).toEqual([
+      expect.objectContaining({
+        bookingId: repository.bookings[1]?.id,
+        fromStatus: null,
+        oldStartsAt: null,
+        newStartsAt: movedStartsAt,
+      }),
+      expect.objectContaining({
+        bookingId: created.booking.id,
+        fromStatus: "confirmed",
+        oldStartsAt: created.booking.startsAt,
+        newStartsAt: movedStartsAt,
+      }),
+    ]);
   });
 
   it("rejects a Google move that overlaps an active Skitza session and restores canonical data", async () => {

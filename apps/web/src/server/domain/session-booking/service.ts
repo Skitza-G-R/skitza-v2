@@ -1104,7 +1104,7 @@ export async function applyGoogleCalendarSessionReconciliation(
           toStatus: replacement.status,
           fromOutcome: null,
           toOutcome: replacement.outcome,
-          oldStartsAt: booking.startsAt,
+          oldStartsAt: null,
           newStartsAt: replacement.startsAt,
           occurredAt: input.reconciledAt,
         });
