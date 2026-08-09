@@ -9,6 +9,7 @@ import {
   type CalendarManualRetryRepository,
   CalendarManualRetryError,
   calendarManualRetryIdempotencyKey,
+  calendarManualRetryRepository,
   manualRetryCalendarSyncJob,
 } from "./manual-retry";
 
@@ -122,6 +123,71 @@ function command(overrides: Partial<Parameters<typeof manualRetryCalendarSyncJob
   };
 }
 
+function googleTerminalDatabase() {
+  const job = {
+    id: jobId,
+    producerId,
+    deliveryChannel: "google" as const,
+    status: "terminal" as "terminal" | "pending",
+    idempotencyKey: `google:upsert_google_event:${jobId}:r1`,
+    attemptCount: 3,
+    firstAttemptAt: new Date("2026-08-08T10:00:00.000Z"),
+    lastAttemptAt: new Date("2026-08-08T11:00:00.000Z"),
+    providerDedupeExpiresAt: null,
+    lastError: "Google Calendar delivery failed",
+    terminalAt,
+    terminalError: "Google Calendar delivery reached the retry limit",
+    manualRetryCount: 0,
+    updatedAt: terminalAt,
+  };
+  const audits: Array<{
+    jobId: string;
+    producerId: string;
+    retryNumber: number;
+    operationKey: string;
+    operationDigest: string;
+    newIdempotencyKey: string;
+    priorProviderDedupeExpiresAt: Date | null;
+  }> = [];
+  const db = {
+    transaction: async (run: (tx: never) => Promise<unknown>) => {
+      let selectIndex = 0;
+      const lockedJobQuery = {
+        where: () => lockedJobQuery,
+        limit: () => lockedJobQuery,
+        for: () => Promise.resolve([job]),
+      };
+      const auditQuery = {
+        where: () => auditQuery,
+        limit: () => Promise.resolve(audits),
+      };
+      const tx = {
+        select: () => ({
+          from: () => (selectIndex++ === 0 ? lockedJobQuery : auditQuery),
+        }),
+        insert: () => ({
+          values: (value: (typeof audits)[number]) => {
+            audits.push(value);
+            return Promise.resolve();
+          },
+        }),
+        update: () => ({
+          set: (values: Record<string, unknown>) => ({
+            where: () => ({
+              returning: () => {
+                Object.assign(job, values);
+                return Promise.resolve([job]);
+              },
+            }),
+          }),
+        }),
+      };
+      return run(tx as never);
+    },
+  };
+  return { db: db as never, job, audits };
+}
+
 describe("manualRetryCalendarSyncJob", () => {
   it("records the prior terminal cycle, rotates identity, and resets only delivery state", async () => {
     const repository = new MemoryManualRetryRepository();
@@ -171,6 +237,25 @@ describe("manualRetryCalendarSyncJob", () => {
       manualRetryCalendarSyncJob(repository, command({ actorIdentity: "operator:other" })),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
     expect(repository.audit).toHaveLength(1);
+  });
+
+  it("reissues and replays a terminal Google job with a null dedupe expiry", async () => {
+    const state = googleTerminalDatabase();
+    const repository = calendarManualRetryRepository(state.db);
+    const input = command({ operationKey: "google-calendar-manual-retry-1" });
+
+    const first = await manualRetryCalendarSyncJob(repository, input);
+
+    expect(first).toMatchObject({ retryNumber: 1, replayed: false, status: "pending" });
+    expect(first.idempotencyKey).toMatch(/^google:manual:/u);
+    expect(state.audits).toHaveLength(1);
+    expect(state.audits[0]?.priorProviderDedupeExpiresAt).toBeNull();
+    await expect(manualRetryCalendarSyncJob(repository, input)).resolves.toMatchObject({
+      retryNumber: 1,
+      replayed: true,
+      idempotencyKey: first.idempotencyKey,
+    });
+    expect(state.audits).toHaveLength(1);
   });
 
   it("replays the original delivery identity after a later manual retry cycle", async () => {
@@ -233,6 +318,8 @@ describe("manualRetryCalendarSyncJob", () => {
       id: jobId,
       bookingId: "00000000-0000-4000-8000-000000000003",
       producerId,
+      deliveryChannel: "ics",
+      bookingCalendarLinkId: null,
       operation: "send_ics",
       desiredRevision: 1,
       idempotencyKey: retried.idempotencyKey,

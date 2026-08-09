@@ -47,4 +47,19 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(source).toContain("refreshTokenCiphertext: null");
     expect(source).toContain('status: "disconnected"');
   });
+
+  it("preserves a completed ICS invitation when silently backfilling Google", () => {
+    const initialSyncStart = source.indexOf("async enqueueFutureConfirmedEvents(command)");
+    const initialSyncEnd = source.indexOf("async disconnect(command)", initialSyncStart);
+    const initialSync = source.slice(initialSyncStart, initialSyncEnd);
+
+    expect(initialSync).toContain('eq(calendarSyncJobs.deliveryChannel, "ics")');
+    expect(initialSync).toContain('eq(calendarSyncJobs.operation, "send_ics")');
+    expect(initialSync).toContain('eq(calendarSyncJobs.status, "completed")');
+    expect(initialSync).toContain("preserveIcsInvitation ? candidate.calendarRevision : 0");
+    expect(initialSync).toContain('preserveIcsInvitation ? "ics" : null');
+    expect(initialSync).toContain("preserveIcsInvitation ? command.now : null");
+    expect(initialSync).toContain("invitationAttemptedAt: sql<Date | null>`null`");
+    expect(initialSync).toContain('notificationMode: "none"');
+  });
 });

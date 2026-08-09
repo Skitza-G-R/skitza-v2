@@ -142,8 +142,12 @@ describe("SK-191 artist booking change-request schema", () => {
 });
 
 describe("SK-191 calendar invitation outbox schema", () => {
-  it("exports one provider-neutral operation and the approved durable states", () => {
-    expect(calendarSyncJobOperation.enumValues).toEqual(["send_ics"]);
+  it("retains ICS and exports the approved durable states", () => {
+    expect(calendarSyncJobOperation.enumValues).toEqual([
+      "send_ics",
+      "upsert_google_event",
+      "delete_google_event",
+    ]);
     expect(calendarSyncJobStatus.enumValues).toEqual([
       "pending",
       "processing",
@@ -172,12 +176,12 @@ describe("SK-191 calendar invitation outbox schema", () => {
       expect.arrayContaining([
         "calendar_sync_jobs_idempotency_unique",
         "calendar_sync_jobs_id_producer_unique",
-        "calendar_sync_jobs_booking_operation_revision_unique",
       ]),
     );
     expect(indexNames(calendarSyncJobs)).toEqual(
       expect.arrayContaining([
         "calendar_sync_jobs_uid_revision_unique",
+        "calendar_sync_jobs_ics_booking_operation_revision_unique",
         "calendar_sync_jobs_claim_idx",
         "calendar_sync_jobs_booking_revision_idx",
         "calendar_sync_jobs_producer_updated_idx",

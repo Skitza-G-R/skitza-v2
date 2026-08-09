@@ -1,11 +1,17 @@
+import { randomUUID } from "node:crypto";
+
 import {
   and,
   asc,
+  bookingCalendarLinks,
+  bookings,
+  calendarSyncJobs,
   desc,
   eq,
   gt,
   inArray,
   isNull,
+  notExists,
   notInArray,
   sql,
   googleCalendarConnections,
@@ -15,6 +21,7 @@ import {
   type GoogleCalendarConnection,
   type GoogleCalendarOAuthState,
   type GoogleCalendarSelection,
+  type GoogleCalendarSyncJobPayloadSnapshot,
 } from "@skitza/db";
 
 import type { EncryptedGoogleCalendarValue } from "./crypto";
@@ -613,6 +620,292 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             ),
           );
         return "saved" as const;
+      });
+    },
+
+    async enqueueFutureConfirmedEvents(command) {
+      if (
+        Number.isNaN(command.now.getTime()) ||
+        !Number.isSafeInteger(command.limit) ||
+        command.limit < 1 ||
+        command.limit > 500
+      ) {
+        throw new Error("Invalid Google Calendar initial sync batch");
+      }
+      return db.transaction(async (tx) => {
+        const candidates = await tx
+          .select({
+            bookingId: bookings.id,
+            producerId: bookings.producerId,
+            allowanceUseId: bookings.allowanceUseId,
+            startsAt: bookings.startsAt,
+            durationMin: bookings.durationMin,
+            title: bookings.title,
+            artistName: bookings.artistName,
+            artistEmail: bookings.artistEmail,
+            calendarRevision: bookings.calendarRevision,
+            connectionId: googleCalendarConnections.id,
+            accountVersion: googleCalendarConnections.accountVersion,
+            destinationSelectionId: googleCalendarSelections.id,
+            destinationCalendarIdCiphertext: googleCalendarSelections.providerCalendarIdCiphertext,
+            destinationCalendarIdIv: googleCalendarSelections.providerCalendarIdIv,
+            destinationCalendarIdAuthTag: googleCalendarSelections.providerCalendarIdAuthTag,
+            destinationCalendarIdKeyVersion: googleCalendarSelections.providerCalendarIdKeyVersion,
+            destinationCalendarIdFingerprint:
+              googleCalendarSelections.providerCalendarIdFingerprint,
+          })
+          .from(bookings)
+          .innerJoin(
+            googleCalendarConnections,
+            and(
+              eq(googleCalendarConnections.producerId, bookings.producerId),
+              eq(googleCalendarConnections.status, "connected"),
+            ),
+          )
+          .innerJoin(
+            googleCalendarSelections,
+            and(
+              eq(googleCalendarSelections.connectionId, googleCalendarConnections.id),
+              eq(googleCalendarSelections.producerId, googleCalendarConnections.producerId),
+              eq(googleCalendarSelections.accountVersion, googleCalendarConnections.accountVersion),
+              eq(googleCalendarSelections.isDestination, true),
+            ),
+          )
+          .where(
+            and(
+              eq(bookings.status, "confirmed"),
+              gt(bookings.startsAt, command.now),
+              gt(bookings.calendarRevision, 0),
+              command.producerId ? eq(bookings.producerId, command.producerId) : undefined,
+              notExists(
+                tx
+                  .select({ one: sql<number>`1` })
+                  .from(bookingCalendarLinks)
+                  .innerJoin(
+                    calendarSyncJobs,
+                    and(
+                      eq(calendarSyncJobs.bookingCalendarLinkId, bookingCalendarLinks.id),
+                      eq(calendarSyncJobs.producerId, bookingCalendarLinks.producerId),
+                    ),
+                  )
+                  .where(
+                    and(
+                      eq(bookingCalendarLinks.producerId, bookings.producerId),
+                      eq(bookingCalendarLinks.allowanceUseId, bookings.allowanceUseId),
+                      eq(bookingCalendarLinks.connectionId, googleCalendarConnections.id),
+                      eq(
+                        bookingCalendarLinks.accountVersion,
+                        googleCalendarConnections.accountVersion,
+                      ),
+                      eq(calendarSyncJobs.deliveryChannel, "google"),
+                      eq(calendarSyncJobs.operation, "upsert_google_event"),
+                      eq(calendarSyncJobs.desiredRevision, bookings.calendarRevision),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .orderBy(asc(bookings.startsAt), asc(bookings.id))
+          .limit(command.limit);
+
+        let linksCreated = 0;
+        let jobsEnqueued = 0;
+        const jobIds: string[] = [];
+        for (const candidate of candidates) {
+          const [priorIcsInvitation] = await tx
+            .select({ completedAt: calendarSyncJobs.completedAt })
+            .from(calendarSyncJobs)
+            .where(
+              and(
+                eq(calendarSyncJobs.bookingId, candidate.bookingId),
+                eq(calendarSyncJobs.producerId, candidate.producerId),
+                eq(calendarSyncJobs.deliveryChannel, "ics"),
+                eq(calendarSyncJobs.operation, "send_ics"),
+                eq(calendarSyncJobs.desiredRevision, candidate.calendarRevision),
+                eq(calendarSyncJobs.status, "completed"),
+              ),
+            )
+            .orderBy(desc(calendarSyncJobs.updatedAt))
+            .limit(1);
+          const preserveIcsInvitation =
+            priorIcsInvitation?.completedAt !== undefined &&
+            priorIcsInvitation.completedAt !== null;
+          const linkId = randomUUID();
+          const [created] = await tx
+            .insert(bookingCalendarLinks)
+            .select(
+              tx
+                .select({
+                  id: sql<string>`${linkId}`.as("id"),
+                  producerId: googleCalendarConnections.producerId,
+                  allowanceUseId: sql<string>`${candidate.allowanceUseId}`.as("allowance_use_id"),
+                  originBookingId: sql<string>`${candidate.bookingId}`.as("origin_booking_id"),
+                  currentBookingId: sql<string>`${candidate.bookingId}`.as("current_booking_id"),
+                  connectionId: googleCalendarConnections.id,
+                  accountVersion: googleCalendarConnections.accountVersion,
+                  destinationSelectionId: googleCalendarSelections.id,
+                  destinationCalendarIdCiphertext:
+                    googleCalendarSelections.providerCalendarIdCiphertext,
+                  destinationCalendarIdIv: googleCalendarSelections.providerCalendarIdIv,
+                  destinationCalendarIdAuthTag: googleCalendarSelections.providerCalendarIdAuthTag,
+                  destinationCalendarIdKeyVersion:
+                    googleCalendarSelections.providerCalendarIdKeyVersion,
+                  destinationCalendarIdFingerprint:
+                    googleCalendarSelections.providerCalendarIdFingerprint,
+                  providerEventId: sql<string>`${`sk${linkId.replaceAll("-", "")}`}`.as(
+                    "provider_event_id",
+                  ),
+                  providerEventEtag: sql<string | null>`null`.as("provider_event_etag"),
+                  providerState: sql<"uncreated">`'uncreated'`.as("provider_state"),
+                  desiredRevision: sql<number>`${candidate.calendarRevision}`.as(
+                    "desired_revision",
+                  ),
+                  lastGoogleRevision: sql<number>`0`.as("last_google_revision"),
+                  lastGoogleSyncedAt: sql<Date | null>`null`.as("last_google_synced_at"),
+                  invitationRevision: sql<number>`${
+                    preserveIcsInvitation ? candidate.calendarRevision : 0
+                  }`.as("invitation_revision"),
+                  invitationChannel: sql<"ics" | "google" | null>`${
+                    preserveIcsInvitation ? "ics" : null
+                  }`.as("invitation_channel"),
+                  invitationReservedAt: sql<Date | null>`${
+                    preserveIcsInvitation ? command.now : null
+                  }`.as("invitation_reserved_at"),
+                  invitationAttemptedAt: sql<Date | null>`null`.as("invitation_attempted_at"),
+                  invitationDeliveredAt: sql<Date | null>`${
+                    preserveIcsInvitation ? command.now : null
+                  }`.as("invitation_delivered_at"),
+                  createdAt: sql<Date>`${command.now}`.as("created_at"),
+                  updatedAt: sql<Date>`${command.now}`.as("updated_at"),
+                })
+                .from(googleCalendarConnections)
+                .innerJoin(
+                  googleCalendarSelections,
+                  and(
+                    eq(googleCalendarSelections.connectionId, googleCalendarConnections.id),
+                    eq(googleCalendarSelections.producerId, googleCalendarConnections.producerId),
+                    eq(
+                      googleCalendarSelections.accountVersion,
+                      googleCalendarConnections.accountVersion,
+                    ),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(googleCalendarConnections.id, candidate.connectionId),
+                    eq(googleCalendarConnections.producerId, candidate.producerId),
+                    eq(googleCalendarConnections.accountVersion, candidate.accountVersion),
+                    eq(googleCalendarConnections.status, "connected"),
+                    eq(googleCalendarSelections.id, candidate.destinationSelectionId),
+                    eq(googleCalendarSelections.isDestination, true),
+                  ),
+                )
+                .limit(1),
+            )
+            .onConflictDoNothing({
+              target: [
+                bookingCalendarLinks.producerId,
+                bookingCalendarLinks.allowanceUseId,
+                bookingCalendarLinks.connectionId,
+                bookingCalendarLinks.accountVersion,
+              ],
+            })
+            .returning({ id: bookingCalendarLinks.id });
+          if (created) linksCreated += 1;
+
+          const [existingLink] = await tx
+            .select()
+            .from(bookingCalendarLinks)
+            .where(
+              and(
+                eq(bookingCalendarLinks.producerId, candidate.producerId),
+                eq(bookingCalendarLinks.allowanceUseId, candidate.allowanceUseId),
+                eq(bookingCalendarLinks.connectionId, candidate.connectionId),
+                eq(bookingCalendarLinks.accountVersion, candidate.accountVersion),
+              ),
+            )
+            .limit(1);
+          const hasPreservedIcsInvitation =
+            existingLink?.invitationRevision === candidate.calendarRevision &&
+            existingLink.invitationChannel === "ics" &&
+            existingLink.invitationDeliveredAt !== null;
+          if (
+            !existingLink ||
+            (existingLink.invitationRevision > 0 && !hasPreservedIcsInvitation) ||
+            existingLink.desiredRevision > candidate.calendarRevision
+          ) {
+            continue;
+          }
+
+          let link = existingLink;
+          if (
+            existingLink.desiredRevision < candidate.calendarRevision ||
+            existingLink.currentBookingId !== candidate.bookingId
+          ) {
+            const [advanced] = await tx
+              .update(bookingCalendarLinks)
+              .set({
+                currentBookingId: candidate.bookingId,
+                desiredRevision: candidate.calendarRevision,
+                updatedAt: advancedTimestamp(bookingCalendarLinks.updatedAt, command.now),
+              })
+              .where(
+                and(
+                  eq(bookingCalendarLinks.id, existingLink.id),
+                  eq(bookingCalendarLinks.producerId, existingLink.producerId),
+                  eq(bookingCalendarLinks.desiredRevision, existingLink.desiredRevision),
+                  eq(bookingCalendarLinks.invitationRevision, 0),
+                ),
+              )
+              .returning();
+            if (!advanced) continue;
+            link = advanced;
+          }
+
+          const privateProperties = {
+            skitzaLink: link.id,
+            skitzaRevision: String(candidate.calendarRevision),
+            skitzaSchema: "1" as const,
+          };
+          const payloadSnapshot: GoogleCalendarSyncJobPayloadSnapshot = {
+            schemaVersion: 2,
+            action: "upsert",
+            eventKind: "confirmed",
+            notificationMode: "none",
+            sequence: candidate.calendarRevision,
+            startsAtUtc: candidate.startsAt.toISOString(),
+            endsAtUtc: new Date(
+              candidate.startsAt.getTime() + candidate.durationMin * 60 * 1_000,
+            ).toISOString(),
+            summary: candidate.title?.trim() || "Session",
+            artistSafeUrl: `https://skitza.app/artist/sessions/${candidate.bookingId}`,
+            attendee: { name: candidate.artistName, email: candidate.artistEmail },
+            privateProperties,
+          };
+          const [inserted] = await tx
+            .insert(calendarSyncJobs)
+            .values({
+              bookingId: candidate.bookingId,
+              producerId: candidate.producerId,
+              deliveryChannel: "google",
+              bookingCalendarLinkId: link.id,
+              operation: "upsert_google_event",
+              status: "pending",
+              desiredRevision: candidate.calendarRevision,
+              idempotencyKey: `google:initial:${link.id}:r${String(candidate.calendarRevision)}`,
+              payloadSnapshot,
+              nextAttemptAt: command.now,
+              createdAt: command.now,
+              updatedAt: command.now,
+            })
+            .onConflictDoNothing()
+            .returning({ id: calendarSyncJobs.id });
+          if (inserted) {
+            jobsEnqueued += 1;
+            jobIds.push(inserted.id);
+          }
+        }
+        return { scanned: candidates.length, linksCreated, jobsEnqueued, jobIds };
       });
     },
 

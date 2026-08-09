@@ -63,6 +63,13 @@ export type GoogleCalendarAuthorizationCommitResult =
       outcome: "stale" | "wrong_account" | "missing_refresh";
     }>;
 
+export type GoogleCalendarInitialSyncEnqueueResult = Readonly<{
+  scanned: number;
+  linksCreated: number;
+  jobsEnqueued: number;
+  jobIds: readonly string[];
+}>;
+
 export interface GoogleCalendarRepository {
   getConnection(producerId: string): Promise<GoogleCalendarConnectionRecord | null>;
 
@@ -145,6 +152,14 @@ export interface GoogleCalendarRepository {
       savedAt: Date;
     }>,
   ): Promise<"saved" | "invalid_selection" | "stale">;
+
+  enqueueFutureConfirmedEvents(
+    input: Readonly<{
+      producerId?: string;
+      now: Date;
+      limit: number;
+    }>,
+  ): Promise<GoogleCalendarInitialSyncEnqueueResult>;
 
   disconnect(
     input: Readonly<{

@@ -794,6 +794,17 @@ export function createGoogleCalendarService(
           result === "stale" ? "stale_connection" : "invalid_selection",
         );
       }
+      try {
+        // Selection is already committed. This no-network repair is
+        // idempotent, and the cron repeats it if this request stops here.
+        await input.repository.enqueueFutureConfirmedEvents({
+          producerId: options.producerId,
+          now: now(),
+          limit: 100,
+        });
+      } catch {
+        // The durable cron repair closes this post-commit gap.
+      }
     },
 
     async disconnect(producerId: string): Promise<void> {
