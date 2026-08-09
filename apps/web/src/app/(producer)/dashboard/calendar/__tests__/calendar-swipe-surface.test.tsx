@@ -59,8 +59,10 @@ describe("CalendarSwipeSurface", () => {
         sessionsContent={<p>Sessions content</p>}
         availabilityContent={<p>Availability content</p>}
         manualOptions={manualOptions}
+        googleCalendarControl={<button type="button">Google calendar control</button>}
       />,
     );
+    expect(screen.getByRole("button", { name: "Google calendar control" })).not.toBeNull();
     const surface = screen.getByRole("tabpanel");
     const track = surface.parentElement;
     expect(track?.getAttribute("data-calendar-swipe-active")).toBe("sessions");
@@ -130,6 +132,7 @@ describe("CalendarSwipeSurface", () => {
         sessionsContent={<p>Sessions content</p>}
         availabilityContent={<p>Availability content</p>}
         manualOptions={manualOptions}
+        googleCalendarControl={<button type="button">Google calendar control</button>}
       />,
     );
 
