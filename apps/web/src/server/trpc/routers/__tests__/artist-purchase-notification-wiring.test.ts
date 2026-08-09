@@ -23,7 +23,7 @@ describe("artist purchase notification wiring", () => {
 
     const decline = purchaseSource.slice(
       purchaseSource.indexOf("  decline: producerProcedure"),
-      purchaseSource.indexOf("  undoApproval: producerProcedure"),
+      purchaseSource.indexOf("  list: producerProcedure"),
     );
     expect(decline).toMatch(
       /if \(result\.transition\.changed\)[\s\S]*?emitArtistPurchaseDecisionNotification/,

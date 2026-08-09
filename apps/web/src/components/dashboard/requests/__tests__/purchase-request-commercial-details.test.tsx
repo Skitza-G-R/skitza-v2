@@ -46,8 +46,6 @@ describe("producer request commercial details", () => {
           acceptedAt: new Date("2026-07-20T09:30:00.000Z"),
           snapshot,
         }}
-        brief="Keep the lead vocal intimate."
-        submittedAt={new Date("2026-07-20T08:00:00.000Z")}
       />,
     );
 
@@ -57,7 +55,12 @@ describe("producer request commercial details", () => {
     expect(html).toContain("₪2,832");
     expect(html).toContain("50/50");
     expect(html).toContain("Exact accepted agreement.");
-    expect(html).toContain("Keep the lead vocal intimate.");
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(5);
+    expect(html).toContain("Price details");
+    expect(html).toContain("What the Artist gets");
+    expect(html).toContain("Payment choices");
+    expect(html).toContain("Rights and royalties");
+    expect(html).toContain("Full agreement");
     expect(html).not.toMatch(/proof of payment|confirm payment|reject proof/i);
   });
 
@@ -68,14 +71,12 @@ describe("producer request commercial details", () => {
           kind: "proposal",
           snapshot: { ...snapshot, selectedPaymentPlan: null },
         }}
-        brief={null}
-        submittedAt={new Date("2026-07-20T08:00:00.000Z")}
       />,
     );
 
     expect(html).toContain("Current proposal");
     expect(html).toContain("Not chosen yet");
-    expect(html).toContain("Nothing is frozen until the artist accepts");
+    expect(html).toContain("Nothing is frozen until the Artist accepts");
     expect(html).not.toContain("Frozen at acceptance");
   });
 
@@ -83,15 +84,12 @@ describe("producer request commercial details", () => {
     const html = renderToStaticMarkup(
       <PurchaseRequestCommercialDetails
         commercialTerms={{ kind: "unavailable", productName: "Three-song production" }}
-        brief="Keep the lead vocal intimate."
-        submittedAt={new Date("2026-07-20T08:00:00.000Z")}
       />,
     );
 
     expect(html).toContain("Commercial details unavailable");
     expect(html).toContain("This request is preserved");
     expect(html).toContain("You can still decline it");
-    expect(html).toContain("Keep the lead vocal intimate.");
     expect(html).not.toMatch(/proof of payment|confirm payment|reject proof/i);
   });
 });

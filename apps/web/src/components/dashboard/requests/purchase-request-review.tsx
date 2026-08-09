@@ -1,79 +1,115 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useRef, useState, useTransition } from "react";
 
 import {
   approvePurchaseRequest,
   correctPurchaseTarget,
   declinePurchaseRequest,
-  undoPurchaseApproval,
 } from "~/app/(producer)/dashboard/requests/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { useToast } from "~/components/ui/toast";
-import { isApprovalUndoAvailable } from "~/lib/purchase/approval-undo";
 
-export type PurchaseRequestStatus = "pending" | "approved" | "verifying" | "paid" | "declined";
+export type PurchaseRequestStatus = "pending" | "approved" | "declined" | "converted";
+
+type TargetProject = {
+  id: string;
+  title: string;
+  lifecycleStatus: "waiting_for_payment" | "active";
+  workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+  updatedAtIso: string;
+};
+
+const NOTE_PREVIEW_LENGTH = 180;
 
 export function PurchaseRequestReview({
   id,
   initialStatus,
-  initialUndoableUntilIso,
   initialProjectId,
   targetProjects,
   canApprove = true,
+  artistName,
+  artistEmail,
+  productName,
+  total,
+  totalCaption,
+  submittedAt,
+  reference,
+  brief,
+  children,
 }: {
   id: string;
   initialStatus: PurchaseRequestStatus;
-  initialUndoableUntilIso: string | null;
   initialProjectId: string | null;
-  targetProjects: Array<{
-    id: string;
-    title: string;
-    lifecycleStatus: "waiting_for_payment" | "active";
-    workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
-    updatedAtIso: string;
-  }>;
+  targetProjects: TargetProject[];
   canApprove?: boolean;
+  artistName: string;
+  artistEmail: string;
+  productName: string;
+  total: string | null;
+  totalCaption: string;
+  submittedAt: string;
+  reference: string;
+  brief: string | null;
+  children: ReactNode;
 }) {
   const router = useRouter();
   const online = useOnlineStatus();
   const { toast } = useToast();
+  const confirmationCancelRef = useRef<HTMLButtonElement>(null);
+  const projectCancelRef = useRef<HTMLButtonElement>(null);
+  const dialogReturnFocusRef = useRef<HTMLElement>(null);
   const [status, setStatus] = useState(initialStatus);
-  const [showDecline, setShowDecline] = useState(false);
-  const [declineReason, setDeclineReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [undoableUntilIso, setUndoableUntilIso] = useState<string | null>(initialUndoableUntilIso);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? "");
-  const [isPending, startTransition] = useTransition();
-  const canUndo = status === "approved" && isApprovalUndoAvailable(undoableUntilIso);
+  const [projectChooserOpen, setProjectChooserOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState<"approve" | "decline" | null>(null);
+  const [fullNoteOpen, setFullNoteOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, startTransition] = useTransition();
 
   useEffect(() => {
     setStatus(initialStatus);
-    setUndoableUntilIso(initialStatus === "approved" ? initialUndoableUntilIso : null);
     setProjectId(initialProjectId);
     setSelectedProjectId(initialProjectId ?? "");
-  }, [initialProjectId, initialStatus, initialUndoableUntilIso]);
+  }, [initialProjectId, initialStatus]);
 
-  useEffect(() => {
-    if (!undoableUntilIso) return;
-
-    const remainingMs = Date.parse(undoableUntilIso) - Date.now();
-    const timer = window.setTimeout(
-      () => {
-        setUndoableUntilIso(null);
-      },
-      Math.max(0, remainingMs),
-    );
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [undoableUntilIso]);
+  const projectLabel =
+    projectId === null
+      ? "Start a new project"
+      : (targetProjects.find((project) => project.id === projectId)?.title ?? "Existing project");
+  const normalizedBrief = brief?.trim() ?? "";
+  const noteIsLong = normalizedBrief.length > NOTE_PREVIEW_LENGTH;
+  const notePreview = noteIsLong
+    ? `${normalizedBrief.slice(0, NOTE_PREVIEW_LENGTH).trimEnd()}…`
+    : normalizedBrief;
 
   const showActionError = (message = "Something went wrong. Please try again.") => {
     setError(message);
     toast(message, "error");
+  };
+
+  const openConfirmation = (decision: "approve" | "decline") => {
+    if (document.activeElement instanceof HTMLElement) {
+      dialogReturnFocusRef.current = document.activeElement;
+    }
+    setError(null);
+    setConfirmation(decision);
+  };
+
+  const restoreDialogTrigger = (event: Event) => {
+    event.preventDefault();
+    dialogReturnFocusRef.current?.focus();
   };
 
   const runApprove = () => {
@@ -96,13 +132,33 @@ export function PurchaseRequestReview({
         }
 
         setStatus("approved");
-        setUndoableUntilIso(result.undoableUntilIso);
-        setShowDecline(false);
-        toast(
-          "Request approved. The artist can choose a plan, review the exact agreement, and accept.",
-          "success",
-        );
-        router.refresh();
+        setConfirmation(null);
+        toast("Request approved.", "success");
+        router.push("/dashboard");
+      } catch {
+        showActionError();
+      }
+    });
+  };
+
+  const runDecline = () => {
+    setError(null);
+    if (!online) {
+      showActionError("Reconnect to decline this request.");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const result = await declinePurchaseRequest({ id });
+        if (!result.ok) {
+          showActionError(result.error);
+          return;
+        }
+
+        setStatus("declined");
+        setConfirmation(null);
+        toast("Request declined.", "success");
+        router.push("/dashboard");
       } catch {
         showActionError();
       }
@@ -111,10 +167,13 @@ export function PurchaseRequestReview({
 
   const runTargetCorrection = () => {
     const nextProjectId = selectedProjectId || null;
-    if (nextProjectId === projectId) return;
+    if (nextProjectId === projectId) {
+      setProjectChooserOpen(false);
+      return;
+    }
     setError(null);
     if (!online) {
-      showActionError("Reconnect to update the purchase target.");
+      showActionError("Reconnect to update the project.");
       return;
     }
     startTransition(async () => {
@@ -128,60 +187,9 @@ export function PurchaseRequestReview({
           return;
         }
         setProjectId(result.projectId);
-        toast("Purchase target updated.", "success");
+        setProjectChooserOpen(false);
+        toast("Project updated.", "success");
         router.refresh();
-      } catch {
-        showActionError();
-      }
-    });
-  };
-
-  const runUndo = () => {
-    setError(null);
-    if (!online) {
-      showActionError("Reconnect to undo this approval.");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        const result = await undoPurchaseApproval({ id });
-        if (!result.ok) {
-          showActionError(result.error);
-          return;
-        }
-
-        setStatus("pending");
-        setUndoableUntilIso(null);
-        toast("Approval undone. The request is pending again.", "info");
-        router.refresh();
-      } catch {
-        showActionError();
-      }
-    });
-  };
-
-  const runDecline = (event: SyntheticEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    if (!online) {
-      showActionError("Reconnect to decline this request.");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        const reason = declineReason.trim();
-        const result = await declinePurchaseRequest({
-          id,
-          ...(reason ? { reason } : {}),
-        });
-        if (!result.ok) {
-          showActionError(result.error);
-          return;
-        }
-
-        setStatus("declined");
-        toast("Request declined. The artist received a generic update.", "success");
-        router.push("/dashboard/requests");
       } catch {
         showActionError();
       }
@@ -189,204 +197,431 @@ export function PurchaseRequestReview({
   };
 
   return (
-    <section
-      aria-labelledby="request-review-heading"
-      className="border-b border-[rgb(var(--border-subtle))] py-5"
-    >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="max-w-md">
-          <p className="font-mono text-[10px] font-semibold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
-            Gate 1 review
-          </p>
-          <h2
-            id="request-review-heading"
-            className="font-display mt-1 text-lg font-bold text-[rgb(var(--fg-default))]"
+    <>
+      <div
+        className={[
+          "mt-5 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-8",
+          status === "pending" ? "pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pb-0" : "",
+        ].join(" ")}
+      >
+        <div className="min-w-0">
+          <section
+            aria-labelledby="request-summary-heading"
+            className="overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
           >
-            {reviewTitle(status, canApprove)}
-          </h2>
-          <p className="mt-1 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-            {reviewDescription(status, canUndo, canApprove)}
-          </p>
+            <div className="border-b border-[rgb(var(--border-subtle))] px-5 py-5 sm:px-6 sm:py-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[rgb(var(--brand-primary-text))] uppercase">
+                  Purchase request
+                </p>
+                <RequestStatus status={status} />
+              </div>
+              <p className="mt-5 text-xs font-semibold text-[rgb(var(--fg-muted))]">Product</p>
+              <h1
+                id="request-summary-heading"
+                className="font-display mt-1 text-[clamp(1.65rem,4vw,2.35rem)] leading-[1.05] font-extrabold tracking-[-0.035em] [overflow-wrap:anywhere] text-[rgb(var(--fg-default))]"
+              >
+                {productName}
+              </h1>
+              {total ? (
+                <p className="font-display mt-5 text-3xl font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] tabular-nums">
+                  {total}
+                </p>
+              ) : (
+                <p className="mt-5 text-sm font-semibold text-[rgb(var(--fg-warning-text))]">
+                  Total unavailable
+                </p>
+              )}
+              <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">{totalCaption}</p>
+            </div>
+
+            <dl className="grid min-w-0 divide-y divide-[rgb(var(--border-subtle))] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <SummaryFact label="Artist">
+                <span className="block font-semibold text-[rgb(var(--fg-default))]">
+                  {artistName}
+                </span>
+                <span className="mt-0.5 block text-xs break-all text-[rgb(var(--fg-muted))]">
+                  {artistEmail}
+                </span>
+              </SummaryFact>
+              <SummaryFact label="Submitted">{submittedAt}</SummaryFact>
+              <SummaryFact label="Reference">
+                <span className="font-mono tracking-[0.06em]">{reference}</span>
+              </SummaryFact>
+            </dl>
+
+            {notePreview ? (
+              <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-4 sm:px-6">
+                <p className="text-xs font-semibold text-[rgb(var(--fg-default))]">Artist note</p>
+                <p className="mt-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
+                  {notePreview}
+                </p>
+                {noteIsLong ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (document.activeElement instanceof HTMLElement) {
+                        dialogReturnFocusRef.current = document.activeElement;
+                      }
+                      setFullNoteOpen(true);
+                    }}
+                    className="sk-press mt-2 inline-flex min-h-9 items-center rounded-[var(--radius-md)] text-sm font-semibold text-[rgb(var(--brand-primary-text))] underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                  >
+                    Read full note
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+
+          <section
+            aria-labelledby="request-project-heading"
+            className="mt-4 flex min-w-0 items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5"
+          >
+            <div className="min-w-0">
+              <h2
+                id="request-project-heading"
+                className="text-xs font-semibold text-[rgb(var(--fg-muted))]"
+              >
+                Project
+              </h2>
+              <p className="mt-0.5 truncate text-sm font-semibold text-[rgb(var(--fg-default))]">
+                {projectLabel}
+              </p>
+            </div>
+            {status === "pending" && targetProjects.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (document.activeElement instanceof HTMLElement) {
+                    dialogReturnFocusRef.current = document.activeElement;
+                  }
+                  setError(null);
+                  setSelectedProjectId(projectId ?? "");
+                  setProjectChooserOpen(true);
+                }}
+                disabled={isSaving}
+                className="sk-press inline-flex min-h-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] px-3 text-sm font-semibold text-[rgb(var(--brand-primary-text))] hover:bg-[rgb(var(--brand-primary)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
+              >
+                Change
+              </button>
+            ) : null}
+          </section>
+
+          <div className="mt-7">{children}</div>
         </div>
 
-        {status === "pending" ? (
-          <div className="flex w-full shrink-0 gap-2 sm:w-auto">
+        <aside className="sticky top-6 hidden lg:block" aria-label="Request decision">
+          <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-md)]">
+            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[rgb(var(--brand-primary-text))] uppercase">
+              Your decision
+            </p>
+            <h2 className="font-display mt-2 text-xl font-bold text-[rgb(var(--fg-default))]">
+              {reviewTitle(status, canApprove)}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
+              {reviewDescription(status, canApprove)}
+            </p>
+
+            {status === "pending" ? (
+              <div className="mt-5 grid gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    openConfirmation("approve");
+                  }}
+                  disabled={isSaving || !canApprove || !online}
+                  className="sk-press inline-flex h-12 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-on-brand))] transition-[filter] hover:brightness-105 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    openConfirmation("decline");
+                  }}
+                  disabled={isSaving || !online}
+                  className="sk-press inline-flex h-12 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--fg-danger)/0.4)] hover:text-[rgb(var(--fg-danger))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Decline
+                </button>
+              </div>
+            ) : null}
+
+            <ActionError error={error} />
+          </div>
+        </aside>
+      </div>
+
+      {status === "pending" ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.96)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-12px_32px_-20px_rgb(0_0_0/0.38)] backdrop-blur-md lg:hidden">
+          <div className="mx-auto flex w-full max-w-lg gap-2.5">
             <button
               type="button"
               onClick={() => {
-                setError(null);
-                setShowDecline((visible) => !visible);
+                openConfirmation("decline");
               }}
-              disabled={isPending}
-              aria-expanded={showDecline}
-              aria-controls="decline-request-form"
-              className="sk-press inline-flex min-h-11 flex-1 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--fg-danger)/0.45)] hover:text-[rgb(var(--fg-danger))] disabled:cursor-wait disabled:opacity-50 sm:flex-none"
+              disabled={isSaving || !online}
+              className="sk-press inline-flex h-12 flex-1 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] px-3 text-sm font-semibold text-[rgb(var(--fg-secondary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
             >
               Decline
             </button>
             <button
               type="button"
-              onClick={runApprove}
-              disabled={isPending || !canApprove || !online}
-              className="sk-press inline-flex min-h-11 flex-[1.35] items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-sidebar))] transition-[filter] hover:brightness-105 disabled:cursor-wait disabled:opacity-55 sm:flex-none"
-            >
-              {isPending ? "Saving…" : "Approve request"}
-            </button>
-          </div>
-        ) : canUndo ? (
-          <button
-            type="button"
-            onClick={runUndo}
-            disabled={isPending || !online}
-            className="sk-press inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--brand-primary)/0.55)] hover:text-[rgb(var(--brand-primary-text))] disabled:cursor-wait disabled:opacity-50 sm:w-auto"
-          >
-            {isPending ? "Undoing…" : "Undo recent approval"}
-          </button>
-        ) : null}
-      </div>
-
-      {(status === "pending" || status === "approved") &&
-      (projectId !== null || targetProjects.length > 0) ? (
-        <div className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3">
-          <label
-            htmlFor="purchase-project-target"
-            className="block text-xs font-semibold text-[rgb(var(--fg-default))]"
-          >
-            Project target
-          </label>
-          <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
-            {projectId
-              ? "You may correct this to another project for the same artist until they accept."
-              : "A new project will be created by default. Choose an existing project only when this purchase belongs there."}
-          </p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <select
-              id="purchase-project-target"
-              value={selectedProjectId}
-              onChange={(event) => {
-                setSelectedProjectId(event.target.value);
+              onClick={() => {
+                openConfirmation("approve");
               }}
-              disabled={isPending}
-              className="min-h-11 min-w-0 flex-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.55)] disabled:opacity-50 sm:text-sm"
+              disabled={isSaving || !canApprove || !online}
+              className="sk-press inline-flex h-12 flex-[1.35] items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-sm font-bold text-[rgb(var(--fg-on-brand))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
             >
-              <option value="">Start a new project (default)</option>
-              {targetProjects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title} · {project.lifecycleStatus.replaceAll("_", " ")} ·{" "}
-                  {project.workflowStage} · updated {new Date(project.updatedAtIso).toLocaleDateString()}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={runTargetCorrection}
-              disabled={isPending || (selectedProjectId || null) === projectId || !online}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--brand-primary)/0.55)] hover:text-[rgb(var(--brand-primary-text))] disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {isPending ? "Saving…" : "Save target"}
+              Approve
             </button>
           </div>
         </div>
       ) : null}
 
-      {showDecline && status === "pending" ? (
-        <form
-          id="decline-request-form"
-          onSubmit={runDecline}
-          className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.22)] bg-[rgb(var(--fg-danger)/0.04)] p-3"
+      <Dialog open={projectChooserOpen} onOpenChange={setProjectChooserOpen}>
+        <DialogContent
+          className="sm:max-w-md"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            projectCancelRef.current?.focus();
+          }}
+          onCloseAutoFocus={restoreDialogTrigger}
         >
-          <label
-            htmlFor="decline-reason"
-            className="block text-xs font-semibold text-[rgb(var(--fg-default))]"
-          >
-            Private note (optional)
-          </label>
-          <p
-            id="decline-reason-help"
-            className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]"
-          >
-            Only you see this note. The artist receives a generic update.
-          </p>
-          <textarea
-            id="decline-reason"
-            aria-describedby="decline-reason-help"
-            value={declineReason}
-            onChange={(event) => {
-              setDeclineReason(event.target.value);
-            }}
-            maxLength={2000}
-            rows={3}
-            autoFocus
-            className="mt-3 w-full resize-y rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-base text-[rgb(var(--fg-default))] transition-shadow outline-none placeholder:text-[rgb(var(--fg-muted))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.55)] sm:text-sm"
-            placeholder="Add context for your records"
-          />
-          <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <DialogHeader>
+            <DialogTitle>Choose a project</DialogTitle>
+            <DialogDescription>
+              Start new by default, or add this purchase to one of {artistName}&rsquo;s projects.
+            </DialogDescription>
+          </DialogHeader>
+
+          <fieldset className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+            <legend className="sr-only">Project</legend>
+            <ProjectChoice
+              checked={selectedProjectId === ""}
+              title="Start a new project"
+              context="Default"
+              onChange={() => {
+                setSelectedProjectId("");
+              }}
+            />
+            {targetProjects.map((project) => (
+              <ProjectChoice
+                key={project.id}
+                checked={selectedProjectId === project.id}
+                title={project.title}
+                context={projectChoiceContext(project)}
+                onChange={() => {
+                  setSelectedProjectId(project.id);
+                }}
+              />
+            ))}
+          </fieldset>
+
+          <ActionError error={error} />
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                ref={projectCancelRef}
+                type="button"
+                disabled={isSaving}
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-sm font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </DialogClose>
             <button
               type="button"
-              onClick={() => {
-                setShowDecline(false);
-                setDeclineReason("");
-                setError(null);
-              }}
-              disabled={isPending}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-md)] px-4 text-sm font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+              onClick={runTargetCorrection}
+              disabled={isSaving || !online}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-on-brand))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
             >
-              Cancel
+              {isSaving ? "Saving…" : "Use this project"}
             </button>
-            <button
-              type="submit"
-              disabled={isPending || !online}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.4)] px-4 text-sm font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] disabled:cursor-wait disabled:opacity-50"
-            >
-              {isPending ? "Declining…" : "Confirm decline"}
-            </button>
-          </div>
-        </form>
-      ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <p
-        role={error ? "alert" : undefined}
-        aria-live="polite"
-        className={error ? "mt-3 text-sm text-[rgb(var(--fg-danger))]" : "sr-only"}
+      <Dialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
       >
-        {error ?? ""}
-      </p>
-    </section>
+        <DialogContent
+          className="sm:max-w-md"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            confirmationCancelRef.current?.focus();
+          }}
+          onCloseAutoFocus={restoreDialogTrigger}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {confirmation === "approve" ? "Approve this request?" : "Decline this request?"}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmation === "approve"
+                ? `${artistName} can continue to payment-plan selection and agreement acceptance. No payment happens yet.`
+                : `${artistName} receives a simple decline message. This action cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {confirmation === "approve" ? (
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-4 py-3">
+              <p className="text-xs font-semibold text-[rgb(var(--fg-muted))]">Project</p>
+              <p className="mt-1 text-sm font-semibold break-words text-[rgb(var(--fg-default))]">
+                {projectLabel}
+              </p>
+            </div>
+          ) : null}
+
+          <ActionError error={error} />
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                ref={confirmationCancelRef}
+                type="button"
+                disabled={isSaving}
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-sm font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              onClick={confirmation === "approve" ? runApprove : runDecline}
+              disabled={isSaving || !online || (confirmation === "approve" && !canApprove)}
+              className={[
+                "sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-sm font-bold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50",
+                confirmation === "approve"
+                  ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
+                  : "border border-[rgb(var(--fg-danger)/0.42)] text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.07)]",
+              ].join(" ")}
+            >
+              {isSaving
+                ? confirmation === "approve"
+                  ? "Approving…"
+                  : "Declining…"
+                : confirmation === "approve"
+                  ? "Approve request"
+                  : "Decline request"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fullNoteOpen} onOpenChange={setFullNoteOpen}>
+        <DialogContent className="sm:max-w-lg" onCloseAutoFocus={restoreDialogTrigger}>
+          <DialogHeader>
+            <DialogTitle>Artist note</DialogTitle>
+            <DialogDescription>Submitted with this purchase request.</DialogDescription>
+          </DialogHeader>
+          <p className="max-h-[56vh] overflow-y-auto text-sm leading-relaxed break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
+            {normalizedBrief}
+          </p>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
+function SummaryFact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 px-5 py-4 sm:px-4">
+      <dt className="text-[11px] font-semibold text-[rgb(var(--fg-muted))]">{label}</dt>
+      <dd className="mt-1 text-sm break-words text-[rgb(var(--fg-secondary))]">{children}</dd>
+    </div>
+  );
+}
+
+function RequestStatus({ status }: { status: PurchaseRequestStatus }) {
+  const label =
+    status === "converted" ? "Accepted" : status.charAt(0).toUpperCase() + status.slice(1);
+  return (
+    <span className="rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-xs font-semibold text-[rgb(var(--fg-secondary))]">
+      {label}
+    </span>
+  );
+}
+
+function ProjectChoice({
+  checked,
+  title,
+  context,
+  onChange,
+}: {
+  checked: boolean;
+  title: string;
+  context: string;
+  onChange: () => void;
+}) {
+  return (
+    <label
+      className={[
+        "flex min-h-14 cursor-pointer items-center gap-3 rounded-[var(--radius-lg)] border px-3 py-2.5 transition-colors",
+        checked
+          ? "border-[rgb(var(--brand-primary)/0.65)] bg-[rgb(var(--brand-primary)/0.08)]"
+          : "border-[rgb(var(--border-subtle))] hover:bg-[rgb(var(--bg-sunken))]",
+      ].join(" ")}
+    >
+      <input
+        type="radio"
+        name="purchase-project"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 shrink-0 accent-[rgb(var(--brand-primary))]"
+      />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold text-[rgb(var(--fg-default))]">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-xs text-[rgb(var(--fg-muted))]">{context}</span>
+      </span>
+    </label>
+  );
+}
+
+function ActionError({ error }: { error: string | null }) {
+  return (
+    <p
+      role={error ? "alert" : undefined}
+      aria-live="polite"
+      className={error ? "mt-3 text-sm text-[rgb(var(--fg-danger))]" : "sr-only"}
+    >
+      {error ?? ""}
+    </p>
+  );
+}
+
+function projectChoiceContext(project: TargetProject): string {
+  const lifecycle =
+    project.lifecycleStatus === "waiting_for_payment" ? "Waiting for payment" : "Active";
+  const stage = project.workflowStage.charAt(0).toUpperCase() + project.workflowStage.slice(1);
+  return `${lifecycle} · ${stage}`;
+}
+
 function reviewTitle(status: PurchaseRequestStatus, canApprove: boolean): string {
-  if (status === "pending") return canApprove ? "Ready for your decision" : "Terms need attention";
+  if (status === "pending") return canApprove ? "Approve or decline" : "Terms need attention";
   if (status === "approved") return "Request approved";
-  if (status === "verifying") return "Payment is being verified";
-  if (status === "paid") return "Payment received";
+  if (status === "converted") return "Agreement accepted";
   return "Request declined";
 }
 
-function reviewDescription(
-  status: PurchaseRequestStatus,
-  canUndo: boolean,
-  canApprove: boolean,
-): string {
+function reviewDescription(status: PurchaseRequestStatus, canApprove: boolean): string {
   if (status === "pending") {
-    if (!canApprove) {
-      return "The current Store terms are invalid, so approval is unavailable. You can still decline this request with a private note.";
-    }
-    return "Approving lets the artist review the current terms and choose an enabled payment plan. Nothing is frozen until final acceptance, and no payment is taken here.";
+    return canApprove
+      ? "Approve when the work and terms look right. No payment happens on this screen."
+      : "The current Store terms are unavailable, so approval is disabled. You can still decline the request.";
   }
   if (status === "approved") {
-    if (!canApprove) {
-      return "This request remains approved, but the artist cannot continue while the Store product is hidden, archived, or invalid. Restore valid published terms before they choose a plan and accept.";
-    }
-    return canUndo
-      ? "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. You can undo this approval while the five-minute safety window remains open."
-      : "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. Approval changes are limited to a short safety window.";
+    return canApprove
+      ? "The Artist can choose a payment plan and accept the full agreement. No payment happened at approval."
+      : "The request is approved, but the Artist cannot continue while the current Store terms are unavailable.";
   }
-  if (status === "verifying") {
-    return "This accepted purchase can no longer be changed in Requests. Payment follow-up belongs in Payments.";
+  if (status === "converted") {
+    return "The Artist accepted the agreement. This request is now a read-only record.";
   }
-  if (status === "paid") {
-    return "Payment has been confirmed and this request can no longer be changed here.";
-  }
-  return "The artist sees a generic update. Your private note is never shared with them.";
+  return "The Artist received a simple decline message. This request is now read-only.";
 }

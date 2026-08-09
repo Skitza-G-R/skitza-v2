@@ -19,7 +19,7 @@ export type ExistingRequestOperation = Readonly<{
   operationDigest: string;
 }>;
 
-export type PurchaseRequestTransitionAction = "approve" | "decline" | "undo_approval";
+export type PurchaseRequestTransitionAction = "approve" | "decline";
 
 export type PurchaseRequestTransition = Readonly<{
   changed: boolean;
@@ -32,8 +32,7 @@ export type PurchaseRequestTransition = Readonly<{
 export type PurchaseRequestDomainErrorCode =
   | "INVALID_INPUT"
   | "OPERATION_KEY_CONFLICT"
-  | "INVALID_TRANSITION"
-  | "UNDO_WINDOW_ELAPSED";
+  | "INVALID_TRANSITION";
 
 export class PurchaseRequestDomainError extends Error {
   readonly code: PurchaseRequestDomainErrorCode;
@@ -44,8 +43,6 @@ export class PurchaseRequestDomainError extends Error {
     this.code = code;
   }
 }
-
-export const PURCHASE_REQUEST_APPROVAL_UNDO_MS = 5 * 60 * 1000;
 
 function canonicalRequestIntent(intent: PurchaseRequestIntent): string {
   return JSON.stringify({
@@ -103,10 +100,6 @@ export function assertPurchaseRequestOperationReplay(
   }
 }
 
-export function purchaseRequestApprovalUndoDeadline(approvedAt: Date): Date {
-  return new Date(approvedAt.getTime() + PURCHASE_REQUEST_APPROVAL_UNDO_MS);
-}
-
 export function transitionPurchaseRequest(
   request: Readonly<{
     status: PurchaseRequestStatus;
@@ -147,34 +140,18 @@ export function transitionPurchaseRequest(
     };
   }
 
-  if (action === "decline") {
-    if (request.status === "declined") return unchanged();
-    if (request.status !== "pending") {
-      throw new PurchaseRequestDomainError(
-        "INVALID_TRANSITION",
-        `Cannot decline a ${request.status} request`,
-      );
-    }
-    return {
-      changed: true,
-      status: "declined",
-      approvedAt: null,
-      declinedAt: now,
-      statusChangedAt: now,
-    };
-  }
-
-  if (request.status !== "approved" || !request.approvedAt) {
-    throw new PurchaseRequestDomainError("INVALID_TRANSITION", "There is no approval to undo");
-  }
-  if (now.getTime() >= purchaseRequestApprovalUndoDeadline(request.approvedAt).getTime()) {
-    throw new PurchaseRequestDomainError("UNDO_WINDOW_ELAPSED", "The undo window has elapsed");
+  if (request.status === "declined") return unchanged();
+  if (request.status !== "pending") {
+    throw new PurchaseRequestDomainError(
+      "INVALID_TRANSITION",
+      `Cannot decline a ${request.status} request`,
+    );
   }
   return {
     changed: true,
-    status: "pending",
+    status: "declined",
     approvedAt: null,
-    declinedAt: null,
+    declinedAt: now,
     statusChangedAt: now,
   };
 }

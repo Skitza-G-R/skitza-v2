@@ -69,7 +69,6 @@ import {
 import {
   assertPurchaseRequestOperationReplay,
   preparePurchaseRequestOperation,
-  purchaseRequestApprovalUndoDeadline,
   PurchaseRequestDomainError,
   transitionPurchaseRequest,
   type PurchaseRequestTransitionAction,
@@ -1204,13 +1203,12 @@ export const producerPurchaseRouter = router({
         ok: true as const,
         status: "approved" as const,
         approvedAt,
-        undoableUntil: purchaseRequestApprovalUndoDeadline(approvedAt),
         projectId: request.projectId,
       };
     }),
 
   decline: producerProcedure
-    .input(z.object({ id: z.string().uuid(), reason: z.string().max(2000).optional() }))
+    .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const result = await applyProducerRequestTransition(
         ctx.db,
@@ -1232,7 +1230,7 @@ export const producerPurchaseRouter = router({
             artistName: request.artistName,
             productName: result.product.name,
             refNumber: request.refNumber,
-            reason: input.reason ?? null,
+            reason: null,
           });
         } catch {
           console.error("[notify] purchase-declined failed");
@@ -1280,13 +1278,6 @@ export const producerPurchaseRouter = router({
         });
       }
       return { ok: true as const, status: "declined" as const, declinedAt };
-    }),
-
-  undoApproval: producerProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      await applyProducerRequestTransition(ctx.db, ctx.producerId, input.id, "undo_approval");
-      return { ok: true as const, status: "pending" as const };
     }),
 
   list: producerProcedure
@@ -1375,6 +1366,10 @@ export const producerPurchaseRouter = router({
         brief: request.brief,
         projectId: request.projectId,
       };
+      const targetProjects = await listSameClientPurchaseTargets(ctx.db, {
+        producerId: request.producerId,
+        clientContactId: request.clientContactId,
+      });
 
       if (request.status === "converted") {
         const accepted = await loadAcceptedPurchaseForProducerRequest(ctx.db, {
@@ -1388,8 +1383,7 @@ export const producerPurchaseRouter = router({
           request: {
             ...commonRequest,
             status: "converted" as const,
-            undoableUntil: null,
-            targetProjects: [],
+            targetProjects,
           },
           commercialTerms: {
             kind: "accepted" as const,
@@ -1407,18 +1401,10 @@ export const producerPurchaseRouter = router({
         taxRatePct: producerTaxRatePct,
         allowUnpublished: true,
       });
-      const targetProjects = await listSameClientPurchaseTargets(ctx.db, {
-        producerId: request.producerId,
-        clientContactId: request.clientContactId,
-      });
       return {
         request: {
           ...commonRequest,
           status: request.status,
-          undoableUntil:
-            request.status === "approved" && request.approvedAt
-              ? purchaseRequestApprovalUndoDeadline(request.approvedAt)
-              : null,
           targetProjects,
         },
         commercialTerms: {
