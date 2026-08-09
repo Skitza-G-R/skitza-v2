@@ -31,9 +31,14 @@ function validEnvironment(
 }
 
 describe("Google Calendar server configuration", () => {
-  it("hard-denies Vercel Production even when the flag is enabled", () => {
+  it("allows Vercel Production only when the explicit flag is enabled", () => {
     expect(
       isGoogleCalendarCapabilityAvailable(validEnvironment({ VERCEL_ENV: "production" })),
+    ).toBe(true);
+    expect(
+      isGoogleCalendarCapabilityAvailable(
+        validEnvironment({ VERCEL_ENV: "production", GOOGLE_CALENDAR_ENABLED: "false" }),
+      ),
     ).toBe(false);
   });
 
@@ -45,6 +50,9 @@ describe("Google Calendar server configuration", () => {
     expect(
       isGoogleCalendarCapabilityAvailable(validEnvironment({ GOOGLE_CALENDAR_ENABLED: "false" })),
     ).toBe(false);
+    expect(isGoogleCalendarCapabilityAvailable(validEnvironment({ VERCEL_ENV: "unknown" }))).toBe(
+      false,
+    );
   });
 
   it("loads only canonical 32-byte keys with PostgreSQL integer versions", () => {

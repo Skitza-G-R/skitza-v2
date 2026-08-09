@@ -141,16 +141,19 @@ function parseEncryptionKeyring(environment: GoogleCalendarEnvironment) {
 }
 
 /**
- * A server-only, fail-closed rollout gate. Vercel Production is denied even if
- * the enable flag is accidentally present. Local development and Vercel
- * Preview still require the explicit server-side flag.
+ * A server-only, fail-closed rollout gate. Every supported Vercel environment
+ * and local development still require the explicit server-side flag. Unknown
+ * Vercel environments remain unavailable.
  */
 export function isGoogleCalendarCapabilityAvailable(
   environment: GoogleCalendarEnvironment = process.env,
 ): boolean {
   if (environment.GOOGLE_CALENDAR_ENABLED?.trim() !== ENABLED_VALUE) return false;
-  if (environment.VERCEL_ENV === "production") return false;
-  if (environment.VERCEL_ENV === "preview" || environment.VERCEL_ENV === "development") {
+  if (
+    environment.VERCEL_ENV === "production" ||
+    environment.VERCEL_ENV === "preview" ||
+    environment.VERCEL_ENV === "development"
+  ) {
     return true;
   }
   if (environment.VERCEL_ENV) return false;
