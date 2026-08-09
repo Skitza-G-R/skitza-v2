@@ -102,17 +102,17 @@ describe("dedicated join signup route", () => {
     );
   });
 
-  it("rejects a malformed slug before looking up a Producer or rendering Clerk", async () => {
-    await expect(page({ slug: "Invalid" })).rejects.toThrow("__NOT_FOUND__");
+  it("rejects a malformed Producer context in the new normal-invite flow", async () => {
+    await expect(page({ slug: "Invalid", rest: ["home"] })).rejects.toThrow("__NOT_FOUND__");
 
     expect(mocks.findTarget).not.toHaveBeenCalled();
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
-  it("rejects an unknown or stale Producer before rendering Clerk", async () => {
+  it("rejects an unknown or stale Producer in the new normal-invite flow", async () => {
     mocks.findTarget.mockResolvedValue(null);
 
-    await expect(page()).rejects.toThrow("__NOT_FOUND__");
+    await expect(page({ rest: ["home"] })).rejects.toThrow("__NOT_FOUND__");
 
     expect(mocks.signUp).not.toHaveBeenCalled();
     expect(mocks.redirect).not.toHaveBeenCalled();
@@ -142,15 +142,17 @@ describe("dedicated join signup route", () => {
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
-  it("keeps a new Home invite on Home through Clerk completion", async () => {
+  it("sends a new normal-invite Artist to Store only after Clerk signup completes", async () => {
     const html = await render({ rest: ["home"] });
 
     expect(html).toContain("data-clerk-sign-up");
     expect(mocks.signUp).toHaveBeenCalledWith(
       expect.objectContaining({
         path: "/sign-up/join/northline-studio/home",
-        fallbackRedirectUrl: "/join/northline-studio/continue?action=home",
-        forceRedirectUrl: "/join/northline-studio/continue?action=home",
+        signInUrl:
+          "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
+        fallbackRedirectUrl: "/join/northline-studio/continue?action=store",
+        forceRedirectUrl: "/join/northline-studio/continue?action=store",
       }),
     );
   });

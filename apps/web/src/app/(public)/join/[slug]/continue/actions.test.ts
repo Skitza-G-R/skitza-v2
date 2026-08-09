@@ -143,7 +143,7 @@ describe("join continuation actions", () => {
   });
 
   it.each(["continueAsArtist", "resumeTrustedJoinIntent"] as const)(
-    "sends a verified %s Home invite to Home with validated studio context",
+    "keeps a verified %s returning-Artist Home continuation on Home",
     async (method) => {
       const store = cookieStore();
       cookiesMock.mockResolvedValue(store);
@@ -161,6 +161,33 @@ describe("join continuation actions", () => {
       expect(store.set).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("sends a successful first-time Store continuation to the validated Producer Store", async () => {
+    const store = cookieStore();
+    cookiesMock.mockResolvedValue(store);
+    connectMock.mockResolvedValue("/artist/book?studio=studio-1");
+
+    await expect(continueAsArtist("northline-studio", "store")).rejects.toThrow(
+      "__REDIRECT__:/artist/store?studio=studio-1",
+    );
+
+    expect(findTargetMock).toHaveBeenCalledWith(
+      "postgres://test.invalid/skitza",
+      "northline-studio",
+    );
+    expect(store.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a missing Store Producer context before connecting", async () => {
+    cookiesMock.mockResolvedValue(cookieStore());
+    findTargetMock.mockResolvedValue(null);
+
+    await expect(continueAsArtist("missing-studio", "store")).rejects.toThrow(
+      "__NOT_FOUND__",
+    );
+
+    expect(connectMock).not.toHaveBeenCalled();
+  });
 
   it("rejects an invented join action before resolving a target", async () => {
     await expect(continueAsArtist("northline-studio", "https://evil.example")).rejects.toThrow(

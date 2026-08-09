@@ -5,6 +5,7 @@ import {
   joinArtistHref,
   joinBookingHref,
   joinEntryMode,
+  joinStoreHref,
   type JoinTargetProducer,
 } from "./join-continuation";
 
@@ -26,6 +27,9 @@ describe("join continuation security", () => {
       "/artist/book?studio=producer-target",
     );
     expect(joinArtistHref(target)).toBe("/artist?studio=producer-target");
+    expect(joinStoreHref(target)).toBe(
+      "/artist/store?studio=producer-target",
+    );
   });
 
   it("keeps new and returning Artists on the direct booking path", () => {

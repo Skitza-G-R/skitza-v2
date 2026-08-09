@@ -24,7 +24,8 @@ describe("join-aware Clerk authentication", () => {
 
   it("forces every Clerk verification and OAuth completion back to the join continuation", () => {
     expect(source).toContain("joinContinuationHref(slug, action)");
-    expect(source).toContain("forceRedirectUrl={continuationHref}");
+    expect(source).toContain('action === "home" ? "store" : action');
+    expect(source).toContain("forceRedirectUrl={postSignUpContinuationHref}");
   });
 
   it("keeps Home and Unlock signup distinct from the default Book continuation", () => {
@@ -70,10 +71,10 @@ describe("join-aware Clerk authentication", () => {
       "{...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}",
     );
     expect(signInSource).toContain(
-      "signUpForceRedirectUrl={resolverHref}",
+      "signUpForceRedirectUrl={signUpResolverHref}",
     );
     expect(signInSource).toContain(
-      "signUpFallbackRedirectUrl={resolverHref}",
+      "signUpFallbackRedirectUrl={signUpResolverHref}",
     );
   });
 
