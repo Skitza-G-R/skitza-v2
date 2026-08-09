@@ -50,6 +50,18 @@ describe("/artist page composition", () => {
     expect(SRC).toMatch(/Remaining balance/);
   });
 
+  it("keeps the unread exact Version visible when a higher-priority Home action wins", () => {
+    const newSongBranch = SRC.match(
+      /let newSongAction:[\s\S]*?if \(home\.latestMix\?\.unread\)[\s\S]*?\n {2}\}/,
+    )?.[0];
+
+    expect(newSongBranch).toBeDefined();
+    expect(newSongBranch).toContain('kind: "new_song"');
+    expect(newSongBranch).toContain("id: home.latestMix.id");
+    expect(newSongBranch).toContain("candidates.push(newSongAction)");
+    expect(SRC).toContain('newSong={main.kind === "new_song" ? null : newSongAction}');
+  });
+
   it("promotes an approved product request into the exact payment-plan continuation", () => {
     const approvedBranch = SRC.match(
       /if \(\s*currentPurchaseRequest\?\.status === "approved"[\s\S]*?\n {2}\}/,

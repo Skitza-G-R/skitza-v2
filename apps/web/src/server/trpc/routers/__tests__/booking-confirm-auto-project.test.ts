@@ -11,6 +11,7 @@ const BOOKING_ID = "00000000-0000-0000-0000-000000000c01";
 const PURCHASE_ID = "00000000-0000-0000-0000-000000000c02";
 const PROJECT_ID = "00000000-0000-0000-0000-000000000c03";
 const ALLOWANCE_ID = "00000000-0000-0000-0000-000000000c04";
+const CALENDAR_JOB_ID = "00000000-0000-0000-0000-000000000c05";
 const USER_ID = "user_test_confirm";
 
 const {
@@ -25,7 +26,8 @@ const {
   messageRows,
   messageWhereCalls,
   afterCallbacks,
-  sendBookingConfirmedEmailMock,
+  emitArtistSessionNotificationMock,
+  deliverCalendarSyncJobBestEffortMock,
   deliverPushToProjectArtistMock,
   confirmSessionBookingMock,
   dbMock,
@@ -75,9 +77,10 @@ const {
   const messageRows: Record<string, unknown>[] = [];
   const messageWhereCalls: unknown[] = [];
   const afterCallbacks: Array<() => Promise<void>> = [];
-  const sendBookingConfirmedEmailMock = vi
-    .fn<(to: string, props: Record<string, unknown>) => Promise<void>>()
-    .mockResolvedValue(undefined);
+  const emitArtistSessionNotificationMock = vi
+    .fn()
+    .mockResolvedValue({ inserted: true, emailEnabled: true });
+  const deliverCalendarSyncJobBestEffortMock = vi.fn().mockResolvedValue(undefined);
   const deliverPushToProjectArtistMock = vi.fn().mockResolvedValue(undefined);
   const confirmSessionBookingMock = vi.fn();
 
@@ -120,7 +123,8 @@ const {
     messageRows,
     messageWhereCalls,
     afterCallbacks,
-    sendBookingConfirmedEmailMock,
+    emitArtistSessionNotificationMock,
+    deliverCalendarSyncJobBestEffortMock,
     deliverPushToProjectArtistMock,
     confirmSessionBookingMock,
     dbMock,
@@ -168,7 +172,14 @@ vi.mock("~/server/domain/session-booking/service", async (importOriginal) => {
 
 vi.mock("~/server/email/send", () => ({
   sendBookingCancelledOrRescheduledEmail: vi.fn(() => Promise.resolve()),
-  sendBookingConfirmedEmail: sendBookingConfirmedEmailMock,
+}));
+
+vi.mock("~/server/artist/notification-emitters", () => ({
+  emitArtistSessionNotification: emitArtistSessionNotificationMock,
+}));
+
+vi.mock("~/server/calendar/drain", () => ({
+  deliverCalendarSyncJobBestEffort: deliverCalendarSyncJobBestEffortMock,
 }));
 
 vi.mock("~/server/push/delivery", () => ({
@@ -216,12 +227,14 @@ beforeEach(() => {
   messageRows.length = 0;
   messageWhereCalls.length = 0;
   afterCallbacks.length = 0;
-  sendBookingConfirmedEmailMock.mockClear();
+  emitArtistSessionNotificationMock.mockClear();
+  deliverCalendarSyncJobBestEffortMock.mockClear();
   deliverPushToProjectArtistMock.mockClear();
   confirmSessionBookingMock.mockReset();
   confirmSessionBookingMock.mockResolvedValue({
     changed: true,
     booking: { id: BOOKING_ID, status: "confirmed" },
+    calendarSyncJobId: CALENDAR_JOB_ID,
   });
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -263,21 +276,23 @@ describe("booking.confirm purchase-owned boundary", () => {
     );
   });
 
-  it("sends both best-effort confirmations only after a new transition", async () => {
+  it("delivers the durable calendar invite and notifies the artist after a new transition", async () => {
     seedMessageContext();
     const caller = await buildCaller();
 
     await caller.booking.confirm(confirmInput);
-    expect(afterCallbacks).toHaveLength(2);
+    expect(afterCallbacks).toHaveLength(3);
     await Promise.all(afterCallbacks.map((callback) => callback()));
 
-    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledTimes(1);
-    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledWith("artist@example.test", {
-      artistName: "Artist",
+    expect(deliverCalendarSyncJobBestEffortMock).toHaveBeenCalledWith(dbMock, CALENDAR_JOB_ID);
+    expect(emitArtistSessionNotificationMock).toHaveBeenCalledWith(dbMock, {
+      recipientClerkUserId: USER_ID,
+      producerId: PRODUCER_ID,
+      bookingId: BOOKING_ID,
       producerName: "Producer",
-      productName: "Purchased vocal session",
-      startsAt: new Date("2035-02-03T10:00:00.000Z"),
-      producerTimezone: "Asia/Jerusalem",
+      sessionName: "Purchased vocal session",
+      kind: "booking_confirmed",
+      sourceEventId: BOOKING_ID,
     });
     expect(deliverPushToProjectArtistMock).toHaveBeenCalledTimes(1);
     expect(deliverPushToProjectArtistMock).toHaveBeenCalledWith(dbMock, PROJECT_ID, {
@@ -291,12 +306,15 @@ describe("booking.confirm purchase-owned boundary", () => {
     confirmSessionBookingMock.mockResolvedValueOnce({
       changed: false,
       booking: { id: BOOKING_ID, status: "confirmed" },
+      calendarSyncJobId: CALENDAR_JOB_ID,
     });
 
     await (await buildCaller()).booking.confirm(confirmInput);
 
-    expect(afterCallbacks).toEqual([]);
-    expect(sendBookingConfirmedEmailMock).not.toHaveBeenCalled();
+    expect(afterCallbacks).toHaveLength(1);
+    await Promise.all(afterCallbacks.map((callback) => callback()));
+    expect(deliverCalendarSyncJobBestEffortMock).toHaveBeenCalledWith(dbMock, CALENDAR_JOB_ID);
+    expect(emitArtistSessionNotificationMock).not.toHaveBeenCalled();
     expect(deliverPushToProjectArtistMock).not.toHaveBeenCalled();
   });
 

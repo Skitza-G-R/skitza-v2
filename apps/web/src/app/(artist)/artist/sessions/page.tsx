@@ -42,6 +42,18 @@ export default async function MySessionsPage({ searchParams }: PageProps) {
     locationType: session.locationType,
     status: session.status,
     outcome: session.outcome,
+    billingTreatment: session.billingTreatment,
+    artistRsvpStatus: session.artistRsvpStatus,
+    artistRsvpRespondedAtISO: session.artistRsvpRespondedAt?.toISOString() ?? null,
+    changeRequest: session.changeRequest
+      ? {
+          id: session.changeRequest.id,
+          kind: session.changeRequest.kind,
+          status: "pending",
+          proposedStartsAtISO: session.changeRequest.proposedStartsAt?.toISOString() ?? null,
+          requestedAtISO: session.changeRequest.requestedAt.toISOString(),
+        }
+      : null,
     rescheduledFromBookingId: session.rescheduledFromBookingId,
     heldExpiryReason: session.heldExpiryReason,
     policy: {

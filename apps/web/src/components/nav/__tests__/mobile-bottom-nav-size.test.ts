@@ -13,6 +13,22 @@ const ARTIST_SHELL_MAIN = readFileSync(
   join(here, "..", "..", "artist", "artist-shell-main.tsx"),
   "utf8",
 );
+const ARTIST_SONG_LOADING = readFileSync(
+  join(
+    here,
+    "..",
+    "..",
+    "..",
+    "app",
+    "(artist)",
+    "artist",
+    "music",
+    "song",
+    "[versionId]",
+    "loading.tsx",
+  ),
+  "utf8",
+);
 const GLOBALS = readFileSync(join(here, "..", "..", "..", "app", "globals.css"), "utf8");
 const SETTINGS = readFileSync(
   join(here, "..", "..", "..", "app", "(producer)", "dashboard", "settings", "settings.css"),
@@ -63,6 +79,8 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
     expect(ARTIST_SHELL).toContain("<ArtistShellMain>");
     expect(ARTIST_SHELL_MAIN).toContain("pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]");
     expect(ARTIST_SHELL_MAIN).toContain("lg:pb-12");
+    expect(ARTIST_SONG_LOADING).not.toContain("pb-24");
+    expect(ARTIST_SONG_LOADING).toContain("lg:pb-10");
     expect(GLOBALS).toContain("bottom: calc(80px + env(safe-area-inset-bottom, 0px));");
     expect(GLOBALS).toContain("padding-bottom: calc(182px + env(safe-area-inset-bottom));");
   });
