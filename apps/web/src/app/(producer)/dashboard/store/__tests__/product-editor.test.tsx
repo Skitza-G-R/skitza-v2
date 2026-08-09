@@ -218,9 +218,17 @@ describe("ProductEditor orchestrator", () => {
   });
 
   it("shows actual draft persistence and supports an explicit discard", () => {
-    expect(SRC).toMatch(/draftSaved=\{draftSaved\}/);
+    expect(SRC).toMatch(/saveStatus=\{saveStatus\}/);
     expect(SRC).toMatch(/onDiscardDraft/);
     expect(SRC).toMatch(/onDiscard=/);
+  });
+
+  it("keeps routine saves inline while preserving important publish and error toasts", () => {
+    expect(SRC).not.toContain('`${draft.name.trim()} saved hidden.`');
+    expect(SRC).not.toContain('toast(`${draft.name.trim()} saved.`, "success")');
+    expect(SRC).toContain("`${draft.name.trim()} published.`");
+    expect(SRC).toContain('toast(result.error, "error")');
+    expect(SRC).toContain('toast("Could not save this product. Please try again.", "error")');
   });
 
   it("uses read-only global tax state in the product flow", () => {

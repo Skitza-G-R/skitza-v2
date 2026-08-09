@@ -32,6 +32,8 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
+import { SaveIndicator, type SaveStatus } from "~/components/ui/save-indicator";
+
 import { StepBar } from "./step-bar";
 
 interface EditorShellProps {
@@ -57,7 +59,7 @@ interface EditorShellProps {
   children: ReactNode;
   pending?: boolean;
   pendingAction?: "publish" | "hidden" | "edit";
-  draftSaved?: boolean;
+  saveStatus?: SaveStatus;
   newProductFlow?: "store" | "onboarding";
 }
 
@@ -84,7 +86,7 @@ export function EditorShell({
   children,
   pending = false,
   pendingAction,
-  draftSaved = false,
+  saveStatus = "idle",
   newProductFlow = "store",
 }: EditorShellProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -156,15 +158,7 @@ export function EditorShell({
             <span className="block text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] break-words whitespace-normal text-[rgb(var(--fg-muted))] uppercase">
               {stepLabel}
             </span>
-            {draftSaved ? (
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[rgb(var(--fg-faint))]">
-                <span
-                  aria-hidden
-                  className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
-                />
-                Draft saved
-              </span>
-            ) : null}
+            <SaveIndicator status={saveStatus} />
           </div>
           {embedded ? (
             <h2

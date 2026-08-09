@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { createPackage, updatePackage } from "~/app/(producer)/dashboard/booking/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import type { SaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
 import type {
   ProducerStoreDraftStep,
@@ -243,7 +244,7 @@ export function ProductEditor({
   );
   const [currentStep, setCurrentStep] = useState<StepId>(product ? "details" : "type");
   const [returnToReview, setReturnToReview] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [savingAction, setSavingAction] = useState<"publish" | "hidden" | "edit" | null>(null);
   const [rightsTouched, setRightsTouched] = useState({
     master: false,
@@ -253,11 +254,14 @@ export function ProductEditor({
   });
   const initializedEditorRef = useRef<string | null>(null);
   const latestPersistedDraftRef = useRef<ProducerStoreProductDraft | null>(null);
+  const saveStatusRequestRef = useRef(0);
 
   useEffect(() => {
     if (!open) {
       initializedEditorRef.current = null;
       latestPersistedDraftRef.current = null;
+      saveStatusRequestRef.current += 1;
+      setSaveStatus("idle");
       return;
     }
     const productId = product?.id ?? null;
@@ -293,7 +297,11 @@ export function ProductEditor({
       draft: nextDraft,
     };
     latestPersistedDraftRef.current = nextRecord;
-    setDraftSaved(onPersistDraft(nextRecord));
+    const statusRequest = ++saveStatusRequestRef.current;
+    const persisted = onPersistDraft(nextRecord);
+    if (saveStatusRequestRef.current === statusRequest) {
+      setSaveStatus(persisted ? "saved" : "idle");
+    }
   }, [defaultCurrency, mode, onPersistDraft, open, persistedDraft, product, steps]);
 
   useEffect(() => {
@@ -306,10 +314,14 @@ export function ProductEditor({
       draft,
     };
     latestPersistedDraftRef.current = nextRecord;
-    setDraftSaved(false);
+    const statusRequest = ++saveStatusRequestRef.current;
+    setSaveStatus("saving");
     const timeout = window.setTimeout(() => {
       const latest = latestPersistedDraftRef.current;
-      if (latest && onPersistDraft(latest)) setDraftSaved(true);
+      const persisted = Boolean(latest && onPersistDraft(latest));
+      if (saveStatusRequestRef.current === statusRequest) {
+        setSaveStatus(persisted ? "saved" : "idle");
+      }
     }, 250);
     return () => {
       window.clearTimeout(timeout);
@@ -339,6 +351,8 @@ export function ProductEditor({
       const latest = latestPersistedDraftRef.current;
       if (latest) onPersistDraft(latest);
       latestPersistedDraftRef.current = null;
+      saveStatusRequestRef.current += 1;
+      setSaveStatus("idle");
     }
     onOpenChange(nextOpen);
   }
@@ -355,7 +369,8 @@ export function ProductEditor({
 
   function handleDiscardDraft() {
     latestPersistedDraftRef.current = null;
-    setDraftSaved(false);
+    saveStatusRequestRef.current += 1;
+    setSaveStatus("idle");
     if (onDiscardDraft) onDiscardDraft();
     else onSubmitted();
     onOpenChange(false);
@@ -476,10 +491,14 @@ export function ProductEditor({
       return;
     }
     if (!online) {
+      saveStatusRequestRef.current += 1;
+      setSaveStatus("idle");
       toast("Reconnect to save this product.", "error");
       return;
     }
 
+    const statusRequest = ++saveStatusRequestRef.current;
+    setSaveStatus("saving");
     setSavingAction(product ? "edit" : active ? "publish" : "hidden");
     startTransition(async () => {
       try {
@@ -487,26 +506,26 @@ export function ProductEditor({
           const payload = buildPackageUpdatePayload(draft, product.kind);
           const result = await updatePackage({ id: product.id, ...payload });
           if (!result.ok) {
+            if (saveStatusRequestRef.current === statusRequest) setSaveStatus("idle");
             toast(result.error, "error");
             return;
           }
-          toast(`${draft.name.trim()} saved.`, "success");
         } else {
           const payload = buildPackagePayload(draft);
           const result = await createPackage({ ...payload, active });
           if (!result.ok) {
+            if (saveStatusRequestRef.current === statusRequest) setSaveStatus("idle");
             toast(result.error, "error");
             return;
           }
           onCreated?.(result.data.id);
-          toast(
-            active ? `${draft.name.trim()} published.` : `${draft.name.trim()} saved hidden.`,
-            "success",
-          );
+          if (active) toast(`${draft.name.trim()} published.`, "success");
         }
+        if (saveStatusRequestRef.current === statusRequest) setSaveStatus("saved");
         handleSuccessfulSubmit();
         router.refresh();
       } catch {
+        if (saveStatusRequestRef.current === statusRequest) setSaveStatus("idle");
         toast("Could not save this product. Please try again.", "error");
       } finally {
         setSavingAction(null);
@@ -548,7 +567,7 @@ export function ProductEditor({
       isLastStep={isLastStep}
       pending={pending}
       {...(savingAction ? { pendingAction: savingAction } : {})}
-      draftSaved={draftSaved}
+      saveStatus={saveStatus}
       newProductFlow={newProductFlow}
     >
       <div key={currentStep} className="sk-step-enter">
