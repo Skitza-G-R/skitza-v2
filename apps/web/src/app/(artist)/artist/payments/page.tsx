@@ -44,7 +44,7 @@ export default async function ArtistPaymentsPage() {
     toPaymentHistoryViewData(model.artistBuckets.waiting, SECTIONS.waiting, "artist"),
     toPaymentHistoryViewData(model.artistBuckets.active, SECTIONS.active, "artist"),
     toPaymentHistoryViewData(model.artistBuckets.history, SECTIONS.history, "artist"),
-  ];
+  ] as const;
 
   return (
     <div className="mx-auto w-full max-w-[900px]">
