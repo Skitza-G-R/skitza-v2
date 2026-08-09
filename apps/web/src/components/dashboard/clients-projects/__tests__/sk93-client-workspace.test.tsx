@@ -21,7 +21,7 @@ describe("SK-93 client workspace", () => {
   it("uses clear Active and Archived client filters", () => {
     expect(source).toMatch(/value:\s*["']active["'],\s*label:\s*["']Active["']/);
     expect(source).toMatch(/value:\s*["']archived["'],\s*label:\s*["']Archived["']/);
-    expect(source).toMatch(/c\.archived/);
+    expect(source).toMatch(/client\.archived/);
     expect(source).toContain("activeClientCount");
     expect(source).toContain("archivedClientCount");
   });
@@ -46,13 +46,13 @@ describe("SK-93 client workspace", () => {
 
   it("never offers archived clients when creating a project", () => {
     expect(source).toMatch(
-      /clients[\s\S]*?filter\(\(c\)\s*=>\s*!c\.archived\s*&&\s*c\.email\s*!==\s*null/,
+      /clients[\s\S]*?filter\(\(client\)\s*=>\s*!client\.archived\s*&&\s*client\.email\s*!==\s*null/,
     );
   });
 
   it("chooses a recent-first client order with no client layout or sort decision", () => {
-    expect(source).toMatch(/isoMs\(b\.lastActivityIso\)\s*-\s*isoMs\(a\.lastActivityIso\)/);
-    expect(source.match(/aria-label=["']Layout["']/g)).toHaveLength(1);
-    expect(source.match(/aria-label=["']Sort["']/g)).toHaveLength(1);
+    expect(source).toMatch(/isoMs\(right\.lastActivityIso\)\s*-\s*isoMs\(left\.lastActivityIso\)/);
+    expect(source).not.toMatch(/aria-label=["']Layout["']/);
+    expect(source).not.toMatch(/aria-label=["']Sort["']/);
   });
 });

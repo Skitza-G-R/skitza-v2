@@ -55,12 +55,37 @@ describe("NewClientModal", () => {
     expect(SRC).toMatch(/We(?:&rsquo;|')ll email an invite after you add them\./);
   });
 
+  it("explains that manual addition is optional without adding a public-link CTA", () => {
+    const descriptionStart = SRC.indexOf("<DialogPrimitive.Description");
+    const descriptionEnd = SRC.indexOf("</DialogPrimitive.Description>", descriptionStart);
+    const description = SRC.slice(descriptionStart, descriptionEnd);
+
+    expect(description).toMatch(/Most artists can join through your permanent public link\./);
+    expect(description).toMatch(/Adding them here is\s*optional\./);
+    expect(description).not.toMatch(/<a\b|<Link\b|href=|<button\b|onClick=/);
+  });
+
   it("renders the 'Add client' primary CTA text", () => {
     expect(SRC).toContain("Add client");
   });
 
   it("renders the 'Cancel' secondary action text", () => {
     expect(SRC).toContain("Cancel");
+  });
+
+  it("keeps both actions visible while only the form fields scroll on short phone screens", () => {
+    expect(SRC).toMatch(
+      /DialogPrimitive\.Content[\s\S]*?className="[^"]*flex[^"]*flex-col[^"]*overflow-hidden[^"]*p-0/,
+    );
+    expect(SRC).toMatch(/style=\{\{\s*overflow:\s*"hidden",\s*paddingBottom:\s*0\s*\}\}/);
+    expect(SRC).toMatch(/<form[^>]*className="[^"]*min-h-0[^"]*flex-1[^"]*flex-col/);
+    expect(SRC).toMatch(
+      /className="[^"]*min-h-0[^"]*flex-1[^"]*overflow-y-auto[^"]*overscroll-contain/,
+    );
+    expect(SRC).toMatch(/className="[^"]*shrink-0[^"]*border-t/);
+    expect(SRC).toContain("env(safe-area-inset-bottom, 0px)");
+    expect(SRC).not.toContain("sticky bottom-0");
+    expect(SRC).not.toContain("-mb-5");
   });
 
   it("calls createClientAction Server Action (not direct tRPC client)", () => {

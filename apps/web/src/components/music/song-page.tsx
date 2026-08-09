@@ -644,12 +644,10 @@ export function SongPage({
     {},
   );
   const [resolvedOverrides, setResolvedOverrides] = useState<Record<string, boolean>>({});
-  // Default to TRUE — founder feedback: "resolve now disappears
-  // messages, I want it greyed out and sent to the bottom." Showing
-  // resolved by default + sorting them last preserves the
-  // conversation history. The toggle below switches to a "hide
-  // resolved" mode for producers who want a cleaner view.
-  const [showResolved, setShowResolved] = useState<boolean>(true);
+  // Keep the active conversation focused by default. Resolved notes
+  // remain available through the explicit toggle, where they render
+  // greyed out and sorted after open notes for both roles.
+  const [showResolved, setShowResolved] = useState<boolean>(false);
 
   // Live current-time from the waveform — used to anchor the "add note
   // at 0:34" composer chip. Updated by Waveform50's onProgress callback.
@@ -797,12 +795,9 @@ export function SongPage({
   });
 
   // Comments visible right now: server + optimistic for the active
-  // version. Resolved comments sink to the BOTTOM (visible but greyed
-  // out — see the row's `opacity-60` + line-through styles) so the
-  // active conversation stays at the top of the thread. Within each
-  // group, comments sort by timeMs asc so they read in track order.
-  // The "Hide resolved" toggle drops the resolved rows entirely for
-  // producers who want a cleaner view.
+  // version. When requested, resolved comments sink to the BOTTOM and
+  // render greyed out so the active conversation stays first. Within
+  // each group, comments sort by timeMs asc so they read in track order.
   const visibleComments = useMemo(() => {
     if (!activeVersionId) return [];
     const server = data.comments.filter((c) => c.versionId === activeVersionId);
@@ -2347,7 +2342,12 @@ export function SongPage({
           />
         ) : null}
 
-        <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
+        <div
+          className={[
+            "relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 sm:px-6 sm:py-6 lg:py-8 lg:pb-10",
+            role === "producer" ? "pb-24" : "",
+          ].join(" ")}
+        >
           <header className="mb-4">
             <Card className="relative grid grid-cols-[88px_minmax(0,1fr)] items-start gap-x-3 p-4 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-x-5 sm:p-5 lg:grid-cols-[120px_minmax(0,1fr)]">
               {renderArtwork(

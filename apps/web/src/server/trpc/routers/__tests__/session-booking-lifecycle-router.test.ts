@@ -165,7 +165,7 @@ describe("SK-68 artist session router boundary", () => {
     }
   });
 
-  it("accepts one exact server-authored instant for both create and reschedule", () => {
+  it("accepts one exact server-authored instant for create and reschedule requests", () => {
     for (const procedure of ["confirm", "reschedule"]) {
       const command = sourceBlock(
         artistBook,
@@ -176,7 +176,11 @@ describe("SK-68 artist session router boundary", () => {
       expect(command).not.toMatch(/date:\s*z\.string/);
       expect(command).not.toMatch(/startMin:\s*z\.number/);
       expect(command).not.toMatch(/Date\.UTC\(/);
-      expect(command).toMatch(/startsAt:\s*input\.startsAt/);
+      expect(command).toMatch(
+        procedure === "confirm"
+          ? /startsAt:\s*input\.startsAt/
+          : /proposedStartsAt:\s*input\.startsAt/,
+      );
       expect(command).not.toMatch(/localSlot:/);
       expect(command).not.toMatch(/sessionStartFromLocalSlot\(/);
     }
@@ -226,17 +230,28 @@ describe("SK-68 artist session router boundary", () => {
 
   it("keeps command handlers thin and delegates lifecycle decisions", () => {
     expect(artistBook).toContain("createSessionBooking(");
-    expect(artistBook).toContain("cancelArtistSessionBooking(");
-    expect(artistBook).toContain("rescheduleArtistSessionBooking(");
+    expect(artistBook.match(/submitArtistSessionChangeRequest\(/g)).toHaveLength(2);
     expect(artistBook).toContain("sessionBookingRepository(ctx.db)");
     expect(artistBook).not.toMatch(/\.insert\(bookings\)/);
     expect(artistBook).not.toMatch(/\.update\(bookings\)/);
     expect(artistBook).not.toMatch(/\.delete\(bookings\)/);
   });
 
-  it("returns server truth for automatic confirmation and reschedule replacement", () => {
+  it("starts the durable calendar job after an artist withdraws a pending hold", () => {
+    const cancel = sourceBlock(
+      artistBook,
+      "cancel: artistProcedure",
+      "reschedule: artistProcedure",
+    );
+    expect(cancel).toMatch(
+      /cancelArtistSessionBooking[\s\S]*deliverCalendarJobAfterResponse\(ctx\.db, withdrawal\.calendarSyncJobId\)/,
+    );
+  });
+
+  it("returns server truth for automatic confirmation and pending change requests", () => {
     expect(artistBook).toMatch(/return\s+\{[^}]*id:[^}]*status:/s);
-    expect(artistBook).toMatch(/reschedule[\s\S]*replacedBookingId/);
+    expect(artistBook).toMatch(/reschedule[\s\S]*status: "request_sent"/);
+    expect(artistBook).toMatch(/reschedule[\s\S]*changeRequestId: result\.request\.id/);
     expect(artistBook).not.toMatch(/status:\s*"pending_approval"/);
   });
 });

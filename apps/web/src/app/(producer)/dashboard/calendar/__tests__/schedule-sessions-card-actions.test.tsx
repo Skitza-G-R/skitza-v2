@@ -25,16 +25,20 @@ function renderCard(item: SessionListItem): string {
 }
 
 describe("ScheduleSessionsCard actions", () => {
-  it("offers the real cancellation action for an active desktop session", () => {
+  it("offers the real reschedule and cancellation actions for an active desktop session", () => {
     const html = renderCard(session);
 
     expect(html).toContain('aria-label="Cancel session with Lior Tansky"');
-    expect(html).not.toMatch(/Change time|Send reminder/);
+    expect(html).toContain('aria-label="Reschedule session with Lior Tansky"');
+    expect(html).not.toMatch(/Send reminder/);
   });
 
   it("does not offer cancellation after a session is closed", () => {
     expect(renderCard({ ...session, status: "cancelled" })).not.toContain(
       'aria-label="Cancel session with Lior Tansky"',
+    );
+    expect(renderCard({ ...session, status: "cancelled" })).not.toContain(
+      'aria-label="Reschedule session with Lior Tansky"',
     );
   });
 });

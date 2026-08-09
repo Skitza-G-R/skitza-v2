@@ -9,6 +9,7 @@ import {
   rejectPaymentProofAction,
 } from "~/app/(producer)/dashboard/payments/proof-actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useToast } from "~/components/ui/toast";
 import { formatMoney } from "~/lib/format/money";
 import type { ProducerPaymentProofReview } from "~/server/domain/payment-proofs/service";
 
@@ -43,6 +44,7 @@ export function PaymentProofReview({
 }) {
   const router = useRouter();
   const online = useOnlineStatus();
+  const { toast } = useToast();
   const { proof } = review;
   const [isPending, startTransition] = useTransition();
   const [showConfirm, setShowConfirm] = useState(false);
@@ -69,9 +71,9 @@ export function PaymentProofReview({
           setMessage({ tone: "error", text: result.error });
           return;
         }
-        setMessage({ tone: "success", text: "Payment confirmed and recorded once." });
         setShowConfirm(false);
-        router.refresh();
+        toast("Payment confirmed and recorded.", "success");
+        router.push("/dashboard");
       } catch {
         setMessage({ tone: "error", text: "Could not confirm this payment. Please try again." });
       }

@@ -6,6 +6,7 @@ import { audioDeliveryRouter } from "./audio-delivery";
 import { bookingRouter } from "./booking";
 import { clientContactsRouter } from "./client-contacts";
 import { healthRouter } from "./health";
+import { googleCalendarRouter } from "./google-calendar";
 import { firstVersionUploadRouter } from "./first-version-upload";
 import { inboxRouter } from "./inbox";
 import { libraryRouter } from "./library";
@@ -31,6 +32,7 @@ export const appRouter = router({
   booking: bookingRouter,
   clientContacts: clientContactsRouter,
   health: healthRouter,
+  googleCalendar: googleCalendarRouter,
   firstVersionUpload: firstVersionUploadRouter,
   inbox: inboxRouter,
   library: libraryRouter,

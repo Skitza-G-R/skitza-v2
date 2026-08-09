@@ -21,22 +21,22 @@ describe("compact client UX defaults", () => {
     expect(workspace).not.toMatch(/<ClientCard(?:\s|\/)/);
     expect(workspace).toContain("<ClientCompactRow");
     expect(workspace).toContain("<MobileClientRow");
-    expect(workspace).toMatch(/isoMs\(b\.lastActivityIso\)\s*-\s*isoMs\(a\.lastActivityIso\)/);
-  });
-
-  it("keeps project-only layout and sort choices off the Clients tab", () => {
-    expect(workspace.match(/aria-label=["']Layout["']/g)).toHaveLength(1);
-    expect(workspace.match(/aria-label=["']Sort["']/g)).toHaveLength(1);
     expect(workspace).toMatch(
-      /\{tab\s*===\s*["']projects["']\s*\?\s*\(\s*<div className=["']order-2 ml-auto[\s\S]*?aria-label=["']Layout["'][\s\S]*?aria-label=["']Sort["'][\s\S]*?\)\s*:\s*null\}/,
+      /isoMs\(right\.lastActivityIso\)\s*-\s*isoMs\(left\.lastActivityIso\)/,
     );
   });
 
-  it("shows filter counts and only renders project KPI strips on Projects", () => {
+  it("keeps removed project layout controls and project sorting out of the Clients branch", () => {
+    expect(workspace).not.toMatch(/aria-label=["']Layout["']/);
+    expect(workspace).not.toMatch(/aria-label=["']Sort["']/);
+    expect(workspace).toContain("<ProducerProjectsList");
+  });
+
+  it("shows client filter counts and does not restore removed project KPI strips", () => {
     expect(workspace).toContain("activeClientCount");
     expect(workspace).toContain("archivedClientCount");
-    expect(workspace).toContain('data-testid="project-kpi-strips"');
-    expect(workspace).toMatch(/tab\s*===\s*["']projects["'][\s\S]{0,200}project-kpi-strips/);
+    expect(workspace).not.toContain('data-testid="project-kpi-strips"');
+    expect(workspace).not.toContain("StatTile");
   });
 
   it("uses one disclosed row action control instead of two always-visible decisions", () => {

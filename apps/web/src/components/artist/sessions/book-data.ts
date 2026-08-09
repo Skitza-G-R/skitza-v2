@@ -229,6 +229,16 @@ export type SessionListItem = {
   locationType: string;
   status: SessionStatus;
   outcome: SessionOutcome;
+  billingTreatment?: "included" | "complimentary" | "billable_extra";
+  artistRsvpStatus?: "needs_action" | "accepted" | "declined" | "tentative" | null;
+  artistRsvpRespondedAtISO?: string | null;
+  changeRequest?: {
+    id: string;
+    kind: "cancel" | "reschedule";
+    status: "pending";
+    proposedStartsAtISO: string | null;
+    requestedAtISO: string;
+  } | null;
   rescheduledFromBookingId: string | null;
   heldExpiryReason: "approval_timeout" | null;
   policy: SessionPolicy;

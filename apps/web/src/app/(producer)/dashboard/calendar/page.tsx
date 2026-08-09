@@ -2,8 +2,14 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { isGoogleCalendarServerConfigured } from "~/server/google-calendar/config";
+import { GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT } from "~/server/domain/session-booking/service";
 
 import { AvailabilityPanel } from "./availability-panel";
+import { GoogleCalendarControlBoundary } from "./google-calendar-control-boundary";
+import type { GoogleCalendarCallbackStatus } from "./google-calendar-control-boundary";
+import { presentGoogleCalendar } from "./google-calendar-presentation";
+import { isGoogleBusyProtectionReduced } from "./google-calendar-ui-model";
 
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
@@ -22,6 +28,7 @@ export default async function CalendarPage({
   searchParams: Promise<{
     tab?: string | string[];
     booking?: string | string[];
+    google?: string | string[];
   }>;
 }) {
   const { userId } = await auth();
@@ -31,6 +38,9 @@ export default async function CalendarPage({
   const selectedBookingId = Array.isArray(resolved.booking)
     ? (resolved.booking[0] ?? null)
     : (resolved.booking ?? null);
+  const googleCallbackStatus = presentGoogleCallbackStatus(
+    Array.isArray(resolved.google) ? resolved.google[0] : resolved.google,
+  );
 
   const caller = appRouter.createCaller({ userId });
   // A retained booking notification may be opened after its request was
@@ -47,14 +57,40 @@ export default async function CalendarPage({
   // must already be available under the finger. Keep the existing reads but
   // start their union together; the active route still chooses which panel is
   // exposed to assistive technology and which deep-link is recorded.
-  const [list, upcoming, settings, workingHours, profile, blackouts] = await Promise.all([
-    selectedBookingRows ?? caller.booking.list(),
-    caller.booking.upcoming({ days: 21 }),
-    caller.booking.availability.getSettings(),
-    caller.booking.availability.list(),
-    caller.producer.me(),
-    caller.booking.blackouts.list(),
-  ]);
+  const googleCalendarStatus = isGoogleCalendarServerConfigured()
+    ? caller.googleCalendar.status().catch(() => null)
+    : Promise.resolve(null);
+  const [list, upcoming, settings, workingHours, profile, blackouts, manualOptions, googleStatus] =
+    await Promise.all([
+      selectedBookingRows ?? caller.booking.list(),
+      caller.booking.upcoming({ days: 21 }),
+      caller.booking.availability.getSettings(),
+      caller.booking.availability.list(),
+      caller.producer.me(),
+      caller.booking.blackouts.list(),
+      caller.booking.manual.options(),
+      googleCalendarStatus,
+    ]);
+  const googleCalendarModel = googleStatus ? presentGoogleCalendar(googleStatus) : null;
+  const googleCalendarSyncBookingIds = list
+    .filter((booking) => booking.status === "confirmed")
+    .map((booking) => booking.id)
+    .slice(0, GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT);
+  const googleCalendarSyncStatuses =
+    googleCalendarModel &&
+    googleCalendarModel.status !== "not_connected" &&
+    googleCalendarSyncBookingIds.length > 0
+      ? await caller.booking.googleCalendarSync
+          .status({ ids: googleCalendarSyncBookingIds })
+          .catch(() => [])
+      : [];
+  const googleCalendarSyncByBookingId = new Map<
+    string,
+    NonNullable<SessionListItem["calendarSync"]>
+  >(
+    googleCalendarSyncStatuses.map((entry) => [entry.bookingId, { state: entry.status }] as const),
+  );
+  const listById = new Map(list.map((booking) => [booking.id, booking]));
   const pending = list.filter((b) => b.status === "pending_approval");
   const scheduleAutoConfirm = settings.autoConfirmBookings;
   const calendarTimeZone = normalizeCalendarTimeZone(profile.timezone);
@@ -68,7 +104,7 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.packageNameSnapshot,
+    packageName: b.title ?? b.packageNameSnapshot,
     message: b.notes,
     receivedAtIso: b.createdAt.toISOString(),
   }));
@@ -79,7 +115,7 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
-      packageName: b.packageNameSnapshot,
+      packageName: b.title ?? b.packageNameSnapshot,
       status: "pending_approval",
     })),
     ...upcoming.map<ScheduleSession>((b) => ({
@@ -102,18 +138,29 @@ export default async function CalendarPage({
       artistEmail: b.artistEmail,
       startsAt: b.startsAt.toISOString(),
       durationMin: b.durationMin,
-      packageName: b.packageNameSnapshot,
+      packageName: b.title ?? b.packageNameSnapshot,
       status: "pending_approval",
+      billingTreatment: b.billingTreatment,
+      artistRsvpStatus: b.artistRsvpStatus,
+      calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
+      changeRequest: presentChangeRequest(b.changeRequest),
     })),
-    ...upcoming.map<SessionListItem>((b) => ({
-      id: b.id,
-      artistName: b.artistName,
-      artistEmail: b.artistEmail,
-      startsAt: b.startsAt.toISOString(),
-      durationMin: b.durationMin,
-      packageName: b.packageName,
-      status: "confirmed",
-    })),
+    ...upcoming.map<SessionListItem>((b) => {
+      const full = listById.get(b.id);
+      return {
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        packageName: b.packageName,
+        status: "confirmed",
+        billingTreatment: full?.billingTreatment ?? "included",
+        artistRsvpStatus: full?.artistRsvpStatus ?? null,
+        calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
+        changeRequest: presentChangeRequest(full?.changeRequest ?? null),
+      };
+    }),
   ];
   const allSessions: SessionListItem[] = list.map((b) => ({
     id: b.id,
@@ -121,8 +168,12 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.packageNameSnapshot,
+    packageName: b.title ?? b.packageNameSnapshot,
     status: b.status,
+    billingTreatment: b.billingTreatment,
+    artistRsvpStatus: b.artistRsvpStatus,
+    calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
+    changeRequest: presentChangeRequest(b.changeRequest),
   }));
   const initialNow = new Date();
   const availabilityBlocks = workingHours.map((block) => ({
@@ -152,7 +203,6 @@ export default async function CalendarPage({
   // post-toggle persisted state.
   const availabilityWeekStart: "sunday" | "monday" =
     profile.weekStart === "monday" ? "monday" : "sunday";
-
   // Tab-aware eyebrow — gives the section dynamic context. Schedule
   // shows the current week date; Sessions shows totals; Availability
   // shows weekly hours open. The eyebrow stays static across client-
@@ -209,6 +259,18 @@ export default async function CalendarPage({
           active={active}
           eyebrows={eyebrows}
           scheduleEyebrow={scheduleEyebrow}
+          manualOptions={manualOptions}
+          googleBusyProtectionReduced={
+            googleCalendarModel ? isGoogleBusyProtectionReduced(googleCalendarModel) : false
+          }
+          googleCalendarControl={
+            googleCalendarModel ? (
+              <GoogleCalendarControlBoundary
+                model={googleCalendarModel}
+                {...(googleCallbackStatus ? { callbackStatus: googleCallbackStatus } : {})}
+              />
+            ) : undefined
+          }
           sessionsContent={
             active === "schedule" ? (
               <>
@@ -301,4 +363,39 @@ export default async function CalendarPage({
       </div>
     </div>
   );
+}
+
+function presentGoogleCallbackStatus(
+  value: string | undefined,
+): GoogleCalendarCallbackStatus | undefined {
+  if (
+    value === "selection" ||
+    value === "connected" ||
+    value === "denied" ||
+    value === "wrong-account" ||
+    value === "reconnect" ||
+    value === "error"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+type PresentedChangeRequest = NonNullable<SessionListItem["changeRequest"]>;
+
+function presentChangeRequest(
+  request: {
+    id: string;
+    kind: "cancel" | "reschedule";
+    proposedStartsAt: Date | null;
+    requestedAt: Date;
+  } | null,
+): PresentedChangeRequest | null {
+  if (!request) return null;
+  return {
+    id: request.id,
+    kind: request.kind,
+    proposedStartsAt: request.proposedStartsAt?.toISOString() ?? null,
+    requestedAt: request.requestedAt.toISOString(),
+  };
 }

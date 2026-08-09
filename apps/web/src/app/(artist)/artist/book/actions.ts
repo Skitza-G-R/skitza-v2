@@ -48,8 +48,8 @@ export async function rescheduleBookingAction(input: {
   | {
       ok: true;
       id: string;
-      status: "pending_approval" | "confirmed";
-      replacedBookingId: string;
+      status: "request_sent";
+      changeRequestId: string;
     }
   | { ok: false; error: string }
 > {
