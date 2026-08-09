@@ -24,8 +24,8 @@ if (configuredAck !== undefined && configuredAck !== MUTATION_ACK) {
 }
 
 const describeWithMutationAck = configuredAck === MUTATION_ACK ? describe : describe.skip;
-const migration0044 = readFileSync(
-  join(process.cwd(), "drizzle", "0044_generic_audio_upload_intents.sql"),
+const migration0048 = readFileSync(
+  join(process.cwd(), "drizzle", "0048_generic_audio_upload_intents.sql"),
   "utf8",
 );
 const migration0039 = readFileSync(
@@ -66,7 +66,7 @@ function withoutTrailingSemicolon(statement: string): string {
   return statement.trim().replace(/;+\s*$/, "");
 }
 
-describeWithMutationAck("SK-197 migration 0044 — owned local PostgreSQL", () => {
+describeWithMutationAck("SK-197 migration 0048 — owned local PostgreSQL", () => {
   const ownedPrefix = resolve(join(tmpdir(), "skitza-sk197-local-pg-"));
   const databaseName = "skitza_sk197";
   const databaseUser = "skitza_test";
@@ -303,7 +303,7 @@ describeWithMutationAck("SK-197 migration 0044 — owned local PostgreSQL", () =
       );
 
       // 0039 and 0041 are fixture sources here, not migration operations. They
-      // produce the exact intent relation immediately before 0044 without
+      // produce the exact intent relation immediately before 0048 without
       // replaying the historical 0000-0038 chain or mutating another target.
       runPsql(`
         CREATE TABLE "producers" (
@@ -344,8 +344,8 @@ describeWithMutationAck("SK-197 migration 0044 — owned local PostgreSQL", () =
 
       initialMigrationStatus = await applyMigration(
         createRunnerSql(),
-        "0044_generic_audio_upload_intents.sql",
-        migration0044,
+        "0048_generic_audio_upload_intents.sql",
+        migration0048,
       );
     } catch (error) {
       stopAndRemoveOwnedCluster();
@@ -357,18 +357,18 @@ describeWithMutationAck("SK-197 migration 0044 — owned local PostgreSQL", () =
     stopAndRemoveOwnedCluster();
   }, 30_000);
 
-  it("applies 0044 through the real exported migration-runner boundary", () => {
+  it("applies 0048 through the real exported migration-runner boundary", () => {
     expect(initialMigrationStatus).toBe("SKITZA_MIGRATION_APPLIED");
 
     const ledger = queryRows<{ digest: string; filename: string }>(`
       SELECT "filename", "digest"
       FROM "skitza_migrations"."applied"
-      WHERE "filename" = '0044_generic_audio_upload_intents.sql'
+      WHERE "filename" = '0048_generic_audio_upload_intents.sql'
     `);
     expect(ledger).toEqual([
       {
-        filename: "0044_generic_audio_upload_intents.sql",
-        digest: migrationDigest(migration0044),
+        filename: "0048_generic_audio_upload_intents.sql",
+        digest: migrationDigest(migration0048),
       },
     ]);
   });
@@ -636,14 +636,14 @@ describeWithMutationAck("SK-197 migration 0044 — owned local PostgreSQL", () =
 
   it("is idempotent through the same exported runner path", async () => {
     await expect(
-      applyMigration(createRunnerSql(), "0044_generic_audio_upload_intents.sql", migration0044),
+      applyMigration(createRunnerSql(), "0048_generic_audio_upload_intents.sql", migration0048),
     ).resolves.toBe("SKITZA_MIGRATION_ALREADY_APPLIED");
 
     expect(
       queryRows<{ ledger_count: number }>(`
         SELECT count(*)::integer AS "ledger_count"
         FROM "skitza_migrations"."applied"
-        WHERE "filename" = '0044_generic_audio_upload_intents.sql'
+        WHERE "filename" = '0048_generic_audio_upload_intents.sql'
       `),
     ).toEqual([{ ledger_count: 1 }]);
   });

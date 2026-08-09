@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { firstVersionUploadIntents } from "../schema";
 
 const migration = readFileSync(
-  join(process.cwd(), "drizzle/0044_generic_audio_upload_intents.sql"),
+  join(process.cwd(), "drizzle/0048_generic_audio_upload_intents.sql"),
   "utf8",
 );
 const config = getTableConfig(firstVersionUploadIntents);
