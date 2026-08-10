@@ -270,7 +270,7 @@ describe("SessionManagementSheet", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Could not check this new time. Please try again.",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Reschedule session" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reschedule session" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Could not reschedule this session. Please try again.",
