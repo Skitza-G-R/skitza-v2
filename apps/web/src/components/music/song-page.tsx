@@ -101,12 +101,12 @@ export type MusicL3CompleteArtworkActionResult =
   | { ok: false; error: string };
 
 export type L3Actions = {
-  addComment: (input: {
+  addComment?: (input: {
     versionId: string;
     body: string;
     timestampMs: number;
   }) => Promise<MusicL3ActionResult>;
-  resolveComment: (input: {
+  resolveComment?: (input: {
     versionId: string;
     id: string;
     resolved: boolean;
@@ -181,7 +181,7 @@ export type L3Actions = {
 //     doesn't have a clients-projects surface to cross-link into).
 //   - the breadcrumb middle crumb reads `track.clientName`, which the
 //     artist wire payload overloads with the producer's display name.
-export type SongPageRole = "producer" | "artist";
+export type SongPageRole = "producer" | "artist" | "guest";
 
 export type ProducerVersionUpload = {
   projectId: string;
@@ -193,9 +193,9 @@ export type ProducerVersionUpload = {
 
 export function songCommentDraftRoute(role: SongPageRole, versionId: string): string {
   const encodedVersionId = encodeURIComponent(versionId);
-  return role === "artist"
-    ? `/artist/music/song/${encodedVersionId}`
-    : `/dashboard/music/${encodedVersionId}`;
+  if (role === "artist") return `/artist/music/song/${encodedVersionId}`;
+  if (role === "guest") return "/listen";
+  return `/dashboard/music/${encodedVersionId}`;
 }
 
 // ─── Wire types (Date crosses RSC → client as ISO strings) ───────────
@@ -203,6 +203,8 @@ export type SongPageVersion = {
   id: string;
   label: string;
   audioUrl: string | null;
+  /** Guest-only attachment route. Null/undefined means no public download grant. */
+  downloadUrl?: string | null;
   /** Explicit storage tombstone. Null/undefined means the audio was not deleted. */
   audioDeletedAtIso?: string | null;
   durationMs: number | null;
@@ -420,8 +422,9 @@ export function activeVersionToPlayerTrack(
     isSongPageVersionPlayable(version) &&
     version.delivery.permission !== "audio_deleted" &&
     (role === "producer" ||
-      version.delivery.permission === "purchase_fully_paid" ||
-      version.delivery.permission === "version_override");
+      (role === "artist" &&
+        (version.delivery.permission === "purchase_fully_paid" ||
+          version.delivery.permission === "version_override")));
   return {
     id: version.id,
     songId: track.id,
@@ -886,7 +889,8 @@ export function SongPage({
   const commentsClosed = projectArchivedLabel !== null || songArchived;
 
   function handleAddComment() {
-    if (!activeVersion || commentsClosed || isPending) return;
+    if (!activeVersion || !actions.addComment || commentsClosed || isPending) return;
+    const addComment = actions.addComment;
     const body = commentDraft.body.trim();
     if (!body) return;
     if (!online) {
@@ -924,7 +928,7 @@ export function SongPage({
 
     startTransition(async () => {
       try {
-        const res = await actions.addComment({
+        const res = await addComment({
           versionId: activeVersion.id,
           body,
           timestampMs: currentMs,
@@ -983,7 +987,8 @@ export function SongPage({
   }
 
   function handleResolveToggle(comment: SongPageComment) {
-    if (!activeVersion) return;
+    if (!activeVersion || !actions.resolveComment) return;
+    const resolveComment = actions.resolveComment;
     if (!online) {
       setError("Reconnect to update this comment. No change was saved.");
       return;
@@ -995,7 +1000,7 @@ export function SongPage({
     setResolvedOverrides((p) => ({ ...p, [comment.id]: next }));
     startTransition(async () => {
       try {
-        const res = await actions.resolveComment({
+        const res = await resolveComment({
           versionId: activeVersion.id,
           id: comment.id,
           resolved: next,
@@ -1368,7 +1373,7 @@ export function SongPage({
       });
       if (result.ok) {
         if (versions.some((version) => version.id === nowPlaying.trackId)) playerClose();
-        setSongDeletionRedirectHref(projectHref);
+        setSongDeletionRedirectHref(projectHref ?? "/dashboard/music");
       }
       return result;
     }
@@ -1716,14 +1721,16 @@ export function SongPage({
   // the tracklist row href already uses in project-page.tsx.
   const clientCrumb = data.track.clientName ? [{ label: data.track.clientName }] : [];
   const projectHref =
-    role === "artist"
-      ? withArtistStudio(`/artist/music/${data.track.projectId}`, artistStudioId)
-      : (producerProjectHref ?? `/dashboard/music/project/${data.track.projectId}`);
+    role === "guest"
+      ? undefined
+      : role === "artist"
+        ? withArtistStudio(`/artist/music/${data.track.projectId}`, artistStudioId)
+        : (producerProjectHref ?? `/dashboard/music/project/${data.track.projectId}`);
   const topbarCrumbs = [
     ...clientCrumb,
     {
       label: data.track.projectTitle,
-      href: projectHref,
+      ...(projectHref ? { href: projectHref } : {}),
     },
     { label: songTitle },
   ];
@@ -1731,7 +1738,7 @@ export function SongPage({
   if (!activeVersion) {
     return (
       <main className="mx-auto max-w-[1120px] px-4 py-12 sm:px-6">
-        <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+        {role !== "guest" ? <SetTopBarBreadcrumb crumbs={topbarCrumbs} /> : null}
         <p className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
           This track has no versions yet.
         </p>
@@ -1754,11 +1761,15 @@ export function SongPage({
   });
   const isPlayingThis = playState.action === "toggle" && playState.label === "Pause";
   const canUseDownloadAction =
-    activeVersionPlayable && (role === "producer" || activeDelivery.canDownload);
+    activeVersionPlayable &&
+    (role === "producer" ||
+      (role === "guest" ? Boolean(activeVersion.downloadUrl) : activeDelivery.canDownload));
   const downloadHref =
     role === "producer"
       ? `/api/download/${activeVersion.id}`
-      : `/api/audio/download/${activeVersion.delivery.purchaseId}/${activeVersion.id}`;
+      : role === "guest"
+        ? (activeVersion.downloadUrl ?? "")
+        : `/api/audio/download/${activeVersion.delivery.purchaseId}/${activeVersion.id}`;
   const moreActionsPanelProps = {
     role,
     actions,
@@ -1774,16 +1785,17 @@ export function SongPage({
     onChangeCover: () => {
       artworkInputRef.current?.click();
     },
-    publicSharingControl: publicSharing ? (
-      <SongPublicLinkControls
-        role={role}
-        initialState={publicSharing}
-        shareTitle={songTitle}
-        triggerStyle="menu"
-        {...(publicSharingActions ? { actions: publicSharingActions } : {})}
-        {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
-      />
-    ) : null,
+    publicSharingControl:
+      role !== "guest" && publicSharing ? (
+        <SongPublicLinkControls
+          role={role}
+          initialState={publicSharing}
+          shareTitle={songTitle}
+          triggerStyle="menu"
+          {...(publicSharingActions ? { actions: publicSharingActions } : {})}
+          {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
+        />
+      ) : null,
     onDismiss: () => {
       setOverflowOpen(false);
     },
@@ -1834,15 +1846,21 @@ export function SongPage({
           const selected = version.id === renderedVersion.id;
           const delivery = presentVersionDelivery(version.delivery);
           const state =
-            version.audioDeletedAtIso !== null
-              ? "Audio deleted"
-              : version.artistApprovedAtIso
-                ? "Artist approved"
+            role === "guest"
+              ? version.artistApprovedAtIso
+                ? "Approved"
                 : version.producerMarkedFinalAtIso
                   ? "Ready"
-                  : version.previouslyArtistApprovedAtIso
-                    ? "Previously approved"
-                    : delivery.badge;
+                  : "Available"
+              : version.audioDeletedAtIso !== null
+                ? "Audio deleted"
+                : version.artistApprovedAtIso
+                  ? "Artist approved"
+                  : version.producerMarkedFinalAtIso
+                    ? "Ready"
+                    : version.previouslyArtistApprovedAtIso
+                      ? "Previously approved"
+                      : delivery.badge;
           return (
             <div
               key={version.id}
@@ -1958,6 +1976,17 @@ export function SongPage({
   }
 
   function renderWorkflowControl() {
+    if (role === "guest") {
+      return (
+        <span className="inline-flex min-h-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
+          {isExactArtistApproved
+            ? "Approved"
+            : isProducerReady
+              ? "Ready for artist"
+              : "Waiting for producer"}
+        </span>
+      );
+    }
     if (role === "producer" && artistApprovalLocked) {
       return (
         <span
@@ -2335,7 +2364,7 @@ export function SongPage({
         data-test="professional-song-page"
         className="sk-page-enter relative isolate min-h-full overflow-x-clip bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
       >
-        <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+        {role !== "guest" ? <SetTopBarBreadcrumb crumbs={topbarCrumbs} /> : null}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.09)] via-[rgb(var(--bg-background)/0.72)] to-[rgb(var(--bg-background))]"
@@ -2367,13 +2396,19 @@ export function SongPage({
                 "h-[88px] w-[88px] sm:h-[108px] sm:w-[108px] lg:h-[120px] lg:w-[120px]",
               )}
               <div className="min-w-0 pt-0.5">
-                <Link
-                  href={projectHref}
-                  aria-label={"Open " + data.track.projectTitle + " project"}
-                  className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
-                >
-                  <span className="truncate">{data.track.projectTitle}</span>
-                </Link>
+                {projectHref ? (
+                  <Link
+                    href={projectHref}
+                    aria-label={"Open " + data.track.projectTitle + " project"}
+                    className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
+                  >
+                    <span className="truncate">{data.track.projectTitle}</span>
+                  </Link>
+                ) : (
+                  <span className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
+                    <span className="truncate">{data.track.projectTitle}</span>
+                  </span>
+                )}
                 <h1 className="font-display mt-1 line-clamp-2 text-[26px] leading-[1.02] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[30px] lg:text-[34px]">
                   {songTitle}
                 </h1>
@@ -2438,7 +2473,14 @@ export function SongPage({
             </p>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch">
+          <div
+            className={[
+              "grid gap-4",
+              role === "guest"
+                ? ""
+                : "lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch",
+            ].join(" ")}
+          >
             <section className="flex min-w-0 flex-col gap-4">
               <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--fg-onsidebar)/0.1)] bg-[rgb(var(--bg-sidebar))] px-4 py-5 text-[rgb(var(--fg-onsidebar))] shadow-[var(--shadow-md)] [--fg-muted:200_192_178] sm:px-5 lg:px-6 lg:py-6">
                 {activeVersionDeleted ? (
@@ -2459,7 +2501,7 @@ export function SongPage({
                       appearance="studio"
                       density={{ mobile: 96, desktop: 200 }}
                       durationMs={effectiveDurationMs ?? 240_000}
-                      comments={waveformComments}
+                      comments={role === "guest" ? [] : waveformComments}
                       seed={activeVersion.id}
                       initialMs={displayedCurrentMs}
                       initialPeaks={activeVersion.peaks}
@@ -2482,15 +2524,19 @@ export function SongPage({
                           );
                         }
                       }}
-                      onCommentSelect={(comment) => {
-                        handleJumpToComment(comment.timeMs);
-                        if (!isDesktopMoreActions) setNotesOpen(true);
-                        window.setTimeout(() => {
-                          document
-                            .getElementById("song-note-" + comment.id)
-                            ?.scrollIntoView({ block: "center" });
-                        }, 0);
-                      }}
+                      {...(role === "guest"
+                        ? {}
+                        : {
+                            onCommentSelect: (comment: WaveformComment) => {
+                              handleJumpToComment(comment.timeMs);
+                              if (!isDesktopMoreActions) setNotesOpen(true);
+                              window.setTimeout(() => {
+                                document
+                                  .getElementById("song-note-" + comment.id)
+                                  ?.scrollIntoView({ block: "center" });
+                              }, 0);
+                            },
+                          })}
                       height={isDesktopMoreActions ? 142 : 104}
                     />
                   </>
@@ -2556,40 +2602,44 @@ export function SongPage({
                 </div>
               </div>
 
-              <div className="lg:hidden">
-                <button
-                  type="button"
-                  aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
-                  onClick={() => {
-                    setNotesOpen(true);
-                  }}
-                  className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
-                >
-                  <span>Notes</span>
-                  <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-                    {String(allCommentsForVersion.length)}
-                  </span>
-                </button>
-              </div>
+              {role !== "guest" ? (
+                <div className="lg:hidden">
+                  <button
+                    type="button"
+                    aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
+                    onClick={() => {
+                      setNotesOpen(true);
+                    }}
+                    className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+                  >
+                    <span>Notes</span>
+                    <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                      {String(allCommentsForVersion.length)}
+                    </span>
+                  </button>
+                </div>
+              ) : null}
 
-              <div>
-                <VersionDeliveryPanel
-                  role={role}
-                  artistStudioId={artistStudioId}
-                  version={activeVersion}
-                  delivery={activeDelivery}
-                  downloadHref={downloadHref}
-                  canUseDownloadAction={canUseDownloadAction}
-                  canManageOverride={Boolean(actions.setDownloadOverride)}
-                  overrideButtonRef={deliveryOverrideButtonRef}
-                  onManageOverride={() => {
-                    openManagementDialog("download-override");
-                  }}
-                />
-              </div>
+              {role !== "guest" ? (
+                <div>
+                  <VersionDeliveryPanel
+                    role={role}
+                    artistStudioId={artistStudioId}
+                    version={activeVersion}
+                    delivery={activeDelivery}
+                    downloadHref={downloadHref}
+                    canUseDownloadAction={canUseDownloadAction}
+                    canManageOverride={Boolean(actions.setDownloadOverride)}
+                    overrideButtonRef={deliveryOverrideButtonRef}
+                    onManageOverride={() => {
+                      openManagementDialog("download-override");
+                    }}
+                  />
+                </div>
+              ) : null}
             </section>
 
-            {isDesktopMoreActions ? (
+            {role !== "guest" && isDesktopMoreActions ? (
               <aside className="flex min-h-[420px]" aria-label="Song notes">
                 {renderNotesPanel("desktop")}
               </aside>
@@ -2597,33 +2647,35 @@ export function SongPage({
           </div>
         </div>
 
-        <Sheet
-          open={notesOpen && !isDesktopMoreActions}
-          onOpenChange={(open) => {
-            if (!open) closeNotes();
-          }}
-        >
-          <SheetContent
-            side="bottom"
-            aria-describedby="song-notes-description"
-            onPointerDown={(event) => {
-              const top = event.currentTarget.getBoundingClientRect().top;
-              notesDragStartYRef.current = event.clientY - top <= 84 ? event.clientY : null;
+        {role !== "guest" ? (
+          <Sheet
+            open={notesOpen && !isDesktopMoreActions}
+            onOpenChange={(open) => {
+              if (!open) closeNotes();
             }}
-            onPointerUp={(event) => {
-              const start = notesDragStartYRef.current;
-              notesDragStartYRef.current = null;
-              if (start !== null && event.clientY - start > 80) closeNotes();
-            }}
-            className="w-full gap-0 overflow-hidden px-0 pt-2 pb-[env(safe-area-inset-bottom)] sm:px-0 sm:pt-2 sm:pb-[env(safe-area-inset-bottom)]"
           >
-            <SheetTitle className="sr-only">Song notes</SheetTitle>
-            <SheetDescription id="song-notes-description" className="sr-only">
-              Review timestamped notes and add a note at the current playback time.
-            </SheetDescription>
-            {renderNotesPanel("sheet")}
-          </SheetContent>
-        </Sheet>
+            <SheetContent
+              side="bottom"
+              aria-describedby="song-notes-description"
+              onPointerDown={(event) => {
+                const top = event.currentTarget.getBoundingClientRect().top;
+                notesDragStartYRef.current = event.clientY - top <= 84 ? event.clientY : null;
+              }}
+              onPointerUp={(event) => {
+                const start = notesDragStartYRef.current;
+                notesDragStartYRef.current = null;
+                if (start !== null && event.clientY - start > 80) closeNotes();
+              }}
+              className="w-full gap-0 overflow-hidden px-0 pt-2 pb-[env(safe-area-inset-bottom)] sm:px-0 sm:pt-2 sm:pb-[env(safe-area-inset-bottom)]"
+            >
+              <SheetTitle className="sr-only">Song notes</SheetTitle>
+              <SheetDescription id="song-notes-description" className="sr-only">
+                Review timestamped notes and add a note at the current playback time.
+              </SheetDescription>
+              {renderNotesPanel("sheet")}
+            </SheetContent>
+          </Sheet>
+        ) : null}
 
         {role === "producer" && versionUpload ? (
           <UploadTrackModal
@@ -2743,17 +2795,25 @@ function SongMoreActionsPanel({
         <button
           type="button"
           disabled
-          title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}
+          title={
+            role === "guest"
+              ? "Download is unavailable"
+              : activeVersionDeleted
+                ? "Audio was deleted"
+                : "Audio is still uploading"
+          }
           className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
             <DownloadIcon />
           </span>
-          {activeVersionDeleted
-            ? "Audio deleted"
-            : activeVersionPlayable
-              ? activeDeliveryBadge
-              : "Download (uploading…)"}
+          {role === "guest"
+            ? "Download unavailable"
+            : activeVersionDeleted
+              ? "Audio deleted"
+              : activeVersionPlayable
+                ? activeDeliveryBadge
+                : "Download (uploading…)"}
         </button>
       )}
       {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (

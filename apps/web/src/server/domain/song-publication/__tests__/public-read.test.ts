@@ -1,5 +1,5 @@
 import type { Db } from "@skitza/db";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AudioObjectRequest } from "~/server/domain/audio-delivery/service";
 import { privateVersionStreamPath } from "~/server/domain/audio-delivery/urls";
@@ -9,12 +9,33 @@ import { createPortfolioAudioCapability } from "../audio-capability";
 import {
   deliverPortfolioSongAudio,
   deliverSongLinkAudio,
+  deliverSongLinkDownload,
   listPublicPortfolioSongs,
   readPublicSong,
+  readSongLinkDownloadEntitlements,
   SongPublicReadError,
 } from "../public-read";
 import type { PublicStoredVersionCandidate } from "../read-model";
 import { createSongPublicToken, hashSongPublicToken } from "../tokens";
+
+const ledgerMocks = vi.hoisted(() => ({
+  purchaseLedgerRepositoryForTransaction: vi.fn(() => ({})),
+  readPurchaseLedger: vi.fn(),
+}));
+
+vi.mock("~/server/domain/purchase-ledger/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/server/domain/purchase-ledger/db")>();
+  return {
+    ...actual,
+    purchaseLedgerRepositoryForTransaction:
+      ledgerMocks.purchaseLedgerRepositoryForTransaction,
+  };
+});
+
+vi.mock("~/server/domain/purchase-ledger/service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/server/domain/purchase-ledger/service")>();
+  return { ...actual, readPurchaseLedger: ledgerMocks.readPurchaseLedger };
+});
 
 const SECRET = "sk98-public-read-test-secret";
 const NOW = new Date("2026-07-20T12:00:00.000Z");
@@ -126,6 +147,10 @@ class QueuedPublicReadDb {
     const rows = this.selectRows.shift();
     if (!rows) throw new Error("Unexpected public-read select in test double");
     return new QueuedSelectQuery(rows, this.rowLockModes);
+  }
+
+  selectDistinctOn(): QueuedSelectQuery {
+    return this.select();
   }
 
   execute(statement: unknown): Promise<unknown[]> {
@@ -356,12 +381,46 @@ function linkDb(
       {
         title: "Glass Houses",
         artist: "Maya",
+        workflowStage: "mixing",
+        projectTitle: "Glass Houses EP",
         displayName: "North Room",
         brand: null,
       },
     ]);
   }
   return new QueuedPublicReadDb(rows);
+}
+
+function commercialLinkDb(
+  versions: readonly PublicStoredVersionCandidate[],
+  currentToken: string,
+  overrides: readonly Readonly<{ versionId: string; enabled: boolean; sequence: number }>[] = [],
+): QueuedPublicReadDb {
+  return new QueuedPublicReadDb([
+    [scope],
+    [{ id: scope.projectId, producerId: scope.producerId }],
+    [
+      {
+        id: scope.purchaseId,
+        producerId: scope.producerId,
+        projectId: scope.projectId,
+      },
+    ],
+    [{ id: scope.trackId, projectId: scope.projectId, purchaseId: scope.purchaseId }],
+    [...versions],
+    [
+      {
+        id: scope.linkId,
+        trackId: scope.trackId,
+        purchaseId: scope.purchaseId,
+        producerId: scope.producerId,
+        tokenVersion: 2,
+        tokenHash: hashSongPublicToken(currentToken),
+        disabledAt: null,
+      },
+    ],
+    [...overrides],
+  ]);
 }
 
 function portfolioDb(
@@ -628,5 +687,106 @@ describe("public song reads and audio delivery", () => {
     expect(songs.map((song) => song.id)).not.toEqual(
       expect.arrayContaining([unmarked.trackId, noAudio.trackId, noncanonical.trackId]),
     );
+  });
+});
+
+describe("guest song download entitlement", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("allows every stored version only after confirmed full payment", async () => {
+    const token = createSongPublicToken(SECRET, {
+      linkId: scope.linkId,
+      tokenVersion: 2,
+    });
+    const older = storedVersion(OLDER_VERSION_ID, "2026-07-18T10:00:00.000Z");
+    const newer = storedVersion(NEWER_VERSION_ID, "2026-07-19T10:00:00.000Z");
+    ledgerMocks.readPurchaseLedger.mockResolvedValue({
+      projection: {
+        fullyPaidForDownloads: true,
+        installments: [],
+        remainingCents: 0,
+        currency: "USD",
+      },
+    });
+
+    const entitlements = await readSongLinkDownloadEntitlements(
+      commercialLinkDb([older, newer], token).asDb(),
+      { secret: SECRET, token, now: NOW },
+    );
+
+    expect(entitlements).toHaveLength(2);
+    expect(entitlements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          versionId: older.id,
+          permission: "purchase_fully_paid",
+          canDownload: true,
+        }),
+        expect.objectContaining({
+          versionId: newer.id,
+          permission: "purchase_fully_paid",
+          canDownload: true,
+        }),
+      ]),
+    );
+    expect(entitlements.every((entry) => entry.downloadUrl?.endsWith("&download=1"))).toBe(true);
+  });
+
+  it("opens storage only for the exact version with an active override", async () => {
+    const token = createSongPublicToken(SECRET, {
+      linkId: scope.linkId,
+      tokenVersion: 2,
+    });
+    const older = storedVersion(OLDER_VERSION_ID, "2026-07-18T10:00:00.000Z");
+    const newer = storedVersion(NEWER_VERSION_ID, "2026-07-19T10:00:00.000Z");
+    const overrides = [
+      { versionId: newer.id, enabled: true, sequence: 2 },
+      { versionId: older.id, enabled: false, sequence: 1 },
+    ];
+    ledgerMocks.readPurchaseLedger.mockResolvedValue({
+      projection: {
+        fullyPaidForDownloads: false,
+        installments: [{ status: "overdue", remainingCents: 5_000 }],
+        remainingCents: 5_000,
+        currency: "USD",
+      },
+    });
+
+    const entitlements = await readSongLinkDownloadEntitlements(
+      commercialLinkDb([older, newer], token, overrides).asDb(),
+      { secret: SECRET, token, now: NOW },
+    );
+    expect(entitlements.find((entry) => entry.versionId === newer.id)).toMatchObject({
+      permission: "version_override",
+      canDownload: true,
+      overdue: true,
+    });
+    expect(entitlements.find((entry) => entry.versionId === older.id)).toMatchObject({
+      permission: "payment_required",
+      canDownload: false,
+      downloadUrl: null,
+    });
+
+    const openAllowed = vi.fn((request: AudioObjectRequest) => Promise.resolve(request));
+    await expect(
+      deliverSongLinkDownload(
+        commercialLinkDb([older, newer], token, overrides).asDb(),
+        { secret: SECRET, token, versionId: newer.id, now: NOW },
+        openAllowed,
+      ),
+    ).resolves.toMatchObject({ key: newer.audioR2Key, objectEtag: newer.audioObjectEtag });
+
+    const openBlocked = vi.fn((request: AudioObjectRequest) => Promise.resolve(request));
+    await expect(
+      deliverSongLinkDownload(
+        commercialLinkDb([older, newer], token, overrides).asDb(),
+        { secret: SECRET, token, versionId: older.id, now: NOW },
+        openBlocked,
+      ),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+    expect(openAllowed).toHaveBeenCalledOnce();
+    expect(openBlocked).not.toHaveBeenCalled();
   });
 });

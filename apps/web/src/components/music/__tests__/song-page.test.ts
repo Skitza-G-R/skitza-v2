@@ -544,9 +544,10 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
 
   it("uses a truly disabled control with a reason when audio cannot be downloaded", () => {
     expect(moreActionsPanelSrc).not.toContain("aria-disabled");
-    expect(moreActionsPanelSrc).toContain(
-      'title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}',
-    );
+    expect(moreActionsPanelSrc).toContain('role === "guest"');
+    expect(moreActionsPanelSrc).toContain('"Download is unavailable"');
+    expect(moreActionsPanelSrc).toContain('"Audio was deleted"');
+    expect(moreActionsPanelSrc).toContain('"Audio is still uploading"');
     expect(moreActionsPanelSrc).toMatch(/type="button"\s+disabled/);
   });
 
@@ -641,7 +642,7 @@ describe("song-page.tsx source — truthful comment mutations", () => {
 
   it("keeps the draft until add-comment succeeds and rolls back transport failures", () => {
     expect(addCommentSource).toContain("commentDraft.preserveDraft(body)");
-    expect(addCommentSource).toMatch(/try \{[\s\S]*await actions\.addComment/);
+    expect(addCommentSource).toMatch(/try \{[\s\S]*await addComment/);
     expect(addCommentSource).toMatch(/catch[\s\S]*commentDraft\.setBody\(body\)/);
     expect(addCommentSource).toMatch(/if \(!res\.ok\)[\s\S]*commentDraft\.setBody\(body\)/);
     expect(addCommentSource).toMatch(/else|return/);
@@ -650,7 +651,7 @@ describe("song-page.tsx source — truthful comment mutations", () => {
 
   it("blocks offline resolve/reopen and rolls back result and transport failures", () => {
     expect(resolveCommentSource).toMatch(/if \(!online\)/);
-    expect(resolveCommentSource).toMatch(/try \{[\s\S]*await actions\.resolveComment/);
+    expect(resolveCommentSource).toMatch(/try \{[\s\S]*await resolveComment/);
     expect(resolveCommentSource).toMatch(
       /if \(res\.ok\) return;[\s\S]*setResolvedOverrides[\s\S]*currentResolved/,
     );

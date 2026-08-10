@@ -211,6 +211,7 @@ async function lockAuthenticatedScope(
       id: projects.id,
       producerId: projects.producerId,
       clientContactId: projects.clientContactId,
+      lifecycleStatus: projects.lifecycleStatus,
     })
     .from(projects)
     .where(eq(projects.id, discovered.projectId))
@@ -259,6 +260,7 @@ async function lockAuthenticatedScope(
   }
 
   if (input.artistClerkUserId !== undefined) {
+    if (project.lifecycleStatus === "waiting_for_payment") return null;
     const [contact] = await tx
       .select({
         id: clientContacts.id,
@@ -464,7 +466,5 @@ export async function readArtistSongPublicationState(
     tokenSecret: string;
   }>,
 ): Promise<SongPublicationState> {
-  const state = await stateForOwnedTrack(db, input);
-  if (!state.linkEnabled || state.publicUrl === null) notFound();
-  return state;
+  return stateForOwnedTrack(db, input);
 }

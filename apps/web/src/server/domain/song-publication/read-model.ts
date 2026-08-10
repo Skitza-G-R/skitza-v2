@@ -15,6 +15,7 @@ export type PublicStoredVersionCandidate = PublicSongScope &
     durationMs: number | null;
     peaks: number[] | null;
     uploadedAt: Date;
+    producerMarkedFinalAt?: Date | null;
     audioUrl: string | null;
     audioR2Key: string | null;
     sizeBytes: number | null;
@@ -40,6 +41,7 @@ export type PublicStoredVersion = Readonly<{
   durationMs: number | null;
   peaks: number[] | null;
   uploadedAt: Date;
+  producerMarkedFinalAt: Date | null;
 }>;
 
 function exactScope(candidate: PublicSongScope, expected: PublicSongScope): boolean {
@@ -118,11 +120,12 @@ export function selectPublicStoredVersions(
       const time = right.uploadedAt.getTime() - left.uploadedAt.getTime();
       return time === 0 ? right.id.localeCompare(left.id) : time;
     })
-    .map(({ id, label, durationMs, peaks, uploadedAt }) => ({
+    .map(({ id, label, durationMs, peaks, uploadedAt, producerMarkedFinalAt }) => ({
       id,
       label,
       durationMs,
       peaks,
       uploadedAt,
+      producerMarkedFinalAt: producerMarkedFinalAt ?? null,
     }));
 }

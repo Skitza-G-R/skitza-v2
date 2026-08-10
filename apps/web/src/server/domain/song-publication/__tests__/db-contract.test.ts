@@ -26,7 +26,7 @@ describe("song publication Postgres repository contract", () => {
     expect(discovery).toContain("eq(purchases.clientContactId, projects.clientContactId)");
     expect(repository).toContain("if (!discovered) return work(unavailableTransaction())");
     expect(repository.indexOf("discoverSongScope(tx, scope)")).toBeLessThan(
-      repository.indexOf("lockCoreSongScope(tx, scope, discovered)"),
+      repository.indexOf("lockCoreSongScope(tx, scope, discovered, authorization)"),
     );
   });
 
@@ -61,6 +61,17 @@ describe("song publication Postgres repository contract", () => {
     expect(events).toContain('.for("update")');
     expect(repository).toContain("selectPublicStoredVersions(versions, locked).length");
     expect(repository).toContain("events.at(-1)?.sequence ?? 0");
+  });
+
+  it("rechecks an Artist's exact active contact while the publication scope is locked", () => {
+    const core = sourceBlock("async function lockCoreSongScope", "function versionSelection");
+    const repository = sourceBlock("export function songPublicationRepository");
+
+    expect(core).toContain("authorization.artistClerkUserId");
+    expect(core).toContain('project.lifecycleStatus === "waiting_for_payment"');
+    expect(core).toContain("isNull(clientContacts.archivedAt)");
+    expect(core).toContain('.for("share")');
+    expect(repository).toContain("lockCoreSongScope(tx, scope, discovered, authorization)");
   });
 
   it("uses exact optimistic predicates and touches the project with portfolio changes", () => {
