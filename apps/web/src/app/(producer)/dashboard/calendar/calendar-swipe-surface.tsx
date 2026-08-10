@@ -1,13 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
 
 import { CalendarTabs } from "./calendar-tabs";
 import type { CalendarTabKey } from "./calendar-tab-key";
+import type { ManualSessionDraft, ManualSessionSlot } from "./calendar-slot";
 import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
+import { ManualSessionLauncherProvider } from "./manual-session-launcher-context";
 import { ManualSessionModal } from "./manual-session-modal";
 import type { ProducerManualSessionOptions } from "~/server/domain/session-booking/manual";
 
@@ -43,12 +45,28 @@ export function CalendarSwipeSurface({
     value: CalendarSwipeItem;
   } | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualInitialSlot, setManualInitialSlot] = useState<ManualSessionSlot | null>(null);
+  const [manualDraft, setManualDraft] = useState<ManualSessionDraft | null>(null);
   const [manualCheckReduced, setManualCheckReduced] = useState(false);
   const displayActive: CalendarTabKey = optimistic?.source === active ? optimistic.value : active;
   const displaySwipeItem = normalizeCalendarSwipeItem(displayActive);
   const sessionsActive = displaySwipeItem === "sessions";
   const sessionsPanelKey: CalendarTabKey =
     sessionsActive && displayActive === "schedule" ? "schedule" : "sessions";
+
+  const openManualSession = useCallback((slot: ManualSessionSlot | null) => {
+    setManualInitialSlot(slot);
+    setManualDraft(slot ? { ...slot, durationMin: null } : null);
+    setManualOpen(true);
+  }, []);
+
+  const handleManualOpenChange = useCallback((next: boolean) => {
+    setManualOpen(next);
+    if (!next) {
+      setManualInitialSlot(null);
+      setManualDraft(null);
+    }
+  }, []);
 
   const swipeHandlers = useTabSwipe({
     items: CALENDAR_SWIPE_ITEMS,
@@ -60,7 +78,10 @@ export function CalendarSwipeSurface({
   });
 
   return (
-    <>
+    <ManualSessionLauncherProvider
+      openManualSession={openManualSession}
+      provisionalSlot={manualDraft}
+    >
       <header className="reveal-up mb-2 shrink-0 sm:mb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
           <div className="flex min-w-0 items-center justify-between gap-3 sm:justify-start">
@@ -97,7 +118,7 @@ export function CalendarSwipeSurface({
             <button
               type="button"
               onClick={() => {
-                setManualOpen(true);
+                openManualSession(null);
               }}
               className="sk-cta-press inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-sidebar))] sm:hidden"
             >
@@ -111,7 +132,7 @@ export function CalendarSwipeSurface({
             <button
               type="button"
               onClick={() => {
-                setManualOpen(true);
+                openManualSession(null);
               }}
               className="sk-cta-press hidden h-11 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-sidebar))] sm:inline-flex"
             >
@@ -130,8 +151,10 @@ export function CalendarSwipeSurface({
 
       <ManualSessionModal
         open={manualOpen}
-        onOpenChange={setManualOpen}
+        onOpenChange={handleManualOpenChange}
         options={manualOptions}
+        initialSlot={manualInitialSlot}
+        onDraftChange={setManualDraft}
         onGoogleBusyProtectionReduced={() => {
           setManualCheckReduced(true);
         }}
@@ -182,6 +205,6 @@ export function CalendarSwipeSurface({
           </section>
         </div>
       </div>
-    </>
+    </ManualSessionLauncherProvider>
   );
 }

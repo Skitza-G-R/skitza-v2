@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { CalendarSwipeSurface } from "../calendar-swipe-surface";
+import { useManualSessionLauncher } from "../manual-session-launcher-context";
 
 const routerPush = vi.hoisted(() => vi.fn());
 const manualOptions = { studioTimeZone: "UTC", clients: [] } as const;
@@ -45,6 +46,60 @@ afterEach(() => {
 });
 
 describe("CalendarSwipeSurface", () => {
+  it("keeps the visible New session fallback and opens it with time controls", () => {
+    render(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+      />,
+    );
+
+    const [newSessionButton] = screen.getAllByRole("button", { name: "New session" });
+    expect(newSessionButton).toBeDefined();
+    if (!newSessionButton) return;
+    fireEvent.click(newSessionButton);
+
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Book a session" })).not.toBeNull();
+    expect(screen.getByLabelText("Date")).not.toBeNull();
+    expect(screen.getByLabelText("Start")).not.toBeNull();
+  });
+
+  it("carries a calendar slot through the surface into the drawer and live preview", () => {
+    render(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<CalendarSlotShortcut />}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+      />,
+    );
+
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Open calendar slot" }));
+
+    expect(screen.getByText("Thu 13 Aug")).not.toBeNull();
+    expect(screen.getByText("14:30")).not.toBeNull();
+    expect(screen.queryByLabelText("Date")).toBeNull();
+    expect(screen.getByLabelText("Provisional slot").textContent).toBe("2026-08-13/870/pending");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByLabelText("Provisional slot").textContent).toBe("none");
+  });
+
   it("shows a plain reduced-protection warning without exposing provider details", () => {
     const { rerender } = render(
       <CalendarSwipeSurface
@@ -181,3 +236,27 @@ describe("CalendarSwipeSurface", () => {
     expect(screen.getByText("8H OPEN PER WEEK").textContent).toBe("8H OPEN PER WEEK");
   });
 });
+
+function CalendarSlotShortcut() {
+  const { openManualSession, provisionalSlot } = useManualSessionLauncher();
+
+  return (
+    <div>
+      <button
+        type="button"
+        onDoubleClick={() => {
+          openManualSession({ studioDate: "2026-08-13", studioStartMin: 14 * 60 + 30 });
+        }}
+      >
+        Open calendar slot
+      </button>
+      <output aria-label="Provisional slot">
+        {provisionalSlot
+          ? `${provisionalSlot.studioDate}/${String(provisionalSlot.studioStartMin)}/${
+              provisionalSlot.durationMin === null ? "pending" : String(provisionalSlot.durationMin)
+            }`
+          : "none"}
+      </output>
+    </div>
+  );
+}

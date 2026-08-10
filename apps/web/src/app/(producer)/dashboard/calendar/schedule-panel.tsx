@@ -14,6 +14,7 @@
 import { useMemo, useState } from "react";
 
 import { buildWeek, isSameDay, todayIndex } from "./calendar-week";
+import { RescheduleSessionModal } from "./reschedule-session-modal";
 import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import { ScheduleSessionsCard } from "./schedule-sessions-card";
 import { ScheduleWeekGrid, type ScheduleSession } from "./schedule-week-grid";
@@ -44,7 +45,17 @@ export function SchedulePanel({
   timeZone,
 }: ScheduleData & { initialNow: string; timeZone: string }) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [gridRescheduleTarget, setGridRescheduleTarget] = useState<SessionListItem | null>(null);
   const reference = useMemo(() => new Date(initialNow), [initialNow]);
+  const reschedulableSessionIds = useMemo(
+    () =>
+      new Set(
+        desktopSessions
+          .filter((session) => session.status === "confirmed" && !session.changeRequest)
+          .map((session) => session.id),
+      ),
+    [desktopSessions],
+  );
 
   const week = useMemo(
     () => buildWeek(reference, weekOffset, timeZone),
@@ -54,11 +65,16 @@ export function SchedulePanel({
 
   // Filter sessions visible in the current week.
   const visible = useMemo(() => {
-    return sessions.filter((s) => {
-      const dt = new Date(s.startsAt);
-      return week.some((d) => isSameDay(d, dt, timeZone));
-    });
-  }, [sessions, timeZone, week]);
+    return sessions
+      .filter((s) => {
+        const dt = new Date(s.startsAt);
+        return week.some((d) => isSameDay(d, dt, timeZone));
+      })
+      .map((session) => ({
+        ...session,
+        canReschedule: reschedulableSessionIds.has(session.id),
+      }));
+  }, [reschedulableSessionIds, sessions, timeZone, week]);
 
   // Stats for the readout — counts confirmed + pending; sums duration.
   const totalSessions = visible.length;
@@ -99,6 +115,12 @@ export function SchedulePanel({
           showNowLine={weekOffset === 0}
           initialNow={initialNow}
           timeZone={timeZone}
+          onRescheduleSession={(sessionId) => {
+            const session = desktopSessions.find((candidate) => candidate.id === sessionId);
+            if (session?.status === "confirmed" && !session.changeRequest) {
+              setGridRescheduleTarget(session);
+            }
+          }}
         />
         {/* Right rail mirrors the grid's height (same grid row).
             min-h-0 + overflow-hidden keeps content inside the rail
@@ -120,6 +142,16 @@ export function SchedulePanel({
           />
         </div>
       </div>
+      {gridRescheduleTarget ? (
+        <RescheduleSessionModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setGridRescheduleTarget(null);
+          }}
+          session={gridRescheduleTarget}
+          timeZone={timeZone}
+        />
+      ) : null}
     </div>
   );
 }
