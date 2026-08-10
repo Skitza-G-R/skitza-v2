@@ -7,7 +7,6 @@ import { computeStoredAudioIdentityFingerprint } from "~/server/domain/song-mana
 import {
   readArtistSongPublicationState,
   readProducerSongPublicationState,
-  SongPublicationAuthenticatedReadError,
 } from "../authenticated-read";
 import type { PublicStoredVersionCandidate } from "../read-model";
 import { buildSongPublicPath, createSongPublicToken, hashSongPublicToken } from "../tokens";
@@ -207,7 +206,7 @@ describe("authenticated song-publication read locking", () => {
     ]);
   });
 
-  it("does not give an artist a URL after disable wins the shared-lock boundary", async () => {
+  it("shows an owning artist that the Producer-disabled link is unavailable", async () => {
     const db = new QueuedAuthenticatedReadDb([
       ...coreRows(null),
       [
@@ -222,13 +221,17 @@ describe("authenticated song-publication read locking", () => {
       linkRow(3, new Date("2026-07-20T11:00:00.000Z")),
     ]);
 
-    await expect(
-      readArtistSongPublicationState(db.asDb(), {
-        artistClerkUserId: ARTIST_USER_ID,
-        trackId: scope.trackId,
-        tokenSecret: SECRET,
-      }),
-    ).rejects.toEqual(new SongPublicationAuthenticatedReadError("NOT_FOUND"));
+    const state = await readArtistSongPublicationState(db.asDb(), {
+      artistClerkUserId: ARTIST_USER_ID,
+      trackId: scope.trackId,
+      tokenSecret: SECRET,
+    });
+
+    expect(state).toMatchObject({
+      linkEnabled: false,
+      tokenVersion: 3,
+      publicUrl: null,
+    });
     expect(db.events.slice(0, 2)).toEqual(["advisory:share", "advisory:share"]);
     expect(db.events.filter((event) => event === "row:share")).toHaveLength(6);
   });

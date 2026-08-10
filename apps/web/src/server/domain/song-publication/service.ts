@@ -133,6 +133,8 @@ export type SongPublicationOptions = Readonly<{
   tokenSecret: string;
   /** Injectable only so focused domain tests do not depend on random output. */
   createLinkId?: () => string;
+  /** Artist creation cannot reverse a Producer's explicit disable. */
+  canEnableDisabledLink?: boolean;
 }>;
 
 export type SongPublicationState = Readonly<{
@@ -597,6 +599,9 @@ async function publishMutation(
     };
   }
   if (snapshot.link.disabledAt === null) return { snapshot, changed: false };
+  if (options.canEnableDisabledLink === false) {
+    domainError("LINK_NOT_LIVE", "This public song link was disabled");
+  }
 
   const tokenVersion = snapshot.link.tokenVersion + 1;
   if (!Number.isSafeInteger(tokenVersion) || tokenVersion <= 0) {

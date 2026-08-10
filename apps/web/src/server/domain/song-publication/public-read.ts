@@ -1,9 +1,12 @@
 import {
   and,
+  desc,
   eq,
+  inArray,
   projectTracks,
   projects,
   producers,
+  purchaseDownloadOverrideEvents,
   purchases,
   songPublicLinks,
   sql,
@@ -12,6 +15,12 @@ import {
 } from "@skitza/db";
 
 import type { AudioObjectRequest } from "~/server/domain/audio-delivery/service";
+import { projectAdvisoryLockKey } from "~/server/domain/project-lifecycle/lock";
+import {
+  purchaseLedgerAdvisoryLockKey,
+  purchaseLedgerRepositoryForTransaction,
+} from "~/server/domain/purchase-ledger/db";
+import { readPurchaseLedger } from "~/server/domain/purchase-ledger/service";
 
 import {
   createPortfolioAudioCapability,
@@ -29,7 +38,11 @@ import {
   verifySongPublicToken,
   type SongPublicTokenPayload,
 } from "./tokens";
-import { publicPortfolioSongAudioPath, publicSongAudioPath } from "./urls";
+import {
+  publicPortfolioSongAudioPath,
+  publicSongAudioPath,
+  publicSongDownloadPath,
+} from "./urls";
 
 type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -115,13 +128,7 @@ async function discoverPortfolioScope(
   return { ...scope, linkId: null };
 }
 
-async function lockCoreScope(tx: TransactionDb, scope: DiscoveredScope): Promise<void> {
-  // Anonymous reads may proceed together, while publication/deletion writers
-  // retain the matching exclusive advisory locks. This preserves the atomic
-  // reset/disable boundary without serializing every guest or range request.
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtextextended(${scope.projectId}, 0))`);
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtextextended(${scope.purchaseId}, 0))`);
-
+async function lockCoreRows(tx: TransactionDb, scope: DiscoveredScope): Promise<void> {
   const [project] = await tx
     .select({ id: projects.id, producerId: projects.producerId })
     .from(projects)
@@ -163,6 +170,42 @@ async function lockCoreScope(tx: TransactionDb, scope: DiscoveredScope): Promise
   if (!project || !purchase || !track) notFound();
 }
 
+async function lockCoreScope(tx: TransactionDb, scope: DiscoveredScope): Promise<void> {
+  // Anonymous reads may proceed together, while publication/deletion writers
+  // retain the matching exclusive advisory locks. This preserves the atomic
+  // reset/disable boundary without serializing every guest or range request.
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtextextended(${scope.projectId}, 0))`,
+  );
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtextextended(${scope.purchaseId}, 0))`,
+  );
+  await lockCoreRows(tx, scope);
+}
+
+async function lockCommercialLinkScope(
+  tx: TransactionDb,
+  scope: DiscoveredScope,
+): Promise<void> {
+  // Match the established audio-delivery lock graph before reading money:
+  // lifecycle project, publication/deletion project + purchase, then ledger.
+  // Shared variants allow guest reads together while payment, override,
+  // deletion, and link writers still form one exact authorization snapshot.
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtextextended(${projectAdvisoryLockKey(scope.projectId)}, 0))`,
+  );
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtextextended(${scope.projectId}, 0))`,
+  );
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtextextended(${scope.purchaseId}, 0))`,
+  );
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtextextended(${purchaseLedgerAdvisoryLockKey(scope.purchaseId)}, 0))`,
+  );
+  await lockCoreRows(tx, scope);
+}
+
 function versionSelection(): {
   id: typeof trackVersions.id;
   trackId: typeof trackVersions.trackId;
@@ -172,6 +215,7 @@ function versionSelection(): {
   durationMs: typeof trackVersions.durationMs;
   peaks: typeof trackVersions.peaks;
   uploadedAt: typeof trackVersions.uploadedAt;
+  producerMarkedFinalAt: typeof trackVersions.producerMarkedFinalAt;
   audioUrl: typeof trackVersions.audioUrl;
   audioR2Key: typeof trackVersions.audioR2Key;
   sizeBytes: typeof trackVersions.sizeBytes;
@@ -199,6 +243,7 @@ function versionSelection(): {
     durationMs: trackVersions.durationMs,
     peaks: trackVersions.peaks,
     uploadedAt: trackVersions.uploadedAt,
+    producerMarkedFinalAt: trackVersions.producerMarkedFinalAt,
     audioUrl: trackVersions.audioUrl,
     audioR2Key: trackVersions.audioR2Key,
     sizeBytes: trackVersions.sizeBytes,
@@ -297,7 +342,14 @@ export type PublicSongView = Readonly<{
     primaryColor: string | null;
     accentColor: string | null;
   }>;
-  song: Readonly<{ title: string; artist: string | null }>;
+  song: Readonly<{
+    id: string;
+    projectId: string;
+    projectTitle: string;
+    title: string;
+    artist: string | null;
+    workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+  }>;
   versions: ReadonlyArray<
     Readonly<{
       id: string;
@@ -306,6 +358,7 @@ export type PublicSongView = Readonly<{
       durationMs: number | null;
       peaks: number[] | null;
       uploadedAt: Date;
+      producerMarkedFinalAt: Date | null;
     }>
   >;
 }>;
@@ -328,10 +381,19 @@ export async function readPublicSong(
       .select({
         title: projectTracks.title,
         artist: projectTracks.artist,
+        workflowStage: projectTracks.workflowStage,
+        projectTitle: projects.title,
         displayName: producers.displayName,
         brand: producers.brand,
       })
       .from(projectTracks)
+      .innerJoin(
+        projects,
+        and(
+          eq(projects.id, scope.projectId),
+          eq(projects.producerId, scope.producerId),
+        ),
+      )
       .innerJoin(producers, eq(producers.id, scope.producerId))
       .where(
         and(
@@ -348,12 +410,160 @@ export async function readPublicSong(
         primaryColor: safe.brand?.primary ?? null,
         accentColor: safe.brand?.accent ?? null,
       },
-      song: { title: safe.title, artist: safe.artist },
+      song: {
+        id: scope.trackId,
+        projectId: scope.projectId,
+        projectTitle: safe.projectTitle,
+        title: safe.title,
+        artist: safe.artist,
+        workflowStage: safe.workflowStage,
+      },
       versions: stored.map((version) => ({
         ...version,
         audioUrl: publicSongAudioPath(version.id, input.token),
       })),
     };
+  });
+}
+
+export type SongLinkDownloadEntitlement = Readonly<{
+  purchaseId: string;
+  versionId: string;
+  permission: "purchase_fully_paid" | "version_override" | "payment_required";
+  canDownload: boolean;
+  fullyPaid: boolean;
+  remainingCents: number;
+  currency: string;
+  overdue: boolean;
+  downloadUrl: string | null;
+}>;
+
+type CommercialSongLinkSnapshot = Readonly<{
+  scope: DiscoveredScope;
+  candidates: readonly PublicStoredVersionCandidate[];
+  entitlements: readonly SongLinkDownloadEntitlement[];
+}>;
+
+async function commercialSongLinkSnapshot(
+  tx: TransactionDb,
+  input: Readonly<{
+    payload: SongPublicTokenPayload;
+    token: string;
+    tokenHash: string;
+    now: Date;
+  }>,
+): Promise<CommercialSongLinkSnapshot> {
+  const scope = await discoverLinkScope(tx, input.payload);
+  await lockCommercialLinkScope(tx, scope);
+  const candidates = await lockStoredVersions(tx, scope);
+  await requireCurrentLink(tx, scope, input.payload, input.tokenHash);
+  const stored = selectPublicStoredVersions(candidates, scope);
+  if (stored.length === 0) notFound();
+
+  const ledger = await readPurchaseLedger(
+    purchaseLedgerRepositoryForTransaction(tx, {
+      producerId: scope.producerId,
+      purchaseId: scope.purchaseId,
+    }),
+    {
+      producerId: scope.producerId,
+      purchaseId: scope.purchaseId,
+      asOf: input.now,
+    },
+  );
+  const versionIds = stored.map((version) => version.id);
+  const overrideRows = await tx
+    .selectDistinctOn([purchaseDownloadOverrideEvents.versionId], {
+      versionId: purchaseDownloadOverrideEvents.versionId,
+      enabled: purchaseDownloadOverrideEvents.enabled,
+      sequence: purchaseDownloadOverrideEvents.sequence,
+    })
+    .from(purchaseDownloadOverrideEvents)
+    .where(
+      and(
+        eq(purchaseDownloadOverrideEvents.producerId, scope.producerId),
+        eq(purchaseDownloadOverrideEvents.purchaseId, scope.purchaseId),
+        inArray(purchaseDownloadOverrideEvents.versionId, versionIds),
+      ),
+    )
+    .orderBy(
+      purchaseDownloadOverrideEvents.versionId,
+      desc(purchaseDownloadOverrideEvents.sequence),
+    );
+  const overrides = new Map(overrideRows.map((row) => [row.versionId, row.enabled]));
+  const fullyPaid = ledger.projection.fullyPaidForDownloads;
+  const overdue = ledger.projection.installments.some(
+    (installment) => installment.status === "overdue" && installment.remainingCents > 0,
+  );
+
+  return {
+    scope,
+    candidates,
+    entitlements: stored.map((version) => {
+      const overrideEnabled = overrides.get(version.id) === true;
+      const permission = fullyPaid
+        ? "purchase_fully_paid"
+        : overrideEnabled
+          ? "version_override"
+          : "payment_required";
+      const canDownload = permission !== "payment_required";
+      return {
+        purchaseId: scope.purchaseId,
+        versionId: version.id,
+        permission,
+        canDownload,
+        fullyPaid,
+        remainingCents: ledger.projection.remainingCents,
+        currency: ledger.projection.currency,
+        overdue,
+        downloadUrl: canDownload ? publicSongDownloadPath(version.id, input.token) : null,
+      };
+    }),
+  };
+}
+
+export async function readSongLinkDownloadEntitlements(
+  db: Db,
+  input: Readonly<{ secret: string; token: string; now?: Date }>,
+): Promise<readonly SongLinkDownloadEntitlement[]> {
+  const payload = verifySongPublicToken(input.secret, input.token);
+  const tokenHash = hashSongPublicToken(input.token);
+  return db.transaction(async (tx) => {
+    const snapshot = await commercialSongLinkSnapshot(tx, {
+      payload,
+      token: input.token,
+      tokenHash,
+      now: input.now ?? new Date(),
+    });
+    return snapshot.entitlements;
+  });
+}
+
+export async function deliverSongLinkDownload<Result>(
+  db: Db,
+  input: Readonly<{
+    secret: string;
+    token: string;
+    versionId: string;
+    now?: Date;
+  }>,
+  open: (request: AudioObjectRequest) => Promise<Result>,
+): Promise<Result> {
+  const payload = verifySongPublicToken(input.secret, input.token);
+  const tokenHash = hashSongPublicToken(input.token);
+  return db.transaction(async (tx) => {
+    const snapshot = await commercialSongLinkSnapshot(tx, {
+      payload,
+      token: input.token,
+      tokenHash,
+      now: input.now ?? new Date(),
+    });
+    const entitlement = snapshot.entitlements.find(
+      (candidate) => candidate.versionId === input.versionId,
+    );
+    if (!entitlement?.canDownload) notFound();
+    const selected = snapshot.candidates.find((candidate) => candidate.id === input.versionId);
+    return open(requireAudioRequest(selected, snapshot.scope));
   });
 }
 
@@ -409,7 +619,12 @@ export async function deliverPortfolioSongAudio<Result>(
     ) {
       notFound();
     }
-    return open(requireAudioRequest(candidates.find((row) => row.id === payload.versionId), scope));
+    return open(
+      requireAudioRequest(
+        candidates.find((row) => row.id === payload.versionId),
+        scope,
+      ),
+    );
   });
 }
 

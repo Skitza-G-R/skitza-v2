@@ -368,6 +368,21 @@ describe("producer song-publication operations", () => {
     expect(republished.state.portfolioPublished).toBe(true);
   });
 
+  it("does not let Artist link creation reverse a Producer disable", async () => {
+    const repository = new MemoryRepository();
+    await publishSongPublicLink(repository, command("publish-before-disable"), options);
+    await disableSongPublicLink(repository, command("producer-disable"), options);
+
+    await expect(
+      publishSongPublicLink(repository, command("artist-publish"), {
+        ...options,
+        canEnableDisabledLink: false,
+      }),
+    ).rejects.toMatchObject({ code: "LINK_NOT_LIVE" });
+    expect(repository.state.link?.disabledAt).not.toBeNull();
+    expect(repository.state.events).toHaveLength(2);
+  });
+
   it("publishes and unpublishes the portfolio without creating or mutating a link", async () => {
     const repository = new MemoryRepository();
     const on = await setPortfolioPublic(

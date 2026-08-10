@@ -30,8 +30,16 @@ function isJoinContinuationUrl(url: URL): boolean {
   );
 }
 
+function isPublicSongUrl(url: URL): boolean {
+  return (
+    /^\/listen\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.pathname) &&
+    url.search.length === 0
+  );
+}
+
 function platformForUrl(url: URL): AuthPlatform | null {
   const { pathname } = url;
+  if (isPublicSongUrl(url)) return "artist";
   if (isJoinContinuationUrl(url)) return "artist";
   if (
     matchesRouteFamily(pathname, "/artist") ||
@@ -305,6 +313,13 @@ export function postSignInDestination(
 
   if (!memberships.isAuthenticated) {
     return signInHref(target?.href);
+  }
+
+  // A guest Song link remains a guest Song link after authentication. The
+  // page itself redirects only the exact Artist or Producer owner into their
+  // full app; every unrelated signed-in account keeps the same listening URL.
+  if (target && isPublicSongUrl(new URL(target.href, AUTH_TARGET_ORIGIN))) {
+    return target.href;
   }
 
   // A join continuation is an Artist-intent hand-off, not an authorization

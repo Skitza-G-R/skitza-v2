@@ -131,11 +131,11 @@ describe("SK-115 anonymous route and privacy matrix", () => {
       source("src/components/join/join-bento.tsx"),
       source("src/components/join/join-mini-player.tsx"),
       source("src/components/public-song/public-song-player.tsx"),
-      source("src/app/(public)/listen/[token]/page.tsx"),
+      source("src/app/(guest-song)/listen/[token]/page.tsx"),
     ].join("\n");
 
     expect(combined).not.toMatch(/localStorage|sessionStorage|indexedDB|caches\.|CacheStorage/);
-    expect(source("src/app/(public)/listen/[token]/page.tsx")).not.toMatch(
+    expect(source("src/app/(guest-song)/listen/[token]/page.tsx")).not.toMatch(
       /console\.(?:log|warn|error)/,
     );
   });

@@ -195,6 +195,43 @@ afterEach(async () => {
 });
 
 describe("SongPage professional player interactions", () => {
+  it("renders the Artist Song page in read-only guest mode", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    const data = songData(false);
+    const version = data.versions[0];
+    if (!version) throw new Error("Expected the song fixture to include a version.");
+    version.downloadUrl = "/api/audio/public/song/version-1?token=guest-token&download=1";
+    data.comments = [
+      {
+        id: "private-note",
+        versionId: version.id,
+        timeMs: 12_000,
+        body: "This note must stay private",
+        fromProducer: true,
+        authorName: "Producer",
+        createdAtIso: "2026-07-18T10:00:00.000Z",
+        resolvedAtIso: null,
+      },
+    ];
+
+    render(<SongPage data={data} role="guest" actions={{}} />);
+
+    expect(screen.getByText("After the Rain")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Choose version/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Play" })).not.toBeNull();
+    expect(screen.queryByText("This note must stay private")).toBeNull();
+    expect(screen.queryByText("Notes")).toBeNull();
+    expect(screen.queryByTestId("version-delivery-state")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open .* project/ })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const actions = await screen.findByRole("group", { name: "Song actions" });
+    const download = within(actions).getByRole("link", { name: "Download" });
+    expect(download.getAttribute("href")).toBe(version.downloadUrl);
+    expect(within(actions).queryByText(/Share public link/i)).toBeNull();
+  });
+
   it.each(["artist", "producer"] as const)(
     "hides resolved notes by default for the %s route and reveals them on request",
     async (role) => {

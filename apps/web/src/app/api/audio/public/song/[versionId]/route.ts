@@ -5,13 +5,12 @@ import {
   audioNotFoundResponse,
 } from "~/server/domain/audio-delivery/route-errors";
 import { authorizedAudioResponse } from "~/server/domain/audio-delivery/response";
-import {
-  SongPublicAudioCapabilityError,
-} from "~/server/domain/song-publication/audio-capability";
+import { SongPublicAudioCapabilityError } from "~/server/domain/song-publication/audio-capability";
 import { songPublicationSecret } from "~/server/domain/song-publication/config";
 import {
   deliverPortfolioSongAudio,
   deliverSongLinkAudio,
+  deliverSongLinkDownload,
   SongPublicReadError,
 } from "~/server/domain/song-publication/public-read";
 import { SongPublicTokenError } from "~/server/domain/song-publication/tokens";
@@ -31,16 +30,31 @@ export async function GET(
   const token = url.searchParams.get("token");
   const capability = url.searchParams.get("cap");
   if ((token === null) === (capability === null)) return audioNotFoundResponse();
+  const downloadValues = url.searchParams.getAll("download");
+  if (
+    downloadValues.length > 1 ||
+    (downloadValues.length === 1 && downloadValues[0] !== "1") ||
+    (downloadValues.length === 1 && token === null)
+  ) {
+    return audioNotFoundResponse();
+  }
+  const download = downloadValues.length === 1;
 
   try {
     const open = (audio: Parameters<typeof authorizedAudioResponse>[1]) =>
-      authorizedAudioResponse(request, audio, "inline");
+      authorizedAudioResponse(request, audio, download ? "attachment" : "inline");
     return token !== null
-      ? await deliverSongLinkAudio(
-          db,
-          { secret: songPublicationSecret(), token, versionId },
-          open,
-        )
+      ? download
+        ? await deliverSongLinkDownload(
+            db,
+            { secret: songPublicationSecret(), token, versionId },
+            open,
+          )
+        : await deliverSongLinkAudio(
+            db,
+            { secret: songPublicationSecret(), token, versionId },
+            open,
+          )
       : await deliverPortfolioSongAudio(
           db,
           {

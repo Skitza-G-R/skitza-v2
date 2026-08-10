@@ -44,19 +44,19 @@ export type SongPublicLinkShareResult =
     };
 
 export type SongPublicSharingActions = Readonly<{
-  publish: (input: {
+  publish?: (input: {
     trackId: string;
     operationKey: string;
   }) => Promise<SongPublicSharingActionResult>;
-  reset: (input: {
+  reset?: (input: {
     trackId: string;
     operationKey: string;
   }) => Promise<SongPublicSharingActionResult>;
-  disable: (input: {
+  disable?: (input: {
     trackId: string;
     operationKey: string;
   }) => Promise<SongPublicSharingActionResult>;
-  setPortfolioPublic: (input: {
+  setPortfolioPublic?: (input: {
     trackId: string;
     operationKey: string;
     published: boolean;
@@ -119,7 +119,7 @@ export async function shareAuthoritativePublicSongLink(
   }
   if (
     url.origin !== PUBLIC_BRAND_ORIGIN ||
-    !/^\/listen\/[A-Za-z0-9_-]+$/.test(url.pathname) ||
+    !/^\/listen\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.pathname) ||
     url.search.length > 0 ||
     url.hash.length > 0
   ) {
@@ -171,9 +171,8 @@ export function SongPublicLinkControls({
     setState(initialState);
   }, [initialState]);
 
-  if (role === "artist" && !state.linkEnabled) return null;
-
   const status = publicStatus(state);
+  if (role === "artist" && status === "disabled") return null;
   const canPublish = state.remainingAudioCount > 0;
 
   async function shareLink() {
@@ -201,7 +200,7 @@ export function SongPublicLinkControls({
     action: (operationKey: string) => Promise<SongPublicSharingActionResult>,
     success: string,
   ) {
-    if (role === "producer" && !online) {
+    if (!online) {
       toast("Reconnect to change this public song link.", "error");
       return;
     }
@@ -267,7 +266,7 @@ export function SongPublicLinkControls({
                 Public song link
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-2 text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-                Guests can listen to stored versions. Comments and downloads stay private.
+                Guests can listen without comments. Download appears only when it is available.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
@@ -340,14 +339,14 @@ export function SongPublicLinkControls({
                 </button>
                 <button
                   type="button"
-                  disabled={pending || !actions}
+                  disabled={
+                    pending || (confirmation === "reset" ? !actions?.reset : !actions?.disable)
+                  }
                   onClick={() => {
-                    if (!actions) return;
+                    const action = confirmation === "reset" ? actions?.reset : actions?.disable;
+                    if (!action) return;
                     run(
-                      confirmation === "reset"
-                        ? (operationKey) => actions.reset({ trackId: state.trackId, operationKey })
-                        : (operationKey) =>
-                            actions.disable({ trackId: state.trackId, operationKey }),
+                      (operationKey) => action({ trackId: state.trackId, operationKey }),
                       confirmation === "reset" ? "New public URL created" : "Public link disabled",
                     );
                   }}
@@ -397,14 +396,15 @@ export function SongPublicLinkControls({
                     </>
                   ) : null}
                 </div>
-              ) : role === "producer" ? (
+              ) : role === "producer" || status === "unpublished" ? (
                 <button
                   type="button"
-                  disabled={pending || !actions || !canPublish}
+                  disabled={pending || !actions?.publish || !canPublish}
                   onClick={() => {
-                    if (!actions) return;
+                    const publish = actions?.publish;
+                    if (!publish) return;
                     run(
-                      (operationKey) => actions.publish({ trackId: state.trackId, operationKey }),
+                      (operationKey) => publish({ trackId: state.trackId, operationKey }),
                       "Public song link is live",
                     );
                   }}
@@ -413,9 +413,11 @@ export function SongPublicLinkControls({
                   <Link2 className="h-4 w-4" aria-hidden="true" />
                   {pending
                     ? "Publishing…"
-                    : status === "disabled"
-                      ? "Publish a new URL"
-                      : "Publish public link"}
+                    : role === "artist"
+                      ? "Create share link"
+                      : status === "disabled"
+                        ? "Publish a new URL"
+                        : "Publish public link"}
                 </button>
               ) : null}
 
@@ -432,13 +434,14 @@ export function SongPublicLinkControls({
                     role="switch"
                     aria-checked={state.portfolioPublished}
                     aria-label="Show song in public portfolio"
-                    disabled={pending || !actions || !canPublish}
+                    disabled={pending || !actions?.setPortfolioPublic || !canPublish}
                     onClick={() => {
-                      if (!actions) return;
+                      const setPortfolioPublic = actions?.setPortfolioPublic;
+                      if (!setPortfolioPublic) return;
                       const published = !state.portfolioPublished;
                       run(
                         (operationKey) =>
-                          actions.setPortfolioPublic({
+                          setPortfolioPublic({
                             trackId: state.trackId,
                             operationKey,
                             published,

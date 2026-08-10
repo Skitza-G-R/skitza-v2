@@ -96,6 +96,32 @@ export const songPublicationRouter = router({
     }
   }),
 
+  artistPublish: artistProcedure.input(CommandInput).mutation(async ({ ctx, input }) => {
+    try {
+      const state = await readArtistSongPublicationState(ctx.db, {
+        artistClerkUserId: ctx.clerkUserId,
+        trackId: input.trackId,
+        tokenSecret: songPublicationSecret(),
+      });
+      return await publishSongPublicLink(
+        songPublicationRepository(ctx.db, { artistClerkUserId: ctx.clerkUserId }),
+        {
+          producerId: state.producerId,
+          trackId: input.trackId,
+          operationKey: input.operationKey,
+          changedByClerkUserId: ctx.clerkUserId,
+          occurredAt: new Date(),
+        },
+        {
+          tokenSecret: songPublicationSecret(),
+          canEnableDisabledLink: false,
+        },
+      );
+    } catch (error) {
+      mapError(error);
+    }
+  }),
+
   publish: producerProcedure.input(CommandInput).mutation(async ({ ctx, input }) => {
     try {
       return await publishSongPublicLink(songPublicationRepository(ctx.db), command(ctx, input), {

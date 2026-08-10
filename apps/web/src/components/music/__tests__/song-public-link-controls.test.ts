@@ -14,7 +14,7 @@ const liveState: SongPublicSharingView = {
   portfolioPublished: false,
   remainingAudioCount: 2,
   tokenVersion: 1,
-  publicUrl: "https://skitza.app/listen/old-token",
+  publicUrl: "https://skitza.app/listen/old-token.signature",
 };
 
 describe("artist public-link share authority", () => {
@@ -30,7 +30,7 @@ describe("artist public-link share authority", () => {
           state: {
             ...liveState,
             tokenVersion: 2,
-            publicUrl: "https://skitza.app/listen/new-token",
+            publicUrl: "https://skitza.app/listen/new-token.signature",
           },
         }),
       shareLink: (payload) => {
@@ -47,8 +47,8 @@ describe("artist public-link share authority", () => {
     expect(shares).toEqual([
       {
         title: "Final mix",
-        url: "https://skitza.app/listen/new-token",
-        fallbackText: "https://skitza.app/listen/new-token",
+        url: "https://skitza.app/listen/new-token.signature",
+        fallbackText: "https://skitza.app/listen/new-token.signature",
       },
     ]);
   });
@@ -140,7 +140,7 @@ describe("artist public-link share authority", () => {
 
   it.each([
     "https://private.example/audio.mp3",
-    "https://skitza.app/listen/public-token?signedUrl=secret",
+    "https://skitza.app/listen/public-token.signature?signedUrl=secret",
     "https://skitza.app/api/private-delivery",
   ])("never shares a non-canonical public-song URL: %s", async (publicUrl) => {
     const shares: string[] = [];
@@ -158,7 +158,7 @@ describe("artist public-link share authority", () => {
     expect(shares).toEqual([]);
   });
 
-  it("is wired through a read-only artist server action", () => {
+  it("lets the owning artist create a guest link and rechecks it before sharing", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const route = join(
       here,
@@ -176,8 +176,10 @@ describe("artist public-link share authority", () => {
     const page = readFileSync(join(route, "page.tsx"), "utf8");
 
     expect(actions).toContain("caller.songPublication.artistState(input)");
-    expect(actions).toMatch(/err\.code === "NOT_FOUND"[\s\S]{0,100}state: null/);
+    expect(actions).toContain("caller.songPublication.artistPublish(input)");
+    expect(actions).toContain("publishArtistPublicSongLink");
     expect(page).toContain("publicSharingRefresh: refreshArtistPublicSongLink");
+    expect(page).toContain("publicSharingActions");
   });
 });
 

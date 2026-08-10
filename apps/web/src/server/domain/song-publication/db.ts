@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  clientContacts,
   eq,
   isNull,
   projectTracks,
@@ -41,6 +42,10 @@ type LockedSongScope = DiscoveredSongScope &
     projectUpdatedAt: Date;
     portfolioPublishedAt: Date | null;
   }>;
+
+type SongPublicationRepositoryAuthorization = Readonly<{
+  artistClerkUserId: string;
+}>;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -95,6 +100,7 @@ async function lockCoreSongScope(
   tx: TransactionDb,
   scope: SongPublicationAtomicScope,
   discovered: DiscoveredSongScope,
+  authorization?: SongPublicationRepositoryAuthorization,
 ): Promise<LockedSongScope | null> {
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
@@ -108,6 +114,7 @@ async function lockCoreSongScope(
       id: projects.id,
       producerId: projects.producerId,
       clientContactId: projects.clientContactId,
+      lifecycleStatus: projects.lifecycleStatus,
       updatedAt: projects.updatedAt,
     })
     .from(projects)
@@ -161,6 +168,24 @@ async function lockCoreSongScope(
     track.purchaseId !== purchase.id
   ) {
     return null;
+  }
+
+  if (authorization) {
+    if (project.lifecycleStatus === "waiting_for_payment") return null;
+    const [contact] = await tx
+      .select({ id: clientContacts.id })
+      .from(clientContacts)
+      .where(
+        and(
+          eq(clientContacts.id, project.clientContactId),
+          eq(clientContacts.producerId, project.producerId),
+          eq(clientContacts.clerkUserId, authorization.artistClerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      )
+      .limit(1)
+      .for("share");
+    if (!contact) return null;
   }
 
   return {
@@ -439,14 +464,17 @@ function transactionAdapter(
   };
 }
 
-export function songPublicationRepository(db: Db): SongPublicationRepository {
+export function songPublicationRepository(
+  db: Db,
+  authorization?: SongPublicationRepositoryAuthorization,
+): SongPublicationRepository {
   return {
     atomically: (scope, work) =>
       db.transaction(async (tx) => {
         const discovered = await discoverSongScope(tx, scope);
         if (!discovered) return work(unavailableTransaction());
 
-        const locked = await lockCoreSongScope(tx, scope, discovered);
+        const locked = await lockCoreSongScope(tx, scope, discovered, authorization);
         if (!locked) return work(unavailableTransaction());
 
         // Row locks always follow the core project/purchase/track order.

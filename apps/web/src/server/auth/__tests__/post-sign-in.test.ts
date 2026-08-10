@@ -134,6 +134,13 @@ describe("sanitizePostSignInTarget", () => {
         platform: "producer",
       },
     ],
+    [
+      "/listen/guest_song-token_123.signature_456",
+      {
+        href: "/listen/guest_song-token_123.signature_456",
+        platform: "artist",
+      },
+    ],
   ])("preserves the same-site app target %s", (raw, expected) => {
     expect(sanitizePostSignInTarget(raw)).toEqual(expected);
   });
@@ -398,6 +405,18 @@ describe("postSignInDestination", () => {
       ),
     ).toBe("/dashboard/clients-projects/project-1?song=song-1");
   });
+
+  it.each([artistOnly, producerOnly, dualRole])(
+    "returns every signed-in account to the same guest Song link",
+    (memberships) => {
+      expect(
+        postSignInDestination(
+          memberships,
+          "/listen/guest_song-token_123.signature_456",
+        ),
+      ).toBe("/listen/guest_song-token_123.signature_456");
+    },
+  );
 
   it("drops a cross-role deep link for a single-role account", () => {
     expect(postSignInDestination(artistOnly, "/dashboard/music")).toBe(

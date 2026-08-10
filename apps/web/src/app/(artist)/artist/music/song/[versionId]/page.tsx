@@ -12,6 +12,7 @@ import {
   l3AddComment,
   l3ApproveVersion,
   l3ResolveComment,
+  publishArtistPublicSongLink,
   refreshArtistPublicSongLink,
 } from "./actions";
 
@@ -160,6 +161,9 @@ export default async function ArtistSongPage({ params }: PageProps) {
         role="artist"
         artistStudioId={data.track.producerId}
         {...(publicSharing ? { publicSharing } : {})}
+        {...(publicSharing
+          ? { publicSharingActions: { publish: publishArtistPublicSongLink } }
+          : {})}
         {...(publicSharing ? { publicSharingRefresh: refreshArtistPublicSongLink } : {})}
         actions={{
           addComment: l3AddComment,

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 
 import type {
+  SongPublicSharingActionResult,
   SongPublicSharingRefreshResult,
   SongPublicSharingView,
 } from "~/components/music/song-public-link-controls";
@@ -165,6 +166,22 @@ export async function refreshArtistPublicSongLink(input: {
     if (err instanceof TRPCError && err.code === "NOT_FOUND") {
       return { ok: true, state: null };
     }
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function publishArtistPublicSongLink(input: {
+  trackId: string;
+  operationKey: string;
+}): Promise<SongPublicSharingActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const result = await c.caller.songPublication.artistPublish(input);
+    revalidatePath("/artist/music");
+    revalidatePath("/listen/[token]", "page");
+    return { ok: true, state: publicSharingView(result.state) };
+  } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
 }
