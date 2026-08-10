@@ -70,6 +70,7 @@ describe("producer manual session contract", () => {
   it("shows progressive centered wheels and preserves warning confirmation", () => {
     expect(manualUi).toContain("Choose a client, project, and available studio time");
     expect(manualUi).toContain('isDesktopSheet ? "right" : "bottom"');
+    expect(manualUi).toContain("!h-[calc(var(--sk-viewport-height,100dvh)-12px)]");
     expect(manualUi).toContain("!max-h-[calc(var(--sk-viewport-height,100dvh)-12px)]");
     expect(manualUi).toContain("Book a session");
     expect(manualUi).toContain("CenteredWheelPicker");

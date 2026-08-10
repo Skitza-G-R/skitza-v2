@@ -37,7 +37,7 @@ const options: ProducerManualSessionOptions = {
           title: "Album production",
           eligibility: "eligible",
           productName: "Full production",
-          defaultTitle: "Full production",
+          defaultTitle: "Album production",
           durationMin: 240,
           remainingIncluded: null,
           defaultTreatment: "included",
@@ -214,7 +214,11 @@ describe("ManualSessionModal", () => {
 
   it("keeps date and time side by side, centered, and greys full dates on mobile", async () => {
     render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
-    expect(document.querySelector('[data-native-sheet="bottom"]')).not.toBeNull();
+    const mobileSheet = document.querySelector('[data-native-sheet="bottom"]');
+    expect(mobileSheet).not.toBeNull();
+    expect(mobileSheet?.className).toContain(
+      "!h-[calc(var(--sk-viewport-height,100dvh)-12px)]",
+    );
     expect(screen.queryByRole("button", { name: "Book session" })).toBeNull();
 
     await chooseClientAndProject();
@@ -337,6 +341,7 @@ describe("ManualSessionModal", () => {
       studioDate: "2026-08-13",
       studioStartMin: 870,
       startsAtIso: "2026-08-13T11:30:00.000Z",
+      title: "Album production",
       billingTreatment: "included",
       acknowledgedWarnings: ["OUTSIDE_AVAILABILITY"],
     });

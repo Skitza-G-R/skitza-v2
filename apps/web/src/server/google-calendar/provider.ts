@@ -6,8 +6,10 @@ import {
 } from "./freebusy";
 import {
   GoogleCalendarEventValidationError,
+  artistSafeUrlFromGoogleEventDescription,
   buildGoogleCalendarEventWrite,
   isValidGoogleCalendarEventId,
+  type GoogleCalendarParticipant,
   type GoogleCalendarEventWrite,
 } from "./event";
 
@@ -573,9 +575,9 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
     if (!hasLiteralValue(event.kind, "confirmed") || event.attendeeMode === "clear") {
       throw new Error();
     }
-    const artist = event.body.attendees?.[0];
+    const participants = event.body.attendees;
     if (
-      (event.attendeeMode === "set_artist" && (!artist || event.body.attendees.length !== 1)) ||
+      (event.attendeeMode === "set_participants" && (!participants || participants.length < 1)) ||
       (event.attendeeMode === "preserve" && event.body.attendees !== undefined)
     ) {
       throw new Error();
@@ -590,13 +592,20 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
       summary: event.body.summary,
       ...(event.body.description === undefined
         ? {}
-        : { artistSafeSessionUrl: event.body.description }),
+        : {
+            artistSafeSessionUrl: artistSafeUrlFromGoogleEventDescription(
+              event.body.description,
+            ),
+          }),
     } as const;
-    return event.attendeeMode === "set_artist" && artist
+    return event.attendeeMode === "set_participants" && participants
       ? buildGoogleCalendarEventWrite({
           ...confirmedBase,
-          attendeeMode: "set_artist",
-          artist,
+          attendeeMode: "set_participants",
+          participants: participants as readonly [
+            GoogleCalendarParticipant,
+            ...GoogleCalendarParticipant[],
+          ],
         })
       : buildGoogleCalendarEventWrite({
           ...confirmedBase,

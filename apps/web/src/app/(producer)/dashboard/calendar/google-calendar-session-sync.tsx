@@ -4,6 +4,7 @@ import { AlertTriangle, CalendarClock, Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  getGoogleCalendarSyncStatus,
   restoreGoogleCalendarEvent,
   retryGoogleCalendarSync,
   type GoogleCalendarSessionActionResult,
@@ -14,6 +15,7 @@ import type {
 } from "./google-calendar-session-sync-model";
 
 type SyncAction = "retry" | "restore";
+const PENDING_POLL_INTERVAL_MS = 1_500;
 
 export function GoogleCalendarSessionSyncStatus({
   bookingId,
@@ -27,9 +29,42 @@ export function GoogleCalendarSessionSyncStatus({
   const [pendingAction, setPendingAction] = useState<SyncAction | null>(null);
   const [successfulAction, setSuccessfulAction] = useState<SyncAction | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [visibleState, setVisibleState] = useState<GoogleCalendarSessionSyncState | null>(
+    sync?.state ?? null,
+  );
   const actionLockRef = useRef(false);
   const operationKeyRef = useRef<Readonly<{ identity: string; value: string }> | null>(null);
-  const visibleIdentity = `${bookingId}:${sync?.state ?? "none"}`;
+  const visibleIdentity = `${bookingId}:${visibleState ?? "none"}`;
+
+  useEffect(() => {
+    setVisibleState(sync?.state ?? null);
+  }, [bookingId, sync?.state]);
+
+  useEffect(() => {
+    if (visibleState !== "pending") return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      const result = await getGoogleCalendarSyncStatus({ id: bookingId });
+      if (cancelled) return;
+      if (result.ok && result.status) {
+        setVisibleState(result.status);
+        if (result.status !== "pending") return;
+      }
+      timer = setTimeout(() => {
+        void poll();
+      }, PENDING_POLL_INTERVAL_MS);
+    };
+
+    timer = setTimeout(() => {
+      void poll();
+    }, PENDING_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [bookingId, visibleState]);
 
   useEffect(() => {
     actionLockRef.current = false;
@@ -39,10 +74,10 @@ export function GoogleCalendarSessionSyncStatus({
     setFeedback("");
   }, [visibleIdentity]);
 
-  if (!sync || sync.state === "synced") return null;
+  if (!visibleState || visibleState === "synced") return null;
 
-  const details = syncDetails(sync.state);
-  const action = sync.state === "missing" ? "restore" : details.canRetry ? "retry" : null;
+  const details = syncDetails(visibleState);
+  const action = visibleState === "missing" ? "restore" : details.canRetry ? "retry" : null;
 
   async function runAction(nextAction: SyncAction) {
     if (actionLockRef.current) return;
@@ -75,6 +110,7 @@ export function GoogleCalendarSessionSyncStatus({
         : result.error,
     );
     if (result.ok) {
+      setVisibleState(result.status);
       setSuccessfulAction(nextAction);
     } else {
       actionLockRef.current = false;
@@ -88,7 +124,7 @@ export function GoogleCalendarSessionSyncStatus({
     <div
       className={[
         "mt-2 rounded-[var(--radius-md)] border px-2.5 py-2",
-        sync.state === "pending"
+        visibleState === "pending"
           ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))]"
           : "border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.08)]",
       ].join(" ")}
@@ -98,13 +134,13 @@ export function GoogleCalendarSessionSyncStatus({
           className="inline-flex min-w-0 flex-1 items-start gap-1.5 text-[11px] leading-snug text-[rgb(var(--fg-secondary))]"
           style={{ fontWeight: 650 }}
         >
-          {sync.state === "pending" ? (
+          {visibleState === "pending" ? (
             <Loader2
               className="mt-px shrink-0 animate-spin motion-reduce:animate-none"
               size={13}
               aria-hidden
             />
-          ) : sync.state === "disconnected" ? (
+          ) : visibleState === "disconnected" ? (
             <CalendarClock className="mt-px shrink-0" size={13} aria-hidden />
           ) : (
             <AlertTriangle className="mt-px shrink-0" size={13} aria-hidden />

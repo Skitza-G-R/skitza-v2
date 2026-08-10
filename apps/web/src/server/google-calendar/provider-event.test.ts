@@ -55,13 +55,16 @@ const HOLD = buildGoogleCalendarEventWrite({
 const CONFIRMED = buildGoogleCalendarEventWrite({
   eventId: EVENT_ID,
   kind: "confirmed",
-  attendeeMode: "set_artist",
+  attendeeMode: "set_participants",
   startsAt: new Date("2026-08-10T08:00:00.000Z"),
   endsAt: new Date("2026-08-10T09:30:00.000Z"),
   revision: 4,
   opaqueLink: PRIVATE_PROPERTIES.skitzaLink,
   summary: "Mix review",
-  artist: { email: "artist@example.com", displayName: "Artist" },
+  participants: [
+    { email: "producer@example.com", displayName: "Producer" },
+    { email: "artist@example.com", displayName: "Artist" },
+  ],
   artistSafeSessionUrl: "https://skitza.app/artist/sessions/session_123",
 });
 const CONFIRMED_EDIT = buildGoogleCalendarEventWrite({
@@ -138,8 +141,12 @@ describe("Google Calendar event REST provider", () => {
     if (typeof request?.body !== "string") throw new Error("Missing body");
     expect(JSON.parse(request.body)).toMatchObject({
       summary: "Mix review",
-      description: "https://skitza.app/artist/sessions/session_123",
-      attendees: [{ email: "artist@example.com", displayName: "Artist" }],
+      description:
+        "A Skitza studio session.\n\nhttps://skitza.app/artist/sessions/session_123",
+      attendees: [
+        { email: "producer@example.com", displayName: "Producer" },
+        { email: "artist@example.com", displayName: "Artist" },
+      ],
     });
     expect(JSON.parse(request.body)).not.toHaveProperty("id");
   });

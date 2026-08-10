@@ -194,14 +194,15 @@ function createContextFromRow(
       cancellationPolicyHours: row.cancellationPolicyHours,
       maxSessionsPerDay: row.maxSessionsPerDay,
     },
-    project: { id: row.projectId, lifecycleStatus: row.projectLifecycleStatus },
+    project: {
+      id: row.projectId,
+      title: row.projectTitle.trim() || "Session",
+      lifecycleStatus: row.projectLifecycleStatus,
+    },
     purchase: {
       id: row.purchaseId,
       lifecycleStatus: row.purchaseLifecycleStatus,
-      defaultSessionTitle:
-        row.purchaseCommercialSnapshot?.productOrOfferName.trim() ||
-        row.projectTitle.trim() ||
-        "Session",
+      defaultSessionTitle: row.projectTitle.trim() || "Session",
     },
     allowance: {
       id: row.allowanceId,

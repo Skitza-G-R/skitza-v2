@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GoogleCalendarSessionSyncStatus } from "../google-calendar-session-sync";
 
@@ -13,17 +13,27 @@ type ActionResult =
 const mocks = vi.hoisted(() => ({
   retry: vi.fn<(input: ActionInput) => Promise<ActionResult>>(),
   restore: vi.fn<(input: ActionInput) => Promise<ActionResult>>(),
+  status: vi.fn<
+    (input: { id: string }) => Promise<{ ok: true; status: "pending" | "synced" } | { ok: false }>
+  >(),
 }));
 
 vi.mock("../google-calendar-session-actions", () => ({
   retryGoogleCalendarSync: mocks.retry,
   restoreGoogleCalendarEvent: mocks.restore,
+  getGoogleCalendarSyncStatus: mocks.status,
 }));
+
+beforeEach(() => {
+  mocks.status.mockResolvedValue({ ok: false });
+});
 
 afterEach(() => {
   cleanup();
   mocks.retry.mockReset();
   mocks.restore.mockReset();
+  mocks.status.mockReset();
+  vi.useRealTimers();
 });
 
 describe("GoogleCalendarSessionSyncStatus", () => {
@@ -49,6 +59,20 @@ describe("GoogleCalendarSessionSyncStatus", () => {
     );
     expect(screen.getByText("Google disconnected. Reconnect above to sync.")).not.toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("clears the pending badge automatically when calendar delivery completes", async () => {
+    vi.useFakeTimers();
+    mocks.status.mockResolvedValue({ ok: true, status: "synced" });
+    render(<GoogleCalendarSessionSyncStatus bookingId="booking-live" sync={{ state: "pending" }} />);
+
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+
+    expect(mocks.status).toHaveBeenCalledWith({ id: "booking-live" });
+    expect(screen.queryByText("Syncing calendar")).toBeNull();
   });
 
   it("keeps retry locked after success until the visible server state changes", async () => {

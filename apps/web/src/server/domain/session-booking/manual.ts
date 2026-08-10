@@ -70,7 +70,6 @@ type ManualEntitlement = Readonly<{
   purchaseId: string;
   sessionAllowanceId: string;
   productName: string;
-  defaultTitle: string;
   durationMin: number;
   bufferMinutes: number;
   minLeadHours: number;
@@ -231,7 +230,6 @@ export async function listProducerManualSessionOptions(
       purchaseId: row.purchaseId,
       sessionAllowanceId: row.sessionAllowanceId,
       productName,
-      defaultTitle: productName,
       durationMin: row.durationMin,
       bufferMinutes: row.bufferMinutes,
       minLeadHours: row.minLeadHours,
@@ -267,7 +265,7 @@ export async function listProducerManualSessionOptions(
       title: project.title,
       eligibility,
       productName: entitlement?.productName ?? null,
-      defaultTitle: entitlement?.defaultTitle ?? null,
+      defaultTitle: entitlement ? project.title : null,
       durationMin: entitlement?.durationMin ?? null,
       remainingIncluded: billing?.remainingIncluded ?? null,
       defaultTreatment: billing?.defaultTreatment ?? null,
@@ -508,7 +506,7 @@ export async function previewProducerManualSession(
   const project = resolveProducerManualProject(options, input);
   const entitlement = project.entitlement;
   const now = input.now ? new Date(input.now) : new Date();
-  const title = (input.title ?? entitlement.defaultTitle).trim();
+  const title = (input.title ?? project.title).trim();
   if (!title) {
     throw new SessionBookingDomainError("INVALID_SLOT", "Enter a session title");
   }

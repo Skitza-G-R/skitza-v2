@@ -73,20 +73,27 @@ describe("Google Calendar approved event mapping", () => {
     expect(JSON.stringify(event)).not.toContain("booking-calendar-link-id");
   });
 
-  it("builds a confirmed event with exactly one artist and the artist-safe link", () => {
+  it("builds a confirmed event with both participants and a short safe description", () => {
     const event = buildGoogleCalendarEventWrite({
       ...BASE,
       kind: "confirmed",
-      attendeeMode: "set_artist",
+      attendeeMode: "set_participants",
       summary: " Vocal production ",
-      artist: { email: " Artist@Example.com ", displayName: " Artist Name " },
+      participants: [
+        { email: " Producer@Example.com ", displayName: " Producer Name " },
+        { email: " Artist@Example.com ", displayName: " Artist Name " },
+      ],
       artistSafeSessionUrl: "https://skitza.app/artist/sessions/session_123",
     });
 
     expect(event.body).toMatchObject({
       summary: "Vocal production",
-      description: "https://skitza.app/artist/sessions/session_123",
-      attendees: [{ email: "artist@example.com", displayName: "Artist Name" }],
+      description:
+        "A Skitza studio session.\n\nhttps://skitza.app/artist/sessions/session_123",
+      attendees: [
+        { email: "producer@example.com", displayName: "Producer Name" },
+        { email: "artist@example.com", displayName: "Artist Name" },
+      ],
       visibility: "private",
       transparency: "opaque",
     });
@@ -117,9 +124,9 @@ describe("Google Calendar approved event mapping", () => {
       {
         ...BASE,
         kind: "confirmed" as const,
-        attendeeMode: "set_artist" as const,
+        attendeeMode: "set_participants" as const,
         summary: "Session",
-        artist: { email: "artist@example.com" },
+        participants: [{ email: "artist@example.com" }] as const,
         artistSafeSessionUrl: "https://evil.example/session",
       },
     ]) {

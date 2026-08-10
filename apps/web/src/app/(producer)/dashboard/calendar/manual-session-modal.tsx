@@ -515,7 +515,7 @@ export function ManualSessionModal({
         className={
           isDesktopSheet
             ? "!max-w-[440px] !gap-0 !p-0 sm:!rounded-l-[var(--radius-xl)]"
-            : "!max-h-[calc(var(--sk-viewport-height,100dvh)-12px)] !gap-0 !overflow-hidden !p-0 !pt-3"
+            : "!h-[calc(var(--sk-viewport-height,100dvh)-12px)] !max-h-[calc(var(--sk-viewport-height,100dvh)-12px)] !gap-0 !overflow-hidden !p-0 !pt-3"
         }
       >
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgb(var(--border-subtle))] px-5 py-4 sm:px-7 sm:py-6">

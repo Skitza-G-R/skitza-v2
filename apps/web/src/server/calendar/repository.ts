@@ -613,6 +613,28 @@ export function calendarDeliveryRepository(
           .limit(1)
           .for("update");
         if (!linkRow) return { outcome: "invalid" as const };
+        const [producerAttendee] = await tx
+          .select({
+            email: googleCalendarConnections.googleAccountEmail,
+            displayName: producers.displayName,
+          })
+          .from(googleCalendarConnections)
+          .innerJoin(
+            producers,
+            and(
+              eq(producers.id, googleCalendarConnections.producerId),
+              eq(producers.id, linkRow.producerId),
+            ),
+          )
+          .where(
+            and(
+              eq(googleCalendarConnections.id, linkRow.connectionId),
+              eq(googleCalendarConnections.producerId, linkRow.producerId),
+              eq(googleCalendarConnections.accountVersion, linkRow.accountVersion),
+            ),
+          )
+          .limit(1);
+        if (!producerAttendee) return { outcome: "invalid" as const };
         const payload = mappedJob.payloadSnapshot;
         const validIntent =
           payload.sequence === mappedJob.desiredRevision &&
@@ -693,7 +715,15 @@ export function calendarDeliveryRepository(
             : null;
         return {
           outcome: "ready" as const,
-          value: { job: mappedJob, link: preparedLink(link), lastGoogleEventKind },
+          value: {
+            job: mappedJob,
+            link: preparedLink(link),
+            producerAttendee: {
+              email: producerAttendee.email,
+              displayName: producerAttendee.displayName?.trim() || producerAttendee.email,
+            },
+            lastGoogleEventKind,
+          },
         };
       }),
 

@@ -64,6 +64,10 @@ function prepared(
 ): GoogleCalendarPreparedJob {
   return {
     job: claimed,
+    producerAttendee: {
+      email: "producer-calendar@example.com",
+      displayName: "Producer",
+    },
     link: {
       id: LINK_ID,
       producerId: PRODUCER_ID,
@@ -179,7 +183,7 @@ function readyAccess(): GoogleCalendarWorkerAccess {
 }
 
 describe("Google Calendar outbox delivery", () => {
-  it("creates a confirmed event with the artist and one Google invitation", async () => {
+  it("creates a confirmed event with the producer, artist, and one Google invitation", async () => {
     const claimed = job();
     const repository = repositoryFor(claimed);
     const google = provider();
@@ -205,7 +209,15 @@ describe("Google Calendar outbox delivery", () => {
       string,
       {
         calendarId: string;
-        event: { eventId: string; kind: string; attendeeMode: string };
+        event: {
+          eventId: string;
+          kind: string;
+          attendeeMode: string;
+          body: {
+            attendees?: readonly Readonly<{ email: string; displayName?: string }>[];
+            description?: string;
+          };
+        };
         sendUpdates: string;
       },
     ];
@@ -215,10 +227,17 @@ describe("Google Calendar outbox delivery", () => {
       event: {
         eventId: EVENT_ID,
         kind: "confirmed",
-        attendeeMode: "set_artist",
+        attendeeMode: "set_participants",
       },
       sendUpdates: "all",
     });
+    expect(insertInput.event.body.attendees).toEqual([
+      { email: "producer-calendar@example.com", displayName: "Producer" },
+      { email: "artist@example.com", displayName: "Artist" },
+    ]);
+    expect(insertInput.event.body.description).toBe(
+      "A Skitza studio session.\n\nhttps://skitza.app/artist/sessions/session_123",
+    );
     expect(repository.markGoogleNotificationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ linkId: LINK_ID, desiredRevision: 2 }),
     );

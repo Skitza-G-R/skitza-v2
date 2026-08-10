@@ -58,6 +58,7 @@ export type GoogleCalendarPreparedLink = Readonly<
 export type GoogleCalendarPreparedJob = Readonly<{
   job: GoogleCalendarDeliveryJob;
   link: GoogleCalendarPreparedLink;
+  producerAttendee: Readonly<{ email: string; displayName: string }>;
   lastGoogleEventKind: "opaque_hold" | "confirmed" | null;
 }>;
 
@@ -172,7 +173,7 @@ function requestedSendUpdates(prepared: GoogleCalendarPreparedJob): GoogleCalend
     : "none";
 }
 
-function shouldSetArtist(
+function shouldSetParticipants(
   prepared: GoogleCalendarPreparedJob,
   remote: GoogleCalendarEventRecord | null,
 ): boolean {
@@ -206,11 +207,14 @@ function buildWrite(prepared: GoogleCalendarPreparedJob, remote: GoogleCalendarE
     summary: payload.summary,
     artistSafeSessionUrl: payload.artistSafeUrl,
   };
-  return shouldSetArtist(prepared, remote)
+  return shouldSetParticipants(prepared, remote)
     ? buildGoogleCalendarEventWrite({
         ...base,
-        attendeeMode: "set_artist",
-        artist: { email: payload.attendee.email, displayName: payload.attendee.name },
+        attendeeMode: "set_participants",
+        participants: [
+          prepared.producerAttendee,
+          { email: payload.attendee.email, displayName: payload.attendee.name },
+        ],
       })
     : buildGoogleCalendarEventWrite({ ...base, attendeeMode: "preserve" });
 }
