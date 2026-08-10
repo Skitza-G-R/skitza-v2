@@ -68,7 +68,7 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
       // <md: pills scroll sideways inside the rail (never wrap — a
       // wrapped "Studio Log" pill turned into a 2-line blob and the
       // rail pushed the page to 408px). md+: original inline-flex.
-      className="flex w-full max-w-full snap-x snap-mandatory scroll-px-1 items-center gap-1 overflow-x-auto rounded-[var(--radius-lg)] border p-1 shadow-[var(--shadow-sm)] [scrollbar-width:none] md:inline-flex md:w-auto md:snap-none md:overflow-visible [&::-webkit-scrollbar]:hidden"
+      className="flex w-full max-w-full snap-x snap-mandatory scroll-px-1 items-center gap-1 overflow-x-auto rounded-[var(--radius-lg)] border p-1 shadow-[0_8px_24px_-20px_rgb(var(--fg-default)/0.34)] [scrollbar-width:none] md:inline-flex md:w-auto md:snap-none md:overflow-visible [&::-webkit-scrollbar]:hidden"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -102,13 +102,13 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
               onChange(next.key);
               document.getElementById(`tab-${next.key}`)?.focus();
             }}
-            className="inline-flex min-h-[44px] shrink-0 snap-start items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap transition-colors md:min-h-0 md:px-4"
+            className="inline-flex min-h-[44px] shrink-0 snap-start items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap transition-colors md:min-h-9 md:rounded-[var(--radius-md)] md:px-4"
             style={{
               background: isActive ? "rgb(var(--bg-sidebar))" : "transparent",
               color: isActive ? "rgb(var(--bg-elevated))" : "rgb(var(--fg-muted))",
             }}
           >
-            <Icon size={13} strokeWidth={2.2} aria-hidden />
+            <Icon size={14} strokeWidth={2.15} aria-hidden />
             {t.key === "songs" ? (
               <>
                 Songs <span className="tabular-nums">({songsCount})</span>

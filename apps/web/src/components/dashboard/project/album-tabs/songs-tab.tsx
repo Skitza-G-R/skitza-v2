@@ -45,12 +45,17 @@ export function SongsTab({
   }
 
   return (
-    <section role="tabpanel" id="panel-songs" aria-labelledby="tab-songs" className="space-y-3">
+    <section
+      role="tabpanel"
+      id="panel-songs"
+      aria-labelledby="tab-songs"
+      className="space-y-3.5 md:pt-0.5"
+    >
       <div>
         <h2 className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
           Songs
         </h2>
-        <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+        <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
           Open a song in the player, or use Play to start the mini-player.
         </p>
       </div>

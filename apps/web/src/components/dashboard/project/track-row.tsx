@@ -85,12 +85,12 @@ export function TrackRow({ track, index }: TrackRowProps) {
   }
 
   return (
-    <article className="group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--bg-elevated))]">
+    <article className="group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_10px_26px_-28px_rgb(var(--fg-default)/0.34)] transition-[background-color,border-color,box-shadow] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_14px_30px_-26px_rgb(var(--fg-default)/0.38)]">
       <Link
         href={track.detailHref}
         prefetch={track.detailPrefetch ?? false}
         aria-label={`Open ${track.title}`}
-        className="flex min-h-[68px] min-w-0 flex-1 items-center gap-3 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset sm:px-4"
+        className="flex min-h-[68px] min-w-0 flex-1 items-center gap-3 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset sm:min-h-[92px] sm:gap-4 sm:px-5 sm:py-4"
       >
         <span className="hidden w-6 shrink-0 font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums sm:block">
           {indexLabel}
@@ -98,12 +98,12 @@ export function TrackRow({ track, index }: TrackRowProps) {
 
         <span
           aria-hidden
-          className="h-11 w-11 shrink-0 rounded-[var(--radius-md)]"
+          className="h-11 w-11 shrink-0 rounded-[var(--radius-md)] sm:h-[52px] sm:w-[52px]"
           style={{ background: coverBg }}
         />
 
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14.5px] leading-tight font-bold text-[rgb(var(--fg-default))] transition-colors group-hover:text-[rgb(var(--brand-primary-dark))]">
+          <span className="block truncate text-[14.5px] leading-tight font-bold text-[rgb(var(--fg-default))] transition-colors group-hover:text-[rgb(var(--brand-primary-dark))] sm:text-[15.5px]">
             {track.title}
           </span>
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
@@ -124,7 +124,7 @@ export function TrackRow({ track, index }: TrackRowProps) {
             aria-valuemax={100}
             aria-valuenow={clampedProgress}
             aria-valuetext={`${String(clampedProgress)}% complete`}
-            className="mt-2 block h-[2px] max-w-[220px] overflow-hidden rounded-full bg-[rgb(var(--border-subtle))]"
+            className="mt-2.5 block h-[2px] max-w-[220px] overflow-hidden rounded-full bg-[rgb(var(--border-subtle))] sm:max-w-[260px]"
           >
             <span
               className="block h-full rounded-full bg-[rgb(var(--brand-primary))]"
