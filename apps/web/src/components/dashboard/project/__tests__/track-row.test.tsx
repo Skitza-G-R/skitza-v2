@@ -23,8 +23,9 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toContain('from "next/link"');
   });
 
-  it("fully prefetches the protected Song Page before a project-row click", () => {
-    expect(SRC).toMatch(/<Link[\s\S]{0,180}?prefetch=\{true\}/);
+  it("defaults protected Song Pages to click-only loading while allowing explicit non-song prefetch", () => {
+    expect(SRC).toContain("prefetch={track.detailPrefetch ?? false}");
+    expect(SRC).not.toContain("prefetch={true}");
   });
 
   it("uses the server-provided player or upload destination without a nested Song Space", () => {

@@ -169,6 +169,14 @@ describe("CalendarSwipeSurface", () => {
         .closest("[role='tabpanel']")
         ?.getAttribute("aria-hidden"),
     ).toBe("true");
+    const inactiveAvailabilityPanel = screen
+      .getByText("Availability content")
+      .closest("[role='tabpanel']");
+    expect(inactiveAvailabilityPanel?.className).toContain("absolute inset-0 overflow-hidden");
+    expect(inactiveAvailabilityPanel?.className).not.toContain("min-h-full");
+    expect(
+      screen.getByText("Sessions content").closest("[role='tabpanel']")?.className,
+    ).not.toContain("overflow-hidden");
 
     fireEvent.pointerDown(surface, {
       pointerId: 1,
@@ -209,6 +217,14 @@ describe("CalendarSwipeSurface", () => {
         .closest("[role='tabpanel']")
         ?.getAttribute("aria-hidden"),
     ).toBe("true");
+    const inactiveSessionsPanel = screen
+      .getByText("Sessions content")
+      .closest("[role='tabpanel']");
+    expect(inactiveSessionsPanel?.className).toContain("absolute inset-0 overflow-hidden");
+    expect(inactiveSessionsPanel?.className).not.toContain("min-h-full");
+    expect(
+      screen.getByText("Availability content").closest("[role='tabpanel']")?.className,
+    ).not.toContain("overflow-hidden");
 
     // The destination remains selected after the old 190ms cleanup window,
     // even though the server-owned `active` prop has not resolved yet.

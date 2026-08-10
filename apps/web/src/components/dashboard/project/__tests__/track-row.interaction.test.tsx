@@ -2,6 +2,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TrackRow, type TrackRowData } from "../track-row";
@@ -10,6 +11,23 @@ const mocks = vi.hoisted(() => ({
   nowPlaying: { trackId: null as string | null, playing: false },
   playerPlay: vi.fn(),
   playerToggle: vi.fn(),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    prefetch,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & {
+    href: string;
+    children: ReactNode;
+    prefetch?: boolean | null;
+  }) => (
+    <a href={href} data-next-prefetch={prefetch == null ? "auto" : String(prefetch)} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("~/components/audio/persistent-player", () => ({
@@ -54,6 +72,7 @@ const NO_VERSION_TRACK: TrackRowData = {
   workflowStage: "brief",
   progress: 5,
   detailHref: "/dashboard/clients-projects/project-1?song=song-3&upload=1",
+  detailPrefetch: true,
 };
 
 beforeEach(() => {
@@ -74,6 +93,7 @@ describe("TrackRow interactions", () => {
 
     const rowLink = screen.getByRole("link", { name: "Open Night Drive" });
     expect(rowLink.getAttribute("href")).toBe("/dashboard/music/version-3?from=project-1");
+    expect(rowLink.getAttribute("data-next-prefetch")).toBe("false");
     expect(rowLink.hasAttribute("aria-current")).toBe(false);
     const progress = screen.getByRole("progressbar", {
       name: "Night Drive progress",
@@ -112,9 +132,9 @@ describe("TrackRow interactions", () => {
   it("opens retained version history while keeping Play disabled when audio is unavailable", () => {
     render(<TrackRow index={2} track={UNPLAYABLE_TRACK} />);
 
-    expect(screen.getByRole("link", { name: "Open Waiting Song" }).getAttribute("href")).toBe(
-      "/dashboard/music/version-history?from=project-1",
-    );
+    const rowLink = screen.getByRole("link", { name: "Open Waiting Song" });
+    expect(rowLink.getAttribute("href")).toBe("/dashboard/music/version-history?from=project-1");
+    expect(rowLink.getAttribute("data-next-prefetch")).toBe("false");
     expect(
       screen
         .getByRole("button", {
@@ -127,9 +147,11 @@ describe("TrackRow interactions", () => {
   it("uses the one-shot upload handoff when a song has no version page yet", () => {
     render(<TrackRow index={3} track={NO_VERSION_TRACK} />);
 
-    expect(screen.getByRole("link", { name: "Open First Upload" }).getAttribute("href")).toBe(
+    const rowLink = screen.getByRole("link", { name: "Open First Upload" });
+    expect(rowLink.getAttribute("href")).toBe(
       "/dashboard/clients-projects/project-1?song=song-3&upload=1",
     );
+    expect(rowLink.getAttribute("data-next-prefetch")).toBe("true");
     expect(
       screen
         .getByRole("button", { name: "No playable audio for First Upload" })

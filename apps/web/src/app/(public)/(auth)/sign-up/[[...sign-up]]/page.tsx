@@ -9,6 +9,7 @@ import {
   shouldRedirectReturningDeviceToSignIn,
   signInSwitchHref,
 } from "~/server/auth/returning-device";
+import { postSignInResolverHref } from "~/server/auth/post-sign-in";
 
 type Props = {
   params: Promise<{ "sign-up"?: string[] }>;
@@ -47,6 +48,14 @@ export default async function Page({ params, searchParams }: Props) {
   const requestedHref =
     typeof query.redirect_url === "string" ? query.redirect_url : null;
   const intent = typeof query.intent === "string" ? query.intent : undefined;
+
+  // A restored or prefetched landing-page signup URL can be mounted after
+  // Clerk has already authenticated the account. Never render <SignUp> in
+  // that state: Clerk would honor its stale `redirect_url=/onboarding`
+  // directly and bypass Skitza's membership-aware resolver.
+  if (session.userId) {
+    redirect(postSignInResolverHref(requestedHref));
+  }
 
   if (
     shouldRedirectReturningDeviceToSignIn({

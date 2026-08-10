@@ -26,6 +26,7 @@ export interface TrackRowData {
   noteCount?: number;
   durationMs?: number;
   detailHref: string;
+  detailPrefetch?: boolean;
   playback?: TrackRowPlayback;
 }
 
@@ -87,7 +88,7 @@ export function TrackRow({ track, index }: TrackRowProps) {
     <article className="group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--bg-elevated))]">
       <Link
         href={track.detailHref}
-        prefetch={true}
+        prefetch={track.detailPrefetch ?? false}
         aria-label={`Open ${track.title}`}
         className="flex min-h-[68px] min-w-0 flex-1 items-center gap-3 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset sm:px-4"
       >

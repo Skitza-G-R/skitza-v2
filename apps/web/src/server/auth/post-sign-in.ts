@@ -203,6 +203,12 @@ function isExplicitCreateStudioTarget(
   return target?.href === "/onboarding/studio?intent=create-studio";
 }
 
+function isGenericProducerSignUpTarget(
+  target: SanitizedPostSignInTarget | null,
+): boolean {
+  return target?.href === "/onboarding";
+}
+
 function hrefWithNestedTarget(
   pathname: "/auth/resolve" | "/choose-role",
   rawTarget: string | null | undefined,
@@ -216,6 +222,12 @@ function hrefWithNestedTarget(
 export function postSignInResolverHref(
   rawTarget?: string | null,
 ): string {
+  const target = sanitizePostSignInTarget(rawTarget);
+  // `/onboarding` is the generic landing-page signup destination, not an
+  // explicit request from a returning account. Dropping it here lets the
+  // membership resolver choose the account's real platform and still sends
+  // incomplete Producers back to onboarding.
+  if (isGenericProducerSignUpTarget(target)) return "/auth/resolve";
   return hrefWithNestedTarget("/auth/resolve", rawTarget);
 }
 
@@ -286,7 +298,10 @@ export function postSignInDestination(
   memberships: UserAccountMemberships,
   rawTarget?: string | null,
 ): string {
-  const target = sanitizePostSignInTarget(rawTarget);
+  const sanitizedTarget = sanitizePostSignInTarget(rawTarget);
+  const target = isGenericProducerSignUpTarget(sanitizedTarget)
+    ? null
+    : sanitizedTarget;
 
   if (!memberships.isAuthenticated) {
     return signInHref(target?.href);

@@ -477,6 +477,7 @@ function LatestUploadsCard({
             >
               <Link
                 href={`/dashboard/music/${upload.versionId}`}
+                prefetch={false}
                 className="flex min-h-[72px] items-center gap-3 rounded-[var(--radius-sm)] py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary-text))] text-[rgb(var(--brand-primary-text))]">
@@ -592,6 +593,7 @@ function MobileLatestUpload({
   return (
     <Link
       href={`/dashboard/music/${upload.versionId}`}
+      prefetch={false}
       className="reveal-up reveal-up-delay-3 flex min-h-[94px] items-center gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[var(--shadow-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:hidden"
     >
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary-text))] text-[rgb(var(--brand-primary-text))]">

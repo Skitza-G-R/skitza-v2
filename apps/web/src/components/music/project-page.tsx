@@ -759,6 +759,7 @@ function ProjectMusicDesktopRow({
         {rowHref ? (
           <Link
             href={rowHref}
+            prefetch={false}
             aria-label={`Open ${item.title} song page`}
             className="absolute inset-0 z-0 rounded-[12px] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
           />
@@ -978,6 +979,7 @@ function ProjectMusicMobileRow({
         {rowHref ? (
           <Link
             href={rowHref}
+            prefetch={false}
             aria-label={`Open ${item.title} song page`}
             className="absolute inset-0 z-0 rounded-[12px] transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset active:bg-[rgb(var(--bg-overlay))]"
           />

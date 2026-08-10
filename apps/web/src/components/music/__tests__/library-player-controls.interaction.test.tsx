@@ -103,7 +103,7 @@ describe("Music library grid player controls", () => {
     const artworkLink = screen.getByRole("link", { name: "Open Lama song page" });
     expect(artworkLink.getAttribute("href")).toBe("/dashboard/music/version-1");
     expect(artworkLink.getAttribute("data-song-artwork-link")).toBe("true");
-    expect(artworkLink.getAttribute("data-next-prefetch")).toBe("true");
+    expect(artworkLink.getAttribute("data-next-prefetch")).toBe("false");
     expect(screen.getByText("Lama").closest("a")).toBeNull();
   });
 

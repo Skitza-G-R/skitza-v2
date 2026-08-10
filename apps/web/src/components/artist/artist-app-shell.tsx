@@ -74,7 +74,7 @@ export function ArtistAppShell({
     >
       <NativeInstallGuidance role="artist" />
       <div
-        className="flex min-h-dvh"
+        className="fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden lg:static lg:h-auto lg:max-h-none lg:min-h-dvh lg:overflow-visible"
         style={{
           backgroundColor: "rgb(var(--bg-background))",
           backgroundImage:
@@ -98,7 +98,7 @@ export function ArtistAppShell({
         {/* Main column — top bar (mobile only) + content + bottom nav
             (mobile only). Flex-column so the top bar sits flush above
             scrolling content. */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ArtistShellChrome>
             <ArtistMobileTopBar
               studios={studios}
@@ -125,8 +125,8 @@ export function ArtistAppShell({
                 <ArtistTopBar initialUnreadCount={notificationUnreadCount} />
               </div>
             </ArtistShellChrome>
-            {/* The mobile bottom padding reserves the 76px tab bar,
-                iPhone Home Indicator inset, and 16px content buffer.
+            {/* The in-flow mobile tab bar owns its Home Indicator inset,
+                while this scroll surface keeps a 16px content buffer.
                 `lg:pb-12` keeps desktop spacing unchanged where there's
                 no bar. `pt-6 lg:pt-10` matches the design's top spacing.
                 `mx-auto max-w-2xl` keeps the artist content column
@@ -140,13 +140,15 @@ export function ArtistAppShell({
               </RuntimeScreenTransitionBoundary>
             </ArtistShellMain>
           </TopBarBreadcrumbProvider>
+          <ArtistShellChrome>
+            <ArtistBottomNav studios={studios} initialStudioId={initialStudioId} />
+          </ArtistShellChrome>
         </div>
 
         <ArtistShellChrome>
           {/* PersistentPlayer powers the shared Music Library's Play
               buttons through the app-level playback runtime. */}
           <PersistentPlayer />
-          <ArtistBottomNav studios={studios} initialStudioId={initialStudioId} />
         </ArtistShellChrome>
       </div>
     </ArtistRuntimeStateProvider>

@@ -30,9 +30,10 @@ describe("SK-144 producer download-state batch repository contract", () => {
     );
   });
 
-  it("discovers and share-locks all exact tenant-owned versions in batch", () => {
+  it("discovers and share-locks only exact tenant-owned versions in batch", () => {
     expect(source.match(/inArray\(trackVersions\.id/g)).toHaveLength(2);
-    expect(source.match(/\.for\("share"\)/g)).toHaveLength(1);
+    expect(source).toContain('.for("share", { of: trackVersions })');
+    expect(source).not.toContain('.for("share")');
     expect(source).toContain("eq(trackVersions.producerId, scope.producerId)");
     expect(source).toContain("eq(trackVersions.trackId, scope.trackId)");
     expect(source).toContain("eq(trackVersions.purchaseId, scope.purchaseId)");

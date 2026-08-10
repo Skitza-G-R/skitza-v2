@@ -92,6 +92,7 @@ export function ProfessionalArtistHome({
           <div className="mt-5 flex flex-wrap items-center gap-2.5">
             <Link
               href={main.href}
+              prefetch={main.kind === "new_song" ? false : null}
               className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2.5 text-[13px] font-bold text-[rgb(var(--fg-on-brand))] shadow-[0_10px_24px_-14px_rgb(var(--brand-primary)/0.9)]"
             >
               {main.actionLabel}
@@ -140,6 +141,7 @@ export function ProfessionalArtistHome({
                     <div className="flex min-h-16 items-center gap-2 pr-2">
                       <Link
                         href={item.href}
+                        prefetch={false}
                         aria-label={item.actionLabel}
                         className="sk-press flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5"
                       >

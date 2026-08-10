@@ -21,20 +21,21 @@ type ArtistTab = {
   href: string;
   label: string;
   icon: IconName;
+  prefetch: boolean | null;
 };
 
 const TABS: readonly ArtistTab[] = [
-  { href: "/artist", label: "Home", icon: "home", id: "home" },
-  { href: "/artist/music", label: "Music", icon: "music", id: "music" },
-  { href: "/artist/sessions", label: "Sessions", icon: "calendar", id: "sessions" },
-  { href: "/artist/payments", label: "Payments", icon: "payments", id: "payments" },
-  { href: "/artist/store", label: "Store", icon: "store", id: "store" },
+  { href: "/artist", label: "Home", icon: "home", id: "home", prefetch: null },
+  { href: "/artist/music", label: "Music", icon: "music", id: "music", prefetch: false },
+  { href: "/artist/sessions", label: "Sessions", icon: "calendar", id: "sessions", prefetch: false },
+  { href: "/artist/payments", label: "Payments", icon: "payments", id: "payments", prefetch: false },
+  { href: "/artist/store", label: "Store", icon: "store", id: "store", prefetch: false },
 ] as const;
 
 /**
  * Artist adapter for the shared liquid-glass surface. Artist routes remain
- * studio-aware and the frame remains fixed because the artist shell still
- * uses document scrolling on mobile.
+ * studio-aware. The frame is an in-flow footer inside the measured mobile
+ * viewport shell, so iOS document scrolling cannot carry it away.
  */
 export function ArtistBottomNav({
   studios,
@@ -54,14 +55,13 @@ export function ArtistBottomNav({
     ...tab,
     href: withArtistStudio(tab.href, activeStudioId),
     active: isArtistNavItemActive(pathname, tab.href),
-    prefetch: false,
   }));
 
   return (
     <LiquidGlassBottomNav
       ariaLabel="Artist app tabs"
       tabs={tabs}
-      position="fixed"
+      position="in-flow"
       frameClassName="artist-bottom-nav-frame"
       onTabClick={(event) => {
         captureRuntimeMainNavigationTarget(event.currentTarget);

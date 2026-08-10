@@ -50,6 +50,14 @@ describe("Calm Control overview", () => {
     expect(OVERVIEW).not.toContain("<Play");
   });
 
+  it("does not prefetch every protected latest-upload Song Page in the background", () => {
+    expect(
+      OVERVIEW.match(
+        /href=\{`\/dashboard\/music\/\$\{upload\.versionId\}`\}\s+prefetch=\{false\}/g,
+      ),
+    ).toHaveLength(2);
+  });
+
   it("does not reintroduce the removed Activity card", () => {
     expect(OVERVIEW).not.toContain('id="activity-heading"');
     expect(OVERVIEW).not.toContain(">Activity<");

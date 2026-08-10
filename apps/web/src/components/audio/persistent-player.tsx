@@ -301,6 +301,7 @@ function DesktopDock({
             in the app so the whole row reads as one tappable surface. */}
         <Link
           href={expandHrefForTrack(track, pathname)}
+          prefetch={false}
           aria-label={`Open ${track.title} song page`}
           title="Open song page"
           className="sk-press flex min-h-11 min-w-0 items-center gap-3 rounded-[14px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
@@ -380,6 +381,7 @@ function DesktopDock({
         <div className="flex items-center justify-end gap-1 justify-self-end border-s border-white/10 ps-3">
           <Link
             href={expandHrefForTrack(track, pathname)}
+            prefetch={false}
             aria-label="Open song page"
             title="Open song page"
             className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/55 hover:text-white"
@@ -830,6 +832,7 @@ export function MobileFullPlayer({
         <div className="flex items-center gap-3">
           <Link
             href={expandHrefForTrack(track, pathname)}
+            prefetch={false}
             onClick={onCollapse}
             className="group min-w-0 flex-1 rounded-md focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
             aria-label={`Open ${track.title} song page`}
@@ -843,6 +846,7 @@ export function MobileFullPlayer({
           </Link>
           <Link
             href={expandHrefForTrack(track, pathname)}
+            prefetch={false}
             onClick={onCollapse}
             aria-label="Open song page"
             title="Open song page"

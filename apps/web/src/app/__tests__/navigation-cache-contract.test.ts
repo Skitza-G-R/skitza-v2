@@ -136,9 +136,12 @@ describe("SK-122 accepted-target feedback", () => {
 });
 
 describe("SK-122 dashboard caller reuse", () => {
-  it("uses one tRPC caller for onboarding and the dashboard fan-out", () => {
+  it("uses one tRPC caller and avoids a serial onboarding probe", () => {
     expect(DASHBOARD_PAGE.match(/appRouter\.createCaller/g)).toHaveLength(1);
-    expect(DASHBOARD_PAGE).toContain("detectOnboardingState(userId, caller)");
+    expect(DASHBOARD_PAGE).not.toContain("detectOnboardingState(userId, caller)");
+    expect(DASHBOARD_PAGE).toContain(
+      "skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null)",
+    );
     expect(ONBOARDING_DETECTOR).toContain(
       "caller: AppRouterCaller = appRouter.createCaller({ userId })",
     );

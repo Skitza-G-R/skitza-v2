@@ -50,7 +50,7 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
       '"0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))"',
     );
     expect(PRODUCER_NAV).toContain('position="in-flow"');
-    expect(ARTIST_NAV).toContain('position="fixed"');
+    expect(ARTIST_NAV).toContain('position="in-flow"');
     expect(GLOBALS).toContain("padding-bottom: 0;");
     expect(GLOBALS).not.toContain("calc(env(safe-area-inset-bottom, 0px) - 8px)");
   });
@@ -75,14 +75,19 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
     expect(SHARED_NAV.match(/minHeight:\s*68/g)).toHaveLength(2);
   });
 
-  it("reserves the larger artist nav and player stack without changing desktop spacing", () => {
+  it("keeps artist content above the in-flow nav without changing desktop spacing", () => {
     expect(ARTIST_SHELL).toContain("<ArtistShellMain>");
-    expect(ARTIST_SHELL_MAIN).toContain("pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]");
+    expect(ARTIST_SHELL_MAIN).toContain("sk-native-scroll");
+    expect(ARTIST_SHELL_MAIN).toContain("pb-4");
+    expect(ARTIST_SHELL_MAIN).not.toContain("pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]");
     expect(ARTIST_SHELL_MAIN).toContain("lg:pb-12");
     expect(ARTIST_SONG_LOADING).not.toContain("pb-24");
     expect(ARTIST_SONG_LOADING).toContain("lg:pb-10");
     expect(GLOBALS).toContain("bottom: calc(80px + env(safe-area-inset-bottom, 0px));");
     expect(GLOBALS).toContain("padding-bottom: calc(182px + env(safe-area-inset-bottom));");
+    expect(GLOBALS).toMatch(
+      /main#main-content\[data-artist-shell-mode="standing"\]\s*\{[\s\S]*?padding-bottom:\s*102px;/,
+    );
   });
 
   it("keeps the producer settings save bar above the larger mobile nav", () => {

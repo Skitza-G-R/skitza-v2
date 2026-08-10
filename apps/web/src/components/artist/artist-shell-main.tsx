@@ -14,8 +14,8 @@ export function ArtistShellMain({ children }: { children: React.ReactNode }) {
       data-artist-shell-mode={focused ? "focused" : "standing"}
       className={
         focused
-          ? "min-w-0 w-full flex-1"
-          : "mx-auto w-full max-w-2xl px-4 pt-6 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
+          ? "sk-native-scroll min-h-0 w-full min-w-0 flex-1 lg:overflow-visible"
+          : "sk-native-scroll mx-auto min-h-0 w-full max-w-2xl flex-1 px-4 pt-6 pb-4 lg:max-w-none lg:overflow-visible lg:px-10 lg:pt-10 lg:pb-12"
       }
     >
       {children}
