@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type { ManualSessionSlot } from "../calendar-slot";
 import { buildWeek } from "../calendar-week";
@@ -24,9 +24,26 @@ beforeAll(() => {
   });
 });
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(hover: hover) and (pointer: fine)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    })),
+  );
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function renderGrid({
@@ -96,6 +113,71 @@ describe("ScheduleWeekGrid calendar interactions", () => {
     });
   });
 
+  it("shows an inset snapped hover target and clears it when the pointer leaves", () => {
+    const { container } = renderGrid();
+    const cell = container.querySelector<HTMLElement>(
+      '[data-calendar-date="2026-08-13"][data-calendar-hour="14"]',
+    );
+    expect(cell).not.toBeNull();
+    if (!cell) return;
+
+    vi.spyOn(cell, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      height: 80,
+      bottom: 180,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.mouseMove(cell, { clientY: 140 });
+
+    const preview = container.querySelector<HTMLElement>("[data-calendar-hover-slot]");
+    expect(preview).not.toBeNull();
+    expect(preview?.textContent).toContain("+ 14:30");
+    expect(preview?.className).toContain("right-1");
+    expect(preview?.className).toContain("left-1");
+    expect(preview?.className).toContain("sk-pop-center");
+    expect(preview?.style.top).toContain("0.5");
+    expect(preview?.style.height).toContain("- 4px");
+    const hint = container.querySelector<HTMLElement>("[data-calendar-hover-hint]");
+    expect(hint?.textContent).toContain("Double-click to book");
+    expect(hint?.className).toContain("sk-pop-center");
+    expect(hint?.style.bottom).toContain("0.5");
+    expect(hint?.style.transform).toBe("");
+
+    fireEvent.mouseLeave(cell);
+    expect(container.querySelector("[data-calendar-hover-slot]")).toBeNull();
+  });
+
+  it("does not show the desktop hover affordance for a coarse pointer", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(() => true),
+      })),
+    );
+    const { container } = renderGrid();
+    const cell = container.querySelector<HTMLElement>(
+      '[data-calendar-date="2026-08-13"][data-calendar-hour="14"]',
+    );
+    expect(cell).not.toBeNull();
+    if (!cell) return;
+
+    fireEvent.mouseMove(cell, { clientY: 140 });
+    expect(container.querySelector("[data-calendar-hover-slot]")).toBeNull();
+  });
+
   it("routes confirmed session double-clicks to reschedule without opening the empty slot", () => {
     const { openManualSession, onRescheduleSession } = renderGrid({
       sessions: [
@@ -115,6 +197,8 @@ describe("ScheduleWeekGrid calendar interactions", () => {
       name: "Full production with Lior Tansky, 14:00–16:00, confirmed",
     });
     expect(sessionBlock.className).toContain("z-[2]");
+    expect(sessionBlock.className).toContain("cursor-pointer");
+    expect(sessionBlock.title).toContain("Double-click to change time");
     fireEvent.doubleClick(sessionBlock);
 
     expect(onRescheduleSession).toHaveBeenCalledWith("confirmed-session");
@@ -136,11 +220,11 @@ describe("ScheduleWeekGrid calendar interactions", () => {
       ],
     });
 
-    fireEvent.doubleClick(
-      screen.getByRole("group", {
-        name: "Vocal recording with Lior Tansky, 14:00–15:00, pending",
-      }),
-    );
+    const pendingBlock = screen.getByRole("group", {
+      name: "Vocal recording with Lior Tansky, 14:00–15:00, pending",
+    });
+    expect(pendingBlock.className).not.toContain("cursor-pointer");
+    fireEvent.doubleClick(pendingBlock);
 
     expect(onRescheduleSession).not.toHaveBeenCalled();
     expect(openManualSession).not.toHaveBeenCalled();

@@ -64,7 +64,24 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
+
+function installMatchMedia(isDesktop: boolean): void {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(min-width: 640px)" ? isDesktop : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    })),
+  );
+}
 
 function chooseClientAndProject(projectId: string): void {
   fireEvent.change(screen.getByLabelText("Client"), { target: { value: "client-1" } });
@@ -93,8 +110,8 @@ describe("ManualSessionModal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }));
     expect(screen.getByLabelText<HTMLInputElement>("Date").value).toBe("2026-08-13");
-    expect(screen.getByLabelText<HTMLInputElement>("Start").value).toBe("14:30");
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByLabelText<HTMLSelectElement>("Start").value).toBe("14:30");
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
     expect(screen.queryByLabelText("Date")).toBeNull();
 
     chooseClientAndProject("project-included");
@@ -118,21 +135,58 @@ describe("ManualSessionModal", () => {
     );
 
     const client = screen.getByLabelText("Client");
-    const project = screen.getByLabelText("Project");
-    expect(client).not.toBe(project);
-    expect((project as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.queryByLabelText("Project")).toBeNull();
 
     chooseClientAndProject("project-included");
+    const project = screen.getByLabelText("Project");
+    expect(client).not.toBe(project);
 
     expect(screen.queryByLabelText("Session title (optional)")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit title" }));
     expect(screen.getByLabelText("Session title (optional)")).toBeTruthy();
 
-    const details = screen.getByText("Booking treatment").closest("section");
+    const details = screen.getByRole("button", { name: "Change billing" }).closest("section");
     expect(details).not.toBeNull();
     expect(within(details as HTMLElement).queryByRole("radio")).toBeNull();
-    fireEvent.click(within(details as HTMLElement).getByRole("button", { name: "Change" }));
+    fireEvent.click(within(details as HTMLElement).getByRole("button", { name: "Change billing" }));
     expect(within(details as HTMLElement).getAllByRole("radio")).toHaveLength(2);
+  });
+
+  it("uses a content-height mobile sheet and only summarizes a complete 15-minute slot", () => {
+    installMatchMedia(false);
+    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
+
+    expect(document.querySelector('[data-native-sheet="bottom"]')).not.toBeNull();
+    expect(screen.queryByTestId("manual-time-summary")).toBeNull();
+    expect(screen.queryByLabelText("Project")).toBeNull();
+
+    const editor = document.querySelector("#manual-time-editor");
+    expect(editor?.className).toContain("grid-cols-1");
+    expect(editor?.className).toContain("sm:grid-cols-2");
+
+    const start = screen.getByLabelText<HTMLSelectElement>("Start");
+    const values = Array.from(start.options)
+      .map((option) => option.value)
+      .filter(Boolean);
+    expect(values).toHaveLength(96);
+    expect(values.every((value) => Number(value.slice(3)) % 15 === 0)).toBe(true);
+
+    fireEvent.change(start, { target: { value: "10:15" } });
+    expect(screen.queryByTestId("manual-time-summary")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-10" } });
+
+    expect(screen.getByTestId("manual-time-summary").textContent).toContain("10:15");
+    expect(screen.queryByLabelText("Date")).toBeNull();
+  });
+
+  it("keeps the right drawer and the disabled Project control on desktop", async () => {
+    installMatchMedia(true);
+    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-native-sheet="right"]')).not.toBeNull();
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>("Project").disabled).toBe(true);
   });
 
   it("requires an explicit complimentary or payment-due choice when credits are exhausted", () => {

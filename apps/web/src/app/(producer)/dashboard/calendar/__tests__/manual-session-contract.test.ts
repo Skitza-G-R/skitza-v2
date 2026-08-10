@@ -57,7 +57,8 @@ describe("producer manual session contract", () => {
   it("shows the short responsive form and warning confirmation", () => {
     expect(manualUi).toContain("Choose an existing client and project");
     expect(manualUi).toContain("fixed by this project’s package");
-    expect(manualUi).toContain('side="right"');
+    expect(manualUi).toContain('isDesktopSheet ? "right" : "bottom"');
+    expect(manualUi).toContain("!max-h-[calc(var(--sk-viewport-height,100dvh)-12px)]");
     expect(manualUi).toContain("Book a session");
     expect(manualUi).toContain('label="Client"');
     expect(manualUi).toContain('label="Project"');
@@ -65,7 +66,11 @@ describe("producer manual session contract", () => {
     expect(manualUi).toContain("Payment due");
     expect(manualUi).toContain("onDraftChange");
     expect(manualUi).toContain("reveal-up-delay-2");
-    expect(manualUi).not.toContain("sm:grid-cols-2");
+    expect(manualUi).toContain("grid-cols-1");
+    expect(manualUi).toContain("sm:grid-cols-2");
+    expect(manualUi).toContain("24 * 4");
+    expect(manualUi).toContain('data-testid="manual-time-summary"');
+    expect(manualUi).toContain("isDesktopSheet || client");
     expect(manualUi).toContain("multiple session packages");
     expect(manualUi).toContain("Check these warnings");
     expect(manualUi).toContain("Create anyway");
