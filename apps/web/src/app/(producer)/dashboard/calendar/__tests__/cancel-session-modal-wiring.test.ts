@@ -3,21 +3,26 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const modalSource = readFileSync(join(__dirname, "../cancel-session-modal.tsx"), "utf8");
+const managementSource = readFileSync(join(__dirname, "../session-management-sheet.tsx"), "utf8");
 
-describe("producer cancel session modal wiring", () => {
-  it("calls the real cancellation action with pending, error, and returned-use feedback", () => {
-    expect(modalSource).toMatch(/import \{ cancelSession \} from "\.\/calendar-actions"/);
-    expect(modalSource).toMatch(/await cancelSession\(\{/);
-    expect(modalSource).toMatch(/isPending/);
-    expect(modalSource).toMatch(/toast\(result\.error, "error"\)/);
-    expect(modalSource).toMatch(/session use was returned/);
-    expect(modalSource).not.toMatch(/coming soon/i);
+describe("producer session management cancellation wiring", () => {
+  it("keeps cancellation inside the unified sheet and calls the real action", () => {
+    expect(managementSource).toMatch(/cancelSession,/);
+    expect(managementSource).toMatch(/await cancelSession\(\{/);
+    expect(managementSource).toMatch(/reason: reasonLabel/);
+    expect(managementSource).toMatch(/note: note\.trim\(\)/);
+    expect(managementSource).toMatch(/isPending/);
+    expect(managementSource).toMatch(/setError\(result\.error\)/);
+    expect(managementSource).toMatch(/session use was returned/);
+    expect(managementSource).not.toMatch(/coming soon/i);
   });
 
-  it("keeps cancellation live-only and handles transport failures locally", () => {
-    expect(modalSource).toContain("useOnlineStatus");
-    expect(modalSource).toContain("Reconnect to cancel this session.");
-    expect(modalSource).toContain("Could not cancel this session. Please try again.");
+  it("keeps cancellation live-only and renders it as an inline Manage step", () => {
+    expect(managementSource).toContain("useOnlineStatus");
+    expect(managementSource).toContain("Reconnect to cancel this session.");
+    expect(managementSource).toContain('type Step = SessionManagementStep | "reschedule_warnings"');
+    expect(managementSource).toContain('goTo("cancel")');
+    expect(managementSource).toContain('step === "cancel"');
+    expect(managementSource).not.toMatch(/<CancelSessionModal/);
   });
 });

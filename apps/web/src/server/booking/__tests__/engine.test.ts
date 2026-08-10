@@ -4,6 +4,7 @@ import {
   assertSessionBookingAllowed,
   classifySessionSlot,
   generateArtistExactSessionSlots,
+  generateProducerExactSessionSlots,
   sessionAllowanceCanBook,
 } from "../index";
 
@@ -131,6 +132,11 @@ describe("shared slot classification", () => {
       severity: "warning",
       message: "This time overlaps a busy time in Google Calendar",
     });
+    expect(classifySessionSlot({ ...base, actor: "producer_google_hard" })).toContainEqual({
+      code: "GOOGLE_BUSY",
+      severity: "hard_conflict",
+      message: "This time overlaps a busy time in Google Calendar",
+    });
     expect(
       classifySessionSlot({
         ...base,
@@ -138,6 +144,75 @@ describe("shared slot classification", () => {
         actor: "artist",
       }).some((issue) => issue.code === "GOOGLE_BUSY"),
     ).toBe(false);
+  });
+
+  it("hardens only Google for strict producer commands and remains fail-open without busy data", () => {
+    const issues = classifySessionSlot({
+      startsAt: new Date("2026-07-20T20:00:00.000Z"),
+      durationMin: 60,
+      bufferMinutes: 0,
+      producerTimeZone: "UTC",
+      availabilityBlocks: [{ weekday: 1, startMin: 9 * 60, endMin: 17 * 60 }],
+      blackouts: [{ startDate: "2026-07-20", endDate: "2026-07-20" }],
+      existingBookings: [],
+      actor: "producer_google_hard",
+    });
+
+    expect(issues).toEqual([
+      expect.objectContaining({ code: "OUTSIDE_AVAILABILITY", severity: "warning" }),
+      expect.objectContaining({ code: "BLACKOUT", severity: "warning" }),
+    ]);
+    expect(issues.some((issue) => issue.code === "GOOGLE_BUSY")).toBe(false);
+  });
+});
+
+describe("producer exact-slot generation", () => {
+  it("returns every studio day and filters each 15-minute start across the full duration", () => {
+    const generated = generateProducerExactSessionSlots({
+      now: new Date("2026-07-19T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityBlocks: [{ weekday: 1, startMin: 10 * 60, endMin: 11 * 60 }],
+      blackouts: [],
+      existingBookings: [],
+      googleBusyIntervals: [
+        {
+          startsAt: new Date("2026-07-20T10:15:00.000Z"),
+          endsAt: new Date("2026-07-20T10:30:00.000Z"),
+        },
+      ],
+    });
+
+    expect(generated.days).toHaveLength(14);
+    expect(generated.days[0]).toEqual({ date: "2026-07-19", slots: [] });
+    expect(
+      generated.days
+        .find((day) => day.date === "2026-07-20")
+        ?.slots.map((slot) => slot.startsAt.toISOString()),
+    ).toEqual(["2026-07-20T10:30:00.000Z"]);
+  });
+
+  it("keeps exact UTC identity for both repeated producer-local DST starts", () => {
+    const generated = generateProducerExactSessionSlots({
+      now: new Date("2026-10-31T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityBlocks: [{ weekday: 0, startMin: 90, endMin: 120 }],
+      blackouts: [],
+      existingBookings: [],
+    });
+
+    expect(
+      generated.days
+        .find((day) => day.date === "2026-11-01")
+        ?.slots.map((slot) => slot.startsAt.toISOString()),
+    ).toEqual(["2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z"]);
   });
 });
 

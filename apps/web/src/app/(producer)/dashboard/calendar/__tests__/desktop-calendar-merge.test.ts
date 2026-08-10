@@ -12,6 +12,7 @@ const SWIPE = readCalendarFile("calendar-swipe-surface.tsx");
 const SCHEDULE = readCalendarFile("schedule-panel.tsx");
 const GRID = readCalendarFile("schedule-week-grid.tsx");
 const COMPACT = readCalendarFile("schedule-sessions-card.tsx");
+const MANAGE = readCalendarFile("session-management-sheet.tsx");
 
 describe("desktop Calendar schedule and sessions merge", () => {
   it("keeps Sessions as the mobile tab and Schedule as the desktop tab", () => {
@@ -56,21 +57,27 @@ describe("desktop Calendar schedule and sessions merge", () => {
     expect(COMPACT).toContain("lg:h-7");
   });
 
-  it("routes deliberate calendar double-clicks to the real reschedule flow", () => {
+  it("routes deliberate calendar double-clicks to the unified Manage sheet", () => {
     expect(GRID).toContain("onDoubleClick");
-    expect(GRID).toContain("onRescheduleSession");
-    expect(SCHEDULE).toContain("RescheduleSessionModal");
+    expect(GRID).toContain("onManageSession");
+    expect(SCHEDULE).toContain("openSessionManagement");
+    expect(SWIPE).toContain("SessionManagementSheet");
     expect(SCHEDULE).not.toContain("EditSessionModal");
     expect(GRID).not.toContain("aria-label={`Edit ${serviceLabel}");
   });
 
-  it("removes fake edit and reminder controls while keeping real cancellation", () => {
+  it("unifies session details, reschedule, and cancellation without nested modals", () => {
     expect(COMPACT).not.toContain("aria-label={`Edit ${serviceLabel}");
     expect(COMPACT).not.toContain("<span>Edit</span>");
     expect(COMPACT).not.toContain("onEdit");
     expect(COMPACT).not.toContain("onSendReminder");
-    expect(COMPACT).toContain("CancelSessionModal");
-    expect(COMPACT).toContain("onCancel");
+    expect(COMPACT).toContain("openSessionManagement");
+    expect(COMPACT).not.toContain("CancelSessionModal");
+    expect(COMPACT).not.toContain("RescheduleSessionModal");
+    expect(MANAGE).toContain('type Step = SessionManagementStep | "reschedule_warnings"');
+    expect(MANAGE).toContain("cancelSession");
+    expect(MANAGE).toContain("rescheduleSession");
+    expect(MANAGE).toContain('isDesktopSheet ? "right" : "bottom"');
     expect(SCHEDULE).not.toContain("EditSessionModal");
   });
 });

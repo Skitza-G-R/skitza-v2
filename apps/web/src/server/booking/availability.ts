@@ -31,6 +31,8 @@ export type SessionSlotIssue = Readonly<{
   message: string;
 }>;
 
+export type SessionSlotActor = "artist" | "producer" | "producer_google_hard";
+
 export type ClassifySessionSlotInput = Readonly<{
   startsAt: Date;
   durationMin: number;
@@ -44,19 +46,19 @@ export type ClassifySessionSlotInput = Readonly<{
   ignoreBookingId?: string;
   now?: Date;
   minLeadHours?: number;
-  actor: "artist" | "producer";
+  actor: SessionSlotActor;
 }>;
 
 function slotIssue(
-  actor: "artist" | "producer",
+  actor: SessionSlotActor,
   code: SessionSlotIssueCode,
   message: string,
 ): SessionSlotIssue {
   const producerWarning =
-    actor === "producer" &&
+    actor !== "artist" &&
     (code === "OUTSIDE_AVAILABILITY" ||
       code === "BLACKOUT" ||
-      code === "GOOGLE_BUSY" ||
+      (code === "GOOGLE_BUSY" && actor === "producer") ||
       code === "BUFFER_CONFLICT" ||
       code === "DAILY_LIMIT");
   return {
@@ -218,6 +220,21 @@ export type ExactSessionSlotDay = Readonly<{
   slots: readonly ExactSessionSlot[];
 }>;
 
+export type ProducerExactSessionSlotsInput = Readonly<{
+  now: Date;
+  canBook: boolean;
+  producerTimeZone: string;
+  durationMin: number;
+  bufferMinutes: number;
+  minLeadHours: number;
+  maxSessionsPerDay?: number | null;
+  availabilityBlocks: readonly SessionAvailabilityBlock[];
+  blackouts: readonly SessionAvailabilityBlackout[];
+  existingBookings: readonly SessionBookingScheduleEntry[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
+  ignoreBookingId?: string;
+}>;
+
 export function generateArtistExactSessionSlots(
   input: Readonly<{
     now: Date;
@@ -328,5 +345,35 @@ export function generateArtistExactSessionSlots(
         slots: slots.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime()),
       })),
     today: zonedLocalDateKey(input.now, input.artistTimeZone),
+  };
+}
+
+/**
+ * Producer-facing exact availability for manual booking and rescheduling.
+ *
+ * The shared artist generator remains the single source of truth for policy
+ * filtering. Producer availability uses studio-local days, fixed 15-minute
+ * increments, and includes empty days so the calendar can render a full day
+ * as unavailable without learning anything about Google events.
+ */
+export function generateProducerExactSessionSlots(input: ProducerExactSessionSlotsInput): Readonly<{
+  days: readonly ExactSessionSlotDay[];
+  today: string;
+}> {
+  const generated = generateArtistExactSessionSlots({
+    ...input,
+    artistTimeZone: input.producerTimeZone,
+    slotIncrementMin: 15,
+  });
+  const slotsByDate = new Map(generated.days.map((day) => [day.date, day.slots]));
+  const producerDates = producerLocalDateRange(
+    input.now,
+    input.producerTimeZone,
+    sessionAvailabilityHorizonDays(input.minLeadHours),
+  );
+
+  return {
+    days: producerDates.map((date) => ({ date, slots: slotsByDate.get(date) ?? [] })),
+    today: generated.today,
   };
 }

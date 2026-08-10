@@ -520,7 +520,8 @@ A session is a real booking tied to one client, one project, and that project's 
 - Duration is fixed by the product entitlement. There are no manual location, note, participant, recurrence, or Google Meet fields.
 - Creation immediately confirms the session, shows it in the producer Calendar and authorized artist Sessions, notifies the artist, and sends one recoverable calendar invitation.
 - When an included use remains, `included` is the default and `complimentary` is the only override. When none remains, the producer must choose `complimentary` or `billable_extra`. Only `included` consumes allowance; `billable_extra` records payment due but does not create an invoice or charge.
-- Another active Skitza session is always a hard conflict. Working-hours, buffer, daily-limit, and unrelated Google-busy conflicts are explicit warnings the producer may override.
+- The manual-booking and reschedule pickers expose only 15-minute starts where the full product-derived duration fits inside working hours without a blackout, lead-time failure, daily-limit conflict, active Skitza session, required buffer, or fresh Google busy interval. Date, time, client, and project choices use the same availability model on desktop and mobile.
+- Another active Skitza session, lead-time failure, or fresh Google busy interval is a hard conflict. Working-hours, blackout, buffer, and daily-limit conflicts remain explicit producer warnings for stale/race/direct-command rechecks. If Google is disconnected, stale, or unavailable, Skitza fails open to Skitza-only availability and requires a reduced-protection warning before saving.
 
 ### 9.3 Timezone display
 
@@ -532,6 +533,7 @@ A session is a real booking tied to one client, one project, and that project's 
 
 - Skitza remains the booking source of truth. Only the producer connects Google; the artist receives an attendee invitation or `.ics` fallback and does not connect a Google account.
 - The producer chooses one writable destination calendar for Skitza events and one or more calendars whose busy intervals block artist availability. Recurring and all-day busy intervals block; events marked free do not. Skitza never stores or displays unrelated event details.
+- Healthy Google busy intervals appear in the producer Calendar only as privacy-safe blocked time bands. Days with no free working-time quarter are visibly unavailable; no title, attendee, location, calendar name, or other provider event data is displayed or stored.
 - Confirmed sessions create linked events containing only the approved title, time, artist attendee, artist-safe Skitza link, and private linkage metadata. Pending approval or payment creates a private opaque hold without an artist attendee; confirmation promotes the same event, while rejection or expiry removes it. First connection creates events only for future confirmed sessions.
 - Linked title, date, and start time sync both ways. Duration remains product-derived: resizing is corrected, a deliberate Google move outside normal availability or over unrelated busy time is accepted, and a move that overlaps another active Skitza session is rejected and restored.
 - Cancelling in Skitza cancels or removes the linked Google event and notifies the artist.

@@ -11,16 +11,21 @@
 // without a server round-trip. The full session set for ±2 weeks
 // is hydrated from the page so flipping a week is instant.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { loadGoogleCalendarBusyWeek } from "./google-calendar-actions";
 import { buildWeek, isSameDay, todayIndex } from "./calendar-week";
-import { RescheduleSessionModal } from "./reschedule-session-modal";
+import { studioDateKey } from "./calendar-slot";
+import { useManualSessionLauncher } from "./manual-session-launcher-context";
 import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import { ScheduleSessionsCard } from "./schedule-sessions-card";
 import { ScheduleWeekGrid, type ScheduleSession } from "./schedule-week-grid";
 import { ScheduleWeekNav } from "./schedule-week-nav";
 import { SchedulePendingCard, type PendingRequest } from "./schedule-pending-card";
 import type { SessionListItem } from "./session-row";
+import type { GoogleCalendarBusyWeekView } from "~/server/google-calendar/busy-week";
+
+const BUSY_WEEK_CACHE_MS = 30_000;
 
 export type ScheduleData = {
   // All sessions in a wide window so we can flip weeks client-side.
@@ -45,15 +50,15 @@ export function SchedulePanel({
   timeZone,
 }: ScheduleData & { initialNow: string; timeZone: string }) {
   const [weekOffset, setWeekOffset] = useState(0);
-  const [gridRescheduleTarget, setGridRescheduleTarget] = useState<SessionListItem | null>(null);
+  const { openSessionManagement, reportGoogleBusyProtection } = useManualSessionLauncher();
+  const [googleBusyWeek, setGoogleBusyWeek] = useState<GoogleCalendarBusyWeekView | null>(null);
+  const busyRequest = useRef(0);
+  const busyCache = useRef(
+    new Map<string, { fetchedAt: number; view: GoogleCalendarBusyWeekView }>(),
+  );
   const reference = useMemo(() => new Date(initialNow), [initialNow]);
-  const reschedulableSessionIds = useMemo(
-    () =>
-      new Set(
-        desktopSessions
-          .filter((session) => session.status === "confirmed" && !session.changeRequest)
-          .map((session) => session.id),
-      ),
+  const manageableSessionIds = useMemo(
+    () => new Set(desktopSessions.map((session) => session.id)),
     [desktopSessions],
   );
 
@@ -62,6 +67,28 @@ export function SchedulePanel({
     [reference, timeZone, weekOffset],
   );
   const tIdx = todayIndex(week, reference, timeZone);
+  const weekStart = studioDateKey(week[0] ?? reference);
+
+  useEffect(() => {
+    const request = busyRequest.current + 1;
+    busyRequest.current = request;
+    const cached = busyCache.current.get(weekStart);
+    if (cached && Date.now() - cached.fetchedAt < BUSY_WEEK_CACHE_MS) {
+      setGoogleBusyWeek(cached.view);
+      return;
+    }
+    setGoogleBusyWeek(null);
+    void loadGoogleCalendarBusyWeek({ weekStart }).then((view) => {
+      if (request !== busyRequest.current) return;
+      busyCache.current.set(weekStart, { fetchedAt: Date.now(), view });
+      setGoogleBusyWeek(view);
+    });
+  }, [weekStart]);
+
+  useEffect(() => {
+    if (!googleBusyWeek) return;
+    reportGoogleBusyProtection(googleBusyWeek.protection === "skitza_only");
+  }, [googleBusyWeek, reportGoogleBusyProtection]);
 
   // Filter sessions visible in the current week.
   const visible = useMemo(() => {
@@ -72,9 +99,9 @@ export function SchedulePanel({
       })
       .map((session) => ({
         ...session,
-        canReschedule: reschedulableSessionIds.has(session.id),
+        canManage: manageableSessionIds.has(session.id),
       }));
-  }, [reschedulableSessionIds, sessions, timeZone, week]);
+  }, [manageableSessionIds, sessions, timeZone, week]);
 
   // Stats for the readout — counts confirmed + pending; sums duration.
   const totalSessions = visible.length;
@@ -115,10 +142,11 @@ export function SchedulePanel({
           showNowLine={weekOffset === 0}
           initialNow={initialNow}
           timeZone={timeZone}
-          onRescheduleSession={(sessionId) => {
+          googleBusyWeek={googleBusyWeek}
+          onManageSession={(sessionId) => {
             const session = desktopSessions.find((candidate) => candidate.id === sessionId);
-            if (session?.status === "confirmed" && !session.changeRequest) {
-              setGridRescheduleTarget(session);
+            if (session) {
+              openSessionManagement(session);
             }
           }}
         />
@@ -142,16 +170,6 @@ export function SchedulePanel({
           />
         </div>
       </div>
-      {gridRescheduleTarget ? (
-        <RescheduleSessionModal
-          open
-          onOpenChange={(next) => {
-            if (!next) setGridRescheduleTarget(null);
-          }}
-          session={gridRescheduleTarget}
-          timeZone={timeZone}
-        />
-      ) : null}
     </div>
   );
 }

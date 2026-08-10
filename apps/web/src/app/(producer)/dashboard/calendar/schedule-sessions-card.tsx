@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { CancelSessionModal } from "./cancel-session-modal";
 import { ChangeRequestDecision } from "./change-request-decision";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { GoogleCalendarSessionSyncStatus } from "./google-calendar-session-sync";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
-import { RescheduleSessionModal } from "./reschedule-session-modal";
+import { useManualSessionLauncher } from "./manual-session-launcher-context";
 
 type Filter = "upcoming" | "past" | "all";
 type DisplayStatus = "confirmed" | "pending" | "completed" | "no_show" | "rejected" | "cancelled";
@@ -26,8 +25,7 @@ export function ScheduleSessionsCard({
 }) {
   const now = useMemo(() => new Date(initialNow), [initialNow]);
   const [filter, setFilter] = useState<Filter>("upcoming");
-  const [cancelTarget, setCancelTarget] = useState<SessionListItem | null>(null);
-  const [rescheduleTarget, setRescheduleTarget] = useState<SessionListItem | null>(null);
+  const { openSessionManagement } = useManualSessionLauncher();
   const selectedRef = useRef<HTMLLIElement>(null);
   const buckets = useMemo(() => bucketSessions(sessions, now), [sessions, now]);
   const filtered = buckets[filter];
@@ -113,33 +111,13 @@ export function ScheduleSessionsCard({
                   session={session}
                   now={now}
                   timeZone={timeZone}
-                  onCancel={setCancelTarget}
-                  onReschedule={setRescheduleTarget}
+                  onManage={openSessionManagement}
                 />
               </li>
             );
           })}
         </ul>
       )}
-      {cancelTarget ? (
-        <CancelSessionModal
-          open
-          onOpenChange={(next) => {
-            if (!next) setCancelTarget(null);
-          }}
-          session={cancelTarget}
-        />
-      ) : null}
-      {rescheduleTarget ? (
-        <RescheduleSessionModal
-          open
-          onOpenChange={(next) => {
-            if (!next) setRescheduleTarget(null);
-          }}
-          session={rescheduleTarget}
-          timeZone={timeZone}
-        />
-      ) : null}
     </section>
   );
 }
@@ -148,20 +126,17 @@ function CompactSessionRow({
   session,
   now,
   timeZone,
-  onCancel,
-  onReschedule,
+  onManage,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
-  onCancel: (session: SessionListItem) => void;
-  onReschedule: (session: SessionListItem) => void;
+  onManage: (session: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const status = deriveDisplayStatus(session.status, end, now);
   const dimmed = status === "cancelled" || status === "rejected" || status === "no_show";
-  const cancellable = status === "confirmed" || status === "pending";
   const serviceLabel = session.packageName ?? "Session";
   const kindToken = KIND_COLORS[inferSessionKind(session.packageName)];
 
@@ -211,32 +186,17 @@ function CompactSessionRow({
         />
         <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
           <CompactStatus status={status} />
-          {cancellable && !session.changeRequest ? (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label={`Reschedule session with ${session.artistName}`}
-                title="Reschedule session"
-                onClick={() => {
-                  onReschedule(session);
-                }}
-                className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:active:scale-100"
-              >
-                <ClockMini />
-              </button>
-              <button
-                type="button"
-                aria-label={`Cancel session with ${session.artistName}`}
-                title="Cancel session"
-                onClick={() => {
-                  onCancel(session);
-                }}
-                className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-danger))] focus-visible:outline-none motion-reduce:active:scale-100"
-              >
-                <XMini />
-              </button>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            aria-label={`Manage session with ${session.artistName}`}
+            title="Manage session"
+            onClick={() => {
+              onManage(session);
+            }}
+            className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:active:scale-100"
+          >
+            <MoreMini />
+          </button>
         </div>
       </div>
       {session.changeRequest ? (
@@ -255,7 +215,7 @@ function compactRsvpLabel(status: NonNullable<SessionListItem["artistRsvpStatus"
   return "awaiting reply";
 }
 
-function ClockMini() {
+function MoreMini() {
   return (
     <svg
       width="13"
@@ -263,30 +223,14 @@ function ClockMini() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.2"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
     >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function XMini() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <path d="M18 6 6 18M6 6l12 12" />
+      <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
     </svg>
   );
 }

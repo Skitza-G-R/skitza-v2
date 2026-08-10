@@ -87,14 +87,13 @@ export default async function CalendarPage({
   const googleCalendarSyncByBookingId = new Map<
     string,
     NonNullable<SessionListItem["calendarSync"]>
-  >(
-    googleCalendarSyncStatuses.map((entry) => [entry.bookingId, { state: entry.status }] as const),
-  );
+  >(googleCalendarSyncStatuses.map((entry) => [entry.bookingId, { state: entry.status }] as const));
   const listById = new Map(list.map((booking) => [booking.id, booking]));
   const pending = list.filter((b) => b.status === "pending_approval");
   const scheduleAutoConfirm = settings.autoConfirmBookings;
   const calendarTimeZone = normalizeCalendarTimeZone(profile.timezone);
   const scheduleAvailabilityBlocks: ScheduleAvailabilityBlock[] = workingHours.map((block) => ({
+    weekday: block.weekday,
     startMin: block.startMin,
     endMin: block.endMin,
   }));

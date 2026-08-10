@@ -9,8 +9,13 @@ import { CalendarTabs } from "./calendar-tabs";
 import type { CalendarTabKey } from "./calendar-tab-key";
 import type { ManualSessionDraft, ManualSessionSlot } from "./calendar-slot";
 import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
-import { ManualSessionLauncherProvider } from "./manual-session-launcher-context";
+import {
+  ManualSessionLauncherProvider,
+  type SessionManagementStep,
+} from "./manual-session-launcher-context";
 import { ManualSessionModal } from "./manual-session-modal";
+import { SessionManagementSheet } from "./session-management-sheet";
+import type { SessionListItem } from "./session-row";
 import type { ProducerManualSessionOptions } from "~/server/domain/session-booking/manual";
 
 const CALENDAR_SWIPE_ITEMS = ["sessions", "availability"] as const;
@@ -48,6 +53,11 @@ export function CalendarSwipeSurface({
   const [manualInitialSlot, setManualInitialSlot] = useState<ManualSessionSlot | null>(null);
   const [manualDraft, setManualDraft] = useState<ManualSessionDraft | null>(null);
   const [manualCheckReduced, setManualCheckReduced] = useState(false);
+  const [calendarCheckReduced, setCalendarCheckReduced] = useState(false);
+  const [management, setManagement] = useState<{
+    session: SessionListItem;
+    step: SessionManagementStep;
+  } | null>(null);
   const displayActive: CalendarTabKey = optimistic?.source === active ? optimistic.value : active;
   const displaySwipeItem = normalizeCalendarSwipeItem(displayActive);
   const sessionsActive = displaySwipeItem === "sessions";
@@ -55,10 +65,21 @@ export function CalendarSwipeSurface({
     sessionsActive && displayActive === "schedule" ? "schedule" : "sessions";
 
   const openManualSession = useCallback((slot: ManualSessionSlot | null) => {
+    setManagement(null);
     setManualInitialSlot(slot);
     setManualDraft(slot ? { ...slot, durationMin: null } : null);
     setManualOpen(true);
   }, []);
+
+  const openSessionManagement = useCallback(
+    (session: SessionListItem, step: SessionManagementStep = "summary") => {
+      setManualOpen(false);
+      setManualInitialSlot(null);
+      setManualDraft(null);
+      setManagement({ session, step });
+    },
+    [],
+  );
 
   const handleManualOpenChange = useCallback((next: boolean) => {
     setManualOpen(next);
@@ -80,7 +101,9 @@ export function CalendarSwipeSurface({
   return (
     <ManualSessionLauncherProvider
       openManualSession={openManualSession}
+      openSessionManagement={openSessionManagement}
       provisionalSlot={manualDraft}
+      reportGoogleBusyProtection={setCalendarCheckReduced}
     >
       <header className="reveal-up mb-2 shrink-0 sm:mb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
@@ -147,7 +170,9 @@ export function CalendarSwipeSurface({
         </div>
       </header>
 
-      {googleBusyProtectionReduced || manualCheckReduced ? <GoogleBusyProtectionWarning /> : null}
+      {googleBusyProtectionReduced || manualCheckReduced || calendarCheckReduced ? (
+        <GoogleBusyProtectionWarning />
+      ) : null}
 
       <ManualSessionModal
         open={manualOpen}
@@ -159,6 +184,18 @@ export function CalendarSwipeSurface({
           setManualCheckReduced(true);
         }}
       />
+
+      {management ? (
+        <SessionManagementSheet
+          open
+          onOpenChange={(next) => {
+            if (!next) setManagement(null);
+          }}
+          session={management.session}
+          initialStep={management.step}
+          timeZone={manualOptions.studioTimeZone}
+        />
+      ) : null}
 
       <div
         data-tab-swipe-surface
@@ -180,9 +217,7 @@ export function CalendarSwipeSurface({
             inert={!sessionsActive}
             className={[
               "flex min-h-0 min-w-0 flex-1 flex-col",
-              sessionsActive
-                ? "relative"
-                : "pointer-events-none absolute inset-0 overflow-hidden",
+              sessionsActive ? "relative" : "pointer-events-none absolute inset-0 overflow-hidden",
             ].join(" ")}
           >
             {sessionsContent}
@@ -196,9 +231,7 @@ export function CalendarSwipeSurface({
             inert={sessionsActive}
             className={[
               "flex min-h-0 min-w-0 flex-1 flex-col",
-              sessionsActive
-                ? "pointer-events-none absolute inset-0 overflow-hidden"
-                : "relative",
+              sessionsActive ? "pointer-events-none absolute inset-0 overflow-hidden" : "relative",
             ].join(" ")}
           >
             {availabilityContent}
