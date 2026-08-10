@@ -1,6 +1,12 @@
+import { eq, producers } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import {
+  googleCalendarBusyWeekWindow,
+  presentGoogleCalendarBusyWeek,
+} from "~/server/google-calendar/busy-week";
+import { readGoogleCalendarBusyIntervals } from "~/server/google-calendar/busy-reader";
 import {
   isGoogleCalendarServerConfigured,
   loadGoogleCalendarServerConfig,
@@ -20,6 +26,9 @@ const oauthIntent = z.enum(["connect", "reconnect", "switch_account"]);
 const selectionInput = z.object({
   destinationCalendarId: z.string().uuid(),
   availabilityCalendarIds: z.array(z.string().uuid()).min(1).max(10_000),
+});
+const busyWeekInput = z.object({
+  weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
 });
 
 function serviceForDatabase(
@@ -65,6 +74,33 @@ export const googleCalendarRouter = router({
   status: producerProcedure.query(({ ctx }) =>
     callGoogleCalendar(() => serviceForDatabase(ctx.db).status(ctx.producerId)),
   ),
+
+  busyWeek: producerProcedure.input(busyWeekInput).query(async ({ ctx, input }) => {
+    const [producer] = await ctx.db
+      .select({ timeZone: producers.timezone })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    if (!producer) throw new TRPCError({ code: "NOT_FOUND", message: "Not found" });
+
+    let window: ReturnType<typeof googleCalendarBusyWeekWindow>;
+    try {
+      window = googleCalendarBusyWeekWindow({
+        weekStart: input.weekStart,
+        timeZone: producer.timeZone,
+      });
+    } catch {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid calendar week" });
+    }
+
+    const result = await readGoogleCalendarBusyIntervals({
+      db: ctx.db,
+      producerId: ctx.producerId,
+      timeMin: window.timeMin,
+      timeMax: window.timeMax,
+    });
+    return presentGoogleCalendarBusyWeek(result);
+  }),
 
   calendars: producerProcedure.query(({ ctx }) =>
     callGoogleCalendar(() => serviceForDatabase(ctx.db).listCalendars(ctx.producerId)),

@@ -35,6 +35,12 @@ const producerSettings = read("../../../app/(producer)/dashboard/settings/settin
 const sessionsPanel = read("../../../app/(producer)/dashboard/calendar/sessions-panel.tsx");
 const sessionRow = read("../../../app/(producer)/dashboard/calendar/session-row.tsx");
 const schedulePanel = read("../../../app/(producer)/dashboard/calendar/schedule-panel.tsx");
+const calendarSwipeSurface = read(
+  "../../../app/(producer)/dashboard/calendar/calendar-swipe-surface.tsx",
+);
+const sessionManagementSheet = read(
+  "../../../app/(producer)/dashboard/calendar/session-management-sheet.tsx",
+);
 const scheduleWeekNav = read("../../../app/(producer)/dashboard/calendar/schedule-week-nav.tsx");
 const paymentHistory = read("../../payments/payment-history.tsx");
 const paymentReminderButton = readPending("../../payments/payment-reminder-button.tsx");
@@ -129,12 +135,18 @@ describe("SK-99 removed dead controls", () => {
     }
   });
 
-  it("keeps only the real producer session cancellation action", () => {
-    expect(sessionsPanel).toContain("CancelSessionModal");
-    expect(sessionsPanel).not.toMatch(/ChangeTimeModal|SendReminderModal/);
-    expect(sessionRow).toContain('label="Cancel session"');
-    expect(sessionRow).not.toMatch(/Change time|Send reminder/);
-    expect(schedulePanel).not.toMatch(/EditSessionModal|onEditSession/);
+  it("keeps one real producer session management surface", () => {
+    expect(calendarSwipeSurface).toContain("<SessionManagementSheet");
+    expect(sessionManagementSheet).toContain("cancelSession,");
+    expect(sessionManagementSheet).toContain("rescheduleSession,");
+    expect(sessionsPanel).toContain("openSessionManagement");
+    expect(sessionsPanel).not.toMatch(/CancelSessionModal|RescheduleSessionModal/);
+    expect(sessionRow).toContain('label="Manage session"');
+    expect(sessionRow).not.toMatch(
+      /label="Cancel session"|label="Reschedule session"|Send reminder/,
+    );
+    expect(schedulePanel).toContain("openSessionManagement");
+    expect(schedulePanel).not.toMatch(/EditSessionModal|RescheduleSessionModal|onEditSession/);
   });
 
   it("does not duplicate legacy invoice work outside Payments", () => {

@@ -11,7 +11,9 @@ import {
   decideProducerSessionChangeRequest,
   expireHeldSessionBooking,
   findProducerManualSessionBookingReplay,
+  generateProducerSessionRescheduleAvailability,
   getSessionBookingGoogleCalendarSyncStatuses,
+  loadProducerSessionRescheduleAvailabilitySnapshot,
   markSessionNoShow,
   recordLateArtistCancellation,
   rejectSessionBooking,
@@ -1072,6 +1074,42 @@ describe("session booking lifecycle commands", () => {
     ).resolves.toBeNull();
   });
 
+  it("replays a lost reduced-protection manual-create response without weakening its digest", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const input = {
+      producerId: "producer-sk68",
+      clientContactId: "client-sk68",
+      projectId: "project-sk68",
+      purchaseId: "purchase-sk68",
+      sessionAllowanceId: "allowance-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt: new Date("2026-07-20T10:00:00.000Z"),
+      billingTreatment: "included" as const,
+      acknowledgedWarnings: [] as string[],
+      acknowledgedReducedGoogleProtection: true,
+      operationKey: "manual-reduced-protection-lost-response",
+      now: baseNow,
+    };
+
+    const created = await createProducerManualSessionBooking(repository, input);
+    const replay = await findProducerManualSessionBookingReplay(repository, input);
+
+    expect(created.created).toBe(true);
+    expect(replay).toMatchObject({
+      created: false,
+      booking: { id: created.booking.id },
+      calendarSyncJobId: created.calendarSyncJobId,
+    });
+    expect(repository.bookings).toHaveLength(1);
+
+    await expect(
+      findProducerManualSessionBookingReplay(repository, {
+        ...input,
+        acknowledgedReducedGoogleProtection: false,
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
   it("requires the producer to acknowledge fresh warnings and never permits a hard overlap", async () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: false }),
@@ -1112,7 +1150,7 @@ describe("session booking lifecycle commands", () => {
     ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
   });
 
-  it("makes fresh Google busy overrideable only for a producer manual create", async () => {
+  it("makes fresh Google busy a hard conflict for a producer manual create", async () => {
     const repository = new MemorySessionBookingRepository();
     const input = {
       producerId: "producer-sk68",
@@ -1138,13 +1176,13 @@ describe("session booking lifecycle commands", () => {
         ...input,
         acknowledgedWarnings: [],
       }),
-    ).rejects.toMatchObject({ code: "WARNING_ACKNOWLEDGEMENT_REQUIRED" });
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
     await expect(
       createProducerManualSessionBooking(repository, {
         ...input,
         acknowledgedWarnings: ["GOOGLE_BUSY"],
       }),
-    ).resolves.toMatchObject({ created: true, booking: { status: "confirmed" } });
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
   });
 
   it("replays the same create intent and conflicts on the same key with a different digest", async () => {
@@ -1667,6 +1705,47 @@ describe("session booking lifecycle commands", () => {
       notificationMode: "all",
       sequence: 2,
     });
+  });
+
+  it("rejects producer cancellation and reschedule after a confirmed session has ended", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const endedAt = new Date("2026-07-20T11:00:00.000Z");
+    const nextStart = new Date("2026-07-20T12:00:00.000Z");
+
+    await expect(
+      cancelProducerSessionBooking(
+        repository,
+        producerCommand(created.booking.id, "cancel-ended-session", endedAt),
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+    await expect(
+      loadProducerSessionRescheduleAvailabilitySnapshot(repository, {
+        bookingId: created.booking.id,
+        producerId: "producer-sk68",
+        now: endedAt,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+    await expect(
+      previewProducerSessionReschedule(repository, {
+        bookingId: created.booking.id,
+        producerId: "producer-sk68",
+        startsAt: nextStart,
+        now: endedAt,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+    await expect(
+      rescheduleProducerSessionBooking(repository, {
+        ...producerCommand(created.booking.id, "reschedule-ended-session", endedAt),
+        startsAt: nextStart,
+        warningAcknowledgements: [],
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+
+    expect(repository.bookings).toEqual([created.booking]);
+    expect(repository.events).toHaveLength(1);
   });
 
   it("withdraws Held before the start even after the confirmed-session cutoff", async () => {
@@ -2677,7 +2756,69 @@ describe("session booking lifecycle commands", () => {
     expect(repository.calendarJobs).toHaveLength(2);
   });
 
-  it("lets the producer explicitly override Google busy during a direct reschedule", async () => {
+  it("replays a lost reduced-protection producer-reschedule response conservatively", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const original = await createSessionBooking(repository, createInput());
+    const command = {
+      ...producerCommand(original.booking.id, "producer-reduced-reschedule-lost-response"),
+      startsAt: new Date("2026-07-20T12:00:00.000Z"),
+      warningAcknowledgements: [] as string[],
+      acknowledgedReducedGoogleProtection: true,
+    };
+
+    const rescheduled = await rescheduleProducerSessionBooking(repository, command);
+    const replay = await rescheduleProducerSessionBooking(repository, command);
+
+    expect(rescheduled.created).toBe(true);
+    expect(replay).toMatchObject({
+      created: false,
+      booking: { id: rescheduled.booking.id },
+      calendarSyncJobId: rescheduled.calendarSyncJobId,
+    });
+    expect(repository.bookings).toHaveLength(2);
+
+    await expect(
+      rescheduleProducerSessionBooking(repository, {
+        ...command,
+        acknowledgedReducedGoogleProtection: false,
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("builds exact reschedule slots from the locked booking context and ignores only the source", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const snapshot = await loadProducerSessionRescheduleAvailabilitySnapshot(repository, {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      now: baseNow,
+    });
+    const skitzaOnly = generateProducerSessionRescheduleAvailability(snapshot);
+    const googleFiltered = generateProducerSessionRescheduleAvailability(snapshot, [
+      {
+        startsAt: created.booking.startsAt,
+        endsAt: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1000),
+      },
+    ]);
+
+    expect(snapshot.durationMin).toBe(60);
+    expect(
+      skitzaOnly.days
+        .flatMap((day) => day.slots)
+        .some((slot) => slot.startsAt.getTime() === created.booking.startsAt.getTime()),
+    ).toBe(true);
+    expect(
+      googleFiltered.days
+        .flatMap((day) => day.slots)
+        .some((slot) => slot.startsAt.getTime() === created.booking.startsAt.getTime()),
+    ).toBe(false);
+  });
+
+  it("makes fresh Google busy a hard conflict during a direct producer reschedule", async () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true }),
     );
@@ -2696,7 +2837,8 @@ describe("session booking lifecycle commands", () => {
       googleBusyIntervals,
       now: baseNow,
     });
-    expect(preview.warnings.map((warning) => warning.code)).toEqual(["GOOGLE_BUSY"]);
+    expect(preview.warnings).toEqual([]);
+    expect(preview.hardConflicts.map((conflict) => conflict.code)).toEqual(["GOOGLE_BUSY"]);
 
     const command = {
       bookingId: created.booking.id,
@@ -2709,14 +2851,14 @@ describe("session booking lifecycle commands", () => {
       now: baseNow,
     };
     await expect(rescheduleProducerSessionBooking(repository, command)).rejects.toMatchObject({
-      code: "WARNING_ACKNOWLEDGEMENT_REQUIRED",
+      code: "GOOGLE_BUSY",
     });
     await expect(
       rescheduleProducerSessionBooking(repository, {
         ...command,
         warningAcknowledgements: ["GOOGLE_BUSY"],
       }),
-    ).resolves.toMatchObject({ created: true, booking: { startsAt } });
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
   });
 
   it("rolls back an approved cancellation when its calendar outbox insert fails", async () => {

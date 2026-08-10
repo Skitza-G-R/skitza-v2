@@ -19,20 +19,21 @@ function renderRow(session: SessionListItem): string {
       session={session}
       now={new Date("2026-07-22T09:00:00.000Z")}
       timeZone="Asia/Jerusalem"
-      onCancel={vi.fn()}
-      onReschedule={vi.fn()}
+      onManage={vi.fn()}
     />,
   );
 }
 
 describe("SessionRow actions", () => {
-  it("renders the action row only while a real action exists", () => {
-    expect(renderRow(baseSession)).toContain('aria-label="Cancel session"');
-    expect(renderRow(baseSession)).toContain('aria-label="Reschedule session"');
+  it("uses one Manage action instead of separate cancel and reschedule controls", () => {
+    const active = renderRow(baseSession);
+    expect(active).toContain('aria-label="Manage session"');
+    expect(active).not.toContain('aria-label="Cancel session"');
+    expect(active).not.toContain('aria-label="Reschedule session"');
 
     const canceled = renderRow({ ...baseSession, status: "cancelled" });
+    expect(canceled).toContain('aria-label="Manage session"');
     expect(canceled).not.toContain('aria-label="Cancel session"');
     expect(canceled).not.toContain('aria-label="Reschedule session"');
-    expect(canceled).not.toContain("col-span-2 flex items-center justify-end");
   });
 });

@@ -25,20 +25,20 @@ function renderCard(item: SessionListItem): string {
 }
 
 describe("ScheduleSessionsCard actions", () => {
-  it("offers the real reschedule and cancellation actions for an active desktop session", () => {
+  it("offers one unified Manage action for an active desktop session", () => {
     const html = renderCard(session);
 
-    expect(html).toContain('aria-label="Cancel session with Lior Tansky"');
-    expect(html).toContain('aria-label="Reschedule session with Lior Tansky"');
+    expect(html).toContain('aria-label="Manage session with Lior Tansky"');
+    expect(html).not.toContain('aria-label="Cancel session with Lior Tansky"');
+    expect(html).not.toContain('aria-label="Reschedule session with Lior Tansky"');
     expect(html).not.toMatch(/Send reminder/);
   });
 
-  it("does not offer cancellation after a session is closed", () => {
-    expect(renderCard({ ...session, status: "cancelled" })).not.toContain(
-      'aria-label="Cancel session with Lior Tansky"',
-    );
-    expect(renderCard({ ...session, status: "cancelled" })).not.toContain(
-      'aria-label="Reschedule session with Lior Tansky"',
-    );
+  it("keeps Manage available for a pending session without exposing direct actions", () => {
+    const html = renderCard({ ...session, status: "pending_approval" });
+
+    expect(html).toContain('aria-label="Manage session with Lior Tansky"');
+    expect(html).not.toContain('aria-label="Cancel session with Lior Tansky"');
+    expect(html).not.toContain('aria-label="Reschedule session with Lior Tansky"');
   });
 });

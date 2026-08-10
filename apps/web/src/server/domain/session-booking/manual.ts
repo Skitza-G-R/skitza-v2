@@ -20,9 +20,12 @@ import {
   SessionBookingDomainError,
   assertSessionBookingAllowed,
   classifySessionSlot,
+  generateProducerExactSessionSlots,
   sessionBillingOptions,
   sessionUseConsumesAllowance,
+  type ExactSessionSlotDay,
   type SessionBookingBillingTreatment,
+  type SessionBookingScheduleEntry,
   type SessionBusyInterval,
   type SessionSlotIssue,
   type SessionUseOutcome,
@@ -329,6 +332,147 @@ export function resolveProducerManualProject(
   return { ...project, entitlement: project.entitlement };
 }
 
+type ProducerManualSchedulingContext = Readonly<{
+  studioTimeZone: string;
+  maxSessionsPerDay: number | null;
+  availabilityBlocks: readonly Readonly<{ weekday: number; startMin: number; endMin: number }>[];
+  blackouts: readonly Readonly<{ startDate: string; endDate: string }>[];
+  existingBookings: readonly SessionBookingScheduleEntry[];
+}>;
+
+async function loadProducerManualSchedulingContext(
+  db: Db,
+  producerId: string,
+): Promise<ProducerManualSchedulingContext> {
+  const [producerRows, blocks, blackouts, schedule] = await Promise.all([
+    db
+      .select({
+        timeZone: producers.timezone,
+        maxSessionsPerDay: producers.maxSessionsPerDay,
+      })
+      .from(producers)
+      .where(eq(producers.id, producerId))
+      .limit(1),
+    db
+      .select({
+        weekday: availabilityBlocks.weekday,
+        startMin: availabilityBlocks.startMin,
+        endMin: availabilityBlocks.endMin,
+      })
+      .from(availabilityBlocks)
+      .where(eq(availabilityBlocks.producerId, producerId)),
+    db
+      .select({
+        startDate: availabilityBlackouts.startDate,
+        endDate: availabilityBlackouts.endDate,
+      })
+      .from(availabilityBlackouts)
+      .where(eq(availabilityBlackouts.producerId, producerId)),
+    db
+      .select({
+        id: bookings.id,
+        startsAt: bookings.startsAt,
+        durationMin: bookings.durationMin,
+        bufferMinutes: purchaseSessionAllowances.bufferMinutes,
+      })
+      .from(bookings)
+      .innerJoin(
+        purchaseSessionAllowances,
+        and(
+          eq(purchaseSessionAllowances.id, bookings.sessionAllowanceId),
+          eq(purchaseSessionAllowances.purchaseId, bookings.purchaseId),
+          eq(purchaseSessionAllowances.producerId, bookings.producerId),
+        ),
+      )
+      .where(
+        and(
+          eq(bookings.producerId, producerId),
+          inArray(bookings.status, ["pending_approval", "confirmed"]),
+        ),
+      ),
+  ]);
+  const producer = producerRows[0];
+  if (!producer) throw new SessionBookingDomainError("NOT_FOUND", "The producer was not found");
+  return {
+    studioTimeZone: producer.timeZone,
+    maxSessionsPerDay: producer.maxSessionsPerDay,
+    availabilityBlocks: blocks,
+    blackouts,
+    existingBookings: schedule,
+  };
+}
+
+export type ProducerManualSessionAvailabilitySnapshot = Readonly<{
+  now: Date;
+  studioTimeZone: string;
+  durationMin: number;
+  bufferMinutes: number;
+  minLeadHours: number;
+  maxSessionsPerDay: number | null;
+  availabilityBlocks: ProducerManualSchedulingContext["availabilityBlocks"];
+  blackouts: ProducerManualSchedulingContext["blackouts"];
+  existingBookings: ProducerManualSchedulingContext["existingBookings"];
+}>;
+
+export type ProducerManualSessionAvailability = Readonly<{
+  studioTimeZone: string;
+  durationMin: number;
+  today: string;
+  days: readonly ExactSessionSlotDay[];
+}>;
+
+export async function loadProducerManualSessionAvailabilitySnapshot(
+  db: Db,
+  input: Readonly<{
+    producerId: string;
+    clientId: string;
+    projectId: string;
+    now?: Date;
+  }>,
+): Promise<ProducerManualSessionAvailabilitySnapshot> {
+  const [options, scheduling] = await Promise.all([
+    listProducerManualSessionOptions(db, input.producerId),
+    loadProducerManualSchedulingContext(db, input.producerId),
+  ]);
+  const project = resolveProducerManualProject(options, input);
+  return {
+    now: input.now ? new Date(input.now) : new Date(),
+    studioTimeZone: scheduling.studioTimeZone,
+    durationMin: project.entitlement.durationMin,
+    bufferMinutes: project.entitlement.bufferMinutes,
+    minLeadHours: project.entitlement.minLeadHours,
+    maxSessionsPerDay: scheduling.maxSessionsPerDay,
+    availabilityBlocks: scheduling.availabilityBlocks,
+    blackouts: scheduling.blackouts,
+    existingBookings: scheduling.existingBookings,
+  };
+}
+
+export function generateProducerManualSessionAvailability(
+  snapshot: ProducerManualSessionAvailabilitySnapshot,
+  googleBusyIntervals: readonly SessionBusyInterval[] = [],
+): ProducerManualSessionAvailability {
+  const generated = generateProducerExactSessionSlots({
+    now: snapshot.now,
+    canBook: true,
+    producerTimeZone: snapshot.studioTimeZone,
+    durationMin: snapshot.durationMin,
+    bufferMinutes: snapshot.bufferMinutes,
+    minLeadHours: snapshot.minLeadHours,
+    maxSessionsPerDay: snapshot.maxSessionsPerDay,
+    availabilityBlocks: snapshot.availabilityBlocks,
+    blackouts: snapshot.blackouts,
+    existingBookings: snapshot.existingBookings,
+    googleBusyIntervals,
+  });
+  return {
+    studioTimeZone: snapshot.studioTimeZone,
+    durationMin: snapshot.durationMin,
+    today: generated.today,
+    days: generated.days,
+  };
+}
+
 export type PreviewProducerManualSessionInput = Readonly<{
   producerId: string;
   clientId: string;
@@ -402,66 +546,18 @@ export async function previewProducerManualSession(
     now,
   });
 
-  const [producerRows, blocks, blackouts, schedule] = await Promise.all([
-    db
-      .select({
-        timeZone: producers.timezone,
-        maxSessionsPerDay: producers.maxSessionsPerDay,
-      })
-      .from(producers)
-      .where(eq(producers.id, input.producerId))
-      .limit(1),
-    db
-      .select({
-        weekday: availabilityBlocks.weekday,
-        startMin: availabilityBlocks.startMin,
-        endMin: availabilityBlocks.endMin,
-      })
-      .from(availabilityBlocks)
-      .where(eq(availabilityBlocks.producerId, input.producerId)),
-    db
-      .select({
-        startDate: availabilityBlackouts.startDate,
-        endDate: availabilityBlackouts.endDate,
-      })
-      .from(availabilityBlackouts)
-      .where(eq(availabilityBlackouts.producerId, input.producerId)),
-    db
-      .select({
-        id: bookings.id,
-        startsAt: bookings.startsAt,
-        durationMin: bookings.durationMin,
-        bufferMinutes: purchaseSessionAllowances.bufferMinutes,
-      })
-      .from(bookings)
-      .innerJoin(
-        purchaseSessionAllowances,
-        and(
-          eq(purchaseSessionAllowances.id, bookings.sessionAllowanceId),
-          eq(purchaseSessionAllowances.purchaseId, bookings.purchaseId),
-          eq(purchaseSessionAllowances.producerId, bookings.producerId),
-        ),
-      )
-      .where(
-        and(
-          eq(bookings.producerId, input.producerId),
-          inArray(bookings.status, ["pending_approval", "confirmed"]),
-        ),
-      ),
-  ]);
-  const producer = producerRows[0];
-  if (!producer) throw new SessionBookingDomainError("NOT_FOUND", "The producer was not found");
+  const scheduling = await loadProducerManualSchedulingContext(db, input.producerId);
   const issues = classifySessionSlot({
-    actor: "producer",
+    actor: "producer_google_hard",
     startsAt: input.startsAt,
     durationMin: entitlement.durationMin,
     bufferMinutes: entitlement.bufferMinutes,
-    producerTimeZone: producer.timeZone,
-    availabilityBlocks: blocks,
-    blackouts,
-    existingBookings: schedule,
+    producerTimeZone: scheduling.studioTimeZone,
+    availabilityBlocks: scheduling.availabilityBlocks,
+    blackouts: scheduling.blackouts,
+    existingBookings: scheduling.existingBookings,
     ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
-    maxSessionsPerDay: producer.maxSessionsPerDay,
+    maxSessionsPerDay: scheduling.maxSessionsPerDay,
     minLeadHours: entitlement.minLeadHours,
     now,
   });

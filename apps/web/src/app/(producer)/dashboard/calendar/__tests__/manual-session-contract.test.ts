@@ -13,7 +13,7 @@ const manualUi = readFileSync(new URL("../manual-session-modal.tsx", import.meta
 const calendarActions = readFileSync(new URL("../calendar-actions.ts", import.meta.url), "utf8");
 const decisionUi = readFileSync(new URL("../change-request-decision.tsx", import.meta.url), "utf8");
 const rescheduleUi = readFileSync(
-  new URL("../reschedule-session-modal.tsx", import.meta.url),
+  new URL("../session-management-sheet.tsx", import.meta.url),
   "utf8",
 );
 
@@ -26,10 +26,12 @@ function between(source: string, start: string, end: string): string {
 }
 
 describe("producer manual session contract", () => {
-  it("keeps manual options, preview, and create producer-only and server-derived", () => {
+  it("keeps manual options, availability, preview, and create producer-only and server-derived", () => {
     const manualRouter = between(routerSource, "  manual: router({", "  reschedule: router({");
     const createRouter = manualRouter.slice(manualRouter.indexOf("    create: producerProcedure"));
-    expect(manualRouter.match(/producerProcedure/g)?.length).toBe(3);
+    expect(manualRouter.match(/producerProcedure/g)?.length).toBe(4);
+    expect(manualRouter).toContain("loadProducerManualSessionAvailabilitySnapshot(");
+    expect(manualRouter).toContain("generateProducerManualSessionAvailability(");
     expect(manualRouter).toContain("createProducerManualSessionBooking(");
     expect(manualRouter).toContain("previewProducerManualSession(");
     expect(createRouter.indexOf("findProducerManualSessionBookingReplay(")).toBeGreaterThanOrEqual(
@@ -54,24 +56,35 @@ describe("producer manual session contract", () => {
     expect(manualRouter).toContain("deliverCalendarJobAfterResponse");
   });
 
-  it("shows the short responsive form and warning confirmation", () => {
-    expect(manualUi).toContain("Choose an existing client and project");
-    expect(manualUi).toContain("fixed by this project’s package");
+  it("exposes privacy-safe exact ISO slots to the calendar actions", () => {
+    expect(calendarActions).toContain("getManualSessionAvailability");
+    expect(calendarActions).toContain("getSessionRescheduleAvailability");
+    expect(calendarActions).toContain("ProducerExactSessionAvailability");
+    expect(routerSource).toContain("slot.startsAt.toISOString()");
+    expect(routerSource).toContain("slot.endsAt.toISOString()");
+    expect(calendarActions).toContain("startsAt: string");
+    expect(calendarActions).toContain("startsAtIso?: string");
+    expect(calendarActions).not.toMatch(/summary|description|attendees|location/);
+  });
+
+  it("shows progressive centered wheels and preserves warning confirmation", () => {
+    expect(manualUi).toContain("Choose a client, project, and available studio time");
     expect(manualUi).toContain('isDesktopSheet ? "right" : "bottom"');
     expect(manualUi).toContain("!max-h-[calc(var(--sk-viewport-height,100dvh)-12px)]");
     expect(manualUi).toContain("Book a session");
+    expect(manualUi).toContain("CenteredWheelPicker");
     expect(manualUi).toContain('label="Client"');
     expect(manualUi).toContain('label="Project"');
+    expect(manualUi).toContain('label="Date"');
+    expect(manualUi).toContain('label="Start"');
+    expect(manualUi).toContain("grid-cols-2");
+    expect(manualUi).toContain("Finding available times");
+    expect(manualUi).toContain("· Full");
+    expect(manualUi).toContain("startsAtIso");
     expect(manualUi).toContain("Edit title");
     expect(manualUi).toContain("Payment due");
     expect(manualUi).toContain("onDraftChange");
-    expect(manualUi).toContain("reveal-up-delay-2");
-    expect(manualUi).toContain("grid-cols-1");
-    expect(manualUi).toContain("sm:grid-cols-2");
-    expect(manualUi).toContain("24 * 4");
-    expect(manualUi).toContain('data-testid="manual-time-summary"');
-    expect(manualUi).toContain("isDesktopSheet || client");
-    expect(manualUi).toContain("multiple session packages");
+    expect(manualUi).toContain("multiple active session packages");
     expect(manualUi).toContain("Check these warnings");
     expect(manualUi).toContain("Create anyway");
     expect(calendarActions).toContain('"GOOGLE_BUSY"');
@@ -120,20 +133,20 @@ describe("session change request contract", () => {
     );
     expect(decisionUi).toContain('reducedProtection ? "info" : "success"');
     expect(decisionUi).toContain("h-11");
-    expect(rescheduleUi).toContain("The duration and billing treatment");
+    expect(rescheduleUi).toContain("Duration and billing stay the same");
+    expect(rescheduleUi).toContain("getSessionRescheduleAvailability");
+    expect(rescheduleUi).toContain("CenteredWheelPicker");
+    expect(rescheduleUi).toContain("startsAtIso");
     expect(rescheduleUi).toContain("Check these warnings");
     expect(rescheduleUi).toContain("Reschedule anyway");
     expect(rescheduleUi).toContain("GoogleBusyProtectionWarning");
     expect(rescheduleUi).toMatch(
       /result\.preview\.warnings\.length > 0 \|\|\s*result\.preview\.googleCalendarProtection === "reduced"/,
     );
-    expect(rescheduleUi).toContain(
-      "This time does not overlap another Skitza session, but Google busy times could not be checked.",
-    );
     expect(rescheduleUi).toContain("warning.code as ManualWarningCode");
     expect(calendarActions).toContain("googleCalendarProtection: result.googleCalendarProtection");
     expect(rescheduleUi).toContain('result.googleCalendarProtection === "reduced"');
-    expect(rescheduleUi).toContain("Google busy-time protection was limited for this check");
+    expect(rescheduleUi).toContain("Google availability could not be fully checked");
     expect(rescheduleUi).toContain("h-11");
   });
 });

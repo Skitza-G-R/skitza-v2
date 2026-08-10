@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProducerManualSessionOptions } from "~/server/domain/session-booking/manual";
@@ -10,6 +10,7 @@ import { ManualSessionModal } from "../manual-session-modal";
 
 const actionMocks = vi.hoisted(() => ({
   createManualSession: vi.fn(),
+  getManualSessionAvailability: vi.fn(),
   previewManualSession: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("~/components/runtime-state/online-required-link", () => ({
 
 vi.mock("../calendar-actions", () => ({
   createManualSession: actionMocks.createManualSession,
+  getManualSessionAvailability: actionMocks.getManualSessionAvailability,
   previewManualSession: actionMocks.previewManualSession,
 }));
 
@@ -57,9 +59,48 @@ const options: ProducerManualSessionOptions = {
   ],
 };
 
+function exactAvailability(durationMin = 240, protection: "active" | "reduced" = "active") {
+  return {
+    ok: true as const,
+    availability: {
+      studioTimeZone: "Asia/Jerusalem",
+      durationMin,
+      today: "2026-08-10",
+      googleCalendarProtection: protection,
+      days: [
+        {
+          date: "2026-08-13",
+          slots: [
+            {
+              startsAt: "2026-08-13T11:30:00.000Z",
+              endsAt: new Date(
+                new Date("2026-08-13T11:30:00.000Z").getTime() + durationMin * 60_000,
+              ).toISOString(),
+              studioDate: "2026-08-13",
+              studioStartMin: 870,
+            },
+            {
+              startsAt: "2026-08-13T12:00:00.000Z",
+              endsAt: new Date(
+                new Date("2026-08-13T12:00:00.000Z").getTime() + durationMin * 60_000,
+              ).toISOString(),
+              studioDate: "2026-08-13",
+              studioStartMin: 900,
+            },
+          ],
+        },
+        { date: "2026-08-14", slots: [] },
+      ],
+    },
+  };
+}
+
 beforeEach(() => {
   actionMocks.createManualSession.mockReset();
+  actionMocks.getManualSessionAvailability.mockReset();
   actionMocks.previewManualSession.mockReset();
+  actionMocks.getManualSessionAvailability.mockResolvedValue(exactAvailability());
+  installMatchMedia(false);
 });
 
 afterEach(() => {
@@ -83,40 +124,87 @@ function installMatchMedia(isDesktop: boolean): void {
   );
 }
 
-function chooseClientAndProject(projectId: string): void {
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "client-1" } });
-  fireEvent.change(screen.getByLabelText("Project"), { target: { value: projectId } });
+async function chooseClientAndProject(projectName = "Album production"): Promise<void> {
+  fireEvent.click(screen.getByRole("option", { name: "Lior Tansky" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("option", { name: projectName }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByRole("listbox", { name: "Date" });
+}
+
+function finishDateTimeStep(): void {
+  const button = screen
+    .getAllByRole("button", { name: "Done" })
+    .find((candidate) => !candidate.hasAttribute("aria-expanded"));
+  if (!button) throw new Error("Date and time Done button was not rendered");
+  fireEvent.click(button);
 }
 
 describe("ManualSessionModal", () => {
-  it("starts from the calendar slot and publishes the server-derived duration", () => {
-    const drafts: Array<ManualSessionDraft | null> = [];
+  it("keeps the client prompt readable and preserves search focus when filtering a selection", async () => {
+    const searchableOptions: ProducerManualSessionOptions = {
+      ...options,
+      clients: [
+        ...(options.clients[0] ? [options.clients[0]] : []),
+        ...Array.from({ length: 8 }, (_, index) => ({
+          id: `client-${String(index + 2)}`,
+          name: `Client ${String(index + 2)}`,
+          email: `client-${String(index + 2)}@example.com`,
+          projects: [],
+        })),
+      ],
+    };
+    render(
+      <ManualSessionModal
+        open
+        onOpenChange={vi.fn()}
+        options={searchableOptions}
+        initialSlot={null}
+      />,
+    );
 
+    const prompt = screen.getByRole("option", { name: "Choose a client" });
+    expect(prompt.getAttribute("aria-disabled")).toBe("true");
+    expect(prompt.className).not.toContain("opacity-45");
+
+    fireEvent.click(screen.getByRole("option", { name: "Lior Tansky" }));
+    const search = screen.getByRole<HTMLInputElement>("searchbox", { name: "Search clients" });
+    search.focus();
+    fireEvent.change(search, { target: { value: "Client 2" } });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(search);
+    });
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Continue" }).disabled).toBe(true);
+  });
+
+  it("uses progressive, separate client/project wheels and exact duration-aware time wheels", async () => {
+    const drafts: Array<ManualSessionDraft | null> = [];
     render(
       <ManualSessionModal
         open
         onOpenChange={vi.fn()}
         options={options}
-        initialSlot={{ studioDate: "2026-08-13", studioStartMin: 14 * 60 + 30 }}
+        initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
         onDraftChange={(draft) => {
           drafts.push(draft);
         }}
       />,
     );
 
-    expect(screen.getByText("Thu 13 Aug")).toBeTruthy();
-    expect(screen.getByText("14:30")).toBeTruthy();
-    expect(screen.queryByLabelText("Date")).toBeNull();
+    expect(screen.getByRole("listbox", { name: "Client" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Project" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
-    expect(screen.getByLabelText<HTMLInputElement>("Date").value).toBe("2026-08-13");
-    expect(screen.getByLabelText<HTMLSelectElement>("Start").value).toBe("14:30");
-    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
-    expect(screen.queryByLabelText("Date")).toBeNull();
+    await chooseClientAndProject();
 
-    chooseClientAndProject("project-included");
-
-    expect(screen.getByText("14:30–18:30")).toBeTruthy();
+    expect(actionMocks.getManualSessionAvailability).toHaveBeenCalledWith({
+      clientId: "client-1",
+      projectId: "project-included",
+    });
+    expect(screen.getByRole("listbox", { name: "Date" })).not.toBe(
+      screen.getByRole("listbox", { name: "Start" }),
+    );
+    expect(screen.getByRole("option", { name: "14:30" })).toBeTruthy();
     expect(drafts.at(-1)).toEqual({
       studioDate: "2026-08-13",
       studioStartMin: 870,
@@ -124,7 +212,44 @@ describe("ManualSessionModal", () => {
     });
   });
 
-  it("keeps client and project separate and reveals optional details on demand", () => {
+  it("keeps date and time side by side, centered, and greys full dates on mobile", async () => {
+    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
+    expect(document.querySelector('[data-native-sheet="bottom"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Book session" })).toBeNull();
+
+    await chooseClientAndProject();
+
+    const dateWheel = screen.getByRole("listbox", { name: "Date" });
+    const timeWheel = screen.getByRole("listbox", { name: "Start" });
+    expect(dateWheel.parentElement?.parentElement?.parentElement?.className).toContain(
+      "grid-cols-2",
+    );
+    expect(timeWheel.className).toContain("text-center");
+    expect(dateWheel.dataset.emphasis).toBe("prominent");
+    expect(timeWheel.dataset.emphasis).toBe("prominent");
+    expect(screen.getByRole("option", { name: "14:30" }).className).toContain("text-center");
+    expect(
+      screen.getByRole("option", { name: /Fri 14 Aug, unavailable/ }).getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(screen.queryByRole("option", { name: "00:00" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Book session" })).toBeNull();
+    finishDateTimeStep();
+    expect(screen.getByRole("button", { name: "Book session" })).toBeTruthy();
+  });
+
+  it("uses the same picker logic in the desktop right sidebar", async () => {
+    installMatchMedia(true);
+    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-native-sheet="right"]')).not.toBeNull();
+    });
+    await chooseClientAndProject();
+    expect(screen.getByRole("listbox", { name: "Date" })).toBeTruthy();
+    expect(screen.getByRole("listbox", { name: "Start" })).toBeTruthy();
+  });
+
+  it("keeps title and billing progressive and requires a zero-credit choice", async () => {
+    actionMocks.getManualSessionAvailability.mockResolvedValue(exactAvailability(120));
     render(
       <ManualSessionModal
         open
@@ -133,85 +258,22 @@ describe("ManualSessionModal", () => {
         initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
       />,
     );
+    await chooseClientAndProject("Single production");
 
-    const client = screen.getByLabelText("Client");
-    expect(screen.queryByLabelText("Project")).toBeNull();
-
-    chooseClientAndProject("project-included");
-    const project = screen.getByLabelText("Project");
-    expect(client).not.toBe(project);
+    expect(screen.queryByRole("button", { name: "Book session" })).toBeNull();
+    expect(screen.getByRole("radio", { name: /Complimentary/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Payment due/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /Payment due/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    const bookButton = screen.getByRole<HTMLButtonElement>("button", { name: "Book session" });
+    expect(bookButton.disabled).toBe(false);
 
     expect(screen.queryByLabelText("Session title (optional)")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit title" }));
     expect(screen.getByLabelText("Session title (optional)")).toBeTruthy();
-
-    const details = screen.getByRole("button", { name: "Change billing" }).closest("section");
-    expect(details).not.toBeNull();
-    expect(within(details as HTMLElement).queryByRole("radio")).toBeNull();
-    fireEvent.click(within(details as HTMLElement).getByRole("button", { name: "Change billing" }));
-    expect(within(details as HTMLElement).getAllByRole("radio")).toHaveLength(2);
   });
 
-  it("uses a content-height mobile sheet and only summarizes a complete 15-minute slot", () => {
-    installMatchMedia(false);
-    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
-
-    expect(document.querySelector('[data-native-sheet="bottom"]')).not.toBeNull();
-    expect(screen.queryByTestId("manual-time-summary")).toBeNull();
-    expect(screen.queryByLabelText("Project")).toBeNull();
-
-    const editor = document.querySelector("#manual-time-editor");
-    expect(editor?.className).toContain("grid-cols-1");
-    expect(editor?.className).toContain("sm:grid-cols-2");
-
-    const start = screen.getByLabelText<HTMLSelectElement>("Start");
-    const values = Array.from(start.options)
-      .map((option) => option.value)
-      .filter(Boolean);
-    expect(values).toHaveLength(96);
-    expect(values.every((value) => Number(value.slice(3)) % 15 === 0)).toBe(true);
-
-    fireEvent.change(start, { target: { value: "10:15" } });
-    expect(screen.queryByTestId("manual-time-summary")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-10" } });
-
-    expect(screen.getByTestId("manual-time-summary").textContent).toContain("10:15");
-    expect(screen.queryByLabelText("Date")).toBeNull();
-  });
-
-  it("keeps the right drawer and the disabled Project control on desktop", async () => {
-    installMatchMedia(true);
-    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
-
-    await waitFor(() => {
-      expect(document.querySelector('[data-native-sheet="right"]')).not.toBeNull();
-    });
-    expect(screen.getByLabelText<HTMLSelectElement>("Project").disabled).toBe(true);
-  });
-
-  it("requires an explicit complimentary or payment-due choice when credits are exhausted", () => {
-    render(
-      <ManualSessionModal
-        open
-        onOpenChange={vi.fn()}
-        options={options}
-        initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
-      />,
-    );
-
-    chooseClientAndProject("project-exhausted");
-
-    const bookButton = screen.getByRole("button", { name: "Book session" });
-    expect((bookButton as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("radio", { name: /Complimentary/ })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: /Payment due/ })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("radio", { name: /Payment due/ }));
-    expect((bookButton as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByText("Payment due is recorded; no charge is created.")).toBeTruthy();
-  });
-
-  it("reopens the time editor when preview finds a hard conflict", async () => {
+  it("returns to the exact time wheels when final preview finds a hard conflict", async () => {
     actionMocks.previewManualSession.mockResolvedValue({
       ok: true,
       preview: {
@@ -220,7 +282,6 @@ describe("ManualSessionModal", () => {
         googleCalendarProtection: "active",
       },
     });
-
     render(
       <ManualSessionModal
         open
@@ -229,30 +290,23 @@ describe("ManualSessionModal", () => {
         initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
       />,
     );
-
-    chooseClientAndProject("project-included");
-    expect(screen.queryByLabelText("Date")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Book session" }));
+    await chooseClientAndProject();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Book session" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "This time overlaps another session.",
     );
-    expect(screen.getByLabelText<HTMLInputElement>("Date").value).toBe("2026-08-13");
+    expect(screen.getByRole("listbox", { name: "Date" })).toBeTruthy();
   });
 
-  it("preserves the draft through warning review and acknowledges warnings on create", async () => {
-    const drafts: Array<ManualSessionDraft | null> = [];
+  it("preserves the exact UTC slot through warning review and create", async () => {
     const onOpenChange = vi.fn();
     actionMocks.previewManualSession.mockResolvedValue({
       ok: true,
       preview: {
         hardConflicts: [],
-        warnings: [
-          {
-            code: "OUTSIDE_AVAILABILITY",
-            message: "This time is outside your availability.",
-          },
-        ],
+        warnings: [{ code: "OUTSIDE_AVAILABILITY", message: "Outside normal hours." }],
         googleCalendarProtection: "active",
       },
     });
@@ -260,66 +314,166 @@ describe("ManualSessionModal", () => {
       ok: true,
       session: { googleCalendarProtection: "active" },
     });
-
     render(
       <ManualSessionModal
         open
         onOpenChange={onOpenChange}
         options={options}
         initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
-        onDraftChange={(draft) => {
-          drafts.push(draft);
-        }}
       />,
     );
-
-    chooseClientAndProject("project-included");
-    fireEvent.click(screen.getByRole("button", { name: "Book session" }));
-
-    expect(await screen.findByRole("heading", { name: "Check these warnings" })).toBeTruthy();
-    expect(screen.getByText("This time is outside your availability.")).toBeTruthy();
-
-    const backButton = screen.getByRole<HTMLButtonElement>("button", { name: "Back" });
-    await waitFor(() => {
-      expect(backButton.disabled).toBe(false);
-    });
-    fireEvent.click(backButton);
-    await waitFor(() => {
-      expect(screen.getByLabelText<HTMLSelectElement>("Client").value).toBe("client-1");
-      expect(screen.getByLabelText<HTMLSelectElement>("Project").value).toBe("project-included");
-    });
-
+    await chooseClientAndProject();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Book session" }));
     expect(await screen.findByRole("heading", { name: "Check these warnings" })).toBeTruthy();
-    const createAnywayButton = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Create anyway",
-    });
-    await waitFor(() => {
-      expect(createAnywayButton.disabled).toBe(false);
-    });
-    fireEvent.click(createAnywayButton);
+    fireEvent.click(screen.getByRole("button", { name: "Create anyway" }));
 
     await waitFor(() => {
       expect(actionMocks.createManualSession).toHaveBeenCalledTimes(1);
     });
-    const createInput: unknown = actionMocks.createManualSession.mock.calls[0]?.[0];
-    expect(createInput).toMatchObject({
+    expect(actionMocks.createManualSession.mock.calls[0]?.[0]).toMatchObject({
       clientId: "client-1",
       projectId: "project-included",
       studioDate: "2026-08-13",
       studioStartMin: 870,
-      title: "Full production",
+      startsAtIso: "2026-08-13T11:30:00.000Z",
       billingTreatment: "included",
       acknowledgedWarnings: ["OUTSIDE_AVAILABILITY"],
     });
-    expect(
-      typeof createInput === "object" &&
-        createInput !== null &&
-        "operationKey" in createInput &&
-        typeof createInput.operationKey === "string" &&
-        createInput.operationKey.startsWith("producer-manual:"),
-    ).toBe(true);
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(drafts.at(-1)).toBeNull();
+  });
+
+  it("locks and keeps the sheet open while previewing, then saves the immutable reviewed slot", async () => {
+    const onOpenChange = vi.fn();
+    let resolvePreview!: (value: {
+      ok: true;
+      preview: {
+        hardConflicts: never[];
+        warnings: { code: "OUTSIDE_AVAILABILITY"; message: string }[];
+        googleCalendarProtection: "active";
+      };
+    }) => void;
+    const previewPromise = new Promise<Parameters<typeof resolvePreview>[0]>((resolve) => {
+      resolvePreview = resolve;
+    });
+    actionMocks.previewManualSession.mockReturnValue(previewPromise);
+    actionMocks.createManualSession.mockResolvedValue({
+      ok: true,
+      session: { googleCalendarProtection: "active" },
+    });
+    render(
+      <ManualSessionModal
+        open
+        onOpenChange={onOpenChange}
+        options={options}
+        initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
+      />,
+    );
+    await chooseClientAndProject();
+    fireEvent.click(screen.getByRole("button", { name: "Edit title" }));
+    fireEvent.change(screen.getByLabelText("Session title (optional)"), {
+      target: { value: "Reviewed title" },
+    });
+    finishDateTimeStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Book session" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("manual-session-controls").hasAttribute("inert")).toBe(true);
+    });
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Close" }).disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Session title (optional)"), {
+      target: { value: "Mutated title" },
+    });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePreview({
+        ok: true,
+        preview: {
+          hardConflicts: [],
+          warnings: [{ code: "OUTSIDE_AVAILABILITY", message: "Outside normal hours." }],
+          googleCalendarProtection: "active",
+        },
+      });
+      await previewPromise;
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Create anyway" }));
+
+    await waitFor(() => {
+      expect(actionMocks.createManualSession).toHaveBeenCalledTimes(1);
+    });
+    expect(actionMocks.createManualSession.mock.calls[0]?.[0]).toMatchObject({
+      studioStartMin: 870,
+      startsAtIso: "2026-08-13T11:30:00.000Z",
+      title: "Reviewed title",
+      acknowledgedReducedGoogleProtection: false,
+    });
+  });
+
+  it("requires a visible second review if Google protection degrades during the final check", async () => {
+    const onOpenChange = vi.fn();
+    actionMocks.previewManualSession.mockResolvedValue({
+      ok: true,
+      preview: {
+        hardConflicts: [],
+        warnings: [],
+        googleCalendarProtection: "active",
+      },
+    });
+    actionMocks.createManualSession
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "Google availability changed. Review reduced protection before continuing.",
+        requiresReducedGoogleProtectionReview: true,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        session: { googleCalendarProtection: "reduced" },
+      });
+    render(
+      <ManualSessionModal
+        open
+        onOpenChange={onOpenChange}
+        options={options}
+        initialSlot={{ studioDate: "2026-08-13", studioStartMin: 870 }}
+      />,
+    );
+    await chooseClientAndProject();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Book session" }));
+
+    expect(await screen.findByRole("heading", { name: "Review this booking" })).toBeTruthy();
+    expect(screen.getByText(/Google busy-time check is limited/i)).toBeTruthy();
+    expect(actionMocks.createManualSession.mock.calls[0]?.[0]).toMatchObject({
+      acknowledgedReducedGoogleProtection: false,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Book session" }));
+    await waitFor(() => {
+      expect(actionMocks.createManualSession).toHaveBeenCalledTimes(2);
+    });
+    expect(actionMocks.createManualSession.mock.calls[1]?.[0]).toMatchObject({
+      acknowledgedReducedGoogleProtection: true,
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows reduced Google protection without inventing busy or event details", async () => {
+    actionMocks.getManualSessionAvailability.mockResolvedValue(exactAvailability(240, "reduced"));
+    const reduced = vi.fn();
+    render(
+      <ManualSessionModal
+        open
+        onOpenChange={vi.fn()}
+        options={options}
+        onGoogleBusyProtectionReduced={reduced}
+      />,
+    );
+    await chooseClientAndProject();
+    expect(reduced).toHaveBeenCalled();
+    const warning = screen.getByText(/Google busy-time check is limited/i);
+    expect(within(warning.closest("div") ?? document.body).queryByText(/event title/i)).toBeNull();
   });
 });

@@ -11,7 +11,7 @@
 //
 // Pure visual; data comes pre-resolved from page.tsx.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   calendarSlotFromPointer,
@@ -22,7 +22,13 @@ import {
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { isSameDay } from "./calendar-week";
 import { useManualSessionLauncher } from "./manual-session-launcher-context";
+import {
+  buildScheduleGoogleBusyModel,
+  type ScheduleGoogleBusyDay,
+  type ScheduleGoogleBusyModel,
+} from "./schedule-google-busy";
 import { deriveScheduleHourRange, type ScheduleAvailabilityBlock } from "./schedule-hours";
+import type { GoogleCalendarBusyWeekView } from "~/server/google-calendar/busy-week";
 
 export type ScheduleSession = {
   id: string;
@@ -32,6 +38,8 @@ export type ScheduleSession = {
   artistEmail: string;
   packageName: string | null;
   status: "pending_approval" | "confirmed";
+  canManage?: boolean;
+  // Legacy fixture alias; production callers use canManage.
   canReschedule?: boolean;
 };
 
@@ -52,6 +60,8 @@ export function ScheduleWeekGrid({
   showNowLine,
   initialNow,
   timeZone,
+  googleBusyWeek = null,
+  onManageSession,
   onRescheduleSession,
 }: {
   week: readonly Date[];
@@ -61,6 +71,9 @@ export function ScheduleWeekGrid({
   showNowLine: boolean;
   initialNow: string;
   timeZone: string;
+  googleBusyWeek?: GoogleCalendarBusyWeekView | null;
+  onManageSession?: (sessionId: string) => void;
+  // Legacy fixture alias; production callers use onManageSession.
   onRescheduleSession?: (sessionId: string) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
@@ -68,6 +81,31 @@ export function ScheduleWeekGrid({
   const { openManualSession, provisionalSlot } = useManualSessionLauncher();
   const { startHour, endHour } = deriveScheduleHourRange(availabilityBlocks, sessions, timeZone);
   const hoursVisible = endHour - startHour;
+  const googleBusyModel: ScheduleGoogleBusyModel = useMemo(() => {
+    const busyView = googleBusyWeek ?? {
+      protection: "skitza_only" as const,
+      health: "unavailable" as const,
+      intervals: [],
+    };
+    return buildScheduleGoogleBusyModel({
+      weekStart: studioDateKey(week[0] ?? new Date(initialNow)),
+      studioTimeZone: timeZone,
+      workingBlocks: availabilityBlocks.flatMap((block) =>
+        typeof block.weekday === "number"
+          ? [{ weekday: block.weekday, startMin: block.startMin, endMin: block.endMin }]
+          : Array.from({ length: 7 }, (_, weekday) => ({
+              weekday,
+              startMin: block.startMin,
+              endMin: block.endMin,
+            })),
+      ),
+      protection: busyView.protection,
+      health: busyView.health,
+      intervals: busyView.intervals,
+      visibleStartMin: startHour * 60,
+      visibleEndMin: endHour * 60,
+    });
+  }, [availabilityBlocks, endHour, googleBusyWeek, initialNow, startHour, timeZone, week]);
 
   // Measure the section and write `--hour-px` so the grid rows + the
   // SessionBlock absolute math stay perfectly synced with the actual
@@ -131,10 +169,26 @@ export function ScheduleWeekGrid({
           const day = week[i];
           if (!day) return null;
           const isToday = i === todayIdx;
+          const studioDate = studioDateKey(day);
+          const busyDay = googleBusyModel.days.find(
+            (candidate) => candidate.studioDate === studioDate,
+          );
+          const unavailable = busyDay?.state === "google_full" || busyDay?.state === "closed";
           return (
             <div
               key={label}
-              className="flex flex-col items-center justify-center border-b border-l border-[rgb(var(--border-subtle))] px-1 first-of-type:border-l-0"
+              data-calendar-day-state={busyDay?.state}
+              title={
+                busyDay?.state === "google_full"
+                  ? "Fully blocked by Google Calendar"
+                  : busyDay?.state === "closed"
+                    ? "Studio closed"
+                    : undefined
+              }
+              className={[
+                "flex flex-col items-center justify-center border-b border-l border-[rgb(var(--border-subtle))] px-1 first-of-type:border-l-0",
+                unavailable ? "bg-[rgb(var(--bg-sunken))] opacity-55" : "",
+              ].join(" ")}
               style={{ height: HEADER_ROW_PX }}
             >
               <div
@@ -176,7 +230,8 @@ export function ScheduleWeekGrid({
             provisionalSlot={provisionalSlot}
             hoverSlot={hoverSlot}
             setHoverSlot={setHoverSlot}
-            onRescheduleSession={onRescheduleSession}
+            onManageSession={onManageSession ?? onRescheduleSession}
+            googleBusyModel={googleBusyModel}
           />
         ))}
 
@@ -210,7 +265,8 @@ function HourRow({
   provisionalSlot,
   hoverSlot,
   setHoverSlot,
-  onRescheduleSession,
+  onManageSession,
+  googleBusyModel,
 }: {
   hour: number;
   hourIdx: number;
@@ -222,7 +278,8 @@ function HourRow({
   provisionalSlot: ManualSessionDraft | null;
   hoverSlot: ManualSessionSlot | null;
   setHoverSlot: (slot: ManualSessionSlot | null) => void;
-  onRescheduleSession: ((sessionId: string) => void) | undefined;
+  onManageSession: ((sessionId: string) => void) | undefined;
+  googleBusyModel: ScheduleGoogleBusyModel;
 }) {
   return (
     <>
@@ -241,6 +298,9 @@ function HourRow({
         const dayMarker = week[dayIdx];
         if (!dayMarker) return null;
         const studioDate = studioDateKey(dayMarker);
+        const busyDay = googleBusyModel.days.find(
+          (candidate) => candidate.studioDate === studioDate,
+        );
         const provisionalStartsThisHour =
           provisionalSlot?.studioDate === studioDate &&
           Math.floor(provisionalSlot.studioStartMin / 60) === hour;
@@ -263,6 +323,10 @@ function HourRow({
                 cellTop: rect.top,
                 cellHeight: rect.height,
               });
+              if (!calendarSlotInteractive(next.studioStartMin, busyDay)) {
+                setHoverSlot(null);
+                return;
+              }
               if (
                 hoverSlot?.studioDate !== next.studioDate ||
                 hoverSlot.studioStartMin !== next.studioStartMin
@@ -275,23 +339,33 @@ function HourRow({
             }}
             onDoubleClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
-              openManualSession(
-                calendarSlotFromPointer({
-                  dayMarker,
-                  hour,
-                  clientY: event.clientY,
-                  cellTop: rect.top,
-                  cellHeight: rect.height,
-                }),
-              );
+              const slot = calendarSlotFromPointer({
+                dayMarker,
+                hour,
+                clientY: event.clientY,
+                cellTop: rect.top,
+                cellHeight: rect.height,
+              });
+              if (!calendarSlotInteractive(slot.studioStartMin, busyDay)) return;
+              openManualSession(slot);
             }}
             className="relative border-l border-[rgb(var(--border-subtle))] first-of-type:border-l-0 lg:cursor-pointer"
             style={{
               height: HOUR_ROW_CSS,
               borderTop: hourIdx === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
-              background: isToday ? "rgb(var(--brand-primary) / 0.025)" : undefined,
+              background:
+                busyDay?.state === "google_full"
+                  ? "rgb(var(--bg-sunken))"
+                  : isToday
+                    ? "rgb(var(--brand-primary) / 0.025)"
+                    : undefined,
             }}
           >
+            {busyDay?.bands
+              .filter((band) => Math.floor(band.startMin / 60) === hour)
+              .map((band) => (
+                <GoogleBusyBand key={band.key} band={band} hour={hour} />
+              ))}
             {hoverSlot?.studioDate === studioDate &&
             Math.floor(hoverSlot.studioStartMin / 60) === hour ? (
               <HoverSlotPreview
@@ -309,7 +383,7 @@ function HourRow({
                   key={s.id}
                   session={s}
                   timeZone={timeZone}
-                  onRescheduleSession={onRescheduleSession}
+                  onManageSession={onManageSession}
                 />
               ))}
             {provisionalStartsThisHour ? <ProvisionalSessionBlock draft={provisionalSlot} /> : null}
@@ -320,20 +394,62 @@ function HourRow({
   );
 }
 
+function calendarSlotInteractive(
+  startMin: number,
+  busyDay: ScheduleGoogleBusyDay | undefined,
+): boolean {
+  if (!busyDay) return true;
+  if (busyDay.state === "closed" || busyDay.state === "google_full") return false;
+  if (busyDay.workingStartMinutes.length > 0 && !busyDay.workingStartMinutes.includes(startMin)) {
+    return false;
+  }
+  return !busyDay.busyStartMinutes.includes(startMin);
+}
+
+function GoogleBusyBand({
+  band,
+  hour,
+}: {
+  band: ScheduleGoogleBusyDay["bands"][number];
+  hour: number;
+}) {
+  const topFraction = (band.startMin - hour * 60) / 60;
+  const heightHours = band.durationMin / 60;
+  const startLabel = formatStudioMinute(band.startMin);
+  const endLabel = formatStudioMinute(band.endMin);
+  return (
+    <div
+      role="img"
+      aria-label={`Google Calendar busy, ${startLabel} to ${endLabel}`}
+      data-google-busy-band
+      className="pointer-events-none absolute right-1 left-1 z-[1] flex items-center justify-center overflow-hidden rounded-[7px] border border-[rgb(var(--border-strong))] text-center text-[9px] font-bold tracking-[0.02em] text-[rgb(var(--fg-muted))]"
+      style={{
+        top: `calc(${String(topFraction)} * ${HOUR_ROW_CSS} + 2px)`,
+        height: `max(8px, calc(${String(heightHours)} * ${HOUR_ROW_CSS} - 4px))`,
+        background:
+          "repeating-linear-gradient(135deg, rgb(var(--bg-sunken)) 0 6px, rgb(var(--border-subtle) / 0.65) 6px 8px)",
+      }}
+      title={`Busy · Google Calendar · ${startLabel}–${endLabel}`}
+    >
+      {band.durationMin >= 30 ? <span className="px-1">Blocked</span> : null}
+    </div>
+  );
+}
+
 function SessionBlock({
   session,
   timeZone,
-  onRescheduleSession,
+  onManageSession,
 }: {
   session: ScheduleSession;
   timeZone: string;
-  onRescheduleSession: ((sessionId: string) => void) | undefined;
+  onManageSession: ((sessionId: string) => void) | undefined;
 }) {
   const dt = new Date(session.startsAt);
   const minute = calendarDateTimeParts(dt, timeZone).minute;
   const lenHours = session.durationMin / 60;
   const isPending = session.status !== "confirmed";
-  const canReschedule = !isPending && session.canReschedule !== false;
+  const canManage = session.canManage ?? session.canReschedule ?? !isPending;
   const isCompact = session.durationMin < 90;
 
   const timeLabel = formatCalendarTime(dt, timeZone);
@@ -360,11 +476,11 @@ function SessionBlock({
       data-calendar-session
       onDoubleClick={(event) => {
         event.stopPropagation();
-        if (canReschedule) onRescheduleSession?.(session.id);
+        if (canManage) onManageSession?.(session.id);
       }}
       className={[
         "absolute right-1 left-1 z-[2] overflow-hidden rounded-[10px] border select-none",
-        canReschedule
+        canManage
           ? "cursor-pointer transition-[transform,filter,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:brightness-[1.04] motion-reduce:transform-none motion-reduce:transition-none"
           : "",
         isPending
@@ -386,12 +502,8 @@ function SessionBlock({
         paddingBottom: isCompact ? 5 : 8,
       }}
       title={`${session.artistName} · ${timeRangeLabel} · ${serviceLabel}${
-        isPending
-          ? " · Pending"
-          : canReschedule
-            ? " · Double-click to change time"
-            : " · Change request pending"
-      }`}
+        isPending ? " · Pending" : ""
+      }${canManage ? " · Double-click to manage" : ""}`}
     >
       {/* Warm inset edge keeps the block legible over the grid lines. */}
       <span

@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("CalendarSwipeSurface", () => {
-  it("keeps the visible New session fallback and opens it with time controls", () => {
+  it("keeps the visible New session fallback and opens at the first missing step", () => {
     render(
       <CalendarSwipeSurface
         active="sessions"
@@ -69,11 +69,13 @@ describe("CalendarSwipeSurface", () => {
 
     expect(screen.getByRole("dialog")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Book a session" })).not.toBeNull();
-    expect(screen.getByLabelText("Date")).not.toBeNull();
-    expect(screen.getByLabelText("Start")).not.toBeNull();
+    expect(screen.getByRole("listbox", { name: "Client" })).not.toBeNull();
+    expect(screen.getByText("No clients available")).not.toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Date" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Start" })).toBeNull();
   });
 
-  it("carries a calendar slot through the surface into the drawer and live preview", () => {
+  it("preserves a double-clicked calendar slot while the progressive drawer starts with Client", () => {
     render(
       <CalendarSwipeSurface
         active="sessions"
@@ -91,9 +93,9 @@ describe("CalendarSwipeSurface", () => {
 
     fireEvent.doubleClick(screen.getByRole("button", { name: "Open calendar slot" }));
 
-    expect(screen.getByText("Thu 13 Aug")).not.toBeNull();
-    expect(screen.getByText("14:30")).not.toBeNull();
-    expect(screen.queryByLabelText("Date")).toBeNull();
+    expect(screen.getByRole("listbox", { name: "Client" })).not.toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Date" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Start" })).toBeNull();
     expect(screen.getByLabelText("Provisional slot").textContent).toBe("2026-08-13/870/pending");
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -139,6 +141,27 @@ describe("CalendarSwipeSurface", () => {
     );
 
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows the same warning when the live visible-week check reports reduced protection", () => {
+    render(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<GoogleProtectionShortcut />}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Report reduced protection" }));
+
+    expect(screen.getByRole("status").textContent).toContain("Google busy-time check is limited");
   });
 
   it("shows the adjacent destination immediately and does not freeze while server navigation resolves", () => {
@@ -217,9 +240,7 @@ describe("CalendarSwipeSurface", () => {
         .closest("[role='tabpanel']")
         ?.getAttribute("aria-hidden"),
     ).toBe("true");
-    const inactiveSessionsPanel = screen
-      .getByText("Sessions content")
-      .closest("[role='tabpanel']");
+    const inactiveSessionsPanel = screen.getByText("Sessions content").closest("[role='tabpanel']");
     expect(inactiveSessionsPanel?.className).toContain("absolute inset-0 overflow-hidden");
     expect(inactiveSessionsPanel?.className).not.toContain("min-h-full");
     expect(
@@ -274,5 +295,20 @@ function CalendarSlotShortcut() {
           : "none"}
       </output>
     </div>
+  );
+}
+
+function GoogleProtectionShortcut() {
+  const { reportGoogleBusyProtection } = useManualSessionLauncher();
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        reportGoogleBusyProtection(true);
+      }}
+    >
+      Report reduced protection
+    </button>
   );
 }

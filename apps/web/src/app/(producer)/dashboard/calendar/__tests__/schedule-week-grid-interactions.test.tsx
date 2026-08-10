@@ -49,16 +49,22 @@ afterEach(() => {
 function renderGrid({
   sessions = [],
   openManualSession = vi.fn<(slot: ManualSessionSlot | null) => void>(),
-  onRescheduleSession = vi.fn<(sessionId: string) => void>(),
+  onManageSession = vi.fn<(sessionId: string) => void>(),
   provisionalSlot = null,
+  googleBusyWeek = null,
 }: {
   sessions?: readonly ScheduleSession[];
   openManualSession?: Mock<(slot: ManualSessionSlot | null) => void>;
-  onRescheduleSession?: Mock<(sessionId: string) => void>;
+  onManageSession?: Mock<(sessionId: string) => void>;
   provisionalSlot?: {
     studioDate: string;
     studioStartMin: number;
     durationMin: number | null;
+  } | null;
+  googleBusyWeek?: {
+    protection: "google_aware" | "skitza_only";
+    health: "healthy" | "not_connected" | "reconnect_required" | "unavailable";
+    intervals: readonly { startsAt: string; endsAt: string }[];
   } | null;
 } = {}) {
   const rendered = render(
@@ -74,12 +80,13 @@ function renderGrid({
         showNowLine={false}
         initialNow={REFERENCE.toISOString()}
         timeZone="UTC"
-        onRescheduleSession={onRescheduleSession}
+        googleBusyWeek={googleBusyWeek}
+        onManageSession={onManageSession}
       />
     </ManualSessionLauncherProvider>,
   );
 
-  return { ...rendered, openManualSession, onRescheduleSession };
+  return { ...rendered, openManualSession, onManageSession };
 }
 
 describe("ScheduleWeekGrid calendar interactions", () => {
@@ -178,8 +185,8 @@ describe("ScheduleWeekGrid calendar interactions", () => {
     expect(container.querySelector("[data-calendar-hover-slot]")).toBeNull();
   });
 
-  it("routes confirmed session double-clicks to reschedule without opening the empty slot", () => {
-    const { openManualSession, onRescheduleSession } = renderGrid({
+  it("routes confirmed session double-clicks to Manage without opening the empty slot", () => {
+    const { openManualSession, onManageSession } = renderGrid({
       sessions: [
         {
           id: "confirmed-session",
@@ -198,15 +205,15 @@ describe("ScheduleWeekGrid calendar interactions", () => {
     });
     expect(sessionBlock.className).toContain("z-[2]");
     expect(sessionBlock.className).toContain("cursor-pointer");
-    expect(sessionBlock.title).toContain("Double-click to change time");
+    expect(sessionBlock.title).toContain("Double-click to manage");
     fireEvent.doubleClick(sessionBlock);
 
-    expect(onRescheduleSession).toHaveBeenCalledWith("confirmed-session");
+    expect(onManageSession).toHaveBeenCalledWith("confirmed-session");
     expect(openManualSession).not.toHaveBeenCalled();
   });
 
-  it("does not edit a pending request or treat its block as an empty slot", () => {
-    const { openManualSession, onRescheduleSession } = renderGrid({
+  it("opens Manage for a pending session when the panel marks it manageable", () => {
+    const { openManualSession, onManageSession } = renderGrid({
       sessions: [
         {
           id: "pending-session",
@@ -216,6 +223,7 @@ describe("ScheduleWeekGrid calendar interactions", () => {
           artistEmail: "lior@example.com",
           packageName: "Vocal recording",
           status: "pending_approval",
+          canManage: true,
         },
       ],
     });
@@ -223,15 +231,15 @@ describe("ScheduleWeekGrid calendar interactions", () => {
     const pendingBlock = screen.getByRole("group", {
       name: "Vocal recording with Lior Tansky, 14:00–15:00, pending",
     });
-    expect(pendingBlock.className).not.toContain("cursor-pointer");
+    expect(pendingBlock.className).toContain("cursor-pointer");
     fireEvent.doubleClick(pendingBlock);
 
-    expect(onRescheduleSession).not.toHaveBeenCalled();
+    expect(onManageSession).toHaveBeenCalledWith("pending-session");
     expect(openManualSession).not.toHaveBeenCalled();
   });
 
-  it("does not advertise or open rescheduling while a change request is pending", () => {
-    const { onRescheduleSession } = renderGrid({
+  it("does not advertise or open Manage when the caller marks a session non-manageable", () => {
+    const { onManageSession } = renderGrid({
       sessions: [
         {
           id: "change-request-session",
@@ -241,7 +249,7 @@ describe("ScheduleWeekGrid calendar interactions", () => {
           artistEmail: "lior@example.com",
           packageName: "Vocal recording",
           status: "confirmed",
-          canReschedule: false,
+          canManage: false,
         },
       ],
     });
@@ -249,11 +257,56 @@ describe("ScheduleWeekGrid calendar interactions", () => {
     const sessionBlock = screen.getByRole("group", {
       name: "Vocal recording with Lior Tansky, 14:00–15:00, confirmed",
     });
-    expect(sessionBlock.title).toContain("Change request pending");
     expect(sessionBlock.title).not.toContain("Double-click");
 
     fireEvent.doubleClick(sessionBlock);
-    expect(onRescheduleSession).not.toHaveBeenCalled();
+    expect(onManageSession).not.toHaveBeenCalled();
+  });
+
+  it("renders Google busy time as a privacy-safe blocked band and prevents booking it", () => {
+    const { container, openManualSession } = renderGrid({
+      googleBusyWeek: {
+        protection: "google_aware",
+        health: "healthy",
+        intervals: [
+          {
+            startsAt: "2026-08-13T14:15:00.000Z",
+            endsAt: "2026-08-13T15:00:00.000Z",
+          },
+        ],
+      },
+    });
+    const cell = container.querySelector<HTMLElement>(
+      '[data-calendar-date="2026-08-13"][data-calendar-hour="14"]',
+    );
+    expect(cell).not.toBeNull();
+    if (!cell) return;
+
+    vi.spyOn(cell, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      height: 80,
+      bottom: 180,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    });
+
+    const band = screen.getByRole("img", {
+      name: "Google Calendar busy, 14:15 to 15:00",
+    });
+    expect(band.textContent).toContain("Blocked");
+    expect(band.className).toContain("text-center");
+
+    fireEvent.mouseMove(cell, { clientY: 130 });
+    expect(container.querySelector("[data-calendar-hover-slot]")).toBeNull();
+    fireEvent.doubleClick(cell, { clientY: 130 });
+    expect(openManualSession).not.toHaveBeenCalled();
+
+    fireEvent.mouseMove(cell, { clientY: 110 });
+    expect(container.querySelector("[data-calendar-hover-slot]")?.textContent).toContain("+ 14:00");
   });
 
   it("renders the live provisional session as a non-interactive dashed block", () => {

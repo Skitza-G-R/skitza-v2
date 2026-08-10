@@ -20,8 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { CancelSessionModal } from "./cancel-session-modal";
-import { RescheduleSessionModal } from "./reschedule-session-modal";
+import { useManualSessionLauncher } from "./manual-session-launcher-context";
 import { SessionRow, type SessionListItem } from "./session-row";
 
 type Filter = "upcoming" | "past" | "all";
@@ -41,11 +40,7 @@ export function SessionsPanel({
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [search, setSearch] = useState("");
   const selectedRef = useRef<HTMLLIElement>(null);
-
-  const [activeModal, setActiveModal] = useState<{
-    kind: "cancel" | "reschedule";
-    session: SessionListItem;
-  } | null>(null);
+  const { openSessionManagement } = useManualSessionLauncher();
 
   const buckets = useMemo(() => bucket(sessions, now), [sessions, now]);
 
@@ -107,37 +102,14 @@ export function SessionsPanel({
                 session={s}
                 now={now}
                 timeZone={timeZone}
-                onCancel={(sess) => {
-                  setActiveModal({ kind: "cancel", session: sess });
-                }}
-                onReschedule={(sess) => {
-                  setActiveModal({ kind: "reschedule", session: sess });
+                onManage={(sess) => {
+                  openSessionManagement(sess);
                 }}
               />
             </li>
           ))}
         </ul>
       )}
-
-      {activeModal?.kind === "cancel" ? (
-        <CancelSessionModal
-          open
-          onOpenChange={(o) => {
-            if (!o) setActiveModal(null);
-          }}
-          session={activeModal.session}
-        />
-      ) : null}
-      {activeModal?.kind === "reschedule" ? (
-        <RescheduleSessionModal
-          open
-          onOpenChange={(open) => {
-            if (!open) setActiveModal(null);
-          }}
-          session={activeModal.session}
-          timeZone={timeZone}
-        />
-      ) : null}
     </div>
   );
 }

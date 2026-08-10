@@ -53,9 +53,11 @@ import {
   createProducerManualSessionBooking,
   decideProducerSessionChangeRequest,
   findProducerManualSessionBookingReplay,
+  generateProducerSessionRescheduleAvailability,
   getSessionBookingGoogleCalendarSyncStatuses,
   GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT,
   markSessionNoShow,
+  loadProducerSessionRescheduleAvailabilitySnapshot,
   previewProducerSessionReschedule,
   recordLateArtistCancellation,
   rejectSessionBooking,
@@ -65,7 +67,9 @@ import {
   SessionBookingDomainError,
 } from "~/server/domain/session-booking/service";
 import {
+  generateProducerManualSessionAvailability,
   listProducerManualSessionOptions,
+  loadProducerManualSessionAvailabilitySnapshot,
   previewProducerManualSession,
   publicProducerManualSessionOptions,
 } from "~/server/domain/session-booking/manual";
@@ -99,6 +103,10 @@ import {
   verifyOwnedAgreementPdfUploadTokenForCleanup,
 } from "~/server/domain/agreement-pdfs/tokens";
 import { readGoogleCalendarBusyIntervals } from "~/server/google-calendar";
+import {
+  replayedGoogleCalendarProtection,
+  reviewedFinalGoogleCalendarProtection,
+} from "~/server/google-calendar/booking-protection";
 
 type GoogleCalendarProtection = "active" | "reduced";
 
@@ -110,6 +118,54 @@ function publicGoogleCalendarProtection(
 
 function sessionWindowEnd(startsAt: Date, durationMin = 24 * 60): Date {
   return new Date(startsAt.getTime() + Math.max(durationMin, 1) * 60 * 1000);
+}
+
+function exactAvailabilityGoogleWindow(
+  availability: Readonly<{
+    days: readonly Readonly<{
+      slots: readonly Readonly<{ startsAt: Date; endsAt: Date }>[];
+    }>[];
+  }>,
+  fallback: Date,
+): Readonly<{ timeMin: Date; timeMax: Date }> {
+  const slots = availability.days.flatMap((day) => day.slots);
+  const first = slots[0];
+  const last = slots.at(-1);
+  return first && last
+    ? { timeMin: first.startsAt, timeMax: last.endsAt }
+    : { timeMin: fallback, timeMax: sessionWindowEnd(fallback, 1) };
+}
+
+function publicExactSessionAvailability(
+  input: Readonly<{
+    studioTimeZone: string;
+    durationMin: number;
+    today: string;
+    days: readonly Readonly<{
+      date: string;
+      slots: readonly Readonly<{
+        startsAt: Date;
+        endsAt: Date;
+        studioDate: string;
+        studioStartMin: number;
+      }>[];
+    }>[];
+  }>,
+) {
+  return {
+    studioTimeZone: input.studioTimeZone,
+    durationMin: input.durationMin,
+    today: input.today,
+    days: input.days.map((day) => ({
+      date: day.date,
+      slots: day.slots.map((slot) => ({
+        startsAt: slot.startsAt.toISOString(),
+        endsAt: slot.endsAt.toISOString(),
+        studioDate: slot.studioDate,
+        studioStartMin: slot.studioStartMin,
+      })),
+    })),
+  };
 }
 
 function mapStoreProductCommercialError(error: unknown): never {
@@ -145,7 +201,8 @@ function mapSessionBookingDomainError(error: unknown): never {
     error.code === "ALLOWANCE_CLOSED" ||
     error.code === "CANCELLATION_WINDOW" ||
     error.code === "TOO_EARLY" ||
-    error.code === "WARNING_ACKNOWLEDGEMENT_REQUIRED"
+    error.code === "WARNING_ACKNOWLEDGEMENT_REQUIRED" ||
+    error.code === "GOOGLE_CALENDAR_PROTECTION_REVIEW_REQUIRED"
   ) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
@@ -1843,6 +1900,38 @@ export const bookingRouter = router({
       ),
     ),
 
+    availability: producerProcedure
+      .input(
+        z.object({
+          clientId: z.string().uuid(),
+          projectId: z.string().uuid(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          const snapshot = await loadProducerManualSessionAvailabilitySnapshot(ctx.db, {
+            producerId: ctx.producerId,
+            clientId: input.clientId,
+            projectId: input.projectId,
+          });
+          const skitzaOnly = generateProducerManualSessionAvailability(snapshot);
+          const window = exactAvailabilityGoogleWindow(skitzaOnly, snapshot.now);
+          const googleBusy = await readGoogleCalendarBusyIntervals({
+            db: ctx.db,
+            producerId: ctx.producerId,
+            ...window,
+          });
+          return {
+            ...publicExactSessionAvailability(
+              generateProducerManualSessionAvailability(snapshot, googleBusy.intervals),
+            ),
+            googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
+          };
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+
     preview: producerProcedure
       .input(
         z.object({
@@ -1892,6 +1981,7 @@ export const bookingRouter = router({
           title: z.string().trim().min(1).max(200).optional(),
           billingTreatment: z.enum(["included", "complimentary", "billable_extra"]),
           acknowledgedWarnings: z.array(producerSchedulingWarningCode).max(5).default([]),
+          acknowledgedReducedGoogleProtection: z.boolean().default(false),
           operationKey: z.string().trim().min(1).max(200),
         }),
       )
@@ -1906,6 +1996,7 @@ export const bookingRouter = router({
             ...(input.title !== undefined ? { title: input.title } : {}),
             billingTreatment: input.billingTreatment,
             acknowledgedWarnings: input.acknowledgedWarnings,
+            acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
             operationKey: input.operationKey,
           });
         } catch (error) {
@@ -1919,7 +2010,9 @@ export const bookingRouter = router({
             title: replay.booking.title ?? "Session",
             startsAt: replay.booking.startsAt,
             durationMin: replay.booking.durationMin,
-            googleCalendarProtection: "active" as const,
+            googleCalendarProtection: replayedGoogleCalendarProtection(
+              input.acknowledgedReducedGoogleProtection,
+            ),
           };
         }
 
@@ -1949,6 +2042,15 @@ export const bookingRouter = router({
           timeMin: input.startsAt,
           timeMax: sessionWindowEnd(input.startsAt, preview.durationMin),
         });
+        let finalGoogleCalendarProtection;
+        try {
+          finalGoogleCalendarProtection = reviewedFinalGoogleCalendarProtection({
+            protection: googleBusy.protection,
+            acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
 
         let result;
         try {
@@ -1963,6 +2065,7 @@ export const bookingRouter = router({
             ...(input.title ? { title: input.title } : {}),
             billingTreatment: input.billingTreatment,
             acknowledgedWarnings: input.acknowledgedWarnings,
+            acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
             operationKey: input.operationKey,
             googleBusyIntervals: googleBusy.intervals,
           });
@@ -2006,12 +2109,43 @@ export const bookingRouter = router({
           title: result.booking.title ?? preview.title,
           startsAt: result.booking.startsAt,
           durationMin: result.booking.durationMin,
-          googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
+          googleCalendarProtection: result.created
+            ? finalGoogleCalendarProtection
+            : replayedGoogleCalendarProtection(input.acknowledgedReducedGoogleProtection),
         };
       }),
   }),
 
   reschedule: router({
+    availability: producerProcedure
+      .input(z.object({ id: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        try {
+          const snapshot = await loadProducerSessionRescheduleAvailabilitySnapshot(
+            sessionBookingRepository(ctx.db),
+            {
+              bookingId: input.id,
+              producerId: ctx.producerId,
+            },
+          );
+          const skitzaOnly = generateProducerSessionRescheduleAvailability(snapshot);
+          const window = exactAvailabilityGoogleWindow(skitzaOnly, snapshot.now);
+          const googleBusy = await readGoogleCalendarBusyIntervals({
+            db: ctx.db,
+            producerId: ctx.producerId,
+            ...window,
+          });
+          return {
+            ...publicExactSessionAvailability(
+              generateProducerSessionRescheduleAvailability(snapshot, googleBusy.intervals),
+            ),
+            googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
+          };
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+
     preview: producerProcedure
       .input(z.object({ id: z.string().uuid(), startsAt: z.date() }))
       .query(async ({ ctx, input }) => {
@@ -2048,6 +2182,7 @@ export const bookingRouter = router({
           id: z.string().uuid(),
           startsAt: z.date(),
           acknowledgedWarnings: z.array(producerSchedulingWarningCode).max(5).default([]),
+          acknowledgedReducedGoogleProtection: z.boolean().default(false),
           operationKey: z.string().trim().min(1).max(200),
         }),
       )
@@ -2072,6 +2207,17 @@ export const bookingRouter = router({
               timeMin: input.startsAt,
               timeMax: sessionWindowEnd(input.startsAt, before.booking.durationMin),
             });
+        let finalGoogleCalendarProtection;
+        try {
+          finalGoogleCalendarProtection = googleBusy
+            ? reviewedFinalGoogleCalendarProtection({
+                protection: googleBusy.protection,
+                acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
+              })
+            : replayedGoogleCalendarProtection(input.acknowledgedReducedGoogleProtection);
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
         let result;
         try {
           result = await rescheduleProducerSessionBooking(sessionBookingRepository(ctx.db), {
@@ -2080,6 +2226,7 @@ export const bookingRouter = router({
             actorClerkUserId: producerActorClerkUserId(ctx.userId),
             startsAt: input.startsAt,
             warningAcknowledgements: input.acknowledgedWarnings,
+            acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
             operationKey: input.operationKey,
             ...(googleBusy ? { googleBusyIntervals: googleBusy.intervals } : {}),
           });
@@ -2115,9 +2262,9 @@ export const bookingRouter = router({
           replacedBookingId: result.replacedBooking.id,
           startsAt: result.booking.startsAt,
           status: result.booking.status as "confirmed",
-          googleCalendarProtection: googleBusy
-            ? publicGoogleCalendarProtection(googleBusy.protection)
-            : ("active" as const),
+          googleCalendarProtection: result.created
+            ? finalGoogleCalendarProtection
+            : replayedGoogleCalendarProtection(input.acknowledgedReducedGoogleProtection),
         };
       }),
   }),

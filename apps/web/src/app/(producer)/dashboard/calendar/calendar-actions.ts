@@ -7,8 +7,14 @@ import { auth } from "@clerk/nextjs/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import { sessionStartFromLocalSlot } from "~/server/booking";
+import { REDUCED_PROTECTION_REVIEW_MESSAGE } from "~/server/google-calendar/booking-protection";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+type ReducedProtectionReviewError = {
+  ok: false;
+  error: string;
+  requiresReducedGoogleProtectionReview: true;
+};
 
 const CALENDAR_PATH = "/dashboard/calendar";
 
@@ -46,6 +52,17 @@ function toMessage(err: unknown): string {
     }
   }
   return err instanceof Error ? err.message : "Something went wrong.";
+}
+
+function reducedProtectionReviewError(err: unknown): ReducedProtectionReviewError | null {
+  if (!(err instanceof TRPCError) || err.message !== REDUCED_PROTECTION_REVIEW_MESSAGE) {
+    return null;
+  }
+  return {
+    ok: false,
+    error: REDUCED_PROTECTION_REVIEW_MESSAGE,
+    requiresReducedGoogleProtectionReview: true,
+  };
 }
 
 export async function confirmBooking(input: { id: string }): Promise<ActionResult> {
@@ -131,14 +148,22 @@ export type ManualSessionFormInput = {
   projectId: string;
   studioDate: string;
   studioStartMin: number;
+  startsAtIso?: string;
   title?: string;
   billingTreatment?: ManualBillingTreatment;
 };
 
 async function exactManualStart(
   caller: ReturnType<typeof appRouter.createCaller>,
-  input: Pick<ManualSessionFormInput, "studioDate" | "studioStartMin">,
+  input: Pick<ManualSessionFormInput, "studioDate" | "studioStartMin" | "startsAtIso">,
 ): Promise<Date> {
+  if (input.startsAtIso !== undefined) {
+    const startsAt = new Date(input.startsAtIso);
+    if (Number.isNaN(startsAt.getTime()) || startsAt.toISOString() !== input.startsAtIso) {
+      throw new Error("The selected session time is invalid.");
+    }
+    return startsAt;
+  }
   const profile = await caller.producer.me();
   return sessionStartFromLocalSlot({
     date: input.studioDate,
@@ -151,7 +176,87 @@ export type ProducerRescheduleInput = {
   id: string;
   studioDate: string;
   studioStartMin: number;
+  startsAtIso?: string;
 };
+
+export type ProducerExactSessionAvailability = Readonly<{
+  studioTimeZone: string;
+  durationMin: number;
+  today: string;
+  googleCalendarProtection: "active" | "reduced";
+  days: readonly Readonly<{
+    date: string;
+    slots: readonly Readonly<{
+      startsAt: string;
+      endsAt: string;
+      studioDate: string;
+      studioStartMin: number;
+    }>[];
+  }>[];
+}>;
+
+function serializeExactSessionAvailability(input: {
+  studioTimeZone: string;
+  durationMin: number;
+  today: string;
+  googleCalendarProtection: "active" | "reduced";
+  days: readonly Readonly<{
+    date: string;
+    slots: readonly Readonly<{
+      startsAt: string;
+      endsAt: string;
+      studioDate: string;
+      studioStartMin: number;
+    }>[];
+  }>[];
+}): ProducerExactSessionAvailability {
+  return {
+    studioTimeZone: input.studioTimeZone,
+    durationMin: input.durationMin,
+    today: input.today,
+    googleCalendarProtection: input.googleCalendarProtection,
+    days: input.days.map((day) => ({
+      date: day.date,
+      slots: day.slots.map((slot) => ({
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        studioDate: slot.studioDate,
+        studioStartMin: slot.studioStartMin,
+      })),
+    })),
+  };
+}
+
+export async function getManualSessionAvailability(input: {
+  clientId: string;
+  projectId: string;
+}): Promise<
+  { ok: true; availability: ProducerExactSessionAvailability } | { ok: false; error: string }
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const availability = await c.caller.booking.manual.availability(input);
+    return { ok: true, availability: serializeExactSessionAvailability(availability) };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function getSessionRescheduleAvailability(input: {
+  id: string;
+}): Promise<
+  { ok: true; availability: ProducerExactSessionAvailability } | { ok: false; error: string }
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const availability = await c.caller.booking.reschedule.availability(input);
+    return { ok: true, availability: serializeExactSessionAvailability(availability) };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
 
 export async function previewSessionReschedule(input: ProducerRescheduleInput): Promise<
   | {
@@ -177,9 +282,12 @@ export async function rescheduleSession(
   input: ProducerRescheduleInput & {
     operationKey: string;
     acknowledgedWarnings: ManualWarningCode[];
+    acknowledgedReducedGoogleProtection: boolean;
   },
 ): Promise<
-  { ok: true; googleCalendarProtection: "active" | "reduced" } | { ok: false; error: string }
+  | { ok: true; googleCalendarProtection: "active" | "reduced" }
+  | { ok: false; error: string }
+  | ReducedProtectionReviewError
 > {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -189,12 +297,15 @@ export async function rescheduleSession(
       id: input.id,
       startsAt,
       acknowledgedWarnings: input.acknowledgedWarnings,
+      acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
       operationKey: input.operationKey,
     });
     revalidatePath(CALENDAR_PATH);
     revalidatePath("/artist/sessions");
     return { ok: true, googleCalendarProtection: result.googleCalendarProtection };
   } catch (err) {
+    const review = reducedProtectionReviewError(err);
+    if (review) return review;
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -230,6 +341,7 @@ export async function createManualSession(
     billingTreatment: ManualBillingTreatment;
     operationKey: string;
     acknowledgedWarnings: ManualWarningCode[];
+    acknowledgedReducedGoogleProtection: boolean;
   },
 ): Promise<
   | {
@@ -239,6 +351,7 @@ export async function createManualSession(
       >;
     }
   | { ok: false; error: string }
+  | ReducedProtectionReviewError
 > {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -252,10 +365,13 @@ export async function createManualSession(
       billingTreatment: input.billingTreatment,
       operationKey: input.operationKey,
       acknowledgedWarnings: input.acknowledgedWarnings,
+      acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
     });
     revalidatePath(CALENDAR_PATH);
     return { ok: true, session };
   } catch (err) {
+    const review = reducedProtectionReviewError(err);
+    if (review) return review;
     return { ok: false, error: toMessage(err) };
   }
 }

@@ -5,6 +5,7 @@ const DEFAULT_START_HOUR = 9;
 const DEFAULT_END_HOUR = 19;
 
 export type ScheduleAvailabilityBlock = {
+  weekday?: number;
   startMin: number;
   endMin: number;
 };
@@ -29,25 +30,17 @@ export function deriveScheduleHourRange(
   sessions: readonly ScheduleRangeSession[],
   timeZone = "UTC",
 ): ScheduleHourRange {
-  const validBlocks = availabilityBlocks.filter(
-    (block) => block.endMin > block.startMin,
-  );
+  const validBlocks = availabilityBlocks.filter((block) => block.endMin > block.startMin);
 
   let startHour = DEFAULT_START_HOUR;
   let endHour = DEFAULT_END_HOUR;
 
   if (validBlocks.length > 0) {
     startHour = clampHour(
-      Math.floor(
-        Math.min(...validBlocks.map((block) => block.startMin)) /
-          MINUTES_PER_HOUR,
-      ),
+      Math.floor(Math.min(...validBlocks.map((block) => block.startMin)) / MINUTES_PER_HOUR),
     );
     endHour = clampHour(
-      Math.ceil(
-        Math.max(...validBlocks.map((block) => block.endMin)) /
-          MINUTES_PER_HOUR,
-      ),
+      Math.ceil(Math.max(...validBlocks.map((block) => block.endMin)) / MINUTES_PER_HOUR),
     );
   }
 
@@ -56,15 +49,10 @@ export function deriveScheduleHourRange(
     if (Number.isNaN(startsAt.getTime()) || session.durationMin <= 0) continue;
 
     const sessionTime = calendarDateTimeParts(startsAt, timeZone);
-    const sessionStartMin =
-      sessionTime.hour * MINUTES_PER_HOUR + sessionTime.minute;
-    const sessionStartHour = clampHour(
-      Math.floor(sessionStartMin / MINUTES_PER_HOUR),
-    );
+    const sessionStartMin = sessionTime.hour * MINUTES_PER_HOUR + sessionTime.minute;
+    const sessionStartHour = clampHour(Math.floor(sessionStartMin / MINUTES_PER_HOUR));
     const sessionEndHour = clampHour(
-      Math.ceil(
-        (sessionStartMin + session.durationMin) / MINUTES_PER_HOUR,
-      ),
+      Math.ceil((sessionStartMin + session.durationMin) / MINUTES_PER_HOUR),
     );
 
     startHour = Math.min(startHour, sessionStartHour);

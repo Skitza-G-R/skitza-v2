@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import type { GoogleCalendarBusyWeekView } from "~/server/google-calendar/busy-week";
 
 import type {
   GoogleCalendarActionResult,
@@ -31,6 +32,27 @@ function safeFailure(error: unknown): GoogleCalendarActionResult {
 async function producerCaller() {
   const { userId } = await auth();
   return userId ? appRouter.createCaller({ userId }) : null;
+}
+
+function unavailableBusyWeek(): GoogleCalendarBusyWeekView {
+  return {
+    protection: "skitza_only",
+    health: "unavailable",
+    intervals: [],
+  };
+}
+
+/** Loads one live, producer-scoped week without exposing Google event data. */
+export async function loadGoogleCalendarBusyWeek(input: {
+  weekStart: string;
+}): Promise<GoogleCalendarBusyWeekView> {
+  const caller = await producerCaller();
+  if (!caller) return unavailableBusyWeek();
+  try {
+    return await caller.googleCalendar.busyWeek(input);
+  } catch {
+    return unavailableBusyWeek();
+  }
 }
 
 export async function saveGoogleCalendarSelection(

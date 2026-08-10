@@ -46,25 +46,22 @@ export function SessionRow({
   session,
   now,
   timeZone,
+  onManage,
   onCancel,
   onReschedule,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
-  onCancel: (s: SessionListItem) => void;
-  onReschedule: (s: SessionListItem) => void;
+  onManage?: (s: SessionListItem) => void;
+  // Legacy fixture callbacks; production callers use onManage.
+  onCancel?: (s: SessionListItem) => void;
+  onReschedule?: (s: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const derived = deriveStatus(session.status, end, now);
   const dimmed = derived === "cancelled" || derived === "rejected" || derived === "no_show";
-  const cancellable =
-    derived !== "cancelled" &&
-    derived !== "rejected" &&
-    derived !== "completed" &&
-    derived !== "no_show";
-
   const kind = inferSessionKind(session.packageName);
   const kindToken = KIND_COLORS[kind];
 
@@ -80,16 +77,11 @@ export function SessionRow({
     >
       <DateColumn date={start} kindToken={kindToken} timeZone={timeZone} />
       <BodyColumn session={session} start={start} end={end} status={derived} timeZone={timeZone} />
-      {cancellable && !session.changeRequest ? (
-        <Actions
-          onReschedule={() => {
-            onReschedule(session);
-          }}
-          onCancel={() => {
-            onCancel(session);
-          }}
-        />
-      ) : null}
+      <Actions
+        onManage={() => {
+          (onManage ?? onReschedule ?? onCancel)?.(session);
+        }}
+      />
       {session.changeRequest ? (
         <div className="col-span-2 lg:col-span-3">
           <ChangeRequestDecision session={session} timeZone={timeZone} />
@@ -187,14 +179,11 @@ function BodyColumn({
   );
 }
 
-function Actions({ onCancel, onReschedule }: { onCancel: () => void; onReschedule: () => void }) {
+function Actions({ onManage }: { onManage: () => void }) {
   return (
     <div className="col-span-2 flex items-center justify-end gap-1 lg:col-span-1">
-      <IconBtn label="Reschedule session" onClick={onReschedule}>
-        <ClockMini />
-      </IconBtn>
-      <IconBtn label="Cancel session" tone="danger" onClick={onCancel}>
-        <XMini />
+      <IconBtn label="Manage session" onClick={onManage}>
+        <MoreMini />
       </IconBtn>
     </div>
   );
@@ -207,7 +196,7 @@ function rsvpLabel(status: NonNullable<SessionListItem["artistRsvpStatus"]>): st
   return "awaiting reply";
 }
 
-function ClockMini() {
+function MoreMini() {
   return (
     <svg
       width="14"
@@ -215,13 +204,14 @@ function ClockMini() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.2"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
     >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
+      <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -331,23 +321,4 @@ function hashCode(s: string): number {
     h |= 0;
   }
   return Math.abs(h);
-}
-
-function XMini() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
 }

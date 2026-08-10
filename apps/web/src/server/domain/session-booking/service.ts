@@ -13,13 +13,17 @@ import {
   SessionBookingDomainError,
   assertSessionBookingAllowed,
   classifySessionSlot,
+  generateProducerExactSessionSlots,
+  sessionAllowanceCanBook,
   sessionStartFromLocalSlot,
   sessionUseConsumesAllowance,
 } from "~/server/booking";
 import type {
+  ExactSessionSlotDay,
   SessionBusyInterval,
   SessionBookingBillingTreatment,
   SessionBookingScheduleEntry,
+  SessionSlotActor,
   SessionUseOutcome,
 } from "~/server/booking";
 
@@ -47,6 +51,7 @@ export type {
   SessionBusyInterval,
   SessionBookingErrorCode,
   SessionBookingScheduleEntry,
+  SessionSlotActor,
   SessionSlotIssue,
   SessionSlotIssueCode,
   SessionUseOutcome,
@@ -1379,6 +1384,17 @@ function assertActiveStatus(
   }
 }
 
+function assertProducerSessionHasNotEnded(
+  booking: Pick<SessionBookingRecord, "startsAt" | "durationMin">,
+  now: Date,
+  action: "cancelled" | "rescheduled",
+): void {
+  const endsAt = booking.startsAt.getTime() + booking.durationMin * 60 * 1000;
+  if (now.getTime() >= endsAt) {
+    throw new SessionBookingDomainError("INVALID_STATUS", `An ended session cannot be ${action}`);
+  }
+}
+
 export function sessionBookingCapabilities(input: {
   booking: Pick<
     SessionBookingRecord,
@@ -1532,10 +1548,11 @@ async function createSessionBookingInTransaction(
     billingTreatment?: SessionBookingBillingTreatment;
     calendarRevision?: number;
     actorKind?: "artist" | "producer";
-    slotActor?: "artist" | "producer";
+    slotActor?: SessionSlotActor;
     forceConfirmed?: boolean;
     preloadedContext?: SessionBookingCreateContext;
     acknowledgedWarnings?: readonly string[];
+    acknowledgedReducedGoogleProtection?: boolean;
     requireExactWarningAcknowledgements?: boolean;
     manualClientContactId?: string;
     googleBusyIntervals?: readonly SessionBusyInterval[];
@@ -1569,6 +1586,9 @@ async function createSessionBookingInTransaction(
       origin,
       billingTreatment,
       acknowledgedWarnings: [...(options.acknowledgedWarnings ?? [])].sort(),
+      ...(options.acknowledgedReducedGoogleProtection
+        ? { acknowledgedReducedGoogleProtection: true }
+        : {}),
       manualClientContactId: options.manualClientContactId ?? null,
       rescheduledFromBookingId: options.rescheduledFromBookingId,
     });
@@ -1790,6 +1810,7 @@ export type CreateProducerManualSessionBookingInput = Readonly<{
   title?: string | null;
   billingTreatment: SessionBookingBillingTreatment;
   acknowledgedWarnings: readonly string[];
+  acknowledgedReducedGoogleProtection?: boolean;
   googleBusyIntervals?: readonly SessionBusyInterval[];
   operationKey: string;
   now?: Date;
@@ -1819,6 +1840,9 @@ function producerManualSessionBookingDigest(
     origin: "producer_manual",
     billingTreatment: input.billingTreatment,
     acknowledgedWarnings: [...input.acknowledgedWarnings].sort(),
+    ...(input.acknowledgedReducedGoogleProtection
+      ? { acknowledgedReducedGoogleProtection: true }
+      : {}),
     manualClientContactId: input.clientContactId,
     rescheduledFromBookingId: null,
   });
@@ -1912,9 +1936,13 @@ export async function createProducerManualSessionBooking(
           origin: "producer_manual",
           billingTreatment: input.billingTreatment,
           actorKind: "producer",
+          slotActor: "producer_google_hard",
           forceConfirmed: true,
           preloadedContext: context,
           acknowledgedWarnings: input.acknowledgedWarnings,
+          ...(input.acknowledgedReducedGoogleProtection
+            ? { acknowledgedReducedGoogleProtection: true }
+            : {}),
           manualClientContactId: input.clientContactId,
           ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
@@ -2339,6 +2367,7 @@ export function cancelProducerSessionBooking(
     assertAllowed: (context, now) => {
       assertActiveStatus(context.booking);
       assertHeldUnexpired(context, now);
+      assertProducerSessionHasNotEnded(context.booking, now, "cancelled");
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_by_producer" }),
     cancelPendingReplacement: true,
@@ -2644,6 +2673,103 @@ export async function rescheduleArtistSessionBooking(
   );
 }
 
+export type ProducerSessionRescheduleAvailabilitySnapshot = Readonly<{
+  bookingId: string;
+  now: Date;
+  canBook: boolean;
+  studioTimeZone: string;
+  durationMin: number;
+  bufferMinutes: number;
+  minLeadHours: number;
+  maxSessionsPerDay: number | null;
+  availabilityBlocks: SessionBookingContext["availabilityBlocks"];
+  blackouts: SessionBookingContext["blackouts"];
+  existingBookings: readonly SessionBookingScheduleEntry[];
+}>;
+
+export type ProducerSessionRescheduleAvailability = Readonly<{
+  studioTimeZone: string;
+  durationMin: number;
+  today: string;
+  days: readonly ExactSessionSlotDay[];
+}>;
+
+export async function loadProducerSessionRescheduleAvailabilitySnapshot(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    now?: Date;
+  }>,
+): Promise<ProducerSessionRescheduleAvailabilitySnapshot> {
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const now = commandNow(input.now);
+      assertConfirmedForReschedule(context);
+      assertProducerSessionHasNotEnded(context.booking, now, "rescheduled");
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
+        );
+      }
+      return {
+        bookingId: context.booking.id,
+        now,
+        canBook: sessionAllowanceCanBook({
+          purchaseLifecycleStatus: context.purchase.lifecycleStatus,
+          projectLifecycleStatus: context.project.lifecycleStatus,
+          allowanceClosedAt: context.allowance.closedAt,
+          bookingEnabledSnapshot: context.allowance.bookingEnabledSnapshot,
+          allowanceKind: context.allowance.kind,
+          sessionLimit: context.allowance.sessionLimit,
+          billingTreatmentMode: "preserve",
+        }),
+        studioTimeZone: context.producer.timeZone,
+        durationMin: context.booking.durationMin,
+        bufferMinutes: context.allowance.bufferMinutes,
+        minLeadHours: context.allowance.minLeadHours,
+        maxSessionsPerDay: context.producer.maxSessionsPerDay,
+        availabilityBlocks: context.availabilityBlocks,
+        blackouts: context.blackouts,
+        existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+      };
+    },
+  );
+}
+
+export function generateProducerSessionRescheduleAvailability(
+  snapshot: ProducerSessionRescheduleAvailabilitySnapshot,
+  googleBusyIntervals: readonly SessionBusyInterval[] = [],
+): ProducerSessionRescheduleAvailability {
+  const generated = generateProducerExactSessionSlots({
+    now: snapshot.now,
+    canBook: snapshot.canBook,
+    producerTimeZone: snapshot.studioTimeZone,
+    durationMin: snapshot.durationMin,
+    bufferMinutes: snapshot.bufferMinutes,
+    minLeadHours: snapshot.minLeadHours,
+    maxSessionsPerDay: snapshot.maxSessionsPerDay,
+    availabilityBlocks: snapshot.availabilityBlocks,
+    blackouts: snapshot.blackouts,
+    existingBookings: snapshot.existingBookings,
+    googleBusyIntervals,
+    ignoreBookingId: snapshot.bookingId,
+  });
+  return {
+    studioTimeZone: snapshot.studioTimeZone,
+    durationMin: snapshot.durationMin,
+    today: generated.today,
+    days: generated.days,
+  };
+}
+
 export type PreviewProducerSessionRescheduleResult = Readonly<{
   booking: SessionBookingRecord;
   proposedStartsAt: Date;
@@ -2668,7 +2794,7 @@ async function producerRescheduleIssues(
   googleBusyIntervals: readonly SessionBusyInterval[] = [],
 ) {
   return classifySessionSlot({
-    actor: "producer",
+    actor: "producer_google_hard",
     startsAt,
     durationMin: context.booking.durationMin,
     bufferMinutes: context.allowance.bufferMinutes,
@@ -2702,7 +2828,9 @@ export async function previewProducerSessionReschedule(
         producerId: input.producerId,
       });
       if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const now = commandNow(input.now);
       assertConfirmedForReschedule(context);
+      assertProducerSessionHasNotEnded(context.booking, now, "rescheduled");
       if (await transaction.findPendingChangeRequest(context.booking.id)) {
         throw new SessionBookingDomainError(
           "INVALID_STATUS",
@@ -2717,7 +2845,7 @@ export async function previewProducerSessionReschedule(
         transaction,
         context,
         startsAt,
-        commandNow(input.now),
+        now,
         input.googleBusyIntervals,
       );
       return {
@@ -2736,6 +2864,7 @@ export type RescheduleProducerSessionBookingInput = Readonly<{
   actorClerkUserId: string;
   startsAt: Date;
   warningAcknowledgements: readonly string[];
+  acknowledgedReducedGoogleProtection?: boolean;
   googleBusyIntervals?: readonly SessionBusyInterval[];
   operationKey: string;
   now?: Date;
@@ -2759,6 +2888,9 @@ export async function rescheduleProducerSessionBooking(
         producerId: input.producerId,
         startsAt: input.startsAt.toISOString(),
         warningAcknowledgements: [...input.warningAcknowledgements].sort(),
+        ...(input.acknowledgedReducedGoogleProtection
+          ? { acknowledgedReducedGoogleProtection: true }
+          : {}),
       });
       const replacementReplay = await transaction.findReplacementBooking(input.bookingId);
       if (replacementReplay) {
@@ -2793,13 +2925,14 @@ export async function rescheduleProducerSessionBooking(
         };
       }
       assertConfirmedForReschedule(context);
+      const now = commandNow(input.now);
+      assertProducerSessionHasNotEnded(context.booking, now, "rescheduled");
       if (await transaction.findPendingChangeRequest(context.booking.id)) {
         throw new SessionBookingDomainError(
           "INVALID_STATUS",
           "Decide the pending artist change request before rescheduling this session",
         );
       }
-      const now = commandNow(input.now);
       const replacementResult = await createSessionBookingInTransaction(
         transaction,
         {
@@ -2823,7 +2956,7 @@ export async function rescheduleProducerSessionBooking(
           billingTreatment: context.booking.billingTreatment,
           calendarRevision: context.booking.calendarRevision + 1,
           actorKind: "producer",
-          slotActor: "producer",
+          slotActor: "producer_google_hard",
           forceConfirmed: true,
           preloadedContext: context,
           acknowledgedWarnings: input.warningAcknowledgements,
