@@ -14,9 +14,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
-vi.mock("~/components/dashboard/projects/project-action-controls", () => ({
-  ProjectActionControls: ({ project }: { project: { title: string } }) => (
-    <button type="button">Mock action for {project.title}</button>
+vi.mock("~/components/dashboard/projects/project-actions-menu", () => ({
+  ProjectActionsMenu: ({ project }: { project: { title: string } }) => (
+    <button
+      type="button"
+      aria-label={`Actions for ${project.title}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      Mock action for {project.title}
+    </button>
   ),
 }));
 
@@ -200,7 +209,7 @@ describe("ProducerProjectsList", () => {
     expect(mocks.push).toHaveBeenLastCalledWith("/dashboard/clients-projects/active");
 
     mocks.push.mockClear();
-    const [action] = screen.getAllByRole("button", { name: "Mock action for Morning tapes" });
+    const [action] = screen.getAllByRole("button", { name: "Actions for Morning tapes" });
     expect(action).toBeDefined();
     if (!action) return;
     fireEvent.click(action);
