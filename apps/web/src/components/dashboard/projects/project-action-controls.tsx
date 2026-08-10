@@ -23,10 +23,14 @@ type ProjectDialog = "edit" | "delete" | ProjectLifecycleDialogMode;
 export interface ProjectActionControlsProps extends ProjectActionCallbacks {
   project: ProjectActionProject;
   /** Surface is for regular rows/cards; hero uses high-contrast glass controls. */
-  appearance?: "surface" | "hero" | undefined;
+  appearance?: "surface" | "hero" | "menu" | undefined;
   className?: string | undefined;
   /** Stable destination control used after lifecycle changes unmount this row. */
   lifecycleSuccessFocusRef?: RefObject<HTMLElement | null> | undefined;
+  /** Stable overflow trigger used when a menu action opens a dialog. */
+  dialogReturnFocusRef?: RefObject<HTMLElement | null> | undefined;
+  /** Lets a parent disclosure close before the selected dialog opens. */
+  onActionStart?: ((trigger: HTMLButtonElement) => void) | undefined;
 }
 
 /**
@@ -40,6 +44,8 @@ export function ProjectActionControls({
   appearance = "surface",
   className,
   lifecycleSuccessFocusRef,
+  dialogReturnFocusRef,
+  onActionStart,
   onChanged,
   onDeleted,
 }: ProjectActionControlsProps) {
@@ -60,7 +66,8 @@ export function ProjectActionControls({
     // project action from navigating or beginning a row drag.
     event.preventDefault();
     event.stopPropagation();
-    returnFocusRef.current = event.currentTarget;
+    returnFocusRef.current = dialogReturnFocusRef?.current ?? event.currentTarget;
+    onActionStart?.(event.currentTarget);
     setDialog(nextDialog);
   };
 
@@ -72,8 +79,10 @@ export function ProjectActionControls({
     onChanged?.(projectId);
   };
 
-  const commonClass =
-    "sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none";
+  const menu = appearance === "menu";
+  const commonClass = menu
+    ? "flex min-h-11 w-full items-center gap-2 px-3 text-left text-[13px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+    : "sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none";
   const surfaceSecondary =
     "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-[rgb(var(--focus-ring))]";
   const surfacePrimary =
@@ -82,17 +91,24 @@ export function ProjectActionControls({
     "border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.06)] text-[rgb(var(--fg-danger-text))] hover:bg-[rgb(var(--fg-danger)/0.11)] focus-visible:ring-[rgb(var(--focus-ring))]";
   const heroControl =
     "border-white/25 bg-white/10 text-white hover:bg-white/20 focus-visible:ring-white/70";
+  const menuNormal =
+    "text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))] focus-visible:bg-[rgb(var(--bg-overlay))]";
+  const menuDanger =
+    "border-t border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-danger-text))] hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:bg-[rgb(var(--fg-danger)/0.08)]";
 
-  const normalClass = appearance === "hero" ? heroControl : surfaceSecondary;
-  const primaryClass = appearance === "hero" ? heroControl : surfacePrimary;
-  const dangerClass = appearance === "hero" ? heroControl : surfaceDanger;
+  const normalClass = menu ? menuNormal : appearance === "hero" ? heroControl : surfaceSecondary;
+  const primaryClass = menu ? menuNormal : appearance === "hero" ? heroControl : surfacePrimary;
+  const dangerClass = menu ? menuDanger : appearance === "hero" ? heroControl : surfaceDanger;
 
   return (
     <>
       <div
         role="group"
         aria-label={`Actions for ${project.title}`}
-        className={["flex max-w-full flex-wrap items-center gap-2", className ?? ""].join(" ")}
+        className={[
+          menu ? "flex w-full flex-col items-stretch" : "flex max-w-full flex-wrap items-center gap-2",
+          className ?? "",
+        ].join(" ")}
         onPointerDown={(event) => {
           event.stopPropagation();
         }}

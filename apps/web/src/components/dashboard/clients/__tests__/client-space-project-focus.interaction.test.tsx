@@ -269,7 +269,7 @@ describe("ClientSpaceWorkspace project lifecycle focus", () => {
     },
   );
 
-  it("keeps the original action trigger as the return target after a failed lifecycle change", async () => {
+  it("returns to the overflow trigger after a failed lifecycle change", async () => {
     mocks.completeProject.mockResolvedValueOnce({
       ok: false,
       error: "Could not complete this project.",
@@ -279,7 +279,8 @@ describe("ClientSpaceWorkspace project lifecycle focus", () => {
 
     const activeFilter = screen.getByRole("button", { name: /^Active / });
     const fallbackFilter = screen.getByRole("button", { name: /^Archived / });
-    await user.click(screen.getByLabelText("Project actions for Focus project"));
+    const menuTrigger = screen.getByLabelText("Project actions for Focus project");
+    await user.click(menuTrigger);
     const actionTrigger = screen.getByRole("button", { name: "Complete" });
     await user.click(actionTrigger);
 
@@ -303,8 +304,8 @@ describe("ClientSpaceWorkspace project lifecycle focus", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(actionTrigger.isConnected).toBe(true);
-      expect(document.activeElement).toBe(actionTrigger);
+      expect(menuTrigger.isConnected).toBe(true);
+      expect(document.activeElement).toBe(menuTrigger);
       expect(document.activeElement).not.toBe(fallbackFilter);
       expect(document.activeElement).not.toBe(document.body);
     });
@@ -313,17 +314,19 @@ describe("ClientSpaceWorkspace project lifecycle focus", () => {
 
     await user.keyboard("{Enter}");
 
-    expect(await screen.findByRole("dialog", { name: "Complete Focus project?" })).not.toBeNull();
+    expect(await screen.findByRole("dialog", { name: "Actions for Focus project" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Complete" })).not.toBeNull();
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
-  it("returns focus to the original action trigger when the lifecycle dialog is dismissed", async () => {
+  it("returns focus to the overflow trigger when the lifecycle dialog is dismissed", async () => {
     const user = userEvent.setup();
     render(<WorkspaceHarness initialStatus="active" />);
 
     const activeFilter = screen.getByRole("button", { name: /^Active / });
     const fallbackFilter = screen.getByRole("button", { name: /^Archived / });
-    await user.click(screen.getByLabelText("Project actions for Focus project"));
+    const menuTrigger = screen.getByLabelText("Project actions for Focus project");
+    await user.click(menuTrigger);
     const actionTrigger = screen.getByRole("button", { name: "Cancel" });
     await user.click(actionTrigger);
     expect(await screen.findByRole("dialog", { name: "Cancel Focus project?" })).not.toBeNull();
@@ -332,8 +335,8 @@ describe("ClientSpaceWorkspace project lifecycle focus", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(actionTrigger.isConnected).toBe(true);
-      expect(document.activeElement).toBe(actionTrigger);
+      expect(menuTrigger.isConnected).toBe(true);
+      expect(document.activeElement).toBe(menuTrigger);
       expect(document.activeElement).not.toBe(fallbackFilter);
       expect(document.activeElement).not.toBe(document.body);
     });
@@ -345,7 +348,8 @@ describe("ClientSpaceWorkspace project lifecycle focus", () => {
 
     await user.keyboard("{Enter}");
 
-    expect(await screen.findByRole("dialog", { name: "Cancel Focus project?" })).not.toBeNull();
+    expect(await screen.findByRole("dialog", { name: "Actions for Focus project" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).not.toBeNull();
     expect(mocks.cancelProject).not.toHaveBeenCalled();
     expect(mocks.refresh).not.toHaveBeenCalled();
   });

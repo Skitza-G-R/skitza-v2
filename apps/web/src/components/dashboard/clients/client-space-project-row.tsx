@@ -1,13 +1,11 @@
 "use client";
 
-import { ChevronRight, MoreHorizontal } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import type { RefObject } from "react";
 
-import {
-  ProjectActionControls,
-  type ProjectActionProject,
-} from "~/components/dashboard/projects/project-action-controls";
+import { ProjectActionsMenu } from "~/components/dashboard/projects/project-actions-menu";
+import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
 import { Badge, type BadgeProps } from "~/components/ui/badge";
 
 export interface ClientSpaceProjectData extends ProjectActionProject {
@@ -58,28 +56,14 @@ export function ClientSpaceProjectRow({
         />
       </Link>
 
-      <details
-        data-tab-swipe-ignore
-        className="group/actions absolute top-3 right-3 z-20"
-        onClick={(event) => {
-          event.stopPropagation();
-        }}
-      >
-        <summary
-          aria-label={`Project actions for ${project.title}`}
-          className="sk-press inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none [&::-webkit-details-marker]:hidden"
-        >
-          <MoreHorizontal size={17} strokeWidth={2.2} aria-hidden />
-        </summary>
-        <div className="absolute top-[calc(100%+6px)] right-0 w-[min(280px,calc(100vw-3rem))] rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-2 shadow-[var(--shadow-lg)]">
-          <ProjectActionControls
-            project={project}
-            className="flex-col items-stretch"
-            lifecycleSuccessFocusRef={lifecycleSuccessFocusRef}
-            onChanged={onChanged}
-          />
-        </div>
-      </details>
+      <div className="absolute top-3 right-3 z-20">
+        <ProjectActionsMenu
+          project={project}
+          label={`Project actions for ${project.title}`}
+          lifecycleSuccessFocusRef={lifecycleSuccessFocusRef}
+          onChanged={onChanged}
+        />
+      </div>
     </li>
   );
 }

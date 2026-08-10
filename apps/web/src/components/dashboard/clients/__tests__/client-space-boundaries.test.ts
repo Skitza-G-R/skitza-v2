@@ -9,6 +9,10 @@ import { isArchivedClientSpaceProject } from "../client-space-project-row";
 const here = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = readFileSync(join(here, "..", "client-space-workspace.tsx"), "utf8");
 const PROJECT_ROW = readFileSync(join(here, "..", "client-space-project-row.tsx"), "utf8");
+const PROJECT_MENU = readFileSync(
+  join(here, "..", "..", "projects", "project-actions-menu.tsx"),
+  "utf8",
+);
 const NEW_PROJECT = readFileSync(join(here, "..", "new-project-modal.tsx"), "utf8");
 const INVITE = readFileSync(join(here, "..", "invite-modal.tsx"), "utf8");
 const COMPOSER = readFileSync(
@@ -80,7 +84,7 @@ describe("Client Space project boundaries", () => {
     const linkEnd = PROJECT_ROW.indexOf("</Link>", linkStart);
     const titleIndex = PROJECT_ROW.indexOf("{project.title}", linkStart);
     const nextActionIndex = PROJECT_ROW.indexOf("{project.nextAction}", linkStart);
-    const controlsIndex = PROJECT_ROW.indexOf("<ProjectActionControls", linkEnd);
+    const controlsIndex = PROJECT_ROW.indexOf("<ProjectActionsMenu", linkEnd);
 
     expect(linkStart).toBeGreaterThanOrEqual(0);
     expect(linkEnd).toBeGreaterThan(linkStart);
@@ -93,9 +97,9 @@ describe("Client Space project boundaries", () => {
       /href=\{`\/dashboard\/clients-projects\/\$\{encodeURIComponent\(project\.id\)\}`\}/,
     );
     expect(PROJECT_ROW).toMatch(/aria-label=\{`Open project \$\{project\.title\}`\}/);
-    expect(PROJECT_ROW).toMatch(/data-tab-swipe-ignore/);
+    expect(PROJECT_MENU).toMatch(/data-tab-swipe-ignore/);
     expect(PROJECT_ROW).toMatch(
-      /<ProjectActionControls[\s\S]*?project=\{project\}[\s\S]*?lifecycleSuccessFocusRef=\{lifecycleSuccessFocusRef\}/,
+      /<ProjectActionsMenu[\s\S]*?project=\{project\}[\s\S]*?lifecycleSuccessFocusRef=\{lifecycleSuccessFocusRef\}/,
     );
   });
 });
@@ -188,6 +192,6 @@ describe("Client Space narrow-layout contract", () => {
     }
 
     expect(WORKSPACE).toMatch(/grid w-full max-w-\[760px\] grid-cols-3/);
-    expect(PROJECT_ROW).toContain("w-[min(280px,calc(100vw-3rem))]");
+    expect(PROJECT_MENU).toContain("w-[min(210px,calc(100vw-2rem))]");
   });
 });

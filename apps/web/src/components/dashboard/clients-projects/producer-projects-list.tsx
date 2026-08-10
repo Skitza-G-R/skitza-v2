@@ -1,15 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown, FolderKanban, MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { ChevronDown, FolderKanban, Plus, Search, X } from "lucide-react";
 import { useDeferredValue, useMemo, useRef } from "react";
-import type { KeyboardEvent, MouseEvent, RefObject } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  ProjectActionControls,
-  type ProjectActionProject,
-} from "~/components/dashboard/projects/project-action-controls";
+import { ProjectActionsMenu } from "~/components/dashboard/projects/project-actions-menu";
+import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 
 import { ProjectsTableHeader, type ProjectListSort } from "./projects-table-header";
@@ -134,51 +132,6 @@ function toActionProject(row: ProjectRowData): ProjectActionProject {
     deadlineAtIso: row.deadlineAtIso ?? null,
     canDeleteEmptyDraft: row.canPermanentlyDelete,
   };
-}
-
-function ProjectActionsDisclosure({
-  project,
-  lifecycleSuccessFocusRef,
-}: {
-  project: ProjectRowData;
-  lifecycleSuccessFocusRef: RefObject<HTMLButtonElement | null>;
-}) {
-  const actionProject = toActionProject(project);
-
-  return (
-    <details
-      data-tab-swipe-ignore
-      className="group/actions relative inline-flex"
-      onClick={(event) => {
-        event.stopPropagation();
-      }}
-      onPointerDown={(event) => {
-        event.stopPropagation();
-      }}
-    >
-      <summary
-        role="button"
-        aria-label={`Actions for ${project.title}`}
-        className="sk-press inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none [&::-webkit-details-marker]:hidden"
-      >
-        <MoreHorizontal size={18} strokeWidth={2.2} aria-hidden />
-      </summary>
-      <div
-        role="dialog"
-        aria-label={`Actions for ${project.title}`}
-        className="absolute top-[calc(100%+4px)] right-0 z-40 w-[min(280px,calc(100vw-2.5rem))] rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-2 shadow-[var(--shadow-lg)]"
-      >
-        <ProjectActionControls
-          project={actionProject}
-          className="flex-col items-stretch"
-          lifecycleSuccessFocusRef={lifecycleSuccessFocusRef}
-          onDeleted={() => {
-            lifecycleSuccessFocusRef.current?.focus();
-          }}
-        />
-      </div>
-    </details>
-  );
 }
 
 interface ProducerProjectsListProps {
@@ -395,9 +348,12 @@ export function ProducerProjectsList({
                       {projectPhaseLabel(project.workflowStage)}
                     </td>
                     <td className="px-3 py-1 text-right">
-                      <ProjectActionsDisclosure
-                        project={project}
+                      <ProjectActionsMenu
+                        project={toActionProject(project)}
                         lifecycleSuccessFocusRef={currentViewButtonRef}
+                        onDeleted={() => {
+                          currentViewButtonRef.current?.focus();
+                        }}
                       />
                     </td>
                   </tr>
@@ -450,9 +406,12 @@ export function ProducerProjectsList({
                   </span>
                 </Link>
                 <div className="absolute top-2 right-2">
-                  <ProjectActionsDisclosure
-                    project={project}
+                  <ProjectActionsMenu
+                    project={toActionProject(project)}
                     lifecycleSuccessFocusRef={currentViewButtonRef}
+                    onDeleted={() => {
+                      currentViewButtonRef.current?.focus();
+                    }}
                   />
                 </div>
               </li>
