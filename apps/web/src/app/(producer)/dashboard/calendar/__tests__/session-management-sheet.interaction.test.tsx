@@ -188,7 +188,7 @@ describe("SessionManagementSheet", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Reschedule session" }));
     expect(await screen.findByText("Outside normal hours.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Reschedule anyway" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reschedule anyway" }));
 
     await waitFor(() => {
       expect(mocks.rescheduleSession).toHaveBeenCalledTimes(1);
@@ -228,7 +228,7 @@ describe("SessionManagementSheet", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Could not cancel this session. Please try again.",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel session" }));
 
     await waitFor(() => {
       expect(mocks.cancelSession).toHaveBeenCalledTimes(2);
