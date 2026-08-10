@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { CalendarDays, X } from "lucide-react";
 import { useEffect, useRef, useState, useTransition, type ReactNode, type RefObject } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
@@ -26,6 +26,12 @@ import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
 
 type Preview = Extract<Awaited<ReturnType<typeof previewManualSession>>, { ok: true }>["preview"];
 type GoogleCalendarProtection = "active" | "reduced";
+
+const DESKTOP_SHEET_QUERY = "(min-width: 640px)";
+const TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
+  const value = timeInputValue(index * 15);
+  return { label: value, value };
+});
 
 const BILLING_COPY: Readonly<Record<ManualBillingTreatment, { label: string; body: string }>> = {
   included: {
@@ -88,6 +94,11 @@ function timeRangeLabel(startMin: number, durationMin: number | null): string {
   return `${start}\u2013${timeInputValue(startMin + durationMin)}`;
 }
 
+function studioTimeZoneLabel(timeZone: string): string {
+  const city = timeZone.split("/").at(-1)?.replaceAll("_", " ") ?? timeZone;
+  return `${city} time`;
+}
+
 /**
  * Producer-only manual booking drawer.
  *
@@ -123,12 +134,26 @@ export function ManualSessionModal({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [confirmWarnings, setConfirmWarnings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDesktopSheet, setIsDesktopSheet] = useState(false);
   const [isPending, startTransition] = useTransition();
   const operationKey = useRef(newCalendarOperationKey("producer-manual"));
   const warningHeading = useRef<HTMLHeadingElement>(null);
   const onDraftChangeRef = useRef(onDraftChange);
   const online = useOnlineStatus();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(DESKTOP_SHEET_QUERY);
+    const update = () => {
+      setIsDesktopSheet(media.matches);
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => {
+      media.removeEventListener("change", update);
+    };
+  }, []);
 
   const client = options.clients.find((candidate) => candidate.id === clientId) ?? null;
   const projects = client?.projects ?? [];
@@ -296,19 +321,26 @@ export function ManualSessionModal({
 
   const dateLabel = hasStudioSlot ? studioDateLabel(studioDate) : "Choose date & time";
   const timeLabel =
-    studioStartMin === null ? "" : timeRangeLabel(studioStartMin, durationMin ?? null);
+    hasStudioSlot && studioStartMin !== null
+      ? timeRangeLabel(studioStartMin, durationMin ?? null)
+      : "";
+  const timeZoneLabel = studioTimeZoneLabel(options.studioTimeZone);
 
   return (
     <Sheet open={open} onOpenChange={requestOpenChange}>
       <SheetContent
-        side="right"
-        showHandle={false}
+        side={isDesktopSheet ? "right" : "bottom"}
+        showHandle={!isDesktopSheet}
         overlayClassName="bg-[rgb(var(--bg-sidebar)/0.16)] backdrop-blur-[1px]"
-        className="!max-w-[440px] !gap-0 !p-0 sm:!rounded-l-[var(--radius-xl)]"
+        className={
+          isDesktopSheet
+            ? "!max-w-[440px] !gap-0 !p-0 sm:!rounded-l-[var(--radius-xl)]"
+            : "!max-h-[calc(var(--sk-viewport-height,100dvh)-12px)] !gap-0 !overflow-hidden !p-0 !pt-3"
+        }
       >
-        <header className="reveal-up flex shrink-0 items-start justify-between gap-4 border-b border-[rgb(var(--border-subtle))] px-5 py-5 sm:px-7 sm:py-6">
+        <header className="reveal-up flex shrink-0 items-center justify-between gap-4 px-5 pt-3 pb-3 sm:items-start sm:border-b sm:border-[rgb(var(--border-subtle))] sm:px-7 sm:py-6">
           <div className="min-w-0">
-            <SheetTitle className="text-[24px]">Book a session</SheetTitle>
+            <SheetTitle className="text-[26px] sm:text-[24px]">Book a session</SheetTitle>
             <SheetDescription className="sr-only">
               Choose an existing client and project. Session length and credit come from the
               project’s package.
@@ -334,43 +366,85 @@ export function ManualSessionModal({
             isPending={isPending}
           />
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
-            <div className="grid gap-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 sm:px-7 sm:py-6">
+            <div className="grid gap-4 sm:gap-6">
               <section className="reveal-up" aria-label="Session time">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0" aria-live="polite">
-                    <p className="text-[20px] leading-tight font-semibold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-                      {dateLabel}
-                    </p>
-                    {timeLabel ? (
-                      <p className="font-display mt-1 text-[32px] leading-none font-bold tracking-[-0.04em] text-[rgb(var(--fg-default))]">
+                {!isDesktopSheet ? (
+                  <p className="mb-2 text-[11px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+                    When
+                  </p>
+                ) : null}
+
+                {!isDesktopSheet && hasStudioSlot && !showTimeEditor ? (
+                  <div
+                    data-testid="manual-time-summary"
+                    className="relative flex min-h-[94px] items-center justify-between gap-4 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-3.5 pr-3.5 pl-5 shadow-[0_10px_28px_-24px_rgb(var(--brand-primary-dark))]"
+                    aria-live="polite"
+                  >
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-0 left-0 w-1 bg-[rgb(var(--brand-primary))]"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold tracking-[0.04em] text-[rgb(var(--fg-default))] uppercase">
+                        {dateLabel}
+                      </p>
+                      <p className="font-display mt-0.5 text-[24px] leading-none font-bold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
                         {timeLabel}
                       </p>
-                    ) : null}
-                    <p className="mt-2 text-xs text-[rgb(var(--fg-muted))]">
-                      {durationMin
-                        ? `${durationLabel(durationMin)} · fixed by this project’s package · `
-                        : "Studio time · "}
-                      {options.studioTimeZone}
-                    </p>
+                      <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">{timeZoneLabel}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTimeEditor(true);
+                      }}
+                      className={quietActionClass}
+                      aria-expanded={false}
+                      aria-controls="manual-time-editor"
+                    >
+                      Change
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowTimeEditor((current) => !current);
-                    }}
-                    className={quietActionClass}
-                    aria-expanded={showTimeEditor}
-                    aria-controls="manual-time-editor"
-                  >
-                    {showTimeEditor ? "Hide" : hasStudioSlot ? "Change" : "Choose"}
-                  </button>
-                </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0" aria-live="polite">
+                      <p className="text-[20px] leading-tight font-semibold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+                        {!isDesktopSheet && showTimeEditor ? "Choose date & time" : dateLabel}
+                      </p>
+                      {isDesktopSheet && timeLabel ? (
+                        <p
+                          data-testid="manual-time-summary"
+                          className="font-display mt-1 text-[32px] leading-none font-bold tracking-[-0.04em] text-[rgb(var(--fg-default))]"
+                        >
+                          {timeLabel}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs text-[rgb(var(--fg-muted))]">
+                        {isDesktopSheet && durationMin
+                          ? `${durationLabel(durationMin)} · fixed by this project’s package · `
+                          : "Studio time · "}
+                        {isDesktopSheet ? options.studioTimeZone : timeZoneLabel}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTimeEditor((current) => !current);
+                      }}
+                      className={quietActionClass}
+                      aria-expanded={showTimeEditor}
+                      aria-controls="manual-time-editor"
+                    >
+                      {showTimeEditor ? "Hide" : hasStudioSlot ? "Change" : "Choose"}
+                    </button>
+                  </div>
+                )}
 
                 {showTimeEditor ? (
                   <div
                     id="manual-time-editor"
-                    className="reveal-up mt-4 grid grid-cols-2 gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3.5"
+                    className="reveal-up mt-3 grid grid-cols-1 gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3.5 sm:mt-4 sm:grid-cols-2"
                   >
                     <Field label="Date" htmlFor="manual-date">
                       <input
@@ -378,36 +452,49 @@ export function ManualSessionModal({
                         type="date"
                         value={studioDate}
                         onChange={(event) => {
-                          setStudioDate(event.target.value);
+                          const nextDate = event.target.value;
+                          setStudioDate(nextDate);
+                          if (!isDesktopSheet && nextDate && studioStartMin !== null) {
+                            setShowTimeEditor(false);
+                          }
                           resetPreview();
                         }}
                         className={controlClass}
                       />
                     </Field>
                     <Field label="Start" htmlFor="manual-time">
-                      <input
+                      <select
                         id="manual-time"
-                        type="time"
-                        step={900}
                         value={studioTime}
                         onChange={(event) => {
-                          setStudioTime(event.target.value);
+                          const nextTime = event.target.value;
+                          setStudioTime(nextTime);
+                          if (!isDesktopSheet && studioDate && parseTime(nextTime) !== null) {
+                            setShowTimeEditor(false);
+                          }
                           resetPreview();
                         }}
                         className={controlClass}
                         aria-describedby="manual-timezone"
-                      />
+                      >
+                        <option value="">Choose a start time</option>
+                        {TIME_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                     </Field>
                     <span id="manual-timezone" className="sr-only">
                       Studio time, {options.studioTimeZone}
                     </span>
-                    {hasStudioSlot ? (
+                    {hasStudioSlot && isDesktopSheet ? (
                       <button
                         type="button"
                         onClick={() => {
                           setShowTimeEditor(false);
                         }}
-                        className={`${quietActionClass} col-span-2 ms-auto`}
+                        className={`${quietActionClass} ms-auto sm:col-span-2`}
                       >
                         Done
                       </button>
@@ -416,15 +503,15 @@ export function ManualSessionModal({
                 ) : null}
               </section>
 
-              <div className="reveal-up-delay-1 grid gap-4">
-                <Field label="Client" htmlFor="manual-client">
+              <div className="reveal-up-delay-1 grid gap-3 sm:gap-4">
+                <Field label="Client" htmlFor="manual-client" mobileCard>
                   <select
                     id="manual-client"
                     value={clientId}
                     onChange={(event) => {
                       chooseClient(event.target.value);
                     }}
-                    className={controlClass}
+                    className={mobileSelectControlClass}
                   >
                     <option value="">Choose a client</option>
                     {options.clients.map((option) => (
@@ -435,48 +522,57 @@ export function ManualSessionModal({
                   </select>
                 </Field>
 
-                <Field label="Project" htmlFor="manual-project">
-                  <select
-                    id="manual-project"
-                    value={projectId}
-                    disabled={!client}
-                    onChange={(event) => {
-                      chooseProject(event.target.value);
-                    }}
-                    className={controlClass}
-                  >
-                    <option value="">
-                      {client ? "Choose a project" : "Choose a client first"}
-                    </option>
-                    {projects.map((option) => (
-                      <option
-                        key={option.id}
-                        value={option.id}
-                        disabled={option.eligibility !== "eligible"}
-                      >
-                        {option.title}
-                        {option.eligibility === "multiple_active_session_packages"
-                          ? " — multiple session packages"
-                          : option.eligibility === "no_active_session_package"
-                            ? " — no active session package"
-                            : ""}
+                {isDesktopSheet || client ? (
+                  <Field label="Project" htmlFor="manual-project" mobileCard>
+                    <select
+                      id="manual-project"
+                      value={projectId}
+                      disabled={!client}
+                      onChange={(event) => {
+                        chooseProject(event.target.value);
+                      }}
+                      className={mobileSelectControlClass}
+                    >
+                      <option value="">
+                        {client ? "Choose a project" : "Choose a client first"}
                       </option>
-                    ))}
-                  </select>
-                </Field>
+                      {projects.map((option) => (
+                        <option
+                          key={option.id}
+                          value={option.id}
+                          disabled={option.eligibility !== "eligible"}
+                        >
+                          {option.title}
+                          {option.eligibility === "multiple_active_session_packages"
+                            ? " — multiple session packages"
+                            : option.eligibility === "no_active_session_package"
+                              ? " — no active session package"
+                              : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : null}
               </div>
 
               {project?.eligibility === "eligible" ? (
                 <section className="reveal-up-delay-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                        Session title
-                      </p>
-                      <p className="mt-1 truncate text-sm font-semibold text-[rgb(var(--fg-default))]">
-                        {title.trim() || project.defaultTitle || project.productName || "Session"}
-                      </p>
-                    </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-bold text-[rgb(var(--fg-default))]">
+                      {title.trim() || project.defaultTitle || project.productName || "Session"}
+                    </p>
+                    <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+                      {durationMin === null ? "Duration unavailable" : durationLabel(durationMin)} ·{" "}
+                      {billingTreatment ? BILLING_COPY[billingTreatment].label : "Choose billing"}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+                      {billingTreatment
+                        ? billingDetail(billingTreatment, project.remainingIncluded)
+                        : "No included sessions remain."}
+                    </p>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-[rgb(var(--border-subtle))] pt-2.5">
                     <button
                       type="button"
                       onClick={() => {
@@ -487,6 +583,21 @@ export function ManualSessionModal({
                       aria-controls="manual-title-editor"
                     >
                       {showTitleEditor ? "Done" : "Edit title"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowBillingEditor((current) => !current);
+                      }}
+                      className={quietActionClass}
+                      aria-expanded={showBillingEditor}
+                      aria-controls="manual-billing-editor"
+                    >
+                      {showBillingEditor
+                        ? "Hide billing"
+                        : billingTreatment
+                          ? "Change billing"
+                          : "Choose billing"}
                     </button>
                   </div>
 
@@ -508,37 +619,6 @@ export function ManualSessionModal({
                       />
                     </div>
                   ) : null}
-
-                  <div className="my-4 h-px bg-[rgb(var(--border-subtle))]" aria-hidden />
-
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                        Booking treatment
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-[rgb(var(--fg-default))]">
-                        {billingTreatment
-                          ? BILLING_COPY[billingTreatment].label
-                          : "Choose how to record it"}
-                      </p>
-                      <p className="mt-0.5 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
-                        {billingTreatment
-                          ? billingDetail(billingTreatment, project.remainingIncluded)
-                          : "No included sessions remain."}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowBillingEditor((current) => !current);
-                      }}
-                      className={quietActionClass}
-                      aria-expanded={showBillingEditor}
-                      aria-controls="manual-billing-editor"
-                    >
-                      {showBillingEditor ? "Hide" : billingTreatment ? "Change" : "Choose"}
-                    </button>
-                  </div>
 
                   {showBillingEditor ? (
                     <fieldset id="manual-billing-editor" className="reveal-up mt-3">
@@ -578,12 +658,12 @@ export function ManualSessionModal({
               ) : null}
 
               {project?.eligibility === "eligible" ? (
-                <p className="reveal-up-delay-3 flex items-start gap-2 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+                <p className="reveal-up-delay-3 flex items-center gap-2.5 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
                   <span
                     aria-hidden
-                    className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-control))] text-[10px] font-bold"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.09)] text-[rgb(var(--fg-default))]"
                   >
-                    i
+                    <CalendarDays className="h-4 w-4" />
                   </span>
                   The artist will receive a calendar invitation.
                 </p>
@@ -599,7 +679,7 @@ export function ManualSessionModal({
           </div>
         )}
 
-        <footer className="shrink-0 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 pt-4 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-7 sm:pb-6">
+        <footer className="shrink-0 bg-[rgb(var(--bg-elevated))] px-5 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] sm:border-t sm:border-[rgb(var(--border-subtle))] sm:px-7 sm:pt-4 sm:pb-6">
           {confirmWarnings ? (
             <div className="grid grid-cols-[auto_1fr] gap-2">
               <button
@@ -716,14 +796,29 @@ function Field({
   label,
   htmlFor,
   children,
+  mobileCard = false,
 }: {
   label: string;
   htmlFor: string;
   children: ReactNode;
+  mobileCard?: boolean;
 }) {
   return (
-    <label htmlFor={htmlFor} className="flex min-w-0 flex-col gap-1.5">
-      <span className="text-sm font-semibold text-[rgb(var(--fg-default))]">{label}</span>
+    <label
+      htmlFor={htmlFor}
+      className={
+        mobileCard ? "relative flex min-w-0 flex-col sm:gap-1.5" : "flex min-w-0 flex-col gap-1.5"
+      }
+    >
+      <span
+        className={
+          mobileCard
+            ? "pointer-events-none absolute top-2.5 left-4 z-10 text-xs font-medium text-[rgb(var(--fg-muted))] sm:static sm:text-sm sm:font-semibold sm:text-[rgb(var(--fg-default))]"
+            : "text-sm font-semibold text-[rgb(var(--fg-default))]"
+        }
+      >
+        {label}
+      </span>
       {children}
     </label>
   );
@@ -731,12 +826,14 @@ function Field({
 
 const controlClass =
   "h-11 min-w-0 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-3 text-sm text-[rgb(var(--fg-default))] outline-none transition-[border-color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-55";
+const mobileSelectControlClass =
+  "h-[68px] min-w-0 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 pt-5 text-base font-semibold text-[rgb(var(--fg-default))] outline-none transition-[border-color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-55 sm:h-11 sm:px-3 sm:pt-0 sm:text-sm sm:font-normal";
 const quietActionClass =
   "sk-press inline-flex h-9 shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-2.5 text-xs font-bold text-[rgb(var(--brand-primary-dark))] underline-offset-4 hover:bg-[rgb(var(--brand-primary)/0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]";
 const secondaryButtonClass =
   "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] disabled:opacity-50";
 const primaryButtonClass =
-  "sk-cta-press inline-flex h-12 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-bold text-[rgb(var(--bg-sidebar))] shadow-[0_10px_24px_-16px_rgb(var(--brand-primary-dark))] disabled:cursor-not-allowed disabled:opacity-45";
+  "sk-cta-press inline-flex h-12 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-bold text-[rgb(var(--bg-sidebar))] shadow-[0_10px_24px_-16px_rgb(var(--brand-primary-dark))] disabled:cursor-not-allowed disabled:bg-[rgb(var(--brand-primary)/0.34)] disabled:text-[rgb(var(--fg-muted))] disabled:shadow-none disabled:opacity-100";
 
 function protectionFrom(value: unknown): GoogleCalendarProtection {
   if (
