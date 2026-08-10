@@ -16,7 +16,13 @@ describe("TrackRow — album-page tracklist row", () => {
 
   it("uses one compact responsive row without the old fixed six-column grid", () => {
     expect(SRC).toContain("min-h-[68px]");
+    expect(SRC).toContain("sm:min-h-[92px]");
     expect(SRC).not.toContain("30px 38px minmax(0,1fr) 130px 180px 22px");
+  });
+
+  it("keeps the phone artwork compact and gives the desktop row a 52px artwork tile", () => {
+    expect(SRC).toContain("h-11 w-11");
+    expect(SRC).toContain("sm:h-[52px] sm:w-[52px]");
   });
 
   it("wraps the song details in a Next.js Link", () => {
@@ -81,7 +87,7 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).not.toContain("SongActionsMenu");
   });
 
-  it("imports producerGradient for the 38px cover tile", () => {
+  it("imports producerGradient for the cover tile", () => {
     expect(SRC).toContain("producerGradient");
     expect(SRC).toContain("~/lib/_phase4-stubs/producer-color");
   });

@@ -78,7 +78,7 @@ export function AlbumSpace({
       : "New work requires an active project.";
 
   return (
-    <div className="space-y-3 md:space-y-4">
+    <div className="space-y-2.5 md:space-y-3">
       <ProjectCompactHeader
         name={project.name}
         clientName={project.clientName}
@@ -96,7 +96,7 @@ export function AlbumSpace({
         }}
       />
 
-      <div className="sticky top-0 z-30 bg-[rgb(var(--bg-background)/0.94)] py-2 backdrop-blur-xl lg:top-16">
+      <div className="sticky top-0 z-30 bg-[rgb(var(--bg-background)/0.94)] py-1.5 backdrop-blur-xl lg:top-16">
         <AlbumTabs active={active} onChange={setActive} songsCount={project.songsCount} />
       </div>
 

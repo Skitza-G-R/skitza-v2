@@ -56,14 +56,14 @@ export function ProjectCompactHeader({
   onAddSong,
 }: ProjectCompactHeaderProps) {
   return (
-    <header className="rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-sm)] sm:p-5">
+    <header className="rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[0_10px_30px_-24px_rgb(var(--fg-default)/0.28)] sm:px-5 sm:py-4">
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="font-display truncate text-[clamp(1.65rem,5vw,2.35rem)] leading-[1.02] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+          <h1 className="font-display truncate text-[clamp(1.65rem,5vw,2rem)] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
             {name}
           </h1>
 
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[12.5px] text-[rgb(var(--fg-muted))]">
+          <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
             <span
               aria-label={`Client ${clientName}`}
               className="inline-flex min-w-0 items-center gap-1.5"
