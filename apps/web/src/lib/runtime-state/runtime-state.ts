@@ -130,6 +130,17 @@ export interface ProducerStoreProductDraft {
   };
 }
 
+export interface ProducerPrivateOfferDraft {
+  version: 1;
+  entryKey: string;
+  mode: "new" | "edit";
+  existingOfferId: string | null;
+  expectedUpdatedAt: string | null;
+  currentStep: string;
+  draftJson: string;
+  submissionOfferId: string | null;
+}
+
 export interface ArtistMusicSafeView {
   mode: "projects" | "songs";
   view: "grid" | "table";
@@ -216,6 +227,7 @@ export interface RuntimePayloadBySlot {
   "artist.last-studio-context": ArtistStudioContextPointer;
   "producer.settings.display-name-draft": ProducerDisplayNameDraft;
   "producer.store.product-draft": ProducerStoreProductDraft;
+  "producer.private-offer.draft": ProducerPrivateOfferDraft;
   "producer.song-comment-draft": RuntimeTextDraft;
   "artist.song-comment-draft": RuntimeTextDraft;
   "runtime.navigation.snapshot": RuntimeNavigationSnapshot;
@@ -253,6 +265,7 @@ const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
   "artist.last-studio-context": RUNTIME_VIEW_MAX_AGE_MS,
   "producer.settings.display-name-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "producer.store.product-draft": RUNTIME_DRAFT_MAX_AGE_MS,
+  "producer.private-offer.draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "producer.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "artist.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "runtime.navigation.snapshot": RUNTIME_VIEW_MAX_AGE_MS,
@@ -627,6 +640,36 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
   );
 }
 
+function isProducerPrivateOfferDraft(value: unknown): value is ProducerPrivateOfferDraft {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "entryKey",
+      "mode",
+      "existingOfferId",
+      "expectedUpdatedAt",
+      "currentStep",
+      "draftJson",
+      "submissionOfferId",
+    ]) ||
+    value.version !== 1 ||
+    !isBoundedString(value.entryKey, 512) ||
+    (value.mode !== "new" && value.mode !== "edit") ||
+    (value.existingOfferId !== null && !isBoundedString(value.existingOfferId, 128)) ||
+    (value.expectedUpdatedAt !== null && !isBoundedString(value.expectedUpdatedAt, 128)) ||
+    !isBoundedString(value.currentStep, 128) ||
+    !isBoundedString(value.draftJson, 200_000) ||
+    (value.submissionOfferId !== null && !isBoundedString(value.submissionOfferId, 128))
+  ) {
+    return false;
+  }
+
+  return value.mode === "new"
+    ? value.existingOfferId === null && value.expectedUpdatedAt === null
+    : value.existingOfferId !== null && value.expectedUpdatedAt !== null;
+}
+
 function isRuntimeTextDraft(value: unknown): value is RuntimeTextDraft {
   return (
     isRecord(value) &&
@@ -767,6 +810,7 @@ const SLOT_VALIDATORS: {
   "artist.last-studio-context": isArtistStudioContextPointer,
   "producer.settings.display-name-draft": isProducerDisplayNameDraft,
   "producer.store.product-draft": isProducerStoreProductDraft,
+  "producer.private-offer.draft": isProducerPrivateOfferDraft,
   "producer.song-comment-draft": isRuntimeTextDraft,
   "artist.song-comment-draft": isRuntimeTextDraft,
   "runtime.navigation.snapshot": isRuntimeNavigationSnapshot,
@@ -964,6 +1008,14 @@ function isSongCommentDraftRoute(pathname: string, role: RuntimeRole): boolean {
   return pattern.test(pathname);
 }
 
+function isProducerPrivateOfferDraftRoute(scope: RuntimeScope, pathname: string): boolean {
+  return (
+    scope.route === pathname &&
+    (pathname === "/dashboard/store" ||
+      /^\/dashboard\/clients-projects\/clients\/[A-Za-z0-9_-]{1,128}$/.test(pathname))
+  );
+}
+
 function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean {
   const pathname = pathnameForScope(scope);
   switch (slot) {
@@ -991,6 +1043,8 @@ function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean 
       return scope.role === "producer" && scope.route === "/dashboard/settings?section=profile";
     case "producer.store.product-draft":
       return scope.role === "producer" && scope.route === "/dashboard/store";
+    case "producer.private-offer.draft":
+      return scope.role === "producer" && isProducerPrivateOfferDraftRoute(scope, pathname);
     case "producer.song-comment-draft":
       return scope.role === "producer" && isSongCommentDraftRoute(pathname, scope.role);
     case "artist.song-comment-draft":

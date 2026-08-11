@@ -9,6 +9,7 @@ import {
   paymentProofs,
   privateOffers,
   producers,
+  products,
   projects,
   purchaseAcceptances,
   purchaseInstallments,
@@ -235,6 +236,288 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     otherClientContactId = otherContact.id;
   });
 
+  it("uses the client-generated offer id exactly once and fails closed across producers", async () => {
+    const offerId = randomUUID();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1_000);
+    const offerTerms = terms({ name: "SK-219 idempotent offer" });
+    const first = await createPrivateOffer(activeDb(), {
+      offerId,
+      producerId,
+      recipient: { kind: "existing", clientContactId },
+      target: { kind: "new" },
+      terms: offerTerms,
+      now,
+      expiresAt,
+    });
+    expect(first.created).toBe(true);
+    expect(first.offer.id).toBe(offerId);
+
+    const replay = await createPrivateOffer(activeDb(), {
+      offerId,
+      producerId,
+      recipient: { kind: "existing", clientContactId },
+      target: { kind: "new" },
+      terms: offerTerms,
+      now: new Date(now.getTime() + 1_000),
+      expiresAt,
+    });
+    expect(replay.created).toBe(false);
+    expect(replay.offer.id).toBe(offerId);
+    expect(replay.offer.commercialDraft.productOrOfferName).toBe("SK-219 idempotent offer");
+
+    const changedReplay = await offerError(
+      createPrivateOffer(activeDb(), {
+        offerId,
+        producerId,
+        recipient: { kind: "existing", clientContactId },
+        target: { kind: "new" },
+        terms: terms({ name: "SK-219 changed retry" }),
+        now: new Date(now.getTime() + 2_000),
+        expiresAt,
+      }),
+    );
+    expect(changedReplay.code).toBe("STALE");
+
+    const [otherProducer] = await safely(() =>
+      activeDb()
+        .insert(producers)
+        .values({
+          clerkUserId: `sk219-other-producer-${suffix}`,
+          email: `sk219-other-producer-${suffix}@example.invalid`,
+          slug: `sk219-other-producer-${suffix}`,
+          displayName: "SK-219 Other Studio",
+        })
+        .returning({ id: producers.id }),
+    );
+    if (!otherProducer) throw new Error("SK-219 other producer fixture was not created");
+    const otherProducerEmail = `sk219-other-client-${suffix}@example.invalid`;
+    const [otherProducerContact] = await safely(() =>
+      activeDb()
+        .insert(clientContacts)
+        .values({
+          producerId: otherProducer.id,
+          email: otherProducerEmail,
+          emailHash: emailHashFor(otherProducerEmail),
+          name: "SK-219 Other Client",
+        })
+        .returning({ id: clientContacts.id }),
+    );
+    if (!otherProducerContact) {
+      throw new Error("SK-219 other producer contact fixture was not created");
+    }
+
+    const ownershipError = await offerError(
+      createPrivateOffer(activeDb(), {
+        offerId,
+        producerId: otherProducer.id,
+        recipient: { kind: "existing", clientContactId: otherProducerContact.id },
+        target: { kind: "new" },
+        terms: terms({ name: "SK-219 cross-producer replay" }),
+        now: new Date(now.getTime() + 2_000),
+      }),
+    );
+    expect(ownershipError.code).toBe("UNAVAILABLE");
+
+    const rows = await safely(() =>
+      activeDb()
+        .select({ id: privateOffers.id, producerId: privateOffers.producerId })
+        .from(privateOffers)
+        .where(eq(privateOffers.id, offerId)),
+    );
+    expect(rows).toEqual([{ id: offerId, producerId }]);
+  });
+
+  it("creates one row when exact retries race concurrently", async () => {
+    const offerId = randomUUID();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1_000);
+    const input = {
+      offerId,
+      producerId,
+      recipient: { kind: "existing" as const, clientContactId },
+      target: { kind: "new" as const },
+      terms: terms({ name: "SK-219 concurrent idempotent offer" }),
+      now,
+      expiresAt,
+    };
+
+    const [left, right] = await Promise.all([
+      createPrivateOffer(activeDb(), input),
+      createPrivateOffer(activeDb(), input),
+    ]);
+
+    expect([left.created, right.created].sort()).toEqual([false, true]);
+    expect([left.offer.id, right.offer.id]).toEqual([offerId, offerId]);
+    const rows = await safely(() =>
+      activeDb()
+        .select({ id: privateOffers.id, productId: privateOffers.productId })
+        .from(privateOffers)
+        .where(eq(privateOffers.id, offerId)),
+    );
+    expect(rows).toEqual([{ id: offerId, productId: null }]);
+  });
+
+  it("accepts live and hidden product provenance but rejects archived and foreign products", async () => {
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1_000);
+    const [foreignProducer] = await safely(() =>
+      activeDb()
+        .insert(producers)
+        .values({
+          clerkUserId: `sk219-product-producer-${suffix}`,
+          email: `sk219-product-producer-${suffix}@example.invalid`,
+          slug: `sk219-product-producer-${suffix}`,
+          displayName: "SK-219 Product Studio",
+        })
+        .returning({ id: producers.id }),
+    );
+    if (!foreignProducer) throw new Error("SK-219 foreign producer fixture was not created");
+
+    const productRows = await safely(() =>
+      activeDb()
+        .insert(products)
+        .values([
+          {
+            producerId,
+            name: "SK-219 Live Product",
+            durationMin: 60,
+            active: true,
+          },
+          {
+            producerId,
+            name: "SK-219 Hidden Product",
+            durationMin: 60,
+            active: false,
+          },
+          {
+            producerId,
+            name: "SK-219 Archived Product",
+            durationMin: 60,
+            archivedAt: now,
+          },
+          {
+            producerId: foreignProducer.id,
+            name: "SK-219 Foreign Product",
+            durationMin: 60,
+          },
+        ])
+        .returning({ id: products.id, name: products.name }),
+    );
+    const productIdByName = new Map(productRows.map((product) => [product.name, product.id]));
+    const liveProductId = productIdByName.get("SK-219 Live Product");
+    const hiddenProductId = productIdByName.get("SK-219 Hidden Product");
+    const archivedProductId = productIdByName.get("SK-219 Archived Product");
+    const foreignProductId = productIdByName.get("SK-219 Foreign Product");
+    if (!liveProductId || !hiddenProductId || !archivedProductId || !foreignProductId) {
+      throw new Error("SK-219 product fixtures were not created");
+    }
+
+    const liveOfferId = randomUUID();
+    const liveTerms = terms({ name: "SK-219 offer from live product" });
+    const live = await createPrivateOffer(activeDb(), {
+      offerId: liveOfferId,
+      sourceProductId: liveProductId,
+      producerId,
+      recipient: { kind: "existing", clientContactId },
+      target: { kind: "new" },
+      terms: liveTerms,
+      now,
+      expiresAt,
+    });
+    const hiddenOfferId = randomUUID();
+    const hidden = await createPrivateOffer(activeDb(), {
+      offerId: hiddenOfferId,
+      sourceProductId: hiddenProductId,
+      producerId,
+      recipient: { kind: "existing", clientContactId },
+      target: { kind: "new" },
+      terms: terms({ name: "SK-219 offer from hidden product" }),
+      now,
+      expiresAt,
+    });
+    expect(live).toMatchObject({ created: true, offer: { productId: liveProductId } });
+    expect(hidden).toMatchObject({ created: true, offer: { productId: hiddenProductId } });
+
+    const exactReplay = await createPrivateOffer(activeDb(), {
+      offerId: liveOfferId,
+      sourceProductId: liveProductId,
+      producerId,
+      recipient: { kind: "existing", clientContactId },
+      target: { kind: "new" },
+      terms: liveTerms,
+      now: new Date(now.getTime() + 1_000),
+      expiresAt,
+    });
+    expect(exactReplay).toMatchObject({
+      created: false,
+      offer: { id: liveOfferId, productId: liveProductId },
+    });
+
+    const changedSource = await offerError(
+      createPrivateOffer(activeDb(), {
+        offerId: liveOfferId,
+        sourceProductId: hiddenProductId,
+        producerId,
+        recipient: { kind: "existing", clientContactId },
+        target: { kind: "new" },
+        terms: liveTerms,
+        now: new Date(now.getTime() + 2_000),
+        expiresAt,
+      }),
+    );
+    expect(changedSource.code).toBe("STALE");
+
+    const archivedOfferId = randomUUID();
+    const archived = await offerError(
+      createPrivateOffer(activeDb(), {
+        offerId: archivedOfferId,
+        sourceProductId: archivedProductId,
+        producerId,
+        recipient: { kind: "existing", clientContactId },
+        target: { kind: "new" },
+        terms: terms({ name: "SK-219 offer from archived product" }),
+        now,
+        expiresAt,
+      }),
+    );
+    expect(archived.code).toBe("NOT_FOUND");
+
+    const foreignOfferId = randomUUID();
+    const foreign = await offerError(
+      createPrivateOffer(activeDb(), {
+        offerId: foreignOfferId,
+        sourceProductId: foreignProductId,
+        producerId,
+        recipient: { kind: "existing", clientContactId },
+        target: { kind: "new" },
+        terms: terms({ name: "SK-219 offer from foreign product" }),
+        now,
+        expiresAt,
+      }),
+    );
+    expect(foreign.code).toBe("NOT_FOUND");
+
+    const stored = await safely(() =>
+      activeDb()
+        .select({ id: privateOffers.id, productId: privateOffers.productId })
+        .from(privateOffers)
+        .where(inArray(privateOffers.id, [
+          liveOfferId,
+          hiddenOfferId,
+          archivedOfferId,
+          foreignOfferId,
+        ])),
+    );
+    expect(stored).toHaveLength(2);
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        { id: liveOfferId, productId: liveProductId },
+        { id: hiddenOfferId, productId: hiddenProductId },
+      ]),
+    );
+  });
+
   it("connects an offer sent to a verified secondary email", async () => {
     const now = new Date();
     const clerkUserId = `sk96-secondary-${suffix}`;
@@ -254,6 +537,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     );
     if (!contact) throw new Error("SK-96 secondary contact was not created");
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId: contact.id },
       target: { kind: "new" },
@@ -313,6 +597,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     );
     if (!contact) throw new Error("SK-96 frozen-recipient contact was not created");
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId: contact.id },
       target: { kind: "new" },
@@ -380,6 +665,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     const createdAt = new Date("2026-07-19T12:00:00.000Z");
     const expiresAt = new Date("2026-07-19T12:00:01.000Z");
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId },
       target: { kind: "new" },
@@ -454,6 +740,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
   it("accepts a true zero offer exactly once, activates its new project, and creates no payment state", async () => {
     const now = new Date();
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId },
       target: { kind: "new" },
@@ -552,6 +839,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     const now = new Date();
     const projectId = await createProject({ title: "SK-96 accept-reject race" });
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId },
       target: { kind: "existing", projectId },
@@ -601,6 +889,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     const now = new Date();
     const projectId = await createProject({ title: "SK-96 accept-cancel race" });
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId },
       target: { kind: "existing", projectId },
@@ -643,6 +932,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
       ownerClientContactId: otherClientContactId,
     });
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId },
       target: { kind: "existing", projectId: firstProjectId },
@@ -722,6 +1012,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     const renamedTitle = "SK-96 target after rename";
     const projectId = await createProject({ title: originalTitle });
     const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
       producerId,
       recipient: { kind: "existing", clientContactId },
       target: { kind: "existing", projectId },

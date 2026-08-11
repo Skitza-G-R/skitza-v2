@@ -197,6 +197,8 @@ export const privateOffersRouter = router({
     .input(
       z
         .object({
+          offerId: z.string().uuid(),
+          sourceProductId: z.string().uuid().optional(),
           recipient: recipientSchema,
           target: targetSchema,
           terms: privateOfferTermsSchema,
@@ -207,6 +209,8 @@ export const privateOffersRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const result = await createPrivateOffer(ctx.db, {
+          offerId: input.offerId,
+          ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
           producerId: ctx.producerId,
           recipient: input.recipient,
           target: input.target,
@@ -214,19 +218,22 @@ export const privateOffersRouter = router({
           now: new Date(),
           ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
         });
-        let emailDelivered = true;
-        try {
-          await sendPrivateOfferNotificationEmail(result.recipient.email, {
-            recipientName: result.recipient.name,
-            producerName: result.producer.displayName ?? "Your producer",
-            producerSlug: result.producer.slug,
-          });
-        } catch (emailError) {
-          emailDelivered = false;
-          console.warn("[private-offers] notification email failed", {
-            offerId: result.offer.id,
-            error: emailError instanceof Error ? emailError.name : "unknown",
-          });
+        let emailDelivered: boolean | null = null;
+        if (result.created) {
+          emailDelivered = true;
+          try {
+            await sendPrivateOfferNotificationEmail(result.recipient.email, {
+              recipientName: result.recipient.name,
+              producerName: result.producer.displayName ?? "Your producer",
+              producerSlug: result.producer.slug,
+            });
+          } catch (emailError) {
+            emailDelivered = false;
+            console.warn("[private-offers] notification email failed", {
+              offerId: result.offer.id,
+              error: emailError instanceof Error ? emailError.name : "unknown",
+            });
+          }
         }
         return { offerId: result.offer.id, emailDelivered };
       } catch (error) {

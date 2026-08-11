@@ -7,7 +7,7 @@
 
 "use client";
 
-import { Archive, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronUp, Pencil, Send, Trash2 } from "lucide-react";
 import type { Ref } from "react";
 
 import { formatMoney } from "~/lib/format/money";
@@ -52,6 +52,7 @@ interface ProductCardProps {
   onMoveUp: () => void;
   onMoveDown: () => void;
   onToggleVisible: () => void;
+  onSendPrivately: () => void;
   onEdit: () => void;
   onRemove: () => void;
 }
@@ -91,6 +92,7 @@ export function ProductCard({
   onMoveUp,
   onMoveDown,
   onToggleVisible,
+  onSendPrivately,
   onEdit,
   onRemove,
 }: ProductCardProps) {
@@ -121,7 +123,6 @@ export function ProductCard({
         "grid-cols-[60px_minmax(0,1fr)] gap-x-3 gap-y-2.5",
         "sm:grid-cols-[60px_minmax(0,1fr)_auto_auto] sm:gap-x-3.5 sm:gap-y-0",
         "hover:-translate-y-px hover:border-[rgb(var(--border-strong))] hover:shadow-[0_14px_36px_-22px_rgba(17,16,9,0.28),0_2px_8px_-3px_rgba(17,16,9,0.05)]",
-        product.active ? "" : "opacity-60",
         recentlyAdded ? "sk-shimmer-glow" : "",
       ].join(" ")}
     >
@@ -134,7 +135,7 @@ export function ProductCard({
 
       <TypeTile type={tile} hidden={!product.active} />
 
-      <div className="min-w-0">
+      <div className={`min-w-0 ${product.active ? "" : "opacity-60"}`}>
         {/* SK-57: phones let the name wrap to two lines — the price
             column squeezed it to ~166px and "Full production day"
             rendered as "Full produ…". sm+ keeps the single ellipsis
@@ -164,7 +165,11 @@ export function ProductCard({
         </p>
       </div>
 
-      <div className="col-start-2 row-start-2 flex shrink-0 flex-row items-baseline gap-2 sm:col-auto sm:row-auto sm:flex-col sm:items-end sm:gap-0.5">
+      <div
+        className={`col-start-2 row-start-2 flex shrink-0 flex-row items-baseline gap-2 sm:col-auto sm:row-auto sm:flex-col sm:items-end sm:gap-0.5 ${
+          product.active ? "" : "opacity-60"
+        }`}
+      >
         <p className="font-display text-left text-[17px] leading-none font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums sm:text-right sm:text-[26px]">
           {formatMoney(displayCents, product.currency)}
         </p>
@@ -178,7 +183,7 @@ export function ProductCard({
         ) : null}
       </div>
 
-      <div className="col-span-2 flex items-center justify-end gap-1 border-t border-[rgb(var(--border-subtle))] pt-3 sm:col-span-1 sm:gap-2 sm:border-t-0 sm:pt-0">
+      <div className="col-span-2 flex flex-wrap items-center justify-end gap-1 border-t border-[rgb(var(--border-subtle))] pt-3 sm:col-span-1 sm:gap-2 sm:border-t-0 sm:pt-0">
         {reordering ? (
           <>
             <span
@@ -224,6 +229,16 @@ export function ProductCard({
               ariaLabel={product.active ? `Hide ${product.name}` : `Make ${product.name} live`}
               disabled={pending}
             />
+            <button
+              type="button"
+              onClick={onSendPrivately}
+              disabled={pending}
+              aria-label={`Send ${product.name} privately`}
+              className="sk-press inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.08)] px-3 text-[12px] font-semibold text-[rgb(var(--brand-primary-text))] transition-[border-color,background-color] hover:border-[rgb(var(--brand-primary)/0.6)] hover:bg-[rgb(var(--brand-primary)/0.13)] disabled:cursor-not-allowed disabled:opacity-50 sm:h-[34px] sm:rounded-[var(--radius-md)]"
+            >
+              <Send size={12} strokeWidth={2.2} aria-hidden />
+              <span>Send privately</span>
+            </button>
             <button
               type="button"
               onClick={onEdit}

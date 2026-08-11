@@ -14,6 +14,7 @@ import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { StoreScreen, type StoreProduct } from "./store-screen";
+import { buildPrivateOfferTemplateProduct } from "./private-offer-template";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 
@@ -28,6 +29,17 @@ export default async function StorePage() {
     caller.privateOffers.recipients(),
     caller.privateOffers.producerList(),
   ]);
+
+  const VALID = ["USD", "EUR", "GBP", "ILS"] as const;
+  const defaultCurrency: Currency = (VALID as readonly string[]).includes(profile.defaultCurrency)
+    ? (profile.defaultCurrency as Currency)
+    : "USD";
+
+  const taxMode = coerceTaxMode(profile.taxMode);
+  const taxRatePct =
+    typeof profile.taxRatePct === "number" && Number.isFinite(profile.taxRatePct)
+      ? Math.max(0, Math.min(100, Math.round(profile.taxRatePct)))
+      : 18;
 
   const products: StoreProduct[] = packages.map((p) => ({
     id: p.id,
@@ -52,20 +64,11 @@ export default async function StorePage() {
     pricingModel: p.pricingModel,
     volumeTiers: p.volumeTiers,
     removalAction: p.removalAction,
+    privateOfferTemplate: buildPrivateOfferTemplateProduct(p, {
+      taxMode,
+      taxRatePct,
+    }),
   }));
-
-  const VALID = ["USD", "EUR", "GBP", "ILS"] as const;
-  const defaultCurrency: Currency = (VALID as readonly string[]).includes(
-    profile.defaultCurrency,
-  )
-    ? (profile.defaultCurrency as Currency)
-    : "USD";
-
-  const taxMode = coerceTaxMode(profile.taxMode);
-  const taxRatePct =
-    typeof profile.taxRatePct === "number" && Number.isFinite(profile.taxRatePct)
-      ? Math.max(0, Math.min(100, Math.round(profile.taxRatePct)))
-      : 18;
 
   return (
     <>
@@ -85,6 +88,7 @@ export default async function StorePage() {
         producerSlug={profile.slug}
         producerLogoUrl={profile.brand.logoUrl ?? null}
         privateOfferCount={offerHistory.offers.length}
+        privateOfferRecipients={offerRecipients}
         privateOffers={
           <PrivateOfferManager
             recipients={offerRecipients}

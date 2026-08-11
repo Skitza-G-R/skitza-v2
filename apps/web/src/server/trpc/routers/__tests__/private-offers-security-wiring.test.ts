@@ -128,6 +128,25 @@ describe("private-offer router security wiring", () => {
 });
 
 describe("private-offer transition concurrency wiring", () => {
+  it("deduplicates send by a client UUID without crossing producer ownership", () => {
+    const create = compact(implementationOf("createPrivateOffer"));
+    const replay = compact(implementationOf("assertExactPrivateOfferReplay"));
+    const router = compact(routerSource);
+
+    expect(router).toContain("offerId: z.string().uuid()");
+    expect(router).toContain("sourceProductId: z.string().uuid().optional()");
+    expect(create).toContain("id: input.offerId");
+    expect(create).toContain("eq(products.producerId, input.producerId)");
+    expect(create).toContain("productId: sourceProductId");
+    expect(create).toContain("onConflictDoNothing({ target: privateOffers.id })");
+    expect(replay).toContain("existing.producerId !== input.producerId");
+    expect(replay).toContain("digestCommercialSnapshot(existing.commercialDraft)");
+    expect(replay).toContain("existing.expiresAt.getTime() === input.expiresAt.getTime()");
+    expect(create.match(/assertExactPrivateOfferReplay\(/g)).toHaveLength(2);
+    expect(router).toContain("if (result.created)");
+    expect(router).toContain("await sendPrivateOfferNotificationEmail");
+  });
+
   it("locks producer and artist offer rows before mutable transitions", () => {
     expect(compact(implementationOf("lockProducerOffer"))).toContain('.for("update")');
     expect(compact(implementationOf("lockArtistOffer"))).toContain('.for("update")');

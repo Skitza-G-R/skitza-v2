@@ -19,6 +19,21 @@ const COMPOSER = readFileSync(
   join(here, "..", "..", "offers", "private-offer-composer.tsx"),
   "utf8",
 );
+const EDITOR_SHELL = readFileSync(
+  join(
+    here,
+    "..",
+    "..",
+    "..",
+    "..",
+    "app",
+    "(producer)",
+    "dashboard",
+    "store",
+    "editor-shell.tsx",
+  ),
+  "utf8",
+);
 const OFFER_ACTIONS = readFileSync(
   join(
     here,
@@ -135,12 +150,18 @@ describe("Client Space action boundaries", () => {
       /<PrivateOfferComposer[\s\S]*?trigger=\{null\}[\s\S]*?returnFocusRef=\{actionReturnFocusRef\}/,
     );
 
-    for (const source of [NEW_PROJECT, INVITE, COMPOSER]) {
+    for (const source of [NEW_PROJECT, INVITE]) {
       expect(source).toMatch(/returnFocusRef\?:\s*RefObject<HTMLElement\s*\|\s*null>/);
       expect(source).toMatch(
         /onCloseAutoFocus=\{\(event\)\s*=>\s*\{[\s\S]*?returnFocusRef\?\.current[\s\S]*?event\.preventDefault\(\)[\s\S]*?target\.focus\(\)/,
       );
     }
+
+    expect(COMPOSER).toMatch(/returnFocusRef\?:\s*RefObject<HTMLElement\s*\|\s*null>/);
+    expect(COMPOSER).toMatch(/<EditorShell[\s\S]*?\{\.\.\.\(returnFocusRef \? \{ returnFocusRef \} : \{\}\)\}/);
+    expect(EDITOR_SHELL).toMatch(
+      /onCloseAutoFocus=\{\(event\)\s*=>\s*\{[\s\S]*?returnFocusRef\?\.current[\s\S]*?event\.preventDefault\(\)[\s\S]*?target\.focus\(\)/,
+    );
   });
 });
 
