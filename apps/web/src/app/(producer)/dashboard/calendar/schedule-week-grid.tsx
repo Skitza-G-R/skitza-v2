@@ -11,9 +11,14 @@
 //
 // Pure visual; data comes pre-resolved from page.tsx.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { calendarSlotFromPointer, studioDateKey, type ManualSessionDraft } from "./calendar-slot";
+import {
+  calendarSlotFromPointer,
+  studioDateKey,
+  type ManualSessionDraft,
+  type ManualSessionSlot,
+} from "./calendar-slot";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { isSameDay } from "./calendar-week";
 import { useManualSessionLauncher } from "./manual-session-launcher-context";
@@ -45,6 +50,7 @@ const HOUR_ROW_CSS = "var(--hour-px, 44px)";
 const HEADER_ROW_PX = 38; // compact day-label row; matches the offset in NowLineOverlay
 const MIN_HOUR_PX = 28; // floor so labels stay legible on tiny viewports
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const FINE_HOVER_QUERY = "(hover: hover) and (pointer: fine)";
 
 export function ScheduleWeekGrid({
   week,
@@ -71,6 +77,7 @@ export function ScheduleWeekGrid({
   onRescheduleSession?: (sessionId: string) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
+  const [hoverSlot, setHoverSlot] = useState<ManualSessionSlot | null>(null);
   const { openManualSession, provisionalSlot } = useManualSessionLauncher();
   const { startHour, endHour } = deriveScheduleHourRange(availabilityBlocks, sessions, timeZone);
   const hoursVisible = endHour - startHour;
@@ -139,6 +146,9 @@ export function ScheduleWeekGrid({
     <section
       ref={sectionRef}
       aria-label="Weekly schedule"
+      onMouseLeave={() => {
+        setHoverSlot(null);
+      }}
       className="sk-scroll-x relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] lg:overflow-x-hidden"
     >
       <div
@@ -218,6 +228,8 @@ export function ScheduleWeekGrid({
             timeZone={timeZone}
             openManualSession={openManualSession}
             provisionalSlot={provisionalSlot}
+            hoverSlot={hoverSlot}
+            setHoverSlot={setHoverSlot}
             onManageSession={onManageSession ?? onRescheduleSession}
             googleBusyModel={googleBusyModel}
           />
@@ -251,6 +263,8 @@ function HourRow({
   timeZone,
   openManualSession,
   provisionalSlot,
+  hoverSlot,
+  setHoverSlot,
   onManageSession,
   googleBusyModel,
 }: {
@@ -262,6 +276,8 @@ function HourRow({
   timeZone: string;
   openManualSession: ReturnType<typeof useManualSessionLauncher>["openManualSession"];
   provisionalSlot: ManualSessionDraft | null;
+  hoverSlot: ManualSessionSlot | null;
+  setHoverSlot: (slot: ManualSessionSlot | null) => void;
   onManageSession: ((sessionId: string) => void) | undefined;
   googleBusyModel: ScheduleGoogleBusyModel;
 }) {
@@ -293,6 +309,34 @@ function HourRow({
             key={dayIdx}
             data-calendar-date={studioDate}
             data-calendar-hour={hour}
+            onMouseMove={(event) => {
+              if (!supportsFineHover()) return;
+              if ((event.target as HTMLElement).closest("[data-calendar-session]")) {
+                setHoverSlot(null);
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              const next = calendarSlotFromPointer({
+                dayMarker,
+                hour,
+                clientY: event.clientY,
+                cellTop: rect.top,
+                cellHeight: rect.height,
+              });
+              if (!calendarSlotInteractive(next.studioStartMin, busyDay)) {
+                setHoverSlot(null);
+                return;
+              }
+              if (
+                hoverSlot?.studioDate !== next.studioDate ||
+                hoverSlot.studioStartMin !== next.studioStartMin
+              ) {
+                setHoverSlot(next);
+              }
+            }}
+            onMouseLeave={() => {
+              setHoverSlot(null);
+            }}
             onDoubleClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
               const slot = calendarSlotFromPointer({
@@ -305,7 +349,7 @@ function HourRow({
               if (!calendarSlotInteractive(slot.studioStartMin, busyDay)) return;
               openManualSession(slot);
             }}
-            className="relative border-l border-[rgb(var(--border-subtle))] first-of-type:border-l-0"
+            className="relative border-l border-[rgb(var(--border-subtle))] first-of-type:border-l-0 lg:cursor-pointer"
             style={{
               height: HOUR_ROW_CSS,
               borderTop: hourIdx === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
@@ -322,6 +366,13 @@ function HourRow({
               .map((band) => (
                 <GoogleBusyBand key={band.key} band={band} hour={hour} />
               ))}
+            {hoverSlot?.studioDate === studioDate &&
+            Math.floor(hoverSlot.studioStartMin / 60) === hour ? (
+              <HoverSlotPreview
+                key={`${studioDate}-${String(hoverSlot.studioStartMin)}`}
+                slot={hoverSlot}
+              />
+            ) : null}
             {daySessions
               .filter((s) => {
                 const dt = new Date(s.startsAt);
@@ -429,6 +480,9 @@ function SessionBlock({
       }}
       className={[
         "absolute right-1 left-1 z-[2] overflow-hidden rounded-[10px] border select-none",
+        canManage
+          ? "cursor-pointer transition-[transform,filter,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:brightness-[1.04] motion-reduce:transform-none motion-reduce:transition-none"
+          : "",
         isPending
           ? "border-dashed text-[rgb(var(--fg-default))] shadow-[0_3px_10px_-6px_rgb(var(--brand-primary-dark)/0.35)]"
           : "text-[rgb(var(--fg-on-brand))] shadow-[0_5px_14px_-7px_rgb(var(--brand-primary-dark)/0.55)]",
@@ -497,6 +551,45 @@ function SessionBlock({
       </div>
     </div>
   );
+}
+
+function HoverSlotPreview({ slot }: { slot: ManualSessionSlot }) {
+  const quarter = (slot.studioStartMin % 60) / 15;
+  const bandTop = `calc(${String(quarter / 4)} * ${HOUR_ROW_CSS} + 2px)`;
+  const tooltipBelow = quarter < 2;
+  const tooltipOffset = tooltipBelow
+    ? { top: `calc(${String((quarter + 1) / 4)} * ${HOUR_ROW_CSS} + 6px)` }
+    : { bottom: `calc(${String(1 - quarter / 4)} * ${HOUR_ROW_CSS} + 6px)` };
+
+  return (
+    <>
+      <div
+        aria-hidden
+        data-calendar-hover-slot
+        className="sk-pop-center pointer-events-none absolute right-1 left-1 z-[1] hidden overflow-hidden rounded-[7px] border border-dashed border-[rgb(var(--brand-primary-dark)/0.72)] bg-[rgb(var(--brand-primary)/0.11)] shadow-[0_6px_18px_-14px_rgb(var(--brand-primary-dark)/0.8)] lg:block"
+        style={{
+          top: bandTop,
+          height: `calc(0.25 * ${HOUR_ROW_CSS} - 4px)`,
+        }}
+      >
+        <span className="absolute inset-y-0 left-2 flex items-center font-mono text-[10px] font-bold tracking-[0.01em] text-[rgb(var(--brand-primary-text))] tabular-nums">
+          + {formatStudioMinute(slot.studioStartMin)}
+        </span>
+      </div>
+      <div
+        aria-hidden
+        data-calendar-hover-hint
+        className="sk-pop-center pointer-events-none absolute left-1 z-[3] hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-1.5 text-[10px] font-semibold whitespace-nowrap text-[rgb(var(--fg-default))] shadow-[var(--shadow-md)] lg:block"
+        style={tooltipOffset}
+      >
+        Double-click to book
+      </div>
+    </>
+  );
+}
+
+function supportsFineHover(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(FINE_HOVER_QUERY).matches;
 }
 
 function ProvisionalSessionBlock({ draft }: { draft: ManualSessionDraft }) {
