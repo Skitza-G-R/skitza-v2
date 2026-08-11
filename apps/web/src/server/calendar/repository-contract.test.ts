@@ -89,6 +89,9 @@ describe("calendar delivery Postgres repository contract", () => {
     expect(claim).toContain('"upsert_google_event"');
     expect(claim).toContain('"delete_google_event"');
     expect(claim).not.toContain('"reconcile_google_event"');
+    expect(claim).toContain("input.producerId");
+    expect(claim).toContain("eq(calendarSyncJobs.producerId, input.producerId)");
+    expect(claim).toContain("input.forcePending");
 
     const reconciliationClaim = repositoryMethodSource("claimDueGoogleReconciliationJobs");
     expect(reconciliationClaim).toContain(

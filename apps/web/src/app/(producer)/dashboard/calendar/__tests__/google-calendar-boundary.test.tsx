@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GoogleCalendarControlActions } from "../google-calendar-ui-model";
@@ -10,7 +10,13 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(() => Promise.resolve({ ok: true as const })),
   refresh: vi.fn(() => Promise.resolve({ ok: true as const })),
   disconnect: vi.fn(() => Promise.resolve({ ok: true as const })),
+  repair: vi.fn(() => Promise.resolve({ ok: true as const })),
+  routerRefresh: vi.fn(),
   toast: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: mocks.routerRefresh }),
 }));
 
 vi.mock("~/components/ui/toast", () => ({
@@ -28,6 +34,7 @@ vi.mock("../google-calendar-actions", () => ({
   saveGoogleCalendarSelection: mocks.save,
   refreshGoogleCalendarCalendars: mocks.refresh,
   disconnectGoogleCalendar: mocks.disconnect,
+  repairGoogleCalendarSync: mocks.repair,
 }));
 
 import { GoogleCalendarControlBoundary } from "../google-calendar-control-boundary";
@@ -38,6 +45,8 @@ afterEach(() => {
   mocks.save.mockClear();
   mocks.refresh.mockClear();
   mocks.disconnect.mockClear();
+  mocks.repair.mockClear();
+  mocks.routerRefresh.mockClear();
   mocks.toast.mockClear();
   vi.restoreAllMocks();
 });
@@ -93,10 +102,12 @@ describe("GoogleCalendarControlBoundary", () => {
       reason: "offline",
     });
     await expect(actions.disconnect()).resolves.toEqual({ ok: false, reason: "offline" });
+    await expect(actions.repairSync()).resolves.toEqual({ ok: false, reason: "offline" });
     expect(navigate).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(mocks.disconnect).not.toHaveBeenCalled();
+    expect(mocks.repair).not.toHaveBeenCalled();
   });
 
   it("forwards only opaque selection keys to the server action", async () => {
@@ -114,10 +125,83 @@ describe("GoogleCalendarControlBoundary", () => {
     await actions.saveSelection(selection);
     await actions.refreshCalendars();
     await actions.disconnect();
+    await actions.repairSync();
 
     expect(mocks.save).toHaveBeenCalledWith(selection);
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+    expect(mocks.repair).toHaveBeenCalledWith({ forcePending: true });
+    expect(mocks.routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("automatically wakes due retries while a connected calendar is still syncing", async () => {
+    setOnline(true);
+    render(
+      <GoogleCalendarControlBoundary
+        model={{
+          status: "connected",
+          accountLabel: "producer@example.test",
+          calendars: [],
+          selection: {
+            destinationSelectionKey: "00000000-0000-4000-8000-000000000001",
+            busySelectionKeys: ["00000000-0000-4000-8000-000000000001"],
+          },
+          syncSummary: {
+            syncing: 1,
+            notSynced: 0,
+            missing: 0,
+            conflicts: 0,
+            issues: [],
+          },
+        }}
+        navigate={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mocks.repair).toHaveBeenCalledWith({ forcePending: false });
+    });
+    expect(mocks.routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks again after the short retry window while work is still pending", async () => {
+    vi.useFakeTimers();
+    try {
+      setOnline(true);
+      const view = render(
+        <GoogleCalendarControlBoundary
+          model={{
+            status: "connected",
+            accountLabel: "producer@example.test",
+            calendars: [],
+            selection: {
+              destinationSelectionKey: "00000000-0000-4000-8000-000000000001",
+              busySelectionKeys: ["00000000-0000-4000-8000-000000000001"],
+            },
+            syncSummary: {
+              syncing: 1,
+              notSynced: 0,
+              missing: 0,
+              conflicts: 0,
+              issues: [],
+            },
+          }}
+          navigate={vi.fn()}
+        />,
+      );
+
+      await act(async () => Promise.resolve());
+      expect(mocks.repair).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+        await Promise.resolve();
+      });
+      expect(mocks.repair).toHaveBeenCalledTimes(2);
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows only fixed callback feedback", () => {

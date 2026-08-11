@@ -54,7 +54,13 @@ const calendars: readonly GoogleCalendarOption[] = [
     primary: false,
   },
 ];
-const syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 } as const;
+const syncSummary = {
+  syncing: 0,
+  notSynced: 0,
+  missing: 0,
+  conflicts: 0,
+  issues: [],
+} as const;
 
 function success(): Promise<GoogleCalendarActionResult> {
   return Promise.resolve({ ok: true });
@@ -70,6 +76,7 @@ function actionSet(
     reconnect: vi.fn(success),
     confirmAccountSwitch: vi.fn(success),
     disconnect: vi.fn(success),
+    repairSync: vi.fn(success),
     ...overrides,
   };
 }
@@ -227,14 +234,31 @@ describe("GoogleCalendarControl", () => {
     ).toBe(true);
   });
 
-  it("surfaces only safe sync counts in the trigger and summary", () => {
+  it("shows the affected session in plain language and lets the producer retry", async () => {
+    const repairSync = vi.fn(success);
     render(
       <GoogleCalendarControl
         model={{
           ...connectedModel(),
-          syncSummary: { syncing: 1, notSynced: 1, missing: 2, conflicts: 1 },
+          syncSummary: {
+            syncing: 1,
+            notSynced: 1,
+            missing: 2,
+            conflicts: 1,
+            issues: [
+              {
+                bookingId: "00000000-0000-4000-8000-000000000201",
+                syncState: "missing",
+                bookingStatus: "cancelled",
+                artistName: "Lior Tansky",
+                startsAtIso: "2026-08-16T07:00:00.000Z",
+                durationMin: 240,
+              },
+            ],
+          },
         }}
-        actions={actionSet()}
+        actions={actionSet({ repairSync })}
+        timeZone="Asia/Jerusalem"
       />,
     );
 
@@ -244,6 +268,12 @@ describe("GoogleCalendarControl", () => {
     expect(
       within(dialog).getByText("1 syncing · 1 not synced · 2 missing · 1 conflict"),
     ).not.toBeNull();
+    expect(within(dialog).getByText("Session with Lior Tansky")).not.toBeNull();
+    expect(within(dialog).getByText(/Cancelled session cleanup is waiting/)).not.toBeNull();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+    await act(() => Promise.resolve());
+    expect(repairSync).toHaveBeenCalledTimes(1);
   });
 
   it("renders reconnect safely without any configured calendar", async () => {

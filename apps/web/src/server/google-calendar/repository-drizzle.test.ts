@@ -41,6 +41,21 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(source).toContain('status: "needs_selection"');
   });
 
+  it("returns producer-scoped session details for sync issues without provider identifiers", () => {
+    const summaryStart = source.indexOf("async getConnectionSyncSummary(command)");
+    const summaryEnd = source.indexOf("async listCalendarWatches(command)", summaryStart);
+    const summary = source.slice(summaryStart, summaryEnd);
+
+    expect(summary).toContain("eq(bookingCalendarLinks.producerId, command.producerId)");
+    expect(summary).toContain("eq(bookings.producerId, bookingCalendarLinks.producerId)");
+    expect(summary).toContain("artistName: bookings.artistName");
+    expect(summary).toContain("startsAt: bookings.startsAt");
+    expect(summary).toContain('["not_synced", "missing", "conflict"]');
+    expect(summary).toContain(".limit(25)");
+    expect(summary).not.toContain("providerEventId:");
+    expect(summary).not.toContain("artistEmail:");
+  });
+
   it("removes provider handles and all credential envelope fields on disconnect", () => {
     expect(source).toContain(".delete(googleCalendarSelections)");
     expect(source).toContain("accessTokenCiphertext: null");
@@ -73,9 +88,7 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(targets).toContain("eq(bookingCalendarLinks.connectionId, command.connectionId)");
     expect(targets).toContain("eq(bookingCalendarLinks.accountVersion, command.accountVersion)");
     expect(targets).toContain('eq(bookingCalendarLinks.providerState, "active")');
-    expect(targets).toContain(
-      'inArray(bookings.status, ["pending_approval", "confirmed"])',
-    );
+    expect(targets).toContain('inArray(bookings.status, ["pending_approval", "confirmed"])');
     expect(targets).toContain("gt(bookings.startsAt, command.now)");
     expect(targets).toContain("fingerprints.has(row.destinationCalendarIdFingerprint)");
   });
@@ -89,9 +102,7 @@ describe("Google Calendar Drizzle repository contract", () => {
     const repair = source.slice(repairStart, repairEnd);
 
     for (const section of [targets, repair]) {
-      expect(section).toContain(
-        'inArray(bookings.status, ["pending_approval", "confirmed"])',
-      );
+      expect(section).toContain('inArray(bookings.status, ["pending_approval", "confirmed"])');
       expect(section).not.toMatch(
         /inArray\(bookings\.status, \[[^\]]*(?:rejected|cancelled|completed|no_show)/u,
       );

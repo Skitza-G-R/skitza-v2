@@ -99,6 +99,7 @@ function preparedLink(row: BookingCalendarLink): GoogleCalendarPreparedLink {
     providerEventId: row.providerEventId,
     providerEventEtag: row.providerEventEtag,
     providerState: row.providerState,
+    syncState: row.syncState,
     desiredRevision: row.desiredRevision,
     lastGoogleRevision: row.lastGoogleRevision,
     invitationRevision: row.invitationRevision,
@@ -525,7 +526,7 @@ export function calendarDeliveryRepository(
         const due = or(
           and(
             eq(calendarSyncJobs.status, "pending"),
-            lte(calendarSyncJobs.nextAttemptAt, input.now),
+            input.forcePending ? undefined : lte(calendarSyncJobs.nextAttemptAt, input.now),
           ),
           and(
             eq(calendarSyncJobs.status, "processing"),
@@ -541,6 +542,7 @@ export function calendarDeliveryRepository(
               eq(calendarSyncJobs.deliveryChannel, "google"),
               inArray(calendarSyncJobs.operation, ["upsert_google_event", "delete_google_event"]),
               input.jobId ? eq(calendarSyncJobs.id, input.jobId) : undefined,
+              input.producerId ? eq(calendarSyncJobs.producerId, input.producerId) : undefined,
             ),
           )
           .orderBy(asc(calendarSyncJobs.createdAt), asc(calendarSyncJobs.id))

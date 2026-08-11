@@ -8,6 +8,7 @@ import {
   type GoogleCalendarAccessRole,
   type GoogleCalendarOption,
   type GoogleCalendarSelection,
+  type GoogleCalendarSyncSummary,
   type GoogleCalendarUiModel,
 } from "./google-calendar-ui-model";
 
@@ -31,6 +32,18 @@ function calendarOption(calendar: GoogleCalendarPublicCandidate): GoogleCalendar
     timeZone: calendar.timezone ?? "Timezone unavailable",
     accessRole: accessRole(calendar.accessRole),
     primary: calendar.isPrimary,
+  };
+}
+
+function syncSummary(
+  summary: Extract<GoogleCalendarConnectionSnapshot, { syncSummary: unknown }>["syncSummary"],
+): GoogleCalendarSyncSummary {
+  return {
+    ...summary,
+    issues: summary.issues.map(({ startsAt, ...issue }) => ({
+      ...issue,
+      startsAtIso: startsAt.toISOString(),
+    })),
   };
 }
 
@@ -73,7 +86,7 @@ export function presentGoogleCalendar(
     return {
       status: "disconnected",
       accountLabel: snapshot.accountEmail,
-      syncSummary: snapshot.syncSummary,
+      syncSummary: syncSummary(snapshot.syncSummary),
     };
   }
 
@@ -83,7 +96,7 @@ export function presentGoogleCalendar(
     return {
       status: "reconnect_required",
       accountLabel: snapshot.accountEmail,
-      syncSummary: snapshot.syncSummary,
+      syncSummary: syncSummary(snapshot.syncSummary),
       ...(calendars.length > 0 ? { calendars } : {}),
       ...(selection.destinationSelectionKey || selection.busySelectionKeys.length > 0
         ? { selection }
@@ -100,7 +113,7 @@ export function presentGoogleCalendar(
       status: "connected",
       accountLabel: snapshot.accountEmail,
       calendars,
-      syncSummary: snapshot.syncSummary,
+      syncSummary: syncSummary(snapshot.syncSummary),
       selection: {
         destinationSelectionKey: selection.destinationSelectionKey,
         busySelectionKeys: selection.busySelectionKeys,
@@ -112,7 +125,7 @@ export function presentGoogleCalendar(
     status: "selection_required",
     accountLabel: snapshot.accountEmail,
     calendars,
-    syncSummary: snapshot.syncSummary,
+    syncSummary: syncSummary(snapshot.syncSummary),
     selection,
   };
 }

@@ -38,6 +38,7 @@ type PendingAction = keyof GoogleCalendarControlActions;
 export type GoogleCalendarControlProps = Readonly<{
   model: GoogleCalendarUiModel;
   actions: GoogleCalendarControlActions;
+  timeZone?: string;
   open?: boolean;
   defaultOpen?: boolean;
   defaultView?: GoogleCalendarControlView;
@@ -47,6 +48,7 @@ export type GoogleCalendarControlProps = Readonly<{
 export function GoogleCalendarControl({
   model,
   actions,
+  timeZone = "UTC",
   open,
   defaultOpen,
   defaultView,
@@ -176,6 +178,10 @@ export function GoogleCalendarControl({
     });
   }
 
+  async function repairSync() {
+    await runAction("repairSync", actions.repairSync);
+  }
+
   const pendingMessage = pendingAction ? actionPendingCopy(pendingAction) : null;
 
   return (
@@ -270,6 +276,7 @@ export function GoogleCalendarControl({
             pendingAction={pendingAction}
             feedback={feedback}
             pendingMessage={pendingMessage}
+            timeZone={timeZone}
             onConnect={() => void connect()}
             onReconnect={() => void reconnect()}
             onEdit={() => {
@@ -284,6 +291,7 @@ export function GoogleCalendarControl({
               setFeedback(null);
               setView("disconnect_confirmation");
             }}
+            onRepair={() => void repairSync()}
           />
         )}
       </DialogContent>
@@ -296,21 +304,25 @@ function SummaryPanel({
   pendingAction,
   feedback,
   pendingMessage,
+  timeZone,
   onConnect,
   onReconnect,
   onEdit,
   onSwitch,
   onDisconnect,
+  onRepair,
 }: {
   model: GoogleCalendarUiModel;
   pendingAction: PendingAction | null;
   feedback: string | null;
   pendingMessage: string | null;
+  timeZone: string;
   onConnect: () => void;
   onReconnect: () => void;
   onEdit: () => void;
   onSwitch: () => void;
   onDisconnect: () => void;
+  onRepair: () => void;
 }) {
   if (model.status === "not_connected" || model.status === "connecting") {
     const connecting = model.status === "connecting" || pendingAction === "connect";
@@ -454,7 +466,12 @@ function SummaryPanel({
         />
         <div className="space-y-4 px-5 py-4 sm:px-6">
           <AccountStrip label="Connected account" value={model.accountLabel} />
-          <SyncHealthSummary summary={model.syncSummary} />
+          <SyncHealthSummary
+            summary={model.syncSummary}
+            timeZone={timeZone}
+            onRepair={onRepair}
+            repairPending={pendingAction === "repairSync"}
+          />
           <RoutingSummary
             title="Events go to"
             calendars={destination ? [destination] : []}
@@ -1097,9 +1114,15 @@ function RoutingSummary({
 function SyncHealthSummary({
   summary,
   disconnected = false,
+  timeZone = "UTC",
+  onRepair,
+  repairPending = false,
 }: {
   summary: GoogleCalendarSyncSummary;
   disconnected?: boolean;
+  timeZone?: string;
+  onRepair?: () => void;
+  repairPending?: boolean;
 }) {
   const attention = summary.notSynced + summary.missing + summary.conflicts;
   const title = disconnected
@@ -1138,8 +1161,72 @@ function SyncHealthSummary({
             : "Linked sessions match Google Calendar."}
         </p>
       )}
+      {summary.issues.length > 0 ? (
+        <ul className="mt-3 space-y-2 border-t border-[rgb(var(--border-subtle))] pt-3">
+          {summary.issues.map((issue) => (
+            <li key={issue.bookingId}>
+              <p className="text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                Session with {issue.artistName}
+              </p>
+              <p className="mt-0.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                {formatSyncIssueTime(issue.startsAtIso, issue.durationMin, timeZone)} ·{" "}
+                {syncIssueCopy(issue)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!disconnected && attention > 0 && onRepair ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="mt-3 rounded-[var(--radius-lg)]"
+          disabled={repairPending}
+          onClick={onRepair}
+        >
+          {repairPending ? (
+            <Loader2 className="animate-spin motion-reduce:animate-none" size={14} aria-hidden />
+          ) : null}
+          {repairPending ? "Trying again…" : "Try again"}
+        </Button>
+      ) : null}
     </section>
   );
+}
+
+function formatSyncIssueTime(startsAtIso: string, durationMin: number, timeZone: string): string {
+  const startsAt = new Date(startsAtIso);
+  const endsAt = new Date(startsAt.getTime() + durationMin * 60_000);
+  const format = (zone: string) => {
+    const day = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    const time = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return `${day.format(startsAt)} · ${time.format(startsAt)}–${time.format(endsAt)}`;
+  };
+  try {
+    return format(timeZone);
+  } catch {
+    return format("UTC");
+  }
+}
+
+function syncIssueCopy(issue: GoogleCalendarSyncSummary["issues"][number]): string {
+  if (issue.bookingStatus === "cancelled") return "Cancelled session cleanup is waiting.";
+  if (issue.syncState === "missing") return "Google event is missing.";
+  if (issue.syncState === "conflict") {
+    return "Google change could not be used. Skitza time was kept.";
+  }
+  return "Could not sync this session to Google.";
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: "success" | "warning" | "danger" }) {
@@ -1274,6 +1361,8 @@ function actionPendingCopy(action: PendingAction): string {
       return "Opening Google to choose an account…";
     case "disconnect":
       return "Disconnecting Google Calendar…";
+    case "repairSync":
+      return "Trying calendar sync again…";
   }
 }
 
@@ -1301,5 +1390,7 @@ function actionFailureCopy(
       return "Could not update the Google account. Try again.";
     case "disconnect":
       return "Could not disconnect Google Calendar. Try again.";
+    case "repairSync":
+      return "Could not retry calendar sync. Try again.";
   }
 }

@@ -52,6 +52,7 @@ function prepared(claimed = job()): GoogleCalendarPreparedReconciliation {
       providerEventId: "sk00000000000040008000000000000004",
       providerEventEtag: '"etag-3"',
       providerState: "active",
+      syncState: "synced",
       desiredRevision: 3,
       lastGoogleRevision: 3,
       invitationRevision: 3,

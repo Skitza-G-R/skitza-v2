@@ -18,6 +18,7 @@ import {
   GoogleCalendarServiceError,
   type GoogleCalendarService,
 } from "~/server/google-calendar/service";
+import { repairProducerCalendarSyncBestEffort } from "~/server/calendar/drain";
 
 import { producerProcedure } from "../producer-procedure";
 import { router } from "../init";
@@ -105,6 +106,21 @@ export const googleCalendarRouter = router({
   calendars: producerProcedure.query(({ ctx }) =>
     callGoogleCalendar(() => serviceForDatabase(ctx.db).listCalendars(ctx.producerId)),
   ),
+
+  repair: producerProcedure
+    .input(z.object({ forcePending: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const repaired = await repairProducerCalendarSyncBestEffort(ctx.db, ctx.producerId, {
+        forcePending: input.forcePending,
+      });
+      if (!repaired) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Google Calendar is unavailable",
+        });
+      }
+      return { ok: true as const };
+    }),
 
   selection: router({
     save: producerProcedure.input(selectionInput).mutation(({ ctx, input }) =>

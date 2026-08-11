@@ -98,3 +98,17 @@ export async function refreshGoogleCalendarCalendars(): Promise<GoogleCalendarAc
     return safeFailure(error);
   }
 }
+
+export async function repairGoogleCalendarSync(input: {
+  forcePending: boolean;
+}): Promise<GoogleCalendarActionResult> {
+  const caller = await producerCaller();
+  if (!caller) return { ok: false, reason: "permission_required" };
+  try {
+    await caller.googleCalendar.repair(input);
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (error) {
+    return safeFailure(error);
+  }
+}

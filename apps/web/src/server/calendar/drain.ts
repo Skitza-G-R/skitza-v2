@@ -84,3 +84,44 @@ export async function deliverCalendarSyncJobBestEffort(
     console.error("[calendar] immediate invitation delivery failed");
   }
 }
+
+/** Producer-scoped wake used by the calendar screen and its manual retry button. */
+export async function repairProducerCalendarSyncBestEffort(
+  db: Db,
+  producerId: string,
+  options: Readonly<{ forcePending?: boolean }> = {},
+): Promise<boolean> {
+  if (!isGoogleCalendarServerConfigured()) return false;
+  try {
+    const config = loadGoogleCalendarServerConfig();
+    const provider = createGoogleCalendarProvider({ config });
+    const googleRepository = createGoogleCalendarRepository(db);
+    const deliveryRepository = calendarDeliveryRepository(db);
+    const google = await processGoogleCalendarSyncJobs(
+      {
+        repository: deliveryRepository,
+        provider,
+        access: createGoogleCalendarWorkerAccess({
+          repository: googleRepository,
+          provider,
+          config,
+        }),
+      },
+      {
+        producerId,
+        ...(options.forcePending ? { forcePending: true } : {}),
+        limit: 10,
+      },
+    );
+    for (const fallbackJobId of google.fallbackJobIds) {
+      await processCalendarSyncJobs(deliveryRepository, sendSessionCalendarEmail, {
+        jobId: fallbackJobId,
+        limit: 1,
+      });
+    }
+    return true;
+  } catch {
+    console.error("[calendar] Google Calendar repair wake failed");
+    return false;
+  }
+}

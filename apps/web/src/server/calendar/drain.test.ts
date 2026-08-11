@@ -46,7 +46,11 @@ vi.mock("~/server/google-calendar", () => ({
   loadGoogleCalendarServerConfig: mocks.loadGoogleCalendarServerConfig,
 }));
 
-import { deliverCalendarSyncJobBestEffort, reconcileGoogleCalendarBestEffort } from "./drain";
+import {
+  deliverCalendarSyncJobBestEffort,
+  reconcileGoogleCalendarBestEffort,
+  repairProducerCalendarSyncBestEffort,
+} from "./drain";
 
 describe("deliverCalendarSyncJobBestEffort", () => {
   beforeEach(() => {
@@ -203,5 +207,69 @@ describe("reconcileGoogleCalendarBestEffort", () => {
       reconcileGoogleCalendarBestEffort({ kind: "db" } as never),
     ).resolves.toBeUndefined();
     expect(error).toHaveBeenCalledWith("[calendar] Google Calendar reconciliation wake failed");
+  });
+});
+
+describe("repairProducerCalendarSyncBestEffort", () => {
+  beforeEach(() => {
+    mocks.processCalendarSyncJobs.mockReset().mockResolvedValue({});
+    mocks.processGoogleCalendarSyncJobs.mockReset().mockResolvedValue({
+      claimed: 1,
+      completed: 1,
+      retried: 0,
+      terminal: 0,
+      leaseLost: 0,
+      fallbackEnqueued: 1,
+      fallbackJobIds: ["00000000-0000-4000-8000-000000000002"],
+    });
+    mocks.calendarDeliveryRepository.mockReset().mockReturnValue({ kind: "repository" });
+    mocks.createGoogleCalendarProvider.mockReset().mockReturnValue({ kind: "provider" });
+    mocks.createGoogleCalendarRepository.mockReset().mockReturnValue({ kind: "google-repository" });
+    mocks.createGoogleCalendarWorkerAccess.mockReset().mockReturnValue({ kind: "access" });
+    mocks.isGoogleCalendarServerConfigured.mockReset().mockReturnValue(true);
+    mocks.loadGoogleCalendarServerConfig.mockReset().mockReturnValue({ kind: "config" });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("processes only the current producer and immediately sends any safe fallback", async () => {
+    const producerId = "00000000-0000-4000-8000-000000000003";
+
+    await expect(
+      repairProducerCalendarSyncBestEffort({ kind: "db" } as never, producerId, {
+        forcePending: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(mocks.processGoogleCalendarSyncJobs).toHaveBeenCalledWith(
+      {
+        repository: { kind: "repository" },
+        provider: { kind: "provider" },
+        access: { kind: "access" },
+      },
+      { producerId, forcePending: true, limit: 10 },
+    );
+    expect(mocks.processCalendarSyncJobs).toHaveBeenCalledWith(
+      { kind: "repository" },
+      mocks.sendSessionCalendarEmail,
+      { jobId: "00000000-0000-4000-8000-000000000002", limit: 1 },
+    );
+  });
+
+  it("returns a safe failure without logging provider details", async () => {
+    mocks.processGoogleCalendarSyncJobs.mockRejectedValueOnce(
+      new Error("provider-event-id secret-token"),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      repairProducerCalendarSyncBestEffort(
+        { kind: "db" } as never,
+        "00000000-0000-4000-8000-000000000003",
+      ),
+    ).resolves.toBe(false);
+    expect(error).toHaveBeenCalledWith("[calendar] Google Calendar repair wake failed");
   });
 });
