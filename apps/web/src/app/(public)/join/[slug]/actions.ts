@@ -43,7 +43,9 @@ async function startJoinAction(slug: string, action: JoinIntentAction): Promise<
       joinIntentCookieOptions(process.env.NODE_ENV === "production"),
     );
     redirect(
-      `/sign-up/join/${encodeURIComponent(target.slug)}${action === "unlock" ? "/unlock" : ""}`,
+      `/sign-up/join/${encodeURIComponent(target.slug)}${
+        action === "book" ? "/book" : "/unlock"
+      }`,
     );
   }
 

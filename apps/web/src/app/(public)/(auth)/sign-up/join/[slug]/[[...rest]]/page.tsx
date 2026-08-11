@@ -27,13 +27,19 @@ type Props = {
 
 export default async function JoinSignUpPage({ params, searchParams }: Props) {
   const [{ slug, rest }, query] = await Promise.all([params, searchParams]);
-  const action =
-    rest?.[0] === "unlock"
-      ? "unlock"
-      : rest?.[0] === "home"
-        ? "home"
-        : "book";
-  const clerkRouteSegments = action === "book" ? rest : rest?.slice(1);
+  const explicitAction =
+    rest?.[0] === "book"
+      ? "book"
+      : rest?.[0] === "unlock"
+        ? "unlock"
+        : rest?.[0] === "home"
+          ? "home"
+          : null;
+  // Before Home had its own route marker, normal client invitations used the
+  // bare dedicated signup URL. Keep those already-issued links useful by
+  // treating the unmarked route as Home. Public Book now carries /book.
+  const action = explicitAction ?? "home";
+  const clerkRouteSegments = explicitAction ? rest?.slice(1) : rest;
   const continuationHref = joinContinuationHref(slug, action);
   const postSignUpContinuationHref = continuationHref;
   if (continuationHref === "/") notFound();
@@ -61,7 +67,13 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
   }
 
   const signUpPath = `/sign-up/join/${slug}${
-    action === "unlock" ? "/unlock" : action === "home" ? "/home" : ""
+    explicitAction === "book"
+      ? "/book"
+      : explicitAction === "unlock"
+        ? "/unlock"
+        : explicitAction === "home"
+          ? "/home"
+          : ""
   }`;
   const signInHref = joinSignInHref(slug, action);
 

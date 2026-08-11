@@ -36,10 +36,10 @@ describe("join confirmation and continuation", () => {
     expect(action).toContain("connectCurrentUserForJoin");
   });
 
-  it("auto-resumes only a trusted action and keeps Store, Home, and Unlock copy distinct", () => {
+  it("auto-resumes only a trusted action and normalizes legacy Store to Home", () => {
     expect(page).toContain("expectedAction: trustedAction");
     expect(page).toContain("<ResumeTrustedJoin slug={slug} action={trustedAction} />");
-    expect(page).toContain('requestedAction === "store" ? null : requestedAction');
+    expect(page).toContain('query.action === "store" ? "home" : query.action');
     expect(page).toContain("Your original booking intent expired.");
     expect(page).toContain("Continue to your studio");
     expect(page).toContain(
@@ -50,8 +50,8 @@ describe("join confirmation and continuation", () => {
     expect(page).toContain('"Artist Home"');
     expect(page).toContain("Opening your Artist workspace and unlocked tracks.");
     expect(page).toContain("Opening your Artist Home with this studio selected.");
-    expect(page).toContain("Continue to Artist Store");
-    expect(page).toContain("open this studio's Artist Store");
+    expect(page).not.toContain("Continue to Artist Store");
+    expect(page).not.toContain("open this studio's Artist Store");
     expect(action.match(/clearJoinIntentCookie\(/g)).toHaveLength(2);
   });
 
