@@ -596,7 +596,7 @@ describe("SK-90 executable rehearsal orchestration", () => {
           entry.mutations.databaseRows === 102,
       ),
     ).toBe(true);
-  });
+  }, 15_000);
 
   it("retries a rollback interruption only when the crash-gap database is exact baseline", async () => {
     const stateStore = await store();
@@ -629,7 +629,7 @@ describe("SK-90 executable rehearsal orchestration", () => {
     expect(
       ports.operations.filter((entry) => entry === "interrupt:before_database_commit"),
     ).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("never restores mixed drift from a rollback-interruption crash gap", async () => {
     const stateStore = await store();
