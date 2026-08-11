@@ -3,7 +3,10 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GoogleCalendarSessionSyncStatus } from "../google-calendar-session-sync";
+import {
+  GoogleCalendarSessionSyncStatus,
+  LiveGoogleCalendarSessionSyncStatus,
+} from "../google-calendar-session-sync";
 
 type ActionInput = { id: string; operationKey: string };
 type ActionResult =
@@ -64,7 +67,12 @@ describe("GoogleCalendarSessionSyncStatus", () => {
   it("clears the pending badge automatically when calendar delivery completes", async () => {
     vi.useFakeTimers();
     mocks.status.mockResolvedValue({ ok: true, status: "synced" });
-    render(<GoogleCalendarSessionSyncStatus bookingId="booking-live" sync={{ state: "pending" }} />);
+    render(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-live"
+        sync={{ state: "pending" }}
+      />,
+    );
 
     expect(screen.getByText("Syncing calendar")).not.toBeNull();
     await act(async () => {
@@ -73,6 +81,19 @@ describe("GoogleCalendarSessionSyncStatus", () => {
 
     expect(mocks.status).toHaveBeenCalledWith({ id: "booking-live" });
     expect(screen.queryByText("Syncing calendar")).toBeNull();
+  });
+
+  it("leaves the original desktop status behavior unchanged", async () => {
+    vi.useFakeTimers();
+    mocks.status.mockResolvedValue({ ok: true, status: "synced" });
+    render(<GoogleCalendarSessionSyncStatus bookingId="booking-desktop" sync={{ state: "pending" }} />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
   });
 
   it("keeps retry locked after success until the visible server state changes", async () => {

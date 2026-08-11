@@ -626,6 +626,7 @@ export function ManualSessionModal({
                   complete={Boolean(project)}
                   expanded={activePicker === "project" && canChooseProject}
                   disabled={isPending || !canChooseProject}
+                  {...(!isDesktopSheet ? { className: "sm:hidden" } : {})}
                   onChange={() => {
                     if (!canChooseProject) return;
                     setActivePicker("project");
@@ -669,6 +670,7 @@ export function ManualSessionModal({
                   complete={canChooseWhen && hasStudioSlot}
                   expanded={activePicker === "when" && canChooseWhen}
                   disabled={isPending || !canChooseWhen}
+                  {...(!isDesktopSheet ? { className: "sm:hidden" } : {})}
                   onChange={() => {
                     if (!canChooseWhen) return;
                     setActivePicker("when");
@@ -891,6 +893,7 @@ function PickerSection({
   complete,
   expanded,
   disabled,
+  className,
   onChange,
   children,
 }: {
@@ -899,6 +902,7 @@ function PickerSection({
   complete: boolean;
   expanded: boolean;
   disabled?: boolean;
+  className?: string;
   onChange: () => void;
   children: ReactNode;
 }) {
@@ -909,7 +913,10 @@ function PickerSection({
         expanded
           ? "border-[rgb(var(--brand-primary)/0.42)] bg-[rgb(var(--bg-sunken))] p-3.5 shadow-[0_12px_30px_-28px_rgb(var(--brand-primary-dark))]"
           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3",
-      ].join(" ")}
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {expanded ? (
         <>
