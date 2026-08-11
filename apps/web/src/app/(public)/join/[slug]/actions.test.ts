@@ -5,6 +5,8 @@ import type { JoinTargetProducer } from "~/server/contacts/join-continuation";
 import { ProjectOwnershipDomainError } from "~/server/domain/project-ownership/service";
 
 const authMock = vi.fn<() => Promise<{ userId: string | null }>>();
+const cookieSetMock = vi.fn();
+const cookiesMock = vi.fn<() => Promise<{ set: typeof cookieSetMock }>>();
 const connectMock = vi.fn<(input: unknown) => Promise<string>>();
 const findTargetMock = vi.fn<(dbUrl: string, slug: string) => Promise<JoinTargetProducer | null>>();
 const membershipsMock =
@@ -21,7 +23,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 }));
 
 vi.mock("next/headers", () => ({
-  cookies: vi.fn(),
+  cookies: () => cookiesMock(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -61,7 +63,9 @@ describe("public join actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.DATABASE_URL = "postgres://test.invalid/skitza";
+    process.env.CLERK_SECRET_KEY = "test-only-clerk-secret";
     authMock.mockResolvedValue({ userId: "artist-user" });
+    cookiesMock.mockResolvedValue({ set: cookieSetMock });
     findTargetMock.mockResolvedValue(target);
     membershipsMock.mockResolvedValue({
       isAuthenticated: true,
@@ -69,6 +73,22 @@ describe("public join actions", () => {
       artist: { hasAccess: true, hasActiveConnections: true },
     });
   });
+
+  it.each([
+    ["booking", startJoinBooking, "/book"],
+    ["unlock", startJoinUnlock, "/unlock"],
+  ] as const)(
+    "marks signed-out explicit %s entry before Clerk signup",
+    async (_label, startJoin, routeSuffix) => {
+      authMock.mockResolvedValue({ userId: null });
+
+      await expect(startJoin("northline-studio")).rejects.toThrow(
+        `__REDIRECT__:/sign-up/join/northline-studio${routeSuffix}`,
+      );
+
+      expect(cookieSetMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each([
     ["booking", startJoinBooking, "book"],

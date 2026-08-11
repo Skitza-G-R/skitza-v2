@@ -17,7 +17,6 @@ import {
   connectCurrentUserForJoin,
   findJoinTargetProducer,
   joinArtistHref,
-  joinStoreHref,
   JoinContinuationError,
 } from "~/server/contacts/join-continuation";
 import {
@@ -28,7 +27,7 @@ import {
 } from "~/server/contacts/join-recovery";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
-function requireJoinAction(action: string): JoinContinuationAction {
+function requireJoinAction(action: string): JoinIntentAction {
   if (
     action !== "book" &&
     action !== "unlock" &&
@@ -37,7 +36,7 @@ function requireJoinAction(action: string): JoinContinuationAction {
   ) {
     notFound();
   }
-  return action;
+  return action === "store" ? "home" : action;
 }
 
 function requireTrustedJoinAction(action: string): JoinIntentAction {
@@ -46,12 +45,11 @@ function requireTrustedJoinAction(action: string): JoinIntentAction {
 }
 
 function completedJoinHref(
-  action: JoinContinuationAction,
+  action: JoinIntentAction,
   target: Parameters<typeof joinArtistHref>[0],
   bookingHref: string,
 ): string {
   if (action === "book") return bookingHref;
-  if (action === "store") return joinStoreHref(target);
   return joinArtistHref(target);
 }
 
