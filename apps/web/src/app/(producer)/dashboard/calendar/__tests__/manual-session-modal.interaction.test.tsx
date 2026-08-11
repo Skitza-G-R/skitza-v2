@@ -263,9 +263,7 @@ describe("ManualSessionModal", () => {
     render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
     const mobileSheet = document.querySelector('[data-native-sheet="bottom"]');
     expect(mobileSheet).not.toBeNull();
-    expect(mobileSheet?.className).toContain(
-      "!h-[calc(var(--sk-viewport-height,100dvh)-12px)]",
-    );
+    expect(mobileSheet?.className).toContain("!h-[calc(var(--sk-viewport-height,100dvh)-12px)]");
     expect(screen.queryByRole("button", { name: "Book session" })).toBeNull();
 
     await chooseClientAndProject();
@@ -288,17 +286,38 @@ describe("ManualSessionModal", () => {
     expect(screen.getByRole("button", { name: "Book session" })).toBeTruthy();
   });
 
-  it("uses the same picker logic in the desktop right sidebar", async () => {
+  it("restores the legacy desktop drawer layout while keeping exact availability", async () => {
     installMatchMedia(true);
     render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
     await waitFor(() => {
       expect(document.querySelector('[data-native-sheet="right"]')).not.toBeNull();
     });
-    expect(screen.queryByText("2 · Project")).toBeNull();
-    expect(screen.queryByText("3 · Date & time")).toBeNull();
-    await chooseClientAndProject();
-    expect(screen.getByRole("listbox", { name: "Date" })).toBeTruthy();
-    expect(screen.getByRole("listbox", { name: "Start" })).toBeTruthy();
+    expect(screen.getByTestId("manual-session-controls").dataset.desktopCalendarLayout).toBe(
+      "legacy",
+    );
+    expect(screen.queryByText("1 · Client")).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Client" })).toBeNull();
+
+    const client = screen.getByLabelText<HTMLSelectElement>("Client");
+    const project = screen.getByLabelText<HTMLSelectElement>("Project");
+    expect(project.disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Book session" })).toBeTruthy();
+
+    fireEvent.change(client, { target: { value: "client-1" } });
+    expect(project.disabled).toBe(false);
+    fireEvent.change(project, { target: { value: "project-included" } });
+
+    const date = await screen.findByLabelText<HTMLSelectElement>("Date");
+    const start = screen.getByLabelText<HTMLSelectElement>("Start");
+    expect(actionMocks.getManualSessionAvailability).toHaveBeenCalledWith({
+      clientId: "client-1",
+      projectId: "project-included",
+    });
+    expect(date).not.toBe(start);
+    expect(date.closest("#manual-time-editor")?.className).toContain("grid-cols-2");
+    expect(start.value).toBe("2026-08-13T11:30:00.000Z");
+    expect(screen.getByText("Session title")).toBeTruthy();
+    expect(screen.getByText("Booking treatment")).toBeTruthy();
   });
 
   it("keeps title and billing progressive and requires a zero-credit choice", async () => {
