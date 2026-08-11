@@ -187,6 +187,7 @@
     --sk-viewport-height: 100dvh;
     --sk-viewport-offset-top: 0px;
     --sk-keyboard-inset: 0px;
+    --sk-viewport-growth: 0px;
   }
 
   /* Dark mode — `chrome-dark` selector kept for compat; ThemeProvider in
@@ -1976,6 +1977,17 @@
       opacity: 0.35 !important;
       transition: none !important;
     }
+  }
+}
+
+@media (max-width: 1023px) {
+  main#main-content[data-artist-shell-mode="standing"] {
+    padding-bottom: calc(1rem + var(--sk-viewport-growth, 0px));
+  }
+
+  body[data-skitza-dock="1"]
+    main#main-content[data-artist-shell-mode="standing"] {
+    padding-bottom: calc(102px + var(--sk-viewport-growth, 0px));
   }
 }
 

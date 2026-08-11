@@ -15,6 +15,16 @@ export interface NativeViewportMetrics {
   keyboardOpen: boolean;
 }
 
+interface ViewportGrowthMeasurement {
+  viewportHeight: number;
+  previousViewportFloor: number | null;
+}
+
+export interface NativeViewportGrowth {
+  viewportFloor: number;
+  viewportGrowth: number;
+}
+
 export function calculateNativeViewportMetrics({
   innerHeight,
   viewportHeight,
@@ -38,6 +48,22 @@ export function calculateNativeViewportMetrics({
   };
 }
 
+export function calculateNativeViewportGrowth({
+  viewportHeight,
+  previousViewportFloor,
+}: ViewportGrowthMeasurement): NativeViewportGrowth {
+  const height = Math.max(1, Math.round(viewportHeight));
+  const viewportFloor =
+    previousViewportFloor === null
+      ? height
+      : Math.min(Math.max(1, Math.round(previousViewportFloor)), height);
+
+  return {
+    viewportFloor,
+    viewportGrowth: Math.max(0, height - viewportFloor),
+  };
+}
+
 /**
  * Keeps CSS viewport variables aligned with iOS Visual Viewport changes.
  *
@@ -50,6 +76,8 @@ export function NativeViewportSync() {
     const root = document.documentElement;
     const body = document.body;
     let animationFrame = 0;
+    let viewportFloor: number | null = null;
+    let viewportWidth = Math.round(window.innerWidth);
 
     const applyMetrics = () => {
       const viewport = window.visualViewport;
@@ -58,10 +86,27 @@ export function NativeViewportSync() {
         viewportHeight: viewport?.height ?? window.innerHeight,
         viewportOffsetTop: viewport?.offsetTop ?? 0,
       });
+      const nextViewportWidth = Math.round(window.innerWidth);
+
+      if (Math.abs(nextViewportWidth - viewportWidth) > 1) {
+        viewportFloor = null;
+        viewportWidth = nextViewportWidth;
+      }
+
+      let viewportGrowth = 0;
+      if (!metrics.keyboardOpen) {
+        const growth = calculateNativeViewportGrowth({
+          viewportHeight: metrics.height,
+          previousViewportFloor: viewportFloor,
+        });
+        viewportFloor = growth.viewportFloor;
+        viewportGrowth = growth.viewportGrowth;
+      }
 
       root.style.setProperty("--sk-viewport-height", `${String(metrics.height)}px`);
       root.style.setProperty("--sk-viewport-offset-top", `${String(metrics.offsetTop)}px`);
       root.style.setProperty("--sk-keyboard-inset", `${String(metrics.keyboardInset)}px`);
+      root.style.setProperty("--sk-viewport-growth", `${String(viewportGrowth)}px`);
       body.dataset.skKeyboard = metrics.keyboardOpen ? "open" : "closed";
     };
 
@@ -91,6 +136,7 @@ export function NativeViewportSync() {
       root.style.removeProperty("--sk-viewport-height");
       root.style.removeProperty("--sk-viewport-offset-top");
       root.style.removeProperty("--sk-keyboard-inset");
+      root.style.removeProperty("--sk-viewport-growth");
       delete body.dataset.skKeyboard;
     };
   }, []);

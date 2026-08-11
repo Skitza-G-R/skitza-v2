@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import tailwindPostcss from "@tailwindcss/postcss";
 import { describe, expect, it } from "vitest";
 
-import { calculateNativeViewportMetrics } from "../native-viewport";
+import {
+  calculateNativeViewportGrowth,
+  calculateNativeViewportMetrics,
+} from "../native-viewport";
 import { isCompletedBackSwipe } from "../use-native-navigation";
 
 const globalsCss = readFileSync(
@@ -60,6 +63,28 @@ describe("native viewport metrics", () => {
       height: 800,
       keyboardInset: 0,
       keyboardOpen: false,
+    });
+  });
+
+  it("exposes the non-keyboard viewport growth that a nested scroller must absorb", () => {
+    expect(
+      calculateNativeViewportGrowth({
+        viewportHeight: 800,
+        previousViewportFloor: null,
+      }),
+    ).toEqual({
+      viewportFloor: 800,
+      viewportGrowth: 0,
+    });
+
+    expect(
+      calculateNativeViewportGrowth({
+        viewportHeight: 844,
+        previousViewportFloor: 800,
+      }),
+    ).toEqual({
+      viewportFloor: 800,
+      viewportGrowth: 44,
     });
   });
 });
