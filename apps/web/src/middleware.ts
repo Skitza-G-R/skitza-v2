@@ -99,6 +99,11 @@ export function resolveLegacyRedirect(pathname: string): string | null {
 // are missing. The gate must run unconditionally, so we evaluate it first
 // and only delegate to Clerk when access is allowed.
 const ACCESS_COOKIE = "skitza-access";
+const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/integrations/google-calendar/callback";
+
+export function bypassesClerkSession(pathname: string): boolean {
+  return pathname === GOOGLE_CALENDAR_CALLBACK_PATH;
+}
 
 export function isAccessGated(pathname: string): boolean {
   // API + tRPC routes are excluded so server-to-server callers and webhooks
@@ -239,6 +244,14 @@ export default async function middleware(
   req: Parameters<typeof clerk>[0],
   ev: Parameters<typeof clerk>[1],
 ) {
+  // Google returns here after the producer may have spent longer than Clerk's
+  // short-lived app session token allows. The route authenticates the return
+  // with signed, expiring, one-time OAuth state plus the initiating browser's
+  // transaction cookie, and must remain reachable after Clerk expires.
+  if (bypassesClerkSession(req.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
   const accessToken = process.env.ACCESS_TOKEN;
   if (accessToken && isAccessGated(req.nextUrl.pathname)) {
     const queryToken = req.nextUrl.searchParams.get("t");

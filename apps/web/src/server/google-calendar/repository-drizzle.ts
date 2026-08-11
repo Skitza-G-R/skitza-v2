@@ -246,6 +246,21 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
       });
     },
 
+    async getOAuthState({ tokenDigest, now }) {
+      const [row] = await db
+        .select()
+        .from(googleCalendarOAuthStates)
+        .where(
+          and(
+            eq(googleCalendarOAuthStates.stateTokenDigest, tokenDigest),
+            isNull(googleCalendarOAuthStates.consumedAt),
+            gt(googleCalendarOAuthStates.expiresAt, now),
+          ),
+        )
+        .limit(1);
+      return row ? oauthStateRecord(row) : null;
+    },
+
     async consumeOAuthState({ producerId, tokenDigest, consumedAt }) {
       const [row] = await db
         .update(googleCalendarOAuthStates)

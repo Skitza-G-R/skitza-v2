@@ -13,6 +13,7 @@ import {
 } from "~/server/google-calendar/config";
 import { createGoogleCalendarProvider } from "~/server/google-calendar/provider";
 import { createGoogleCalendarRepository } from "~/server/google-calendar/repository-drizzle";
+import { isGoogleCalendarOAuthBrowserBinding } from "~/server/google-calendar/oauth";
 import {
   createGoogleCalendarService,
   GoogleCalendarServiceError,
@@ -24,6 +25,12 @@ import { producerProcedure } from "../producer-procedure";
 import { router } from "../init";
 
 const oauthIntent = z.enum(["connect", "reconnect", "switch_account"]);
+const oauthCompletionInput = z.object({
+  stateToken: z.string().min(1).max(1_024),
+  browserBinding: z.string().refine(isGoogleCalendarOAuthBrowserBinding),
+  code: z.string().min(1).max(4_096).optional(),
+  providerError: z.string().min(1).max(128).optional(),
+});
 const selectionInput = z.object({
   destinationCalendarId: z.string().uuid(),
   availabilityCalendarIds: z.array(z.string().uuid()).min(1).max(10_000),
@@ -147,6 +154,7 @@ export const googleCalendarRouter = router({
       .input(
         z.object({
           intent: oauthIntent,
+          browserBinding: z.string().refine(isGoogleCalendarOAuthBrowserBinding),
           switchConfirmed: z.boolean().optional(),
         }),
       )
@@ -155,6 +163,7 @@ export const googleCalendarRouter = router({
           serviceForDatabase(ctx.db).beginOAuth({
             producerId: ctx.producerId,
             intent: input.intent,
+            browserBinding: input.browserBinding,
             ...(input.switchConfirmed !== undefined
               ? { switchConfirmed: input.switchConfirmed }
               : {}),
@@ -162,23 +171,17 @@ export const googleCalendarRouter = router({
         ),
       ),
 
-    complete: producerProcedure
-      .input(
-        z.object({
-          stateToken: z.string().min(1).max(1_024),
-          code: z.string().min(1).max(4_096).optional(),
-          providerError: z.string().min(1).max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        callGoogleCalendar(() =>
-          serviceForDatabase(ctx.db).completeOAuth({
-            producerId: ctx.producerId,
-            stateToken: input.stateToken,
-            ...(input.code !== undefined ? { code: input.code } : {}),
-            ...(input.providerError !== undefined ? { providerError: input.providerError } : {}),
-          }),
-        ),
-      ),
+    complete: producerProcedure.input(oauthCompletionInput).mutation(({ ctx, input }) =>
+      callGoogleCalendar(async () => {
+        const result = await serviceForDatabase(ctx.db).completeOAuth({
+          producerId: ctx.producerId,
+          stateToken: input.stateToken,
+          browserBinding: input.browserBinding,
+          ...(input.code !== undefined ? { code: input.code } : {}),
+          ...(input.providerError !== undefined ? { providerError: input.providerError } : {}),
+        });
+        return { status: result.status };
+      }),
+    ),
   }),
 });

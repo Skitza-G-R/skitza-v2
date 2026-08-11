@@ -1,11 +1,21 @@
-import { auth } from "@clerk/nextjs/server";
-import { TRPCError } from "@trpc/server";
+import { createDb } from "@skitza/db";
+import { NextResponse } from "next/server";
 
 import {
   isGoogleCalendarServerConfigured,
   loadGoogleCalendarServerConfig,
 } from "~/server/google-calendar/config";
-import { appRouter } from "~/server/trpc/routers/_app";
+import {
+  GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME,
+  GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH,
+  isGoogleCalendarOAuthBrowserBinding,
+} from "~/server/google-calendar/oauth";
+import { createGoogleCalendarProvider } from "~/server/google-calendar/provider";
+import { createGoogleCalendarRepository } from "~/server/google-calendar/repository-drizzle";
+import {
+  createGoogleCalendarService,
+  GoogleCalendarServiceError,
+} from "~/server/google-calendar/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -54,41 +64,73 @@ function calendarRedirect(code: SafeResultCode): Response {
   const location = new URL("/dashboard/calendar", loadGoogleCalendarServerConfig().redirectUri);
   location.searchParams.set("tab", "availability");
   location.searchParams.set("google", code);
-  return new Response(null, {
+  const response = new NextResponse(null, {
     status: 303,
     headers: {
       ...PRIVATE_HEADERS,
       Location: location.toString(),
     },
   });
+  response.cookies.set({
+    name: GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH,
+    maxAge: 0,
+  });
+  return response;
 }
 
 function safeErrorCode(error: unknown): SafeResultCode {
-  if (!(error instanceof TRPCError)) return "error";
-  if (error.code === "PRECONDITION_FAILED") return "reconnect";
-  if (
-    error.code === "CONFLICT" &&
-    error.message === "Choose the Google account already connected to Skitza"
-  ) {
-    return "wrong-account";
+  if (!(error instanceof GoogleCalendarServiceError)) return "error";
+  if (error.code === "reconnect_required" || error.code === "refresh_token_missing") {
+    return "reconnect";
   }
-  if (
-    error.code === "BAD_REQUEST" &&
-    error.message === "Google Calendar authorization was cancelled"
-  ) {
-    return "denied";
-  }
+  if (error.code === "wrong_account") return "wrong-account";
+  if (error.code === "authorization_cancelled") return "denied";
   return "error";
 }
 
+function readBrowserBinding(request: Request): string | null {
+  const cookieHeader = request.headers.get("Cookie");
+  if (!cookieHeader) return null;
+  const prefix = `${GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME}=`;
+  const matches = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(prefix))
+    .map((part) => part.slice(prefix.length));
+  if (matches.length !== 1) return null;
+  const value = matches[0];
+  return isGoogleCalendarOAuthBrowserBinding(value) ? value : null;
+}
+
+async function completeOAuthCallback(
+  input: Readonly<{
+    stateToken: string;
+    browserBinding: string;
+    code?: string;
+    providerError?: string;
+  }>,
+): Promise<Readonly<{ status: "connected" | "needs_selection" }>> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("Google Calendar is unavailable");
+  const config = loadGoogleCalendarServerConfig();
+  const result = await createGoogleCalendarService({
+    repository: createGoogleCalendarRepository(createDb(dbUrl)),
+    provider: createGoogleCalendarProvider({ config }),
+    config,
+  }).completeOAuth(input);
+  return { status: result.status };
+}
+
 export async function GET(request: Request): Promise<Response> {
-  // Fail before auth and producer resolution while the capability is unavailable.
+  // Fail before state or database work while the capability is unavailable.
   if (!isGoogleCalendarServerConfigured()) {
     return privateResponse("Not found", 404);
   }
-
-  const { userId } = await auth();
-  if (!userId) return privateResponse("Unauthorized", 401);
 
   const searchParams = new URL(request.url).searchParams;
   const state = boundedQueryValue(searchParams, "state", STATE_MAX_BYTES, true);
@@ -104,9 +146,13 @@ export async function GET(request: Request): Promise<Response> {
     return calendarRedirect("error");
   }
 
+  const browserBinding = readBrowserBinding(request);
+  if (!browserBinding) return calendarRedirect("error");
+
   try {
-    const result = await appRouter.createCaller({ userId }).googleCalendar.oauth.complete({
+    const result = await completeOAuthCallback({
       stateToken: state.value,
+      browserBinding,
       ...(code.value !== undefined ? { code: code.value } : {}),
       ...(providerError.value !== undefined ? { providerError: providerError.value } : {}),
     });

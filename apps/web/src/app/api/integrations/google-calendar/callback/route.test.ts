@@ -1,27 +1,42 @@
-import { TRPCError } from "@trpc/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  auth: vi.fn(),
-  complete: vi.fn(),
-  createCaller: vi.fn(),
+  completeOAuth: vi.fn(),
+  createDb: vi.fn(),
+  createProvider: vi.fn(),
+  createRepository: vi.fn(),
+  createService: vi.fn(),
   isConfigured: vi.fn(),
   loadConfig: vi.fn(),
 }));
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
+const BROWSER_BINDING = "a".repeat(43);
+
+vi.mock("@skitza/db", () => ({ createDb: mocks.createDb }));
 vi.mock("~/server/google-calendar/config", () => ({
   isGoogleCalendarServerConfigured: mocks.isConfigured,
   loadGoogleCalendarServerConfig: mocks.loadConfig,
 }));
-vi.mock("~/server/trpc/routers/_app", () => ({
-  appRouter: { createCaller: mocks.createCaller },
+vi.mock("~/server/google-calendar/provider", () => ({
+  createGoogleCalendarProvider: mocks.createProvider,
+}));
+vi.mock("~/server/google-calendar/repository-drizzle", () => ({
+  createGoogleCalendarRepository: mocks.createRepository,
+}));
+vi.mock("~/server/google-calendar/service", async (importOriginal) => ({
+  ...(await importOriginal()),
+  createGoogleCalendarService: mocks.createService,
 }));
 
+import { GoogleCalendarServiceError } from "~/server/google-calendar/service";
 import { GET } from "./route";
 
 function request(query: string): Promise<Response> {
-  return GET(new Request(`https://skitza.test/api/integrations/google-calendar/callback?${query}`));
+  return GET(
+    new Request(`https://skitza.test/api/integrations/google-calendar/callback?${query}`, {
+      headers: { Cookie: `skitza_gcal_oauth_txn=${BROWSER_BINDING}` },
+    }),
+  );
 }
 
 function expectCalendarRedirect(response: Response, code: string): void {
@@ -31,6 +46,14 @@ function expectCalendarRedirect(response: Response, code: string): void {
   );
   expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
   expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+  expect(response.headers.get("Set-Cookie")).toContain("skitza_gcal_oauth_txn=");
+  expect(response.headers.get("Set-Cookie")).toContain("HttpOnly");
+  expect(response.headers.get("Set-Cookie")).toContain("Secure");
+  expect(response.headers.get("Set-Cookie")).toContain("SameSite=lax");
+  expect(response.headers.get("Set-Cookie")).toContain(
+    "Path=/api/integrations/google-calendar/callback",
+  );
+  expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
 }
 
 describe("Google Calendar OAuth callback route", () => {
@@ -40,11 +63,9 @@ describe("Google Calendar OAuth callback route", () => {
     mocks.loadConfig.mockReturnValue({
       redirectUri: "https://skitza.test/api/integrations/google-calendar/callback",
     });
-    mocks.auth.mockResolvedValue({ userId: "user_123" });
-    mocks.complete.mockResolvedValue({ status: "needs_selection" });
-    mocks.createCaller.mockReturnValue({
-      googleCalendar: { oauth: { complete: mocks.complete } },
-    });
+    process.env.DATABASE_URL = "postgresql://test/test";
+    mocks.completeOAuth.mockResolvedValue({ status: "needs_selection" });
+    mocks.createService.mockReturnValue({ completeOAuth: mocks.completeOAuth });
   });
 
   it.each(["disabled", "production"])(
@@ -57,75 +78,80 @@ describe("Google Calendar OAuth callback route", () => {
       expect(response.status).toBe(404);
       expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
       expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
-      expect(mocks.auth).not.toHaveBeenCalled();
-      expect(mocks.createCaller).not.toHaveBeenCalled();
+      expect(mocks.createService).not.toHaveBeenCalled();
     },
   );
 
-  it("requires a signed-in user before processing callback values", async () => {
-    mocks.auth.mockResolvedValue({ userId: null });
-
+  it("completes from verified state when the Clerk session is unavailable", async () => {
     const response = await request("state=signed-state&code=provider-code");
 
-    expect(response.status).toBe(401);
-    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.completeOAuth).toHaveBeenCalledWith({
+      stateToken: "signed-state",
+      code: "provider-code",
+      browserBinding: BROWSER_BINDING,
+    });
+    expectCalendarRedirect(response, "selection");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["malformed", "short"],
+    ["ambiguous", `${BROWSER_BINDING}; skitza_gcal_oauth_txn=${"b".repeat(43)}`],
+  ])("rejects a %s initiating-browser cookie before completion", async (_label, cookieValue) => {
+    const response = await GET(
+      new Request(
+        "https://skitza.test/api/integrations/google-calendar/callback?state=signed-state&code=provider-code",
+        cookieValue === undefined
+          ? undefined
+          : { headers: { Cookie: `skitza_gcal_oauth_txn=${cookieValue}` } },
+      ),
+    );
+
+    expect(mocks.completeOAuth).not.toHaveBeenCalled();
+    expectCalendarRedirect(response, "error");
   });
 
   it.each([
     ["needs_selection", "selection"],
     ["connected", "connected"],
   ] as const)("maps safe completion status %s to %s", async (status, safeCode) => {
-    mocks.complete.mockResolvedValue({ status });
+    mocks.completeOAuth.mockResolvedValue({ status });
 
     const response = await request(
       "state=signed-state&code=provider-code&returnTo=https%3A%2F%2Fevil.test%2Fsteal",
     );
 
-    expect(mocks.createCaller).toHaveBeenCalledWith({ userId: "user_123" });
-    expect(mocks.complete).toHaveBeenCalledWith({
+    expect(mocks.completeOAuth).toHaveBeenCalledWith({
       stateToken: "signed-state",
       code: "provider-code",
+      browserBinding: BROWSER_BINDING,
     });
     expectCalendarRedirect(response, safeCode);
     expect(response.headers.get("Location")).not.toContain("evil.test");
   });
 
   it("passes a bounded provider denial only to the server and returns safe copy", async () => {
-    mocks.complete.mockRejectedValue(
-      new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Google Calendar authorization was cancelled",
-      }),
+    mocks.completeOAuth.mockRejectedValue(
+      new GoogleCalendarServiceError("authorization_cancelled"),
     );
 
     const response = await request("state=signed-state&error=access_denied");
 
-    expect(mocks.complete).toHaveBeenCalledWith({
+    expect(mocks.completeOAuth).toHaveBeenCalledWith({
       stateToken: "signed-state",
       providerError: "access_denied",
+      browserBinding: BROWSER_BINDING,
     });
     expectCalendarRedirect(response, "denied");
     expect(response.headers.get("Location")).not.toContain("access_denied");
   });
 
   it.each([
-    [
-      new TRPCError({
-        code: "CONFLICT",
-        message: "Choose the Google account already connected to Skitza",
-      }),
-      "wrong-account",
-    ],
-    [
-      new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "Google Calendar needs to be reconnected",
-      }),
-      "reconnect",
-    ],
+    [new GoogleCalendarServiceError("wrong_account"), "wrong-account"],
+    [new GoogleCalendarServiceError("reconnect_required"), "reconnect"],
     [new Error("raw provider payload with a secret code"), "error"],
-  ] as const)("maps only a safe tRPC result to %s", async (failure, safeCode) => {
-    mocks.complete.mockRejectedValue(failure);
+  ] as const)("maps only a safe completion result to %s", async (failure, safeCode) => {
+    mocks.completeOAuth.mockRejectedValue(failure);
 
     const response = await request("state=signed-state&code=provider-code");
 
@@ -144,15 +170,18 @@ describe("Google Calendar OAuth callback route", () => {
     ["duplicate code", "state=signed-state&code=one&code=two"],
     ["duplicate error", "state=signed-state&error=one&error=two"],
     ["code and error together", "state=signed-state&code=one&error=access_denied"],
-  ])("rejects %s before tRPC and uses only the fixed safe redirect", async (_label, query) => {
-    const response = await request(query);
+  ])(
+    "rejects %s before completion and uses only the fixed safe redirect",
+    async (_label, query) => {
+      const response = await request(query);
 
-    expect(mocks.complete).not.toHaveBeenCalled();
-    expectCalendarRedirect(response, "error");
-  });
+      expect(mocks.completeOAuth).not.toHaveBeenCalled();
+      expectCalendarRedirect(response, "error");
+    },
+  );
 
   it("never reflects an unknown callback value or raw failure", async () => {
-    mocks.complete.mockRejectedValue(new Error("provider said: private-code"));
+    mocks.completeOAuth.mockRejectedValue(new Error("provider said: private-code"));
 
     const response = await request(
       "state=signed-state&error=unexpected_provider_value&error_description=private-code",
@@ -167,6 +196,7 @@ describe("Google Calendar OAuth callback route", () => {
     const response = await GET(
       new Request(
         "https://attacker.test/api/integrations/google-calendar/callback?state=signed-state&code=provider-code",
+        { headers: { Cookie: `skitza_gcal_oauth_txn=${BROWSER_BINDING}` } },
       ),
     );
 

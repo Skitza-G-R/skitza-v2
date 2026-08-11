@@ -9,7 +9,9 @@ const source = readFileSync(
 );
 
 describe("Google Calendar Drizzle repository contract", () => {
-  it("atomically consumes state once within the producer and expiry boundary", () => {
+  it("looks up a pending state, then atomically consumes it within its producer boundary", () => {
+    expect(source).toContain("async getOAuthState({ tokenDigest, now })");
+    expect(source).toContain("gt(googleCalendarOAuthStates.expiresAt, now)");
     expect(source).toContain("eq(googleCalendarOAuthStates.producerId, producerId)");
     expect(source).toContain("eq(googleCalendarOAuthStates.stateTokenDigest, tokenDigest)");
     expect(source).toContain("isNull(googleCalendarOAuthStates.consumedAt)");

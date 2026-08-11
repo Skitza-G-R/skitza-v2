@@ -124,6 +124,7 @@ function repositoryWith(current: GoogleCalendarConnectionRecord) {
   return {
     getConnection: vi.fn<GoogleCalendarRepository["getConnection"]>().mockResolvedValue(current),
     createOAuthState: vi.fn<GoogleCalendarRepository["createOAuthState"]>(),
+    getOAuthState: vi.fn<GoogleCalendarRepository["getOAuthState"]>(),
     consumeOAuthState: vi.fn<GoogleCalendarRepository["consumeOAuthState"]>(),
     commitAuthorization: vi.fn<GoogleCalendarRepository["commitAuthorization"]>(),
     storeRefreshedAccessToken: vi
