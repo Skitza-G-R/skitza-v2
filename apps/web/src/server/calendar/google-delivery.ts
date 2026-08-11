@@ -173,12 +173,36 @@ function requestedSendUpdates(prepared: GoogleCalendarPreparedJob): GoogleCalend
     : "none";
 }
 
-function shouldSetParticipants(
+type GoogleDeliveryParticipant = NonNullable<GoogleCalendarEventRecord["attendees"]>[number];
+
+function attendeeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function participantsForConfirmedWrite(
   prepared: GoogleCalendarPreparedJob,
   remote: GoogleCalendarEventRecord | null,
-): boolean {
-  if (remote === null) return true;
-  return prepared.lastGoogleEventKind !== "confirmed";
+): readonly [GoogleDeliveryParticipant, ...GoogleDeliveryParticipant[]] | null {
+  const payload = prepared.job.payloadSnapshot;
+  if (payload.action !== "upsert" || payload.eventKind !== "confirmed" || !payload.attendee) {
+    return null;
+  }
+  const required = [
+    prepared.producerAttendee,
+    { email: payload.attendee.email, displayName: payload.attendee.name },
+  ] as const;
+  if (remote === null) return required;
+  if (remote.attendees === undefined) {
+    return prepared.lastGoogleEventKind === "confirmed" ? null : required;
+  }
+  const presentEmails = new Set(remote.attendees.map((attendee) => attendeeEmail(attendee.email)));
+  const missing = required.filter(
+    (participant) => !presentEmails.has(attendeeEmail(participant.email)),
+  );
+  if (missing.length === 0) return null;
+  const [first, ...rest] = [...remote.attendees, ...missing];
+  if (!first) throw new GoogleCalendarEventValidationError();
+  return [first, ...rest];
 }
 
 function buildWrite(prepared: GoogleCalendarPreparedJob, remote: GoogleCalendarEventRecord | null) {
@@ -207,14 +231,12 @@ function buildWrite(prepared: GoogleCalendarPreparedJob, remote: GoogleCalendarE
     summary: payload.summary,
     artistSafeSessionUrl: payload.artistSafeUrl,
   };
-  return shouldSetParticipants(prepared, remote)
+  const participants = participantsForConfirmedWrite(prepared, remote);
+  return participants
     ? buildGoogleCalendarEventWrite({
         ...base,
         attendeeMode: "set_participants",
-        participants: [
-          prepared.producerAttendee,
-          { email: payload.attendee.email, displayName: payload.attendee.name },
-        ],
+        participants,
       })
     : buildGoogleCalendarEventWrite({ ...base, attendeeMode: "preserve" });
 }
@@ -356,7 +378,12 @@ async function attemptGoogleWrite(
     return completed ? "completed" : "lease_lost";
   }
 
-  if (remote && remote.linkage?.revision === prepared.job.desiredRevision) {
+  const needsAttendeeUpgrade = participantsForConfirmedWrite(prepared, remote) !== null;
+  if (
+    remote &&
+    remote.linkage?.revision === prepared.job.desiredRevision &&
+    !needsAttendeeUpgrade
+  ) {
     if (
       !(await markNotificationAttempt(
         input.repository,
@@ -416,7 +443,8 @@ async function attemptGoogleWrite(
     if (
       after &&
       eventMatchesLink(after, prepared) &&
-      after.linkage?.revision === prepared.job.desiredRevision
+      after.linkage?.revision === prepared.job.desiredRevision &&
+      participantsForConfirmedWrite(prepared, after) === null
     ) {
       written = after;
     } else {

@@ -5,9 +5,21 @@ const OPAQUE_LINK_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 const MAX_SUMMARY_LENGTH = 1_024;
 const MAX_DISPLAY_NAME_LENGTH = 256;
 const MAX_URL_LENGTH = 2_048;
-const CONFIRMED_DESCRIPTION_PREFIX = "A Skitza studio session.\n\n";
+const LEGACY_CONFIRMED_DESCRIPTION_PREFIX = "A Skitza studio session.\n\n";
+const CONFIRMED_DESCRIPTION_PREFIX = "Skitza studio session: ";
+const CONFIRMED_DESCRIPTION_LINK_PREFIX = "\n\nBooking details: ";
 
-export type GoogleCalendarParticipant = Readonly<{ email: string; displayName?: string }>;
+export type GoogleCalendarAttendeeResponseStatus =
+  | "needsAction"
+  | "declined"
+  | "tentative"
+  | "accepted";
+
+export type GoogleCalendarParticipant = Readonly<{
+  email: string;
+  displayName?: string;
+  responseStatus?: GoogleCalendarAttendeeResponseStatus;
+}>;
 
 export type GoogleCalendarApprovedEventInput = Readonly<{
   eventId: string;
@@ -39,7 +51,7 @@ export type GoogleCalendarEventBody = Readonly<{
   end: Readonly<{ dateTime: string; timeZone: "UTC" }>;
   visibility: "private";
   transparency: "opaque";
-  attendees?: readonly Readonly<{ email: string; displayName?: string }>[];
+  attendees?: readonly GoogleCalendarParticipant[];
   extendedProperties: Readonly<{
     private: Readonly<{
       skitzaLink: string;
@@ -97,6 +109,18 @@ function normalizedEmail(value: string): string {
   return email;
 }
 
+function normalizedResponseStatus(value: string): GoogleCalendarAttendeeResponseStatus {
+  if (
+    value !== "needsAction" &&
+    value !== "declined" &&
+    value !== "tentative" &&
+    value !== "accepted"
+  ) {
+    return fail();
+  }
+  return value;
+}
+
 function normalizedArtistSafeUrl(value: string): string {
   if (value !== value.trim() || value.length < 1 || value.length > MAX_URL_LENGTH) return fail();
   let url: URL;
@@ -119,9 +143,13 @@ function normalizedArtistSafeUrl(value: string): string {
 }
 
 export function artistSafeUrlFromGoogleEventDescription(value: string): string {
-  const url = value.startsWith(CONFIRMED_DESCRIPTION_PREFIX)
-    ? value.slice(CONFIRMED_DESCRIPTION_PREFIX.length)
-    : value;
+  const linkIndex = value.lastIndexOf(CONFIRMED_DESCRIPTION_LINK_PREFIX);
+  const url =
+    linkIndex >= 0
+      ? value.slice(linkIndex + CONFIRMED_DESCRIPTION_LINK_PREFIX.length)
+      : value.startsWith(LEGACY_CONFIRMED_DESCRIPTION_PREFIX)
+        ? value.slice(LEGACY_CONFIRMED_DESCRIPTION_PREFIX.length)
+        : value;
   return normalizedArtistSafeUrl(url);
 }
 
@@ -194,10 +222,11 @@ export function buildGoogleCalendarEventWrite(
     };
   }
 
+  const summary = normalizedRequiredText(input.summary, MAX_SUMMARY_LENGTH);
   const description =
     input.artistSafeSessionUrl === undefined
       ? undefined
-      : `${CONFIRMED_DESCRIPTION_PREFIX}${normalizedArtistSafeUrl(input.artistSafeSessionUrl)}`;
+      : `${CONFIRMED_DESCRIPTION_PREFIX}${summary}${CONFIRMED_DESCRIPTION_LINK_PREFIX}${normalizedArtistSafeUrl(input.artistSafeSessionUrl)}`;
   const participants =
     input.attendeeMode === "set_participants"
       ? input.participants.reduce<GoogleCalendarParticipant[]>((unique, participant) => {
@@ -213,6 +242,9 @@ export function buildGoogleCalendarEventWrite(
                     MAX_DISPLAY_NAME_LENGTH,
                   ),
                 }),
+            ...(participant.responseStatus === undefined
+              ? {}
+              : { responseStatus: normalizedResponseStatus(participant.responseStatus) }),
           });
           return unique;
         }, [])
@@ -225,7 +257,7 @@ export function buildGoogleCalendarEventWrite(
     attendeeMode: input.attendeeMode,
     body: {
       ...common,
-      summary: normalizedRequiredText(input.summary, MAX_SUMMARY_LENGTH),
+      summary,
       ...(description ? { description } : {}),
       ...(participants ? { attendees: participants } : {}),
     },

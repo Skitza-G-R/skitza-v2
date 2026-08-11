@@ -379,7 +379,7 @@ describe("ManualSessionModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Book session" }));
     expect(await screen.findByRole("heading", { name: "Check these warnings" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create anyway" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create anyway" }));
 
     await waitFor(() => {
       expect(actionMocks.createManualSession).toHaveBeenCalledTimes(1);

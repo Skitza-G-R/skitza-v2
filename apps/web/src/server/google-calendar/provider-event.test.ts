@@ -142,7 +142,7 @@ describe("Google Calendar event REST provider", () => {
     expect(JSON.parse(request.body)).toMatchObject({
       summary: "Mix review",
       description:
-        "A Skitza studio session.\n\nhttps://skitza.app/artist/sessions/session_123",
+        "Skitza studio session: Mix review\n\nBooking details: https://skitza.app/artist/sessions/session_123",
       attendees: [
         { email: "producer@example.com", displayName: "Producer" },
         { email: "artist@example.com", displayName: "Artist" },
@@ -166,6 +166,59 @@ describe("Google Calendar event REST provider", () => {
     expect(JSON.parse(request.body)).not.toHaveProperty("attendees");
   });
 
+  it("serializes existing attendee response statuses during a participant repair", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json(providerRecord()));
+    const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
+    const repaired = buildGoogleCalendarEventWrite({
+      eventId: EVENT_ID,
+      kind: "confirmed",
+      attendeeMode: "set_participants",
+      startsAt: new Date("2026-08-10T08:00:00.000Z"),
+      endsAt: new Date("2026-08-10T09:30:00.000Z"),
+      revision: 4,
+      opaqueLink: PRIVATE_PROPERTIES.skitzaLink,
+      summary: "Mix review",
+      participants: [
+        {
+          email: "artist@example.com",
+          displayName: "Artist",
+          responseStatus: "declined",
+        },
+        {
+          email: "google-only@example.com",
+          displayName: "Google-only guest",
+          responseStatus: "tentative",
+        },
+        { email: "producer@example.com", displayName: "Producer" },
+      ],
+      artistSafeSessionUrl: "https://skitza.app/artist/sessions/session_123",
+    });
+
+    await provider.patchEvent("access-token", {
+      calendarId: "destination-id",
+      event: repaired,
+      sendUpdates: "none",
+    });
+
+    const request = fetchMock.mock.calls[0]?.[1];
+    if (typeof request?.body !== "string") throw new Error("Missing body");
+    expect(JSON.parse(request.body)).toMatchObject({
+      attendees: [
+        {
+          email: "artist@example.com",
+          displayName: "Artist",
+          responseStatus: "declined",
+        },
+        {
+          email: "google-only@example.com",
+          displayName: "Google-only guest",
+          responseStatus: "tentative",
+        },
+        { email: "producer@example.com", displayName: "Producer" },
+      ],
+    });
+  });
+
   it("never permits a hold to notify an attendee", async () => {
     const provider = createGoogleCalendarProvider({
       config: CONFIG,
@@ -184,13 +237,45 @@ describe("Google Calendar event REST provider", () => {
   it("reads only safe linkage and deletes with notification control", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(json(providerRecord()))
+      .mockResolvedValueOnce(
+        json({
+          ...providerRecord(),
+          attendees: [
+            {
+              email: "Artist@Example.com",
+              displayName: "Artist",
+              responseStatus: "declined",
+              comment: "must not leave the provider boundary",
+            },
+            {
+              email: "guest@example.com",
+              displayName: "Guest",
+              responseStatus: "accepted",
+            },
+          ],
+        }),
+      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
 
     await expect(
       provider.getEvent("access-token", { calendarId: "destination-id", eventId: EVENT_ID }),
-    ).resolves.toMatchObject({ eventId: EVENT_ID, linkage: { revision: 4 } });
+    ).resolves.toMatchObject({
+      eventId: EVENT_ID,
+      linkage: { revision: 4 },
+      attendees: [
+        {
+          email: "artist@example.com",
+          displayName: "Artist",
+          responseStatus: "declined",
+        },
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+        },
+      ],
+    });
     await expect(
       provider.deleteEvent("access-token", {
         calendarId: "destination-id",
@@ -203,6 +288,11 @@ describe("Google Calendar event REST provider", () => {
       method: "DELETE",
       headers: { "If-Match": '"provider-etag"' },
     });
+    const [rawUrl] = fetchMock.mock.calls[0] ?? [];
+    if (typeof rawUrl !== "string" && !(rawUrl instanceof URL)) throw new Error("Missing URL");
+    expect(new URL(rawUrl).searchParams.get("fields")).toBe(
+      "id,etag,status,extendedProperties,attendees(email,displayName,responseStatus)",
+    );
   });
 
   it("conditionally reads only approved linked-event fields and discards Google-only guests", async () => {

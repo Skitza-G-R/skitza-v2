@@ -12,12 +12,13 @@ type ActionInput = { id: string; operationKey: string };
 type ActionResult =
   | { ok: true; status: "not_synced" | "missing" | "conflict"; replayed: boolean }
   | { ok: false; error: string };
+type SyncState = "pending" | "synced" | "not_synced" | "missing" | "conflict" | "disconnected";
 
 const mocks = vi.hoisted(() => ({
   retry: vi.fn<(input: ActionInput) => Promise<ActionResult>>(),
   restore: vi.fn<(input: ActionInput) => Promise<ActionResult>>(),
   status: vi.fn<
-    (input: { id: string }) => Promise<{ ok: true; status: "pending" | "synced" } | { ok: false }>
+    (input: { id: string }) => Promise<{ ok: true; status: SyncState | null } | { ok: false }>
   >(),
 }));
 
@@ -28,6 +29,7 @@ vi.mock("../google-calendar-session-actions", () => ({
 }));
 
 beforeEach(() => {
+  installViewport(true);
   mocks.status.mockResolvedValue({ ok: false });
 });
 
@@ -36,8 +38,25 @@ afterEach(() => {
   mocks.retry.mockReset();
   mocks.restore.mockReset();
   mocks.status.mockReset();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+
+function installViewport(isMobile: boolean): void {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(max-width: 1023px)" ? isMobile : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    })),
+  );
+}
 
 describe("GoogleCalendarSessionSyncStatus", () => {
   it("keeps healthy rows quiet and explains every recovery state safely", () => {
@@ -83,10 +102,47 @@ describe("GoogleCalendarSessionSyncStatus", () => {
     expect(screen.queryByText("Syncing calendar")).toBeNull();
   });
 
-  it("leaves the original desktop status behavior unchanged", async () => {
+  it("starts polling again for a later pending server snapshot", async () => {
     vi.useFakeTimers();
     mocks.status.mockResolvedValue({ ok: true, status: "synced" });
-    render(<GoogleCalendarSessionSyncStatus bookingId="booking-desktop" sync={{ state: "pending" }} />);
+    const { rerender } = render(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-repeat"
+        sync={{ state: "pending" }}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(screen.queryByText("Syncing calendar")).toBeNull();
+    mocks.status.mockClear();
+
+    rerender(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-repeat"
+        sync={{ state: "pending" }}
+      />,
+    );
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Syncing calendar")).toBeNull();
+  });
+
+  it("never polls from the CSS-hidden mobile row on desktop", async () => {
+    vi.useFakeTimers();
+    installViewport(false);
+    mocks.status.mockResolvedValue({ ok: true, status: "synced" });
+    render(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-desktop"
+        sync={{ state: "pending" }}
+      />,
+    );
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
@@ -94,6 +150,68 @@ describe("GoogleCalendarSessionSyncStatus", () => {
 
     expect(mocks.status).not.toHaveBeenCalled();
     expect(screen.getByText("Syncing calendar")).not.toBeNull();
+  });
+
+  it("polls a retry through its retained conflict state until it completes", async () => {
+    vi.useFakeTimers();
+    mocks.retry.mockResolvedValue({ ok: true, status: "conflict", replayed: false });
+    mocks.status
+      .mockResolvedValueOnce({ ok: true, status: "conflict" })
+      .mockResolvedValueOnce({ ok: true, status: "synced" });
+    const { rerender } = render(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-conflict"
+        sync={{ state: "conflict" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await act(() => Promise.resolve());
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
+
+    rerender(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-conflict"
+        sync={{ state: "conflict" }}
+      />,
+    );
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Syncing calendar")).toBeNull();
+  });
+
+  it("polls a restore through its retained missing state until it completes", async () => {
+    vi.useFakeTimers();
+    mocks.restore.mockResolvedValue({ ok: true, status: "missing", replayed: false });
+    mocks.status
+      .mockResolvedValueOnce({ ok: true, status: "missing" })
+      .mockResolvedValueOnce({ ok: true, status: "synced" });
+    render(
+      <LiveGoogleCalendarSessionSyncStatus
+        bookingId="booking-missing"
+        sync={{ state: "missing" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore event" }));
+    await act(() => Promise.resolve());
+    expect(screen.getByText("Syncing calendar")).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Syncing calendar")).toBeNull();
   });
 
   it("keeps retry locked after success until the visible server state changes", async () => {

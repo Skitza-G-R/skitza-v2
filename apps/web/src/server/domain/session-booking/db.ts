@@ -202,7 +202,10 @@ function createContextFromRow(
     purchase: {
       id: row.purchaseId,
       lifecycleStatus: row.purchaseLifecycleStatus,
-      defaultSessionTitle: row.projectTitle.trim() || "Session",
+      defaultSessionTitle:
+        row.purchaseCommercialSnapshot?.productOrOfferName.trim() ||
+        row.projectTitle.trim() ||
+        "Session",
     },
     allowance: {
       id: row.allowanceId,

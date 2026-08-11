@@ -236,7 +236,7 @@ describe("Google Calendar outbox delivery", () => {
       { email: "artist@example.com", displayName: "Artist" },
     ]);
     expect(insertInput.event.body.description).toBe(
-      "A Skitza studio session.\n\nhttps://skitza.app/artist/sessions/session_123",
+      "Skitza studio session: Mix review\n\nBooking details: https://skitza.app/artist/sessions/session_123",
     );
     expect(repository.markGoogleNotificationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ linkId: LINK_ID, desiredRevision: 2 }),
@@ -303,7 +303,27 @@ describe("Google Calendar outbox delivery", () => {
     );
     const repository = repositoryFor(claimed, { outcome: "ready", value });
     const google = provider();
-    google.getEvent.mockResolvedValue(record(1));
+    google.getEvent.mockResolvedValue(
+      record(1, {
+        attendees: [
+          {
+            email: "producer-calendar@example.com",
+            displayName: "Producer",
+            responseStatus: "accepted",
+          },
+          {
+            email: "artist@example.com",
+            displayName: "Artist",
+            responseStatus: "declined",
+          },
+          {
+            email: "google-only@example.com",
+            displayName: "Google-only guest",
+            responseStatus: "tentative",
+          },
+        ],
+      }),
+    );
     google.patchEvent.mockResolvedValue(record(2));
 
     await processGoogleCalendarSyncJobs(
@@ -315,6 +335,100 @@ describe("Google Calendar outbox delivery", () => {
     expect(request?.event.attendeeMode).toBe("preserve");
     expect(request?.event.body).not.toHaveProperty("attendees");
     expect(request?.sendUpdates).toBe("all");
+  });
+
+  it("upgrades an existing artist-only event without losing attendee RSVP state", async () => {
+    const claimed = job({
+      payloadSnapshot: { ...confirmedPayload(), notificationMode: "none" },
+    });
+    const value = prepared(
+      claimed,
+      {
+        providerState: "active",
+        providerEventEtag: '"etag-2"',
+        lastGoogleRevision: 2,
+      },
+      "confirmed",
+    );
+    const repository = repositoryFor(claimed, { outcome: "ready", value });
+    const google = provider();
+    google.getEvent.mockResolvedValue(
+      record(2, {
+        attendees: [
+          {
+            email: "Artist@Example.com",
+            displayName: "Artist",
+            responseStatus: "declined",
+          },
+          {
+            email: "google-only@example.com",
+            displayName: "Google-only guest",
+            responseStatus: "tentative",
+          },
+        ],
+      }),
+    );
+    google.patchEvent.mockResolvedValue(record(2));
+
+    await processGoogleCalendarSyncJobs(
+      { repository, provider: google, access: readyAccess() },
+      { now: NOW, leaseToken: "lease" },
+    );
+
+    const request = google.patchEvent.mock.calls[0]?.[1];
+    expect(request?.sendUpdates).toBe("none");
+    expect(request?.event.attendeeMode).toBe("set_participants");
+    expect(request?.event.body.attendees).toEqual([
+      {
+        email: "artist@example.com",
+        displayName: "Artist",
+        responseStatus: "declined",
+      },
+      {
+        email: "google-only@example.com",
+        displayName: "Google-only guest",
+        responseStatus: "tentative",
+      },
+      { email: "producer-calendar@example.com", displayName: "Producer" },
+    ]);
+  });
+
+  it("retries an ambiguous same-revision upgrade when required attendees are still missing", async () => {
+    const claimed = job({
+      payloadSnapshot: { ...confirmedPayload(), notificationMode: "none" },
+    });
+    const value = prepared(
+      claimed,
+      {
+        providerState: "active",
+        providerEventEtag: '"etag-2"',
+        lastGoogleRevision: 2,
+      },
+      "confirmed",
+    );
+    const repository = repositoryFor(claimed, { outcome: "ready", value });
+    const google = provider();
+    const artistOnly = record(2, {
+      attendees: [
+        {
+          email: "artist@example.com",
+          displayName: "Artist",
+          responseStatus: "declined",
+        },
+      ],
+    });
+    google.getEvent.mockResolvedValueOnce(artistOnly).mockResolvedValueOnce(artistOnly);
+    google.patchEvent.mockRejectedValue(new GoogleCalendarProviderError("provider_unavailable"));
+
+    const result = await processGoogleCalendarSyncJobs(
+      { repository, provider: google, access: readyAccess() },
+      { now: NOW, leaseToken: "lease" },
+    );
+
+    expect(result).toMatchObject({ completed: 0, retried: 1 });
+    expect(google.getEvent).toHaveBeenCalledTimes(2);
+    expect(google.patchEvent).toHaveBeenCalledTimes(1);
+    expect(repository.completeGoogleJob).not.toHaveBeenCalled();
   });
 
   it("updates an existing ICS invitation before silently syncing its Google event", async () => {

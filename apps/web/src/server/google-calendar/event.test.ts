@@ -89,7 +89,7 @@ describe("Google Calendar approved event mapping", () => {
     expect(event.body).toMatchObject({
       summary: "Vocal production",
       description:
-        "A Skitza studio session.\n\nhttps://skitza.app/artist/sessions/session_123",
+        "Skitza studio session: Vocal production\n\nBooking details: https://skitza.app/artist/sessions/session_123",
       attendees: [
         { email: "producer@example.com", displayName: "Producer Name" },
         { email: "artist@example.com", displayName: "Artist Name" },
@@ -100,6 +100,41 @@ describe("Google Calendar approved event mapping", () => {
     expect(event.body).not.toHaveProperty("location");
     expect(event.body).not.toHaveProperty("conferenceData");
     expect(event.body).not.toHaveProperty("organizer");
+  });
+
+  it("keeps approved attendee response statuses while normalizing reconciliation writes", () => {
+    const event = buildGoogleCalendarEventWrite({
+      ...BASE,
+      kind: "confirmed",
+      attendeeMode: "set_participants",
+      summary: "Vocal production",
+      participants: [
+        {
+          email: " Producer@Example.com ",
+          displayName: " Producer Name ",
+          responseStatus: "accepted",
+        },
+        {
+          email: " Artist@Example.com ",
+          displayName: " Artist Name ",
+          responseStatus: "declined",
+        },
+      ],
+      artistSafeSessionUrl: "https://skitza.app/artist/sessions/session_123",
+    });
+
+    expect(event.body.attendees).toEqual([
+      {
+        email: "producer@example.com",
+        displayName: "Producer Name",
+        responseStatus: "accepted",
+      },
+      {
+        email: "artist@example.com",
+        displayName: "Artist Name",
+        responseStatus: "declined",
+      },
+    ]);
   });
 
   it("omits attendee arrays from later edits so Google-only guests survive", () => {

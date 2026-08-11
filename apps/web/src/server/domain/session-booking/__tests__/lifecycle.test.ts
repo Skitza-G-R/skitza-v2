@@ -1290,6 +1290,36 @@ describe("session booking lifecycle commands", () => {
     expect(created.booking.title).toBe("Studio session");
   });
 
+  it("keeps the stored and ICS titles purchase-derived while Google uses the project name", async () => {
+    const icsRepository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const icsCreated = await createSessionBooking(
+      icsRepository,
+      createInput({ operationKey: "purchase-title-ics", title: null }),
+    );
+
+    expect(icsCreated.booking.title).toBe("Studio session");
+    expect(icsRepository.calendarJobs[0]?.payloadSnapshot).toMatchObject({
+      schemaVersion: 1,
+      summary: "Studio session",
+    });
+
+    const googleRepository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    googleRepository.googleConnected = true;
+    const googleCreated = await createSessionBooking(
+      googleRepository,
+      createInput({ operationKey: "project-name-google", title: null }),
+    );
+
+    expect(googleCreated.booking.title).toBe("Studio session");
+    expect(googlePayload(googleRepository.calendarJobs[0])).toMatchObject({
+      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+    });
+  });
+
   it("replays a default-title create after the project fallback title changes", async () => {
     const repository = new MemorySessionBookingRepository();
     const input = createInput({ operationKey: "stable-default-title" });

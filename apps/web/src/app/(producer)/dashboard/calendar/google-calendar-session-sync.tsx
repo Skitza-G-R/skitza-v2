@@ -15,7 +15,12 @@ import type {
 } from "./google-calendar-session-sync-model";
 
 type SyncAction = "retry" | "restore";
+type SyncPollMode =
+  | Readonly<{ kind: "pending" }>
+  | Readonly<{ kind: "action"; retainedState: GoogleCalendarSessionSyncState }>;
+
 const PENDING_POLL_INTERVAL_MS = 1_500;
+const MOBILE_SESSION_POLL_QUERY = "(max-width: 1023px)";
 
 export function LiveGoogleCalendarSessionSyncStatus({
   bookingId,
@@ -29,13 +34,49 @@ export function LiveGoogleCalendarSessionSyncStatus({
   const [visibleState, setVisibleState] = useState<GoogleCalendarSessionSyncState | null>(
     sync?.state ?? null,
   );
+  const [pollMode, setPollMode] = useState<SyncPollMode | null>(
+    sync?.state === "pending" ? { kind: "pending" } : null,
+  );
+  const [canPollInViewport, setCanPollInViewport] = useState(false);
+  const pollModeRef = useRef<SyncPollMode | null>(
+    sync?.state === "pending" ? { kind: "pending" } : null,
+  );
+  const snapshotBookingIdRef = useRef(bookingId);
 
   useEffect(() => {
-    setVisibleState(sync?.state ?? null);
-  }, [bookingId, sync?.state]);
+    const nextState = sync?.state ?? null;
+    const bookingChanged = snapshotBookingIdRef.current !== bookingId;
+    snapshotBookingIdRef.current = bookingId;
+    const currentPollMode = pollModeRef.current;
+    if (
+      !bookingChanged &&
+      currentPollMode?.kind === "action" &&
+      (nextState === "pending" || nextState === currentPollMode.retainedState)
+    ) {
+      return;
+    }
+    const nextPollMode: SyncPollMode | null =
+      nextState === "pending" ? { kind: "pending" } : null;
+    pollModeRef.current = nextPollMode;
+    setVisibleState(nextState);
+    setPollMode(nextPollMode);
+  }, [bookingId, sync]);
 
   useEffect(() => {
-    if (visibleState !== "pending") return;
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(MOBILE_SESSION_POLL_QUERY);
+    const update = () => {
+      setCanPollInViewport(media.matches);
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => {
+      media.removeEventListener("change", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canPollInViewport || !pollMode) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -43,8 +84,15 @@ export function LiveGoogleCalendarSessionSyncStatus({
       const result = await getGoogleCalendarSyncStatus({ id: bookingId });
       if (cancelled) return;
       if (result.ok && result.status) {
-        setVisibleState(result.status);
-        if (result.status !== "pending") return;
+        const remainsInFlight =
+          result.status === "pending" ||
+          (pollMode.kind === "action" && result.status === pollMode.retainedState);
+        if (!remainsInFlight) {
+          pollModeRef.current = null;
+          setVisibleState(result.status);
+          setPollMode(null);
+          return;
+        }
       }
       timer = setTimeout(() => {
         void poll();
@@ -58,13 +106,19 @@ export function LiveGoogleCalendarSessionSyncStatus({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [bookingId, visibleState]);
+  }, [bookingId, canPollInViewport, pollMode]);
 
   return (
     <GoogleCalendarSessionSyncStatus
       bookingId={bookingId}
       sync={visibleState ? { state: visibleState } : null}
       compact={compact}
+      onActionStarted={(retainedState) => {
+        const nextPollMode = { kind: "action", retainedState } as const;
+        pollModeRef.current = nextPollMode;
+        setVisibleState("pending");
+        setPollMode(nextPollMode);
+      }}
     />
   );
 }
@@ -73,10 +127,12 @@ export function GoogleCalendarSessionSyncStatus({
   bookingId,
   sync,
   compact = false,
+  onActionStarted,
 }: {
   bookingId: string;
   sync: GoogleCalendarSessionSync | null | undefined;
   compact?: boolean;
+  onActionStarted?: (state: GoogleCalendarSessionSyncState) => void;
 }) {
   const [pendingAction, setPendingAction] = useState<SyncAction | null>(null);
   const [successfulAction, setSuccessfulAction] = useState<SyncAction | null>(null);
@@ -129,6 +185,7 @@ export function GoogleCalendarSessionSyncStatus({
         : result.error,
     );
     if (result.ok) {
+      onActionStarted?.(result.status);
       setSuccessfulAction(nextAction);
     } else {
       actionLockRef.current = false;
