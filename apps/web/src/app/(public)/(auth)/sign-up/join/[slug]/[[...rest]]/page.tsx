@@ -35,11 +35,8 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
         : "book";
   const clerkRouteSegments = action === "book" ? rest : rest?.slice(1);
   const continuationHref = joinContinuationHref(slug, action);
-  const postSignUpContinuationHref = joinContinuationHref(
-    slug,
-    action === "home" ? "store" : action,
-  );
-  if (continuationHref === "/" || postSignUpContinuationHref === "/") notFound();
+  const postSignUpContinuationHref = continuationHref;
+  if (continuationHref === "/") notFound();
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");

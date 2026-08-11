@@ -142,7 +142,7 @@ describe("dedicated join signup route", () => {
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
-  it("sends a new normal-invite Artist to Store only after Clerk signup completes", async () => {
+  it("sends a new normal-invite Artist to Home after Clerk signup completes", async () => {
     const html = await render({ rest: ["home"] });
 
     expect(html).toContain("data-clerk-sign-up");
@@ -151,8 +151,8 @@ describe("dedicated join signup route", () => {
         path: "/sign-up/join/northline-studio/home",
         signInUrl:
           "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
-        fallbackRedirectUrl: "/join/northline-studio/continue?action=store",
-        forceRedirectUrl: "/join/northline-studio/continue?action=store",
+        fallbackRedirectUrl: "/join/northline-studio/continue?action=home",
+        forceRedirectUrl: "/join/northline-studio/continue?action=home",
       }),
     );
   });
