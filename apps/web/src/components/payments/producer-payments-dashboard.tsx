@@ -265,6 +265,27 @@ function ArtistStatus({ artist }: { artist: ProducerPaymentArtistRow }) {
   );
 }
 
+function ArtistProjects({ artist }: { artist: ProducerPaymentArtistRow }) {
+  const projects = [
+    ...new Map(
+      artist.records.map((record) => [record.projectId, record.projectTitle] as const),
+    ).entries(),
+  ].sort(([, leftTitle], [, rightTitle]) => leftTitle.localeCompare(rightTitle));
+
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      {projects.map(([projectId, projectTitle]) => (
+        <span
+          key={projectId}
+          className="text-[12px] leading-snug font-extrabold break-words text-[rgb(var(--fg-default))]"
+        >
+          {projectTitle}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function ArtistDesktopTable({
   artists,
   timeZone,
@@ -276,16 +297,18 @@ function ArtistDesktopTable({
     <div className="hidden overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] md:block">
       <table className="w-full table-fixed border-collapse text-left">
         <caption className="sr-only">
-          Artists with received money, current debt, next payment, remaining balance, and status
+          Projects and artists with received money, current debt, next payment, remaining balance,
+          and status
         </caption>
         <thead>
           <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
             {[
-              ["Artist", "w-[18%]"],
-              ["Received", "w-[14%]"],
-              ["Owes now", "w-[14%]"],
-              ["Next payment", "w-[23%]"],
-              ["Total left", "w-[14%]"],
+              ["Project", "w-[16%]"],
+              ["Artist", "w-[14%]"],
+              ["Received", "w-[11%]"],
+              ["Owes now", "w-[11%]"],
+              ["Next payment", "w-[20%]"],
+              ["Total left", "w-[11%]"],
               ["Status", "w-[17%]"],
             ].map(([label, width]) => (
               <th
@@ -304,6 +327,9 @@ function ArtistDesktopTable({
         <tbody className="divide-y divide-[rgb(var(--border-subtle))]">
           {artists.map((artist) => (
             <tr key={artist.clientContactId} className="align-top hover:bg-[rgb(var(--bg-sunken))]">
+              <td className="px-3 py-3 xl:px-4">
+                <ArtistProjects artist={artist} />
+              </td>
               <th scope="row" className="px-3 py-3 text-left xl:px-4">
                 <Link
                   href={clientPaymentsHref(artist.clientContactId)}
