@@ -240,26 +240,16 @@ export function postSignInResolverHref(
 }
 
 /**
- * Clerk exposes separate post-sign-in and post-sign-up destinations. A normal
- * Producer invite keeps its existing Home target for a returning account, but
- * a newly created account continues through the Store-specific join action.
- * The continuation route revalidates the Producer before any connection write.
+ * Clerk exposes separate post-sign-in and post-sign-up destinations. Keep the
+ * same validated target for both so a normal Producer invite reaches Artist
+ * Home whether the Artist signs in or creates their account. The continuation
+ * route revalidates the Producer before any connection write.
  */
 export function postSignUpResolverHref(
   rawTarget?: string | null,
 ): string {
   const target = sanitizePostSignInTarget(rawTarget);
   if (!target) return "/auth/resolve";
-
-  const url = new URL(target.href, AUTH_TARGET_ORIGIN);
-  if (isJoinContinuationUrl(url) && url.searchParams.get("action") === "home") {
-    url.searchParams.set("action", "store");
-    return hrefWithNestedTarget(
-      "/auth/resolve",
-      `${url.pathname}${url.search}`,
-    );
-  }
-
   return hrefWithNestedTarget("/auth/resolve", target.href);
 }
 

@@ -24,7 +24,7 @@ describe("join-aware Clerk authentication", () => {
 
   it("forces every Clerk verification and OAuth completion back to the join continuation", () => {
     expect(source).toContain("joinContinuationHref(slug, action)");
-    expect(source).toContain('action === "home" ? "store" : action');
+    expect(source).not.toContain('action === "home" ? "store" : action');
     expect(source).toContain("forceRedirectUrl={postSignUpContinuationHref}");
   });
 

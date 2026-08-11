@@ -215,13 +215,13 @@ describe("postSignInResolverHref", () => {
 });
 
 describe("postSignUpResolverHref", () => {
-  it("sends only a successful normal-invite signup to the validated Store continuation", () => {
+  it("keeps a successful normal-invite signup on the validated Home continuation", () => {
     expect(
       postSignUpResolverHref(
         "/join/northline-studio/continue?action=home",
       ),
     ).toBe(
-      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dstore",
+      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
     );
 
     expect(
@@ -233,8 +233,8 @@ describe("postSignUpResolverHref", () => {
     );
   });
 
-  it.each(["book", "unlock"])(
-    "keeps the explicit %s signup route unchanged",
+  it.each(["book", "unlock", "store"])(
+    "keeps the existing %s signup continuation unchanged",
     (action) => {
       const target = `/join/northline-studio/continue?action=${action}`;
       expect(postSignUpResolverHref(target)).toBe(
