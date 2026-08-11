@@ -41,4 +41,16 @@ describe("ScheduleSessionsCard actions", () => {
     expect(html).not.toContain('aria-label="Cancel session with Lior Tansky"');
     expect(html).not.toContain('aria-label="Reschedule session with Lior Tansky"');
   });
+
+  it("shows the project name without changing the existing session-kind accent", () => {
+    const html = renderCard({
+      ...session,
+      packageName: "Mix project",
+      kindSource: "Vocal recording",
+    });
+
+    expect(html).toContain("Mix project");
+    expect(html).toContain("background:rgb(var(--kind-tracking))");
+    expect(html).not.toContain("background:rgb(var(--kind-mix))");
+  });
 });

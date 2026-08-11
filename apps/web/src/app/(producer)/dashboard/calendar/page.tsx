@@ -103,7 +103,7 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.title ?? b.packageNameSnapshot,
+    packageName: b.projectName,
     message: b.notes,
     receivedAtIso: b.createdAt.toISOString(),
   }));
@@ -124,7 +124,7 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
-      packageName: b.title ?? b.packageNameSnapshot,
+      packageName: b.projectName,
       status: "pending_approval",
     })),
     ...upcoming.map<ScheduleSession>((b) => ({
@@ -133,7 +133,7 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
-      packageName: b.packageName,
+      packageName: b.projectName,
       status: "confirmed",
     })),
   ];
@@ -177,7 +177,8 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.title ?? b.packageNameSnapshot,
+    packageName: b.projectName,
+    kindSource: b.title ?? b.packageNameSnapshot,
     status: b.status,
     billingTreatment: b.billingTreatment,
     artistRsvpStatus: b.artistRsvpStatus,

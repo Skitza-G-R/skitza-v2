@@ -28,6 +28,7 @@ export type SessionListItem = {
   startsAt: string; // ISO
   durationMin: number;
   packageName: string | null;
+  kindSource?: string | null;
   status: RawBookingStatus;
   billingTreatment?: "included" | "complimentary" | "billable_extra";
   artistRsvpStatus?: "needs_action" | "accepted" | "declined" | "tentative" | null;

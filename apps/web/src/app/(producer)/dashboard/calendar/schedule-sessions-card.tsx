@@ -138,7 +138,7 @@ function CompactSessionRow({
   const status = deriveDisplayStatus(session.status, end, now);
   const dimmed = status === "cancelled" || status === "rejected" || status === "no_show";
   const serviceLabel = session.packageName ?? "Session";
-  const kindToken = KIND_COLORS[inferSessionKind(session.packageName)];
+  const kindToken = KIND_COLORS[inferSessionKind(session.kindSource ?? session.packageName)];
 
   return (
     <div

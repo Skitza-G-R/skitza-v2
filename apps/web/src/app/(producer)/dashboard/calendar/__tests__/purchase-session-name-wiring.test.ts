@@ -17,7 +17,7 @@ function between(source: string, start: string, end: string): string {
 }
 
 describe("project-owned session names", () => {
-  it("uses project names on mobile while preserving every desktop projection", () => {
+  it("uses project names in every calendar projection without changing desktop UI wiring", () => {
     expect(calendarPage).not.toMatch(/packageName: "Session"/);
 
     const desktopPending = between(
@@ -46,13 +46,10 @@ describe("project-owned session names", () => {
       "  const initialNow",
     );
 
-    expect(desktopPending).toContain("packageName: b.title ?? b.packageNameSnapshot");
-    expect(desktopSchedule).toContain("packageName: b.title ?? b.packageNameSnapshot");
-    expect(desktopSchedule).toContain("packageName: b.packageName");
-    expect(desktopSessions).toContain("packageName: b.title ?? b.packageNameSnapshot");
-    expect(desktopPending).not.toContain("b.projectName");
-    expect(desktopSchedule).not.toContain("b.projectName");
-    expect(desktopSessions).not.toContain("b.projectName");
+    expect(desktopPending).toContain("packageName: b.projectName");
+    expect(desktopSchedule.match(/packageName: b\.projectName/g)).toHaveLength(2);
+    expect(desktopSessions).toContain("packageName: b.projectName");
+    expect(desktopSessions).toContain("kindSource: b.title ?? b.packageNameSnapshot");
 
     expect(mobileSchedule.match(/packageName: b\.projectName/g)).toHaveLength(2);
     expect(mobileSessions).toContain("packageName: b.projectName");
