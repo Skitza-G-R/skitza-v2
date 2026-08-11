@@ -505,6 +505,8 @@ export function ManualSessionModal({
   }
 
   const timeZoneLabel = studioTimeZoneLabel(options.studioTimeZone);
+  const canChooseProject = Boolean(client);
+  const canChooseWhen = project?.eligibility === "eligible" && availability !== null;
 
   return (
     <Sheet open={open} onOpenChange={requestOpenChange}>
@@ -617,14 +619,15 @@ export function ManualSessionModal({
                 </button>
               </PickerSection>
 
-              {client ? (
+              {canChooseProject || !isDesktopSheet ? (
                 <PickerSection
                   eyebrow="2 · Project"
                   summary={project?.title ?? "Choose a project"}
                   complete={Boolean(project)}
-                  expanded={activePicker === "project"}
-                  disabled={isPending}
+                  expanded={activePicker === "project" && canChooseProject}
+                  disabled={isPending || !canChooseProject}
                   onChange={() => {
+                    if (!canChooseProject) return;
                     setActivePicker("project");
                     requestManualFocus("manual-project-wheel");
                   }}
@@ -655,18 +658,19 @@ export function ManualSessionModal({
                 </PickerSection>
               ) : null}
 
-              {project?.eligibility === "eligible" && availability ? (
+              {canChooseWhen || !isDesktopSheet ? (
                 <PickerSection
                   eyebrow="3 · Date & time"
                   summary={
-                    hasStudioSlot && studioStartMin !== null && durationMin
+                    canChooseWhen && hasStudioSlot && studioStartMin !== null && durationMin
                       ? `${studioDateLabel(studioDate, availability.today)} · ${timeRangeLabel(studioStartMin, durationMin)}`
                       : "Choose an available time"
                   }
-                  complete={hasStudioSlot}
-                  expanded={activePicker === "when"}
-                  disabled={isPending}
+                  complete={canChooseWhen && hasStudioSlot}
+                  expanded={activePicker === "when" && canChooseWhen}
+                  disabled={isPending || !canChooseWhen}
                   onChange={() => {
+                    if (!canChooseWhen) return;
                     setActivePicker("when");
                     requestManualFocus("manual-date-wheel");
                   }}
