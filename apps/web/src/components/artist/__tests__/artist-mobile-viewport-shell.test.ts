@@ -19,6 +19,10 @@ const cancelSessionSource = readFileSync(
   fileURLToPath(new URL("../sessions/cancel-session-screen.tsx", import.meta.url)),
   "utf8",
 );
+const globalsCss = readFileSync(
+  fileURLToPath(new URL("../../../app/globals.css", import.meta.url)),
+  "utf8",
+);
 
 describe("artist mobile viewport shell", () => {
   it("uses the measured visual viewport and keeps document scrolling disabled on mobile", () => {
@@ -45,6 +49,13 @@ describe("artist mobile viewport shell", () => {
     expect(mainSource).toContain("min-h-0");
     expect(mainSource).toContain("flex-1");
     expect(mainSource).toContain("lg:overflow-visible");
+  });
+
+  it("absorbs browser-chrome viewport growth without shrinking the scroll range", () => {
+    expect(globalsCss).toContain("--sk-viewport-growth: 0px");
+    expect(globalsCss).toMatch(
+      /main#main-content\[data-artist-shell-mode="standing"\][\s\S]*padding-bottom:[\s\S]*var\(--sk-viewport-growth/,
+    );
   });
 
   it("keeps the live artist menu in the non-scrolling shell footer", () => {
