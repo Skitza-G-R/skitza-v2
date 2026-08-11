@@ -38,9 +38,7 @@ const CONFIG = {
   calendarIdFingerprintSecret: FINGERPRINT_SECRET,
 } satisfies GoogleCalendarServerConfig;
 
-function createGoogleCalendarService(
-  input: Parameters<typeof createGoogleCalendarServiceImpl>[0],
-) {
+function createGoogleCalendarService(input: Parameters<typeof createGoogleCalendarServiceImpl>[0]) {
   return createGoogleCalendarServiceImpl({
     now: () => new Date("2026-08-09T10:00:00.000Z"),
     ...input,
@@ -61,7 +59,7 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
   candidates: GoogleCalendarCandidateRecord[] = [];
   watches: GoogleCalendarStoredWatchRecord[] = [];
   linkedWatchTargets: GoogleCalendarWatchTarget[] = [];
-  syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 };
+  syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0, issues: [] };
   initialSyncCalls: Parameters<GoogleCalendarRepository["enqueueFutureConfirmedEvents"]>[0][] = [];
 
   async getConnection(producerId: string) {
@@ -1141,14 +1139,20 @@ describe("Google Calendar service lifecycle", () => {
 
   it("returns only safe aggregate sync health", async () => {
     const repository = new MemoryGoogleCalendarRepository();
-    repository.syncSummary = { syncing: 2, notSynced: 1, missing: 3, conflicts: 4 };
+    repository.syncSummary = {
+      syncing: 2,
+      notSynced: 1,
+      missing: 3,
+      conflicts: 4,
+      issues: [],
+    };
     const provider = createProvider();
     const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
     await connect(service);
     const snapshot = await service.status(PRODUCER_ID);
     expect(snapshot).toEqual(
       expect.objectContaining({
-        syncSummary: { syncing: 2, notSynced: 1, missing: 3, conflicts: 4 },
+        syncSummary: { syncing: 2, notSynced: 1, missing: 3, conflicts: 4, issues: [] },
       }),
     );
     expect(JSON.stringify(snapshot)).not.toContain("providerEventId");

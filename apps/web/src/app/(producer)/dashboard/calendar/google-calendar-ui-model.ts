@@ -25,11 +25,27 @@ export type GoogleCalendarSelection = Readonly<{
   busySelectionKeys: readonly string[];
 }>;
 
+export type GoogleCalendarSyncIssue = Readonly<{
+  bookingId: string;
+  syncState: "not_synced" | "missing" | "conflict";
+  bookingStatus:
+    | "pending_approval"
+    | "confirmed"
+    | "rejected"
+    | "cancelled"
+    | "completed"
+    | "no_show";
+  artistName: string;
+  startsAtIso: string;
+  durationMin: number;
+}>;
+
 export type GoogleCalendarSyncSummary = Readonly<{
   syncing: number;
   notSynced: number;
   missing: number;
   conflicts: number;
+  issues: readonly GoogleCalendarSyncIssue[];
 }>;
 
 type GoogleCalendarSelectionState = Readonly<{
@@ -89,6 +105,7 @@ export type GoogleCalendarControlActions = Readonly<{
   reconnect: () => Promise<GoogleCalendarActionResult>;
   confirmAccountSwitch: () => Promise<GoogleCalendarActionResult>;
   disconnect: () => Promise<GoogleCalendarActionResult>;
+  repairSync: () => Promise<GoogleCalendarActionResult>;
 }>;
 
 export function canUseAsGoogleCalendarDestination(role: GoogleCalendarAccessRole): boolean {

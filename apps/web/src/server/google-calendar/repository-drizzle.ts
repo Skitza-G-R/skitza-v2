@@ -617,26 +617,56 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
     },
 
     async getConnectionSyncSummary(command) {
-      const [row] = await db
-        .select({
-          syncing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'pending')::integer`,
-          notSynced: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'not_synced')::integer`,
-          missing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'missing')::integer`,
-          conflicts: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'conflict')::integer`,
-        })
-        .from(bookingCalendarLinks)
-        .where(
-          and(
-            eq(bookingCalendarLinks.producerId, command.producerId),
-            eq(bookingCalendarLinks.connectionId, command.connectionId),
-            eq(bookingCalendarLinks.accountVersion, command.accountVersion),
-          ),
-        );
+      const scope = and(
+        eq(bookingCalendarLinks.producerId, command.producerId),
+        eq(bookingCalendarLinks.connectionId, command.connectionId),
+        eq(bookingCalendarLinks.accountVersion, command.accountVersion),
+      );
+      const [[row], issues] = await Promise.all([
+        db
+          .select({
+            syncing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'pending')::integer`,
+            notSynced: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'not_synced')::integer`,
+            missing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'missing')::integer`,
+            conflicts: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'conflict')::integer`,
+          })
+          .from(bookingCalendarLinks)
+          .where(scope),
+        db
+          .select({
+            bookingId: bookings.id,
+            syncState: bookingCalendarLinks.syncState,
+            bookingStatus: bookings.status,
+            artistName: bookings.artistName,
+            startsAt: bookings.startsAt,
+            durationMin: bookings.durationMin,
+          })
+          .from(bookingCalendarLinks)
+          .innerJoin(
+            bookings,
+            and(
+              eq(bookings.id, bookingCalendarLinks.currentBookingId),
+              eq(bookings.producerId, bookingCalendarLinks.producerId),
+            ),
+          )
+          .where(
+            and(
+              scope,
+              inArray(bookingCalendarLinks.syncState, ["not_synced", "missing", "conflict"]),
+            ),
+          )
+          .orderBy(desc(bookingCalendarLinks.syncStateChangedAt), desc(bookings.startsAt))
+          .limit(25),
+      ]);
       return {
         syncing: row?.syncing ?? 0,
         notSynced: row?.notSynced ?? 0,
         missing: row?.missing ?? 0,
         conflicts: row?.conflicts ?? 0,
+        issues: issues.map((issue) => ({
+          ...issue,
+          syncState: issue.syncState as "not_synced" | "missing" | "conflict",
+        })),
       };
     },
 

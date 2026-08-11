@@ -8,7 +8,7 @@ const needsSelection = {
   status: "needs_selection",
   connectionId: "00000000-0000-4000-8000-000000000001",
   accountEmail: "producer@example.test",
-  syncSummary: { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 },
+  syncSummary: { syncing: 0, notSynced: 0, missing: 0, conflicts: 0, issues: [] },
   calendars: [
     {
       id: "00000000-0000-4000-8000-000000000002",
@@ -108,5 +108,45 @@ describe("Google Calendar producer presentation", () => {
       accountLabel: "producer@example.test",
       syncSummary: needsSelection.syncSummary,
     });
+  });
+
+  it("turns issue dates into browser-safe text while keeping the session identity", () => {
+    const model = presentGoogleCalendar({
+      ...needsSelection,
+      status: "connected",
+      calendars: needsSelection.calendars.map((calendar, index) => ({
+        ...calendar,
+        isDestination: index === 0,
+        blocksAvailability: true,
+      })),
+      syncSummary: {
+        syncing: 0,
+        notSynced: 0,
+        missing: 1,
+        conflicts: 0,
+        issues: [
+          {
+            bookingId: "00000000-0000-4000-8000-000000000004",
+            syncState: "missing",
+            bookingStatus: "cancelled",
+            artistName: "Lior Tansky",
+            startsAt: new Date("2026-08-16T07:00:00.000Z"),
+            durationMin: 240,
+          },
+        ],
+      },
+    });
+
+    if (model.status !== "connected") throw new Error("expected connected model");
+    expect(model.syncSummary.issues).toEqual([
+      {
+        bookingId: "00000000-0000-4000-8000-000000000004",
+        syncState: "missing",
+        bookingStatus: "cancelled",
+        artistName: "Lior Tansky",
+        startsAtIso: "2026-08-16T07:00:00.000Z",
+        durationMin: 240,
+      },
+    ]);
   });
 });

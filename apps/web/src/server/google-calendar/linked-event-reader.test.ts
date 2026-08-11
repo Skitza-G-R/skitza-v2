@@ -24,6 +24,7 @@ const LINK = {
   providerEventId: "sk11111111111141118111111111111111",
   providerEventEtag: '"etag-1"',
   providerState: "active",
+  syncState: "synced",
   desiredRevision: 1,
   lastGoogleRevision: 1,
   invitationRevision: 1,

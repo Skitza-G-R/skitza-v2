@@ -944,6 +944,7 @@ async function linkedConfirmedReconciliationFixture() {
       providerEventId: "sk00000000000040008000000000000102",
       providerEventEtag: link.providerEventEtag,
       providerState: "active",
+      syncState: "synced",
       desiredRevision: link.desiredRevision,
       lastGoogleRevision: 1,
       invitationRevision: 1,

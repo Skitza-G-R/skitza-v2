@@ -8,7 +8,38 @@ import type { SessionListItem } from "~/app/(producer)/dashboard/calendar/sessio
 const MODEL: Extract<GoogleCalendarUiModel, { status: "connected" }> = {
   status: "connected",
   accountLabel: "Northline Studio account",
-  syncSummary: { syncing: 1, notSynced: 1, missing: 1, conflicts: 1 },
+  syncSummary: {
+    syncing: 1,
+    notSynced: 1,
+    missing: 1,
+    conflicts: 1,
+    issues: [
+      {
+        bookingId: "00000000-0000-4000-8000-000000000102",
+        syncState: "not_synced",
+        bookingStatus: "confirmed",
+        artistName: "Noam Levi",
+        startsAtIso: "2026-08-11T12:30:00.000Z",
+        durationMin: 60,
+      },
+      {
+        bookingId: "00000000-0000-4000-8000-000000000103",
+        syncState: "missing",
+        bookingStatus: "confirmed",
+        artistName: "Lior Ben",
+        startsAtIso: "2026-08-12T15:00:00.000Z",
+        durationMin: 60,
+      },
+      {
+        bookingId: "00000000-0000-4000-8000-000000000104",
+        syncState: "conflict",
+        bookingStatus: "confirmed",
+        artistName: "Dana Tal",
+        startsAtIso: "2026-08-13T09:00:00.000Z",
+        durationMin: 120,
+      },
+    ],
+  },
   calendars: [
     {
       selectionKey: "studio-sessions",

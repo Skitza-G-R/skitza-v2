@@ -290,6 +290,7 @@ export default async function CalendarPage({
             googleCalendarModel ? (
               <GoogleCalendarControlBoundary
                 model={googleCalendarModel}
+                timeZone={calendarTimeZone}
                 {...(googleCallbackStatus ? { callbackStatus: googleCallbackStatus } : {})}
               />
             ) : undefined
