@@ -223,8 +223,11 @@ describe("GoogleCalendarControl", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: "Google Calendar" })).not.toBeNull();
     expect(within(dialog).getByText("producer@example.test")).not.toBeNull();
+    expect(within(dialog).getByRole("heading", { name: "Calendar setup" })).not.toBeNull();
+    expect(within(dialog).getByText("Events go to")).not.toBeNull();
+    expect(within(dialog).getByText("Busy time comes from")).not.toBeNull();
     expect(within(dialog).getAllByText("Studio sessions").length).toBeGreaterThan(0);
-    expect(within(dialog).getByText("Free busy calendar")).not.toBeNull();
+    expect(within(dialog).getByText(/Studio sessions, Free busy calendar/)).not.toBeNull();
     expect(within(dialog).getByText("Calendar sync is up to date")).not.toBeNull();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Edit calendars" }));
@@ -265,13 +268,14 @@ describe("GoogleCalendarControl", () => {
     fireEvent.click(screen.getByRole("button", { name: "4 sync issues" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("4 sessions need attention")).not.toBeNull();
+    expect(within(dialog).getByText("1 syncing")).not.toBeNull();
     expect(
-      within(dialog).getByText("1 syncing · 1 not synced · 2 missing · 1 conflict"),
+      within(dialog).getByText("Skitza keeps trying automatically. Your session times are safe."),
     ).not.toBeNull();
-    expect(within(dialog).getByText("Session with Lior Tansky")).not.toBeNull();
+    expect(within(dialog).getByText("Lior Tansky")).not.toBeNull();
     expect(within(dialog).getByText(/Cancelled session cleanup is waiting/)).not.toBeNull();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Try sync again" }));
     await act(() => Promise.resolve());
     expect(repairSync).toHaveBeenCalledTimes(1);
   });
@@ -291,7 +295,9 @@ describe("GoogleCalendarControl", () => {
     );
 
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText(/Your Skitza sessions are safe/)).not.toBeNull();
+    expect(
+      within(dialog).getByText("Google needs permission again. Your Skitza sessions are safe."),
+    ).not.toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Reconnect Google Calendar" }));
     await act(() => Promise.resolve());
     expect(reconnect).toHaveBeenCalledTimes(1);
