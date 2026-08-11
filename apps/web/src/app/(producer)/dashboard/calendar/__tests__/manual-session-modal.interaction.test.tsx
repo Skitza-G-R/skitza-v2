@@ -245,6 +245,18 @@ describe("ManualSessionModal", () => {
     expect(screen.getByRole("button", { name: "Change project" })).toBeTruthy();
     expect(screen.queryByRole("listbox", { name: "Project" })).toBeNull();
     expect(screen.getByRole("listbox", { name: "Start" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change project" }));
+
+    expect(screen.getByRole("listbox", { name: "Project" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Client" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Date" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change client" }));
+
+    expect(screen.getByRole("listbox", { name: "Client" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Project" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Date" })).toBeNull();
   });
 
   it("keeps date and time side by side, centered, and greys full dates on mobile", async () => {
