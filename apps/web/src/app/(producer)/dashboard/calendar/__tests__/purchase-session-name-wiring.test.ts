@@ -8,13 +8,54 @@ const here = dirname(fileURLToPath(import.meta.url));
 const calendarPage = readFileSync(join(here, "..", "page.tsx"), "utf8");
 const dashboardPage = readFileSync(join(here, "..", "..", "page.tsx"), "utf8");
 
-describe("purchase-owned session names", () => {
-  it("threads purchase-derived names through every calendar projection", () => {
+function between(source: string, start: string, end: string): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
+  expect(from).toBeGreaterThanOrEqual(0);
+  expect(to).toBeGreaterThan(from);
+  return source.slice(from, to);
+}
+
+describe("project-owned session names", () => {
+  it("uses project names in every calendar projection without changing desktop UI wiring", () => {
     expect(calendarPage).not.toMatch(/packageName: "Session"/);
-    expect(calendarPage.match(/packageName: b\.title \?\? b\.packageNameSnapshot/g)).toHaveLength(
-      4,
+
+    const desktopPending = between(
+      calendarPage,
+      "  const pendingRequests:",
+      "  const mobilePendingRequests:",
     );
-    expect(calendarPage.match(/packageName: b\.packageName,/g)).toHaveLength(2);
+    const desktopSchedule = between(
+      calendarPage,
+      "  const scheduleSessions:",
+      "  const scheduleMobileSessions:",
+    );
+    const mobileSchedule = between(
+      calendarPage,
+      "  const scheduleMobileSessions:",
+      "  const allSessions:",
+    );
+    const desktopSessions = between(
+      calendarPage,
+      "  const allSessions:",
+      "  const mobileAllSessions:",
+    );
+    const mobileSessions = between(
+      calendarPage,
+      "  const mobileAllSessions:",
+      "  const initialNow",
+    );
+
+    expect(desktopPending).toContain("packageName: b.projectName");
+    expect(desktopSchedule.match(/packageName: b\.projectName/g)).toHaveLength(2);
+    expect(desktopSessions).toContain("packageName: b.projectName");
+    expect(desktopSessions).toContain("kindSource: b.title ?? b.packageNameSnapshot");
+
+    expect(mobileSchedule.match(/packageName: b\.projectName/g)).toHaveLength(2);
+    expect(mobileSessions).toContain("packageName: b.projectName");
+    expect(calendarPage).toContain("initial={mobilePendingRequests}");
+    expect(calendarPage).toContain("desktopSessions={allSessions}");
+    expect(calendarPage).toContain("sessions={mobileAllSessions}");
   });
 
   it("preserves the purchase-derived name in dashboard pending approvals", () => {

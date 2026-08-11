@@ -2390,7 +2390,11 @@ export const bookingRouter = router({
       const now = new Date();
       const horizon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
       const rows = await ctx.db
-        .select({ booking: bookings, commercialSnapshot: purchases.commercialSnapshot })
+        .select({
+          booking: bookings,
+          commercialSnapshot: purchases.commercialSnapshot,
+          projectName: projects.title,
+        })
         .from(bookings)
         .innerJoin(
           purchases,
@@ -2398,6 +2402,13 @@ export const bookingRouter = router({
             eq(purchases.id, bookings.purchaseId),
             eq(purchases.projectId, bookings.projectId),
             eq(purchases.producerId, bookings.producerId),
+          ),
+        )
+        .innerJoin(
+          projects,
+          and(
+            eq(projects.id, bookings.projectId),
+            eq(projects.producerId, bookings.producerId),
           ),
         )
         .where(
@@ -2409,13 +2420,14 @@ export const bookingRouter = router({
           ),
         )
         .orderBy(asc(bookings.startsAt));
-      return rows.map(({ booking, commercialSnapshot }) => ({
+      return rows.map(({ booking, commercialSnapshot, projectName }) => ({
         id: booking.id,
         artistName: booking.artistName,
         artistEmail: booking.artistEmail,
         startsAt: booking.startsAt,
         durationMin: booking.durationMin,
         packageName: booking.title ?? purchaseProductName(commercialSnapshot, "Session"),
+        projectName,
       }));
     }),
 
@@ -2522,6 +2534,7 @@ export const bookingRouter = router({
         .select({
           booking: bookings,
           commercialSnapshot: purchases.commercialSnapshot,
+          projectName: projects.title,
           changeRequest: {
             id: bookingChangeRequests.id,
             kind: bookingChangeRequests.kind,
@@ -2538,6 +2551,13 @@ export const bookingRouter = router({
             eq(purchases.producerId, bookings.producerId),
           ),
         )
+        .innerJoin(
+          projects,
+          and(
+            eq(projects.id, bookings.projectId),
+            eq(projects.producerId, bookings.producerId),
+          ),
+        )
         .leftJoin(
           bookingChangeRequests,
           and(
@@ -2548,8 +2568,9 @@ export const bookingRouter = router({
         )
         .where(filter)
         .orderBy(asc(bookings.startsAt));
-      return rows.map(({ booking, commercialSnapshot, changeRequest }) => ({
+      return rows.map(({ booking, commercialSnapshot, projectName, changeRequest }) => ({
         ...booking,
+        projectName,
         packageNameSnapshot: purchaseProductName(commercialSnapshot, "Session"),
         unitPriceCents: commercialSnapshot.lineItems[0]?.unitPriceCents ?? null,
         songQty:

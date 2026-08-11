@@ -505,6 +505,8 @@ export function ManualSessionModal({
   }
 
   const timeZoneLabel = studioTimeZoneLabel(options.studioTimeZone);
+  const canChooseProject = Boolean(client);
+  const canChooseWhen = project?.eligibility === "eligible" && availability !== null;
 
   return (
     <Sheet open={open} onOpenChange={requestOpenChange}>
@@ -515,7 +517,7 @@ export function ManualSessionModal({
         className={
           isDesktopSheet
             ? "!max-w-[440px] !gap-0 !p-0 sm:!rounded-l-[var(--radius-xl)]"
-            : "!max-h-[calc(var(--sk-viewport-height,100dvh)-12px)] !gap-0 !overflow-hidden !p-0 !pt-3"
+            : "!h-[calc(var(--sk-viewport-height,100dvh)-12px)] !max-h-[calc(var(--sk-viewport-height,100dvh)-12px)] !gap-0 !overflow-hidden !p-0 !pt-3"
         }
       >
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgb(var(--border-subtle))] px-5 py-4 sm:px-7 sm:py-6">
@@ -617,14 +619,16 @@ export function ManualSessionModal({
                 </button>
               </PickerSection>
 
-              {client ? (
+              {canChooseProject || !isDesktopSheet ? (
                 <PickerSection
                   eyebrow="2 · Project"
                   summary={project?.title ?? "Choose a project"}
                   complete={Boolean(project)}
-                  expanded={activePicker === "project"}
-                  disabled={isPending}
+                  expanded={activePicker === "project" && canChooseProject}
+                  disabled={isPending || !canChooseProject}
+                  {...(!isDesktopSheet ? { className: "sm:hidden" } : {})}
                   onChange={() => {
+                    if (!canChooseProject) return;
                     setActivePicker("project");
                     requestManualFocus("manual-project-wheel");
                   }}
@@ -655,18 +659,20 @@ export function ManualSessionModal({
                 </PickerSection>
               ) : null}
 
-              {project?.eligibility === "eligible" && availability ? (
+              {canChooseWhen || !isDesktopSheet ? (
                 <PickerSection
                   eyebrow="3 · Date & time"
                   summary={
-                    hasStudioSlot && studioStartMin !== null && durationMin
+                    canChooseWhen && hasStudioSlot && studioStartMin !== null && durationMin
                       ? `${studioDateLabel(studioDate, availability.today)} · ${timeRangeLabel(studioStartMin, durationMin)}`
                       : "Choose an available time"
                   }
-                  complete={hasStudioSlot}
-                  expanded={activePicker === "when"}
-                  disabled={isPending}
+                  complete={canChooseWhen && hasStudioSlot}
+                  expanded={activePicker === "when" && canChooseWhen}
+                  disabled={isPending || !canChooseWhen}
+                  {...(!isDesktopSheet ? { className: "sm:hidden" } : {})}
                   onChange={() => {
+                    if (!canChooseWhen) return;
                     setActivePicker("when");
                     requestManualFocus("manual-date-wheel");
                   }}
@@ -887,6 +893,7 @@ function PickerSection({
   complete,
   expanded,
   disabled,
+  className,
   onChange,
   children,
 }: {
@@ -895,6 +902,7 @@ function PickerSection({
   complete: boolean;
   expanded: boolean;
   disabled?: boolean;
+  className?: string;
   onChange: () => void;
   children: ReactNode;
 }) {
@@ -905,7 +913,10 @@ function PickerSection({
         expanded
           ? "border-[rgb(var(--brand-primary)/0.42)] bg-[rgb(var(--bg-sunken))] p-3.5 shadow-[0_12px_30px_-28px_rgb(var(--brand-primary-dark))]"
           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3",
-      ].join(" ")}
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {expanded ? (
         <>

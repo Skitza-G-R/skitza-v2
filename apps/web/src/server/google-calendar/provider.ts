@@ -6,8 +6,11 @@ import {
 } from "./freebusy";
 import {
   GoogleCalendarEventValidationError,
+  artistSafeUrlFromGoogleEventDescription,
   buildGoogleCalendarEventWrite,
   isValidGoogleCalendarEventId,
+  type GoogleCalendarAttendeeResponseStatus,
+  type GoogleCalendarParticipant,
   type GoogleCalendarEventWrite,
 } from "./event";
 
@@ -86,6 +89,7 @@ export type GoogleCalendarEventRecord = Readonly<{
   etag: string;
   status: GoogleCalendarEventStatus;
   linkage: GoogleCalendarEventLinkage | null;
+  attendees?: readonly GoogleCalendarParticipant[];
 }>;
 
 export type GoogleCalendarLinkedEventTiming =
@@ -348,9 +352,50 @@ function parseArtistRsvp(
   return null;
 }
 
+function parseAttendeeResponseStatus(value: unknown): GoogleCalendarAttendeeResponseStatus | null {
+  return value === "needsAction" ||
+    value === "declined" ||
+    value === "tentative" ||
+    value === "accepted"
+    ? value
+    : null;
+}
+
+function parseDeliveryEventAttendees(value: unknown): readonly GoogleCalendarParticipant[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new GoogleCalendarProviderError("provider_invalid_response");
+  }
+  return value.map((rawAttendee) => {
+    if (!isRecord(rawAttendee)) {
+      throw new GoogleCalendarProviderError("provider_invalid_response");
+    }
+    const email = normalizedEmail(rawAttendee.email);
+    if (!email) {
+      throw new GoogleCalendarProviderError("provider_invalid_response");
+    }
+    let displayName: string | undefined;
+    if (rawAttendee.displayName !== undefined) {
+      displayName = validatedOpaqueValue(rawAttendee.displayName, 256) ?? undefined;
+      if (!displayName) throw new GoogleCalendarProviderError("provider_invalid_response");
+    }
+    let responseStatus: GoogleCalendarAttendeeResponseStatus | undefined;
+    if (rawAttendee.responseStatus !== undefined) {
+      responseStatus = parseAttendeeResponseStatus(rawAttendee.responseStatus) ?? undefined;
+      if (!responseStatus) throw new GoogleCalendarProviderError("provider_invalid_response");
+    }
+    return {
+      email,
+      ...(displayName === undefined ? {} : { displayName }),
+      ...(responseStatus === undefined ? {} : { responseStatus }),
+    };
+  });
+}
+
 function parseEventRecord(
   value: Record<string, unknown>,
   expectedEventId: string,
+  includeAttendees = false,
 ): GoogleCalendarEventRecord {
   const etag = validatedEtag(value.etag);
   if (
@@ -387,6 +432,7 @@ function parseEventRecord(
     etag,
     status: value.status,
     linkage,
+    ...(includeAttendees ? { attendees: parseDeliveryEventAttendees(value.attendees) } : {}),
   };
 }
 
@@ -573,9 +619,9 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
     if (!hasLiteralValue(event.kind, "confirmed") || event.attendeeMode === "clear") {
       throw new Error();
     }
-    const artist = event.body.attendees?.[0];
+    const participants = event.body.attendees;
     if (
-      (event.attendeeMode === "set_artist" && (!artist || event.body.attendees.length !== 1)) ||
+      (event.attendeeMode === "set_participants" && (!participants || participants.length < 1)) ||
       (event.attendeeMode === "preserve" && event.body.attendees !== undefined)
     ) {
       throw new Error();
@@ -590,13 +636,20 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
       summary: event.body.summary,
       ...(event.body.description === undefined
         ? {}
-        : { artistSafeSessionUrl: event.body.description }),
+        : {
+            artistSafeSessionUrl: artistSafeUrlFromGoogleEventDescription(
+              event.body.description,
+            ),
+          }),
     } as const;
-    return event.attendeeMode === "set_artist" && artist
+    return event.attendeeMode === "set_participants" && participants
       ? buildGoogleCalendarEventWrite({
           ...confirmedBase,
-          attendeeMode: "set_artist",
-          artist,
+          attendeeMode: "set_participants",
+          participants: participants as readonly [
+            GoogleCalendarParticipant,
+            ...GoogleCalendarParticipant[],
+          ],
         })
       : buildGoogleCalendarEventWrite({
           ...confirmedBase,
@@ -1058,13 +1111,16 @@ export function createGoogleCalendarProvider(
     async getEvent(accessToken, { calendarId, eventId }) {
       assertEventRequestInput({ accessToken, calendarId, eventId });
       const url = eventUrl(calendarId, eventId);
-      url.searchParams.set("fields", "id,etag,status,extendedProperties");
+      url.searchParams.set(
+        "fields",
+        "id,etag,status,extendedProperties,attendees(email,displayName,responseStatus)",
+      );
       const response = await providerFetch(url, {
         method: "GET",
         headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
       });
       if (!response.ok) return throwEventProviderError(response);
-      return parseEventRecord(await readJson(response), eventId);
+      return parseEventRecord(await readJson(response), eventId, true);
     },
 
     async getLinkedEvent(

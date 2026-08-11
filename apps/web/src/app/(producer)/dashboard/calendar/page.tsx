@@ -103,7 +103,17 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.title ?? b.packageNameSnapshot,
+    packageName: b.projectName,
+    message: b.notes,
+    receivedAtIso: b.createdAt.toISOString(),
+  }));
+  const mobilePendingRequests: PendingRequest[] = pending.map((b) => ({
+    id: b.id,
+    artistName: b.artistName,
+    artistEmail: b.artistEmail,
+    startsAt: b.startsAt.toISOString(),
+    durationMin: b.durationMin,
+    packageName: b.projectName,
     message: b.notes,
     receivedAtIso: b.createdAt.toISOString(),
   }));
@@ -114,7 +124,7 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
-      packageName: b.title ?? b.packageNameSnapshot,
+      packageName: b.projectName,
       status: "pending_approval",
     })),
     ...upcoming.map<ScheduleSession>((b) => ({
@@ -123,7 +133,7 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
-      packageName: b.packageName,
+      packageName: b.projectName,
       status: "confirmed",
     })),
   ];
@@ -137,7 +147,7 @@ export default async function CalendarPage({
       artistEmail: b.artistEmail,
       startsAt: b.startsAt.toISOString(),
       durationMin: b.durationMin,
-      packageName: b.title ?? b.packageNameSnapshot,
+      packageName: b.projectName,
       status: "pending_approval",
       billingTreatment: b.billingTreatment,
       artistRsvpStatus: b.artistRsvpStatus,
@@ -152,7 +162,7 @@ export default async function CalendarPage({
         artistEmail: b.artistEmail,
         startsAt: b.startsAt.toISOString(),
         durationMin: b.durationMin,
-        packageName: b.packageName,
+        packageName: b.projectName,
         status: "confirmed",
         billingTreatment: full?.billingTreatment ?? "included",
         artistRsvpStatus: full?.artistRsvpStatus ?? null,
@@ -167,7 +177,21 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.title ?? b.packageNameSnapshot,
+    packageName: b.projectName,
+    kindSource: b.title ?? b.packageNameSnapshot,
+    status: b.status,
+    billingTreatment: b.billingTreatment,
+    artistRsvpStatus: b.artistRsvpStatus,
+    calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
+    changeRequest: presentChangeRequest(b.changeRequest),
+  }));
+  const mobileAllSessions: SessionListItem[] = list.map((b) => ({
+    id: b.id,
+    artistName: b.artistName,
+    artistEmail: b.artistEmail,
+    startsAt: b.startsAt.toISOString(),
+    durationMin: b.durationMin,
+    packageName: b.projectName,
     status: b.status,
     billingTreatment: b.billingTreatment,
     artistRsvpStatus: b.artistRsvpStatus,
@@ -294,7 +318,7 @@ export default async function CalendarPage({
                 <div className="flex min-h-0 flex-1 flex-col gap-3 lg:hidden">
                   <div className="shrink-0">
                     <SchedulePendingCard
-                      initial={pendingRequests}
+                      initial={mobilePendingRequests}
                       autoConfirm={scheduleAutoConfirm}
                       initialNow={initialNow.toISOString()}
                       timeZone={calendarTimeZone}
@@ -331,7 +355,7 @@ export default async function CalendarPage({
                 <div className="flex min-h-0 flex-1 flex-col lg:hidden">
                   <div className="shrink-0 pb-3">
                     <SchedulePendingCard
-                      initial={pendingRequests}
+                      initial={mobilePendingRequests}
                       autoConfirm={scheduleAutoConfirm}
                       initialNow={initialNow.toISOString()}
                       timeZone={calendarTimeZone}
@@ -339,7 +363,7 @@ export default async function CalendarPage({
                     />
                   </div>
                   <SessionsPanel
-                    sessions={allSessions}
+                    sessions={mobileAllSessions}
                     initialNow={initialNow.toISOString()}
                     timeZone={calendarTimeZone}
                     selectedBookingId={selectedBookingIsPending ? null : selectedBookingId}

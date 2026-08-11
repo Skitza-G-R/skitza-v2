@@ -17,9 +17,26 @@ export type GoogleCalendarSessionActionResult =
     }>
   | Readonly<{ ok: false; error: string }>;
 
+export type GoogleCalendarSessionStatusResult =
+  | Readonly<{ ok: true; status: GoogleCalendarSessionSyncState | null }>
+  | Readonly<{ ok: false }>;
+
 async function producerCaller() {
   const { userId } = await auth();
   return userId ? appRouter.createCaller({ userId }) : null;
+}
+
+export async function getGoogleCalendarSyncStatus(input: {
+  id: string;
+}): Promise<GoogleCalendarSessionStatusResult> {
+  const caller = await producerCaller();
+  if (!caller) return { ok: false };
+  try {
+    const statuses = await caller.booking.googleCalendarSync.status({ ids: [input.id] });
+    return { ok: true, status: statuses[0]?.status ?? null };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function retryGoogleCalendarSync(input: {

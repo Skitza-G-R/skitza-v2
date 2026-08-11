@@ -37,7 +37,7 @@ const options: ProducerManualSessionOptions = {
           title: "Album production",
           eligibility: "eligible",
           productName: "Full production",
-          defaultTitle: "Full production",
+          defaultTitle: "Album production",
           durationMin: 240,
           remainingIncluded: null,
           defaultTreatment: "included",
@@ -212,9 +212,60 @@ describe("ManualSessionModal", () => {
     });
   });
 
+  it("shows the whole mobile accordion from step one and opens one section at a time", async () => {
+    render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
+
+    expect(screen.getByText("1 · Client")).toBeTruthy();
+    expect(screen.getByText("2 · Project")).toBeTruthy();
+    expect(screen.getByText("3 · Date & time")).toBeTruthy();
+    expect(screen.getByRole("listbox", { name: "Client" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Project" })).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Choose project" }).disabled).toBe(
+      true,
+    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Choose date & time" }).disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("option", { name: "Lior Tansky" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("button", { name: "Change client" })).toBeTruthy();
+    expect(screen.getByRole("listbox", { name: "Project" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Client" })).toBeNull();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Choose date & time" }).disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("option", { name: "Album production" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("listbox", { name: "Date" });
+
+    expect(screen.getByRole("button", { name: "Change client" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Change project" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Project" })).toBeNull();
+    expect(screen.getByRole("listbox", { name: "Start" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change project" }));
+
+    expect(screen.getByRole("listbox", { name: "Project" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Client" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Date" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change client" }));
+
+    expect(screen.getByRole("listbox", { name: "Client" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Project" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Date" })).toBeNull();
+  });
+
   it("keeps date and time side by side, centered, and greys full dates on mobile", async () => {
     render(<ManualSessionModal open onOpenChange={vi.fn()} options={options} initialSlot={null} />);
-    expect(document.querySelector('[data-native-sheet="bottom"]')).not.toBeNull();
+    const mobileSheet = document.querySelector('[data-native-sheet="bottom"]');
+    expect(mobileSheet).not.toBeNull();
+    expect(mobileSheet?.className).toContain(
+      "!h-[calc(var(--sk-viewport-height,100dvh)-12px)]",
+    );
     expect(screen.queryByRole("button", { name: "Book session" })).toBeNull();
 
     await chooseClientAndProject();
@@ -243,6 +294,8 @@ describe("ManualSessionModal", () => {
     await waitFor(() => {
       expect(document.querySelector('[data-native-sheet="right"]')).not.toBeNull();
     });
+    expect(screen.queryByText("2 · Project")).toBeNull();
+    expect(screen.queryByText("3 · Date & time")).toBeNull();
     await chooseClientAndProject();
     expect(screen.getByRole("listbox", { name: "Date" })).toBeTruthy();
     expect(screen.getByRole("listbox", { name: "Start" })).toBeTruthy();
@@ -326,7 +379,7 @@ describe("ManualSessionModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Book session" }));
     expect(await screen.findByRole("heading", { name: "Check these warnings" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create anyway" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create anyway" }));
 
     await waitFor(() => {
       expect(actionMocks.createManualSession).toHaveBeenCalledTimes(1);
@@ -337,6 +390,7 @@ describe("ManualSessionModal", () => {
       studioDate: "2026-08-13",
       studioStartMin: 870,
       startsAtIso: "2026-08-13T11:30:00.000Z",
+      title: "Album production",
       billingTreatment: "included",
       acknowledgedWarnings: ["OUTSIDE_AVAILABILITY"],
     });

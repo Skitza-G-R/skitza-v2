@@ -5,6 +5,21 @@ const OPAQUE_LINK_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 const MAX_SUMMARY_LENGTH = 1_024;
 const MAX_DISPLAY_NAME_LENGTH = 256;
 const MAX_URL_LENGTH = 2_048;
+const LEGACY_CONFIRMED_DESCRIPTION_PREFIX = "A Skitza studio session.\n\n";
+const CONFIRMED_DESCRIPTION_PREFIX = "Skitza studio session: ";
+const CONFIRMED_DESCRIPTION_LINK_PREFIX = "\n\nBooking details: ";
+
+export type GoogleCalendarAttendeeResponseStatus =
+  | "needsAction"
+  | "declined"
+  | "tentative"
+  | "accepted";
+
+export type GoogleCalendarParticipant = Readonly<{
+  email: string;
+  displayName?: string;
+  responseStatus?: GoogleCalendarAttendeeResponseStatus;
+}>;
 
 export type GoogleCalendarApprovedEventInput = Readonly<{
   eventId: string;
@@ -22,8 +37,8 @@ export type GoogleCalendarApprovedEventInput = Readonly<{
       }> &
         (
           | Readonly<{
-              attendeeMode: "set_artist";
-              artist: Readonly<{ email: string; displayName?: string }>;
+              attendeeMode: "set_participants";
+              participants: readonly [GoogleCalendarParticipant, ...GoogleCalendarParticipant[]];
             }>
           | Readonly<{ attendeeMode: "preserve" }>
         ))
@@ -36,7 +51,7 @@ export type GoogleCalendarEventBody = Readonly<{
   end: Readonly<{ dateTime: string; timeZone: "UTC" }>;
   visibility: "private";
   transparency: "opaque";
-  attendees?: readonly Readonly<{ email: string; displayName?: string }>[];
+  attendees?: readonly GoogleCalendarParticipant[];
   extendedProperties: Readonly<{
     private: Readonly<{
       skitzaLink: string;
@@ -53,7 +68,7 @@ export type GoogleCalendarEventBody = Readonly<{
 export type GoogleCalendarEventWrite = Readonly<{
   eventId: string;
   kind: "hold" | "confirmed";
-  attendeeMode: "clear" | "set_artist" | "preserve";
+  attendeeMode: "clear" | "set_participants" | "preserve";
   body: GoogleCalendarEventBody;
 }>;
 
@@ -94,6 +109,18 @@ function normalizedEmail(value: string): string {
   return email;
 }
 
+function normalizedResponseStatus(value: string): GoogleCalendarAttendeeResponseStatus {
+  if (
+    value !== "needsAction" &&
+    value !== "declined" &&
+    value !== "tentative" &&
+    value !== "accepted"
+  ) {
+    return fail();
+  }
+  return value;
+}
+
 function normalizedArtistSafeUrl(value: string): string {
   if (value !== value.trim() || value.length < 1 || value.length > MAX_URL_LENGTH) return fail();
   let url: URL;
@@ -113,6 +140,17 @@ function normalizedArtistSafeUrl(value: string): string {
     return fail();
   }
   return url.toString();
+}
+
+export function artistSafeUrlFromGoogleEventDescription(value: string): string {
+  const linkIndex = value.lastIndexOf(CONFIRMED_DESCRIPTION_LINK_PREFIX);
+  const url =
+    linkIndex >= 0
+      ? value.slice(linkIndex + CONFIRMED_DESCRIPTION_LINK_PREFIX.length)
+      : value.startsWith(LEGACY_CONFIRMED_DESCRIPTION_PREFIX)
+        ? value.slice(LEGACY_CONFIRMED_DESCRIPTION_PREFIX.length)
+        : value;
+  return normalizedArtistSafeUrl(url);
 }
 
 export function isValidGoogleCalendarEventId(value: string): boolean {
@@ -184,10 +222,34 @@ export function buildGoogleCalendarEventWrite(
     };
   }
 
+  const summary = normalizedRequiredText(input.summary, MAX_SUMMARY_LENGTH);
   const description =
     input.artistSafeSessionUrl === undefined
       ? undefined
-      : normalizedArtistSafeUrl(input.artistSafeSessionUrl);
+      : `${CONFIRMED_DESCRIPTION_PREFIX}${summary}${CONFIRMED_DESCRIPTION_LINK_PREFIX}${normalizedArtistSafeUrl(input.artistSafeSessionUrl)}`;
+  const participants =
+    input.attendeeMode === "set_participants"
+      ? input.participants.reduce<GoogleCalendarParticipant[]>((unique, participant) => {
+          const email = normalizedEmail(participant.email);
+          if (unique.some((candidate) => candidate.email === email)) return unique;
+          unique.push({
+            email,
+            ...(participant.displayName === undefined
+              ? {}
+              : {
+                  displayName: normalizedRequiredText(
+                    participant.displayName,
+                    MAX_DISPLAY_NAME_LENGTH,
+                  ),
+                }),
+            ...(participant.responseStatus === undefined
+              ? {}
+              : { responseStatus: normalizedResponseStatus(participant.responseStatus) }),
+          });
+          return unique;
+        }, [])
+      : undefined;
+  if (input.attendeeMode === "set_participants" && participants?.length === 0) return fail();
 
   return {
     eventId: input.eventId,
@@ -195,25 +257,9 @@ export function buildGoogleCalendarEventWrite(
     attendeeMode: input.attendeeMode,
     body: {
       ...common,
-      summary: normalizedRequiredText(input.summary, MAX_SUMMARY_LENGTH),
+      summary,
       ...(description ? { description } : {}),
-      ...(input.attendeeMode === "set_artist"
-        ? {
-            attendees: [
-              {
-                email: normalizedEmail(input.artist.email),
-                ...(input.artist.displayName === undefined
-                  ? {}
-                  : {
-                      displayName: normalizedRequiredText(
-                        input.artist.displayName,
-                        MAX_DISPLAY_NAME_LENGTH,
-                      ),
-                    }),
-              },
-            ],
-          }
-        : {}),
+      ...(participants ? { attendees: participants } : {}),
     },
   };
 }

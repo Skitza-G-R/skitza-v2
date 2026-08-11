@@ -138,6 +138,7 @@ export type SessionBookingCreateContext = Readonly<{
   }>;
   project: Readonly<{
     id: string;
+    title: string;
     lifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   }>;
   purchase: Readonly<{
@@ -612,6 +613,16 @@ async function enqueueIcsCalendarSyncJob(
 
 type BookingCalendarIntent = "opaque_hold" | "confirmed" | "delete_hold" | "delete_confirmed";
 
+function confirmedGoogleCalendarSummary(
+  context: SessionBookingCreateContext,
+  booking: SessionBookingRecord,
+): string {
+  const projectName = context.project.title.trim() || "Session";
+  const producerName = context.producer.name.trim() || "Skitza producer";
+  const artistName = booking.artistName.trim() || context.artist.name.trim() || "Artist";
+  return `${projectName} · ${producerName} & ${artistName}`;
+}
+
 function googleCalendarSyncPayload(input: {
   link: BookingCalendarLinkRecord;
   context: SessionBookingCreateContext;
@@ -646,9 +657,7 @@ function googleCalendarSyncPayload(input: {
     endsAtUtc: new Date(
       input.booking.startsAt.getTime() + input.booking.durationMin * 60 * 1000,
     ).toISOString(),
-    summary: confirmed
-      ? input.booking.title?.trim() || input.context.purchase.defaultSessionTitle
-      : "Reserved",
+    summary: confirmed ? confirmedGoogleCalendarSummary(input.context, input.booking) : "Reserved",
     artistSafeUrl: confirmed ? `https://skitza.app/artist/sessions/${input.booking.id}` : null,
     attendee: confirmed
       ? { name: input.booking.artistName, email: input.booking.artistEmail }
@@ -800,11 +809,6 @@ function hasCoreSkitzaOverlap(
     const existingEnd = existingStart + entry.durationMin * 60 * 1_000;
     return requestedStart < existingEnd && existingStart < requestedEnd;
   });
-}
-
-function normalizedInboundTitle(summary: string | null): string | null {
-  const normalized = summary?.trim() ?? "";
-  return normalized.length > 0 ? normalized : null;
 }
 
 function rsvpProjection(
@@ -984,11 +988,8 @@ export async function applyGoogleCalendarSessionReconciliation(
       }
 
       const rsvp = rsvpProjection(booking, event.artistRsvp, event.updatedAt);
-      const inboundTitle = normalizedInboundTitle(event.summary);
-      const currentSummary = booking.title?.trim() || context.purchase.defaultSessionTitle;
-      const inboundSummary = inboundTitle ?? context.purchase.defaultSessionTitle;
-      const titleChanged = inboundSummary !== currentSummary;
-      const titleNeedsCorrection = event.summary !== inboundSummary;
+      const titleNeedsCorrection =
+        event.summary !== confirmedGoogleCalendarSummary(context, booking);
 
       const correctBooking = async (
         correction: Readonly<{
@@ -1056,7 +1057,6 @@ export async function applyGoogleCalendarSessionReconciliation(
           await correctBooking({
             syncState: "conflict",
             errorCode: "skitza_overlap",
-            ...(titleChanged ? { title: inboundTitle } : {}),
           });
           return { outcome: "conflict" };
         }
@@ -1065,7 +1065,7 @@ export async function applyGoogleCalendarSessionReconciliation(
         const digest = operationDigest("google-calendar-move", {
           bookingId: booking.id,
           startsAt: event.timing.startsAt.toISOString(),
-          title: titleChanged ? inboundTitle : booking.title,
+          title: booking.title,
           providerUpdatedAt: event.updatedAt.toISOString(),
         });
         const replacement = await transaction.insertBooking({
@@ -1073,7 +1073,7 @@ export async function applyGoogleCalendarSessionReconciliation(
           projectId: booking.projectId,
           purchaseId: booking.purchaseId,
           sessionAllowanceId: booking.sessionAllowanceId,
-          title: titleChanged ? inboundTitle : booking.title,
+          title: booking.title,
           origin: booking.origin,
           billingTreatment: booking.billingTreatment,
           artistName: booking.artistName,
@@ -1154,11 +1154,10 @@ export async function applyGoogleCalendarSessionReconciliation(
         return { outcome: "corrected" };
       }
 
-      if (resized || titleChanged || titleNeedsCorrection) {
+      if (resized || titleNeedsCorrection) {
         await correctBooking({
           syncState: "pending",
           errorCode: null,
-          ...(titleChanged ? { title: inboundTitle } : {}),
         });
         return { outcome: "corrected" };
       }

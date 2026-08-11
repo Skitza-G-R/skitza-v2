@@ -73,26 +73,68 @@ describe("Google Calendar approved event mapping", () => {
     expect(JSON.stringify(event)).not.toContain("booking-calendar-link-id");
   });
 
-  it("builds a confirmed event with exactly one artist and the artist-safe link", () => {
+  it("builds a confirmed event with both participants and a short safe description", () => {
     const event = buildGoogleCalendarEventWrite({
       ...BASE,
       kind: "confirmed",
-      attendeeMode: "set_artist",
+      attendeeMode: "set_participants",
       summary: " Vocal production ",
-      artist: { email: " Artist@Example.com ", displayName: " Artist Name " },
+      participants: [
+        { email: " Producer@Example.com ", displayName: " Producer Name " },
+        { email: " Artist@Example.com ", displayName: " Artist Name " },
+      ],
       artistSafeSessionUrl: "https://skitza.app/artist/sessions/session_123",
     });
 
     expect(event.body).toMatchObject({
       summary: "Vocal production",
-      description: "https://skitza.app/artist/sessions/session_123",
-      attendees: [{ email: "artist@example.com", displayName: "Artist Name" }],
+      description:
+        "Skitza studio session: Vocal production\n\nBooking details: https://skitza.app/artist/sessions/session_123",
+      attendees: [
+        { email: "producer@example.com", displayName: "Producer Name" },
+        { email: "artist@example.com", displayName: "Artist Name" },
+      ],
       visibility: "private",
       transparency: "opaque",
     });
     expect(event.body).not.toHaveProperty("location");
     expect(event.body).not.toHaveProperty("conferenceData");
     expect(event.body).not.toHaveProperty("organizer");
+  });
+
+  it("keeps approved attendee response statuses while normalizing reconciliation writes", () => {
+    const event = buildGoogleCalendarEventWrite({
+      ...BASE,
+      kind: "confirmed",
+      attendeeMode: "set_participants",
+      summary: "Vocal production",
+      participants: [
+        {
+          email: " Producer@Example.com ",
+          displayName: " Producer Name ",
+          responseStatus: "accepted",
+        },
+        {
+          email: " Artist@Example.com ",
+          displayName: " Artist Name ",
+          responseStatus: "declined",
+        },
+      ],
+      artistSafeSessionUrl: "https://skitza.app/artist/sessions/session_123",
+    });
+
+    expect(event.body.attendees).toEqual([
+      {
+        email: "producer@example.com",
+        displayName: "Producer Name",
+        responseStatus: "accepted",
+      },
+      {
+        email: "artist@example.com",
+        displayName: "Artist Name",
+        responseStatus: "declined",
+      },
+    ]);
   });
 
   it("omits attendee arrays from later edits so Google-only guests survive", () => {
@@ -117,9 +159,9 @@ describe("Google Calendar approved event mapping", () => {
       {
         ...BASE,
         kind: "confirmed" as const,
-        attendeeMode: "set_artist" as const,
+        attendeeMode: "set_participants" as const,
         summary: "Session",
-        artist: { email: "artist@example.com" },
+        participants: [{ email: "artist@example.com" }] as const,
         artistSafeSessionUrl: "https://evil.example/session",
       },
     ]) {
