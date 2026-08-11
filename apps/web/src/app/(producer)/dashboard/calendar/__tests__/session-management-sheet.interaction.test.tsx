@@ -86,6 +86,7 @@ const warningPreview = {
 };
 
 beforeEach(() => {
+  vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-10T12:00:00.000Z").getTime());
   installMatchMedia(false);
   mocks.cancelSession.mockReset().mockResolvedValue({ ok: true });
   mocks.getSessionRescheduleAvailability.mockReset().mockResolvedValue(availabilityResult);
@@ -99,6 +100,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
