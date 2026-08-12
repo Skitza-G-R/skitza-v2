@@ -379,25 +379,28 @@ export function totalForTemplateQuantity(
 export function validatePrivateOfferTemplateQuantity(
   draft: PrivateOfferComposerDraft,
   pricing: Extract<PrivateOfferTemplatePricing, { kind: "per_song" }>,
-): DraftResult<{ quantity: number; totalCents: number }> {
+): DraftResult<{ quantity: number; suggestedTotalCents: number }> {
   const quantity = positiveInteger(draft.templateQuantity, 1, 1_000);
   if (quantity === null) {
     return draftError("price", "Choose a whole number of songs from 1 to 1,000.");
   }
-  const totalCents = totalForTemplateQuantity(pricing.volumeTiers, quantity);
-  if (!Number.isSafeInteger(totalCents) || totalCents > MAX_CASH_PRICE_CENTS) {
+  const suggestedTotalCents = totalForTemplateQuantity(pricing.volumeTiers, quantity);
+  if (
+    !Number.isSafeInteger(suggestedTotalCents) ||
+    suggestedTotalCents > MAX_CASH_PRICE_CENTS
+  ) {
     return draftError("price", "This quantity makes the offer price too high. Choose fewer songs.");
   }
-  if (
-    privateOfferPriceCents(draft.cashPrice) !== totalCents ||
-    positiveInteger(draft.includedSongSpaces, 1, 1_000) !== quantity
-  ) {
+  // Quantity chooses the copied product tier and its starting subtotal, but a
+  // private offer is one independent fixed quote. The producer may edit that
+  // subtotal without changing the source product or losing its provenance.
+  if (positiveInteger(draft.includedSongSpaces, 1, 1_000) !== quantity) {
     return draftError(
       "price",
-      "The song quantity no longer matches the offer price. Re-enter the quantity.",
+      "The song quantity no longer matches the included song spaces. Re-enter the quantity.",
     );
   }
-  return { value: { quantity, totalCents } };
+  return { value: { quantity, suggestedTotalCents } };
 }
 
 export function seedPrivateOfferDraft(input: {

@@ -69,6 +69,11 @@ export function buildPrivateOfferTemplateProduct(
         composition: { ...product.royaltyTerms.composition },
       }
     : null;
+  // Products created before structured commercial rights existed have no
+  // canonical rights to copy. An explicit "not specified" sentence would be
+  // invented private-offer language, so leave this empty and require the
+  // producer to complete the missing terms before review.
+  const rights = royaltyTerms ? deriveStoreProductRights(royaltyTerms) : [];
   const includedSongSpaces = perSong
     ? 1
     : product.pricingModel === "hourly" || product.kind === "session" || product.kind === "hourly"
@@ -107,7 +112,7 @@ export function buildPrivateOfferTemplateProduct(
         ? { kind: "unlimited" }
         : { kind: "fixed", count: decoded.revisions },
       royaltyTerms,
-      rights: deriveStoreProductRights(royaltyTerms),
+      rights,
       enabledPaymentPlans: product.paymentPlans.map((plan) => ({ ...plan })),
       agreementText,
     },
@@ -120,6 +125,6 @@ export function buildPrivateOfferTemplateProduct(
       : hourly
         ? { kind: "hourly", hourlyRateCents: product.hourlyRateCents ?? 0 }
         : { kind: "fixed" },
-    agreementNeedsCompletion: agreementText.length === 0,
+    agreementNeedsCompletion: agreementText.length === 0 || rights.length === 0,
   };
 }

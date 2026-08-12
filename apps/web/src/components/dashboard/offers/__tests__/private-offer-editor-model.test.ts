@@ -608,7 +608,7 @@ describe("private-offer editor rights and expiry bounds", () => {
 });
 
 describe("private-offer Store template safety", () => {
-  it("requires an exact whole per-song quantity and matching tier total", () => {
+  it("requires an exact whole per-song quantity while keeping the private subtotal editable", () => {
     const pricing = {
       kind: "per_song" as const,
       initialQuantity: 1 as const,
@@ -623,12 +623,18 @@ describe("private-offer Store template safety", () => {
         validDraft({ templateQuantity: "3", includedSongSpaces: "3", cashPrice: "240.00" }),
         pricing,
       ),
-    ).toEqual({ value: { quantity: 3, totalCents: 24_000 } });
+    ).toEqual({ value: { quantity: 3, suggestedTotalCents: 24_000 } });
     expect(
       validatePrivateOfferTemplateQuantity(validDraft({ templateQuantity: "2.5" }), pricing),
     ).toEqual({
       error: { step: "price", message: "Choose a whole number of songs from 1 to 1,000." },
     });
+    expect(
+      validatePrivateOfferTemplateQuantity(
+        validDraft({ templateQuantity: "3", includedSongSpaces: "3", cashPrice: "200.00" }),
+        pricing,
+      ),
+    ).toEqual({ value: { quantity: 3, suggestedTotalCents: 24_000 } });
     expect(
       validatePrivateOfferTemplateQuantity(
         validDraft({ templateQuantity: "3", includedSongSpaces: "2", cashPrice: "200.00" }),
@@ -637,7 +643,8 @@ describe("private-offer Store template safety", () => {
     ).toEqual({
       error: {
         step: "price",
-        message: "The song quantity no longer matches the offer price. Re-enter the quantity.",
+        message:
+          "The song quantity no longer matches the included song spaces. Re-enter the quantity.",
       },
     });
   });

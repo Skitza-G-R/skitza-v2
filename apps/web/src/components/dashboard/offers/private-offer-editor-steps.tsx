@@ -351,6 +351,22 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
+function privateOfferPaymentSummary(
+  draft: PrivateOfferComposerDraft,
+  cashPriceCents: number | null,
+): string {
+  if (cashPriceCents === null) return "Complete the private subtotal";
+  if (cashPriceCents === 0) return "No payment needed";
+  const plans = [
+    ...(draft.fullPlan ? ["Pay in full"] : []),
+    ...(draft.splitPlan ? ["50 / 50"] : []),
+    ...(draft.monthlyPlan
+      ? [`Monthly · ${draft.monthlyInstallments || "—"} payments`]
+      : []),
+  ];
+  return plans.length > 0 ? plans.join(" · ") : "No payment option copied";
+}
+
 export function PrivateOfferQuickStep({
   idPrefix,
   draft,
@@ -397,6 +413,10 @@ export function PrivateOfferQuickStep({
         )
       : null;
   const hourlyPricing = templateProduct.pricing.kind === "hourly" ? templateProduct.pricing : null;
+  const currencyOptions = CURRENCIES.includes(draft.currency)
+    ? CURRENCIES
+    : ([draft.currency, ...CURRENCIES].filter(Boolean) as readonly string[]);
+  const paymentSummary = privateOfferPaymentSummary(draft, parsedPriceCents);
 
   return (
     <div className="space-y-4">
@@ -442,7 +462,13 @@ export function PrivateOfferQuickStep({
             number of hours is assumed here.
           </p>
         ) : null}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
+        <div
+          className={`grid grid-cols-1 gap-4 ${
+            perSongPricing
+              ? "sm:grid-cols-[minmax(0,1fr)_7rem_7rem]"
+              : "sm:grid-cols-[minmax(0,1fr)_9rem]"
+          }`}
+        >
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${idPrefix}-price`}>
               {hourlyPricing ? "Fixed private subtotal" : "Cash price"}
@@ -485,6 +511,25 @@ export function PrivateOfferQuickStep({
                   ? "Free offers have no payment schedule."
                   : "Subtotal before added tax."}
             </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${idPrefix}-quick-currency`}>Currency</Label>
+            <select
+              id={`${idPrefix}-quick-currency`}
+              value={draft.currency}
+              required
+              onChange={(event) => {
+                patch({ currency: event.target.value });
+              }}
+              className={PRIVATE_OFFER_INPUT_CLASS}
+            >
+              {!draft.currency ? <option value="">Choose…</option> : null}
+              {currencyOptions.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
           </div>
           {perSongPricing ? (
             <div className="flex flex-col gap-2">
@@ -553,6 +598,20 @@ export function PrivateOfferQuickStep({
               {tax ? formatMoney(tax.totalCents, draft.currency) : "—"}
             </p>
           </div>
+        </div>
+        <div
+          aria-label="Payment summary"
+          className="mt-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2.5"
+        >
+          <p className="text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+            Payment options
+          </p>
+          <p className="mt-1 text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">
+            {paymentSummary}
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            Customize terms to change the payment schedule.
+          </p>
         </div>
       </Section>
     </div>

@@ -183,4 +183,19 @@ describe("buildPrivateOfferTemplateProduct", () => {
     expect(template.terms.agreementText).toBe("");
     expect(template.agreementNeedsCompletion).toBe(true);
   });
+
+  it("treats missing canonical rights as incomplete instead of inventing rights text", () => {
+    const template = buildPrivateOfferTemplateProduct(
+      source({
+        royaltyTerms: null,
+        agreementText: "Exact agreement text is present.",
+      }),
+      SETTINGS,
+    );
+
+    expect(template.terms.royaltyTerms).toBeNull();
+    expect(template.terms.rights).toEqual([]);
+    expect(template.terms.agreementText).toBe("Exact agreement text is present.");
+    expect(template.agreementNeedsCompletion).toBe(true);
+  });
 });

@@ -694,7 +694,37 @@ describe("PrivateOfferComposer shared editor", () => {
     });
   });
 
-  it("rejects invalid per-song quantities and sends only the valid recalculated quote", async () => {
+  it("lets the quick flow change currency and shows its copied payment summary", async () => {
+    mocks.sendOffer.mockResolvedValue({
+      ok: true,
+      data: { id: "offer-created", emailDelivered: true },
+    });
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer />);
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText("Payment summary").textContent).toContain("Pay in full");
+    await user.selectOptions(within(dialog).getByLabelText("Currency"), "EUR");
+    await chooseRecipientAndReview(user);
+    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
+
+    await waitFor(() => {
+      expect(mocks.sendOffer).toHaveBeenCalledOnce();
+    });
+    expect(mocks.sendOffer).toHaveBeenCalledWith({
+      offerId: "11111111-1111-4111-8111-111111111111",
+      sourceProductId: "product-single-production",
+      recipient: { kind: "existing", clientContactId: "client-1" },
+      target: { kind: "new" },
+      terms: {
+        ...VALID_TEMPLATE.terms,
+        currency: "EUR",
+      },
+      expiresAt: expect.any(String) as unknown as string,
+    });
+  });
+
+  it("requires per-song quantity but allows an independent private subtotal", async () => {
     mocks.sendOffer.mockResolvedValue({
       ok: true,
       data: { id: "offer-created", emailDelivered: true },
@@ -743,9 +773,11 @@ describe("PrivateOfferComposer shared editor", () => {
 
     fireEvent.change(songs, { target: { value: "3" } });
     expect(within(dialog).getByLabelText<HTMLInputElement>("Cash price").value).toBe("240.00");
+    await user.clear(cashPrice);
+    await user.type(cashPrice, "210.00");
     await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
     expect(await within(dialog).findByRole("heading", { name: "Review & send" })).not.toBeNull();
-    expect(within(dialog).getAllByText("$283.20")).not.toHaveLength(0);
+    expect(within(dialog).getAllByText("$247.80")).not.toHaveLength(0);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
 
     await waitFor(() => {
@@ -758,7 +790,7 @@ describe("PrivateOfferComposer shared editor", () => {
       target: { kind: "new" },
       terms: {
         ...VALID_TEMPLATE.terms,
-        cashPriceCents: 24_000,
+        cashPriceCents: 21_000,
         includedSongSpaces: 3,
       },
       expiresAt: expect.any(String) as unknown as string,
