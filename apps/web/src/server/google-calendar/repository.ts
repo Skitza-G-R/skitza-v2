@@ -131,6 +131,13 @@ export interface GoogleCalendarRepository {
 
   createOAuthState(state: Omit<GoogleCalendarStoredOAuthState, "consumedAt">): Promise<void>;
 
+  getOAuthState(
+    input: Readonly<{
+      tokenDigest: string;
+      now: Date;
+    }>,
+  ): Promise<GoogleCalendarStoredOAuthState | null>;
+
   consumeOAuthState(
     input: Readonly<{
       producerId: string;

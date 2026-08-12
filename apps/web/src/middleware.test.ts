@@ -1,9 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
+  bypassesClerkSession,
   isAccessGated,
   resolveLegacyRedirect,
   trustedOnboardingRequestHeaders,
 } from "./middleware";
+
+describe("Clerk session bypass", () => {
+  it("bypasses Clerk only for the signed Google Calendar OAuth callback", () => {
+    expect(bypassesClerkSession("/api/integrations/google-calendar/callback")).toBe(true);
+    expect(bypassesClerkSession("/api/integrations/google-calendar/connect")).toBe(false);
+    expect(bypassesClerkSession("/api/integrations/google-calendar/callback/extra")).toBe(false);
+    expect(bypassesClerkSession("/dashboard/calendar")).toBe(false);
+  });
+});
 
 // The pure `resolveLegacyRedirect` operates on pathname only; query-string
 // preservation on the 301 response is handled in the `clerkMiddleware`
