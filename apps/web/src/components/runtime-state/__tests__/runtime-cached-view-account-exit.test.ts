@@ -9,6 +9,7 @@ import {
   readRuntimeState,
   runtimeScope,
   writeRuntimeState,
+  type ProducerPrivateOfferDraft,
   type ProducerStoreProductDraft,
 } from "~/lib/runtime-state/runtime-state";
 
@@ -63,6 +64,7 @@ vi.mock("../online-required-link", () => ({
 }));
 
 import {
+  useProducerPrivateOfferDraft,
   useProducerStoreProductDraft,
   useRuntimeCachedView,
 } from "../use-runtime-state";
@@ -108,6 +110,19 @@ function productDraft(name: string): ProducerStoreProductDraft {
       pricingModel: "flat",
       volumeTiers: [],
     },
+  };
+}
+
+function privateOfferDraft(entryKey: string): ProducerPrivateOfferDraft {
+  return {
+    version: 1,
+    entryKey,
+    mode: "new",
+    existingOfferId: null,
+    expectedUpdatedAt: null,
+    currentStep: "recipient",
+    draftJson: JSON.stringify({ recipientKind: "existing", selectedClientId: "client-a" }),
+    submissionOfferId: null,
   };
 }
 
@@ -234,5 +249,44 @@ describe("runtime draft account exit", () => {
     expect(
       readRuntimeState(storage, scope, "producer.store.product-draft")?.draft.name,
     ).toBe("Fresh editor");
+  });
+
+  it("fences private-offer saves across account exit", () => {
+    const storage = mocked.storage;
+    if (!storage) throw new Error("Expected runtime storage");
+    vi.stubGlobal("window", new EventTarget());
+
+    const scope = runtimeScope(
+      "producer-user",
+      "producer",
+      "producer-id",
+      "/dashboard/clients-projects/clients/client-a",
+    );
+    if (!scope) throw new Error("Expected runtime scope");
+
+    const staleDraft = useProducerPrivateOfferDraft({
+      route: "/dashboard/clients-projects/clients/client-a",
+    });
+    expect(staleDraft.save(privateOfferDraft("new:client-a"))).toBe(true);
+    expect(storage.length).toBe(1);
+
+    expect(clearAccountPrivateRuntimeState("producer-user", storage)).toBe(1);
+    expect(storage.length).toBe(0);
+    expect(staleDraft.save(privateOfferDraft("stale:client-a"))).toBe(false);
+    expect(storage.length).toBe(0);
+
+    const blockedDraft = useProducerPrivateOfferDraft({
+      route: "/dashboard/clients-projects/clients/client-a",
+    });
+    expect(blockedDraft.save(privateOfferDraft("blocked:client-a"))).toBe(false);
+
+    allowAccountPrivateRuntimeWrites("producer-user");
+    const signedInDraft = useProducerPrivateOfferDraft({
+      route: "/dashboard/clients-projects/clients/client-a",
+    });
+    expect(signedInDraft.save(privateOfferDraft("fresh:client-a"))).toBe(true);
+    expect(readRuntimeState(storage, scope, "producer.private-offer.draft")?.entryKey).toBe(
+      "fresh:client-a",
+    );
   });
 });

@@ -1,35 +1,64 @@
 "use client";
 
-import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowLeft, ArrowRight, Pencil, Plus, Send, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Pencil, Plus } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 import {
   type ReactElement,
-  type ReactNode,
   type RefObject,
-  type SyntheticEvent,
+  useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from "react";
 
+import { EditorShell } from "~/app/(producer)/dashboard/store/editor-shell";
+import { TypeStep } from "~/app/(producer)/dashboard/store/editor-steps/type-step";
 import {
   loadPrivateOfferProjectOptionsAction,
   sendPrivateOfferAction,
   type PrivateOfferProjectOption,
   updatePrivateOfferAction,
 } from "~/app/(producer)/dashboard/store/private-offer-actions";
-import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
+import { getPreset, type PresetId } from "~/app/(producer)/dashboard/store/type-presets";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useProducerPrivateOfferDraft } from "~/components/runtime-state/use-runtime-state";
+import type { SaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
-import type { PrivateOfferInput } from "~/server/domain/private-offers/service";
+import type { ProducerPrivateOfferDraft } from "~/lib/runtime-state/runtime-state";
 import type { TaxMode } from "~/lib/tax-mode";
+import type { PrivateOfferInput } from "~/server/domain/private-offers/service";
 
-export type PrivateOfferCurrency = "USD" | "EUR" | "GBP" | "ILS";
+import {
+  parsePrivateOfferComposerDraftJson,
+  privateOfferRecipientEmail,
+  seedPrivateOfferDraft,
+  validatePrivateOfferDraft,
+  validatePrivateOfferReviewDraft,
+  validatePrivateOfferStep,
+  validatePrivateOfferTemplateQuantity,
+  type PrivateOfferComposerDraft,
+  type PrivateOfferCurrency,
+  type PrivateOfferDraftError,
+  type PrivateOfferDraftField,
+  type PrivateOfferReviewDraft,
+} from "./private-offer-editor-model";
+import {
+  PrivateOfferDeliveryStep,
+  PrivateOfferDetailsStep,
+  PrivateOfferPaymentStep,
+  PrivateOfferPriceStep,
+  PrivateOfferQuickStep,
+  PrivateOfferRightsStep,
+  RecipientProjectFields,
+} from "./private-offer-editor-steps";
+import { PrivateOfferReview, type PrivateOfferReviewEditStep } from "./private-offer-review";
+import type { PrivateOfferTemplateProduct } from "./private-offer-template-types";
+
+export type { PrivateOfferCurrency } from "./private-offer-editor-model";
+export type { PrivateOfferTemplateProduct } from "./private-offer-template-types";
 
 export interface PrivateOfferComposerProject {
   id: string;
@@ -58,9 +87,13 @@ export interface PrivateOfferComposerInitialOffer {
   terms: PrivateOfferInput;
   expiresAt: string;
   expectedUpdatedAt: string;
+  recipientName?: string;
+  recipientEmail?: string;
 }
 
 export interface SendPrivateOfferComposerPayload {
+  offerId: string;
+  sourceProductId?: string;
   recipient: PrivateOfferComposerRecipientPayload;
   target: PrivateOfferComposerTargetPayload;
   terms: PrivateOfferInput;
@@ -76,13 +109,12 @@ export interface UpdatePrivateOfferComposerPayload {
   expiresAt: string;
 }
 
-export interface PrivateOfferComposerProps {
+interface PrivateOfferComposerCommonProps {
   recipients: PrivateOfferComposerRecipient[];
   lockedClientId?: string;
   taxMode: TaxMode;
   taxRatePct: number;
   defaultCurrency: PrivateOfferCurrency;
-  initialOffer?: PrivateOfferComposerInitialOffer;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onCreated?: (offerId: string) => void;
@@ -90,111 +122,127 @@ export interface PrivateOfferComposerProps {
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
-type RoyaltyMode = "none" | "percentage" | "agreement";
-type LimitMode = "fixed" | "unlimited";
-type OfferStep = "recipient" | "work" | "payment" | "rights" | "agreement";
+export type PrivateOfferComposerProps = PrivateOfferComposerCommonProps &
+  (
+    | {
+        initialOffer: PrivateOfferComposerInitialOffer;
+        templateProduct?: never;
+      }
+    | {
+        initialOffer?: undefined;
+        templateProduct?: PrivateOfferTemplateProduct;
+      }
+  );
 
-const OFFER_STEPS: readonly {
-  id: OfferStep;
-  title: string;
-  shortTitle: string;
-}[] = [
-  { id: "recipient", title: "Recipient & project", shortTitle: "Recipient" },
-  { id: "work", title: "Work included", shortTitle: "Work" },
-  { id: "payment", title: "Price & payment", shortTitle: "Payment" },
-  { id: "rights", title: "Royalties, rights & revisions", shortTitle: "Rights" },
-  { id: "agreement", title: "Agreement & expiry", shortTitle: "Agreement" },
-];
+type FullStep =
+  | "recipient"
+  | "type"
+  | "details"
+  | "price"
+  | "payment"
+  | "delivery"
+  | "rights"
+  | "review";
+type QuickStep = "quick" | "review";
+type ComposerStep = FullStep | QuickStep;
+type ComposerFlow = "quick" | "full";
 
-interface ComposerDraft {
-  recipientKind: "existing" | "new";
-  clientContactId: string;
-  newRecipientName: string;
-  newRecipientEmail: string;
-  targetKind: "new" | "existing";
-  targetProjectId: string;
-  name: string;
-  tagline: string;
-  service: string;
-  deliverables: string;
-  includedSongSpaces: string;
-  hasSessionAllowance: boolean;
-  sessionLimitMode: LimitMode;
-  sessionCount: string;
-  sessionDurationMin: string;
-  sessionLocationType: string;
-  sessionBufferMinutes: string;
-  sessionMinLeadHours: string;
-  cashPrice: string;
-  currency: PrivateOfferCurrency;
-  taxMode: TaxMode;
-  taxRatePct: string;
-  fullPlan: boolean;
-  splitPlan: boolean;
-  monthlyPlan: boolean;
-  monthlyInstallments: string;
-  masterMode: RoyaltyMode;
-  masterPercentage: string;
-  compositionMode: RoyaltyMode;
-  compositionPercentage: string;
-  royaltyNotes: string;
-  rights: string;
-  revisionMode: LimitMode;
-  revisionCount: string;
-  agreementText: string;
-  expiresAtLocal: string;
+const CUSTOM_FULL_STEPS = [
+  "recipient",
+  "type",
+  "details",
+  "price",
+  "payment",
+  "delivery",
+  "rights",
+  "review",
+] as const;
+const EXISTING_FULL_STEPS = [
+  "recipient",
+  "details",
+  "price",
+  "payment",
+  "delivery",
+  "rights",
+  "review",
+] as const;
+const QUICK_STEPS = ["quick", "review"] as const;
+const PRIVATE_OFFER_DRAFT_VERSION = 1 as const;
+const PRIVATE_OFFER_AUTOSAVE_DELAY_MS = 250;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function privateOfferDraftEntryKey(input: {
+  initialOffer?: PrivateOfferComposerInitialOffer;
+  templateProduct?: PrivateOfferTemplateProduct;
+  lockedClientId?: string;
+}): string {
+  if (input.initialOffer) {
+    return `edit:${input.initialOffer.id}:${input.initialOffer.expectedUpdatedAt}`;
+  }
+  if (input.templateProduct) {
+    const templateKey = `template:${input.templateProduct.source.productId}`;
+    return input.lockedClientId ? `${templateKey}:client:${input.lockedClientId}` : templateKey;
+  }
+  if (input.lockedClientId) return `client:${input.lockedClientId}`;
+  return "custom";
 }
 
-type StepResult<T> = { value: T } | { error: string };
-
-interface RecipientStepValue {
-  recipient: PrivateOfferComposerRecipientPayload;
-  target: PrivateOfferComposerTargetPayload;
+function decodePersistedComposerStep(
+  value: string,
+  allowedFullSteps: readonly ComposerStep[],
+  quickAvailable: boolean,
+): { flow: ComposerFlow; step: ComposerStep } | null {
+  const separator = value.indexOf(":");
+  if (separator <= 0) return null;
+  const flow = value.slice(0, separator);
+  const step = value.slice(separator + 1) as ComposerStep;
+  if (flow === "quick" && quickAvailable && QUICK_STEPS.includes(step as QuickStep)) {
+    return { flow, step };
+  }
+  if (flow === "full" && allowedFullSteps.includes(step) && step !== "quick") {
+    return { flow, step };
+  }
+  return null;
 }
 
-interface WorkStepValue {
-  name: string;
-  tagline: string;
-  service: string;
-  deliverables: string[];
-  includedSongSpaces: number;
-  session: PrivateOfferInput["session"];
-}
-
-interface PaymentStepValue {
-  cashPriceCents: number;
-  currency: PrivateOfferCurrency;
-  taxMode: TaxMode;
-  taxRatePct: number;
-  enabledPaymentPlans: PaymentPlan[];
-}
-
-interface RightsStepValue {
-  revisionRule: PrivateOfferInput["revisionRule"];
-  royaltyTerms: ProductRoyaltyTerms;
-  rights: string[];
-}
-
-interface AgreementStepValue {
-  agreementText: string;
-  expiry: Date;
-}
-
-const INPUT_CLASS =
-  "min-h-11 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.18)] focus:outline-none sm:min-h-10 sm:rounded-[var(--radius-md)] sm:text-[13px]";
-const TEXTAREA_CLASS = `${INPUT_CLASS} resize-y py-2.5 leading-relaxed`;
-const CHECKBOX_CLASS = "h-5 w-5 shrink-0 accent-[rgb(var(--brand-primary))]";
-const CURRENCIES: readonly PrivateOfferCurrency[] = ["USD", "EUR", "GBP", "ILS"];
-const MAX_CASH_PRICE_CENTS = 2_147_483_647;
-const MAX_SERVICE_LENGTH = 200;
-const MAX_DELIVERABLES = 20;
-const MAX_DELIVERABLE_LENGTH = 500;
-const MAX_DELIVERABLES_TEXT_LENGTH =
-  MAX_DELIVERABLES * MAX_DELIVERABLE_LENGTH + (MAX_DELIVERABLES - 1);
-const MAX_RIGHTS = 20;
-const MAX_RIGHT_LENGTH = 1_000;
-const MAX_RIGHTS_TEXT_LENGTH = MAX_RIGHTS * MAX_RIGHT_LENGTH + (MAX_RIGHTS - 1);
-const MAX_AGREEMENT_LENGTH = 50_000;
+const STEP_COPY: Record<ComposerStep, Readonly<{ title: string; subtitle: string }>> = {
+  quick: {
+    title: "Recipient & price",
+    subtitle: "Choose who receives it, where accepted work goes, and the private price.",
+  },
+  recipient: {
+    title: "Recipient & project",
+    subtitle: "Choose the invited artist and the project created when they accept.",
+  },
+  type: {
+    title: "What are you offering?",
+    subtitle: "Start with the same product presets used in your Store.",
+  },
+  details: {
+    title: "Details & deliverables",
+    subtitle: "Describe the exact work included in this offer.",
+  },
+  price: {
+    title: "Price & tax",
+    subtitle: "Set the private subtotal, currency, and tax treatment.",
+  },
+  payment: {
+    title: "Payment options",
+    subtitle: "Choose every schedule the artist may select when accepting.",
+  },
+  delivery: {
+    title: "Delivery & sessions",
+    subtitle: "Set song spaces, bookable time, and revision limits.",
+  },
+  rights: {
+    title: "Rights & agreement",
+    subtitle: "Write the exact rights and agreement the artist will accept.",
+  },
+  review: {
+    title: "Review & send",
+    subtitle: "This is the exact offer the artist will receive.",
+  },
+};
 
 function optionMoney(cents: number, currency: string): string {
   try {
@@ -232,425 +280,71 @@ export function privateOfferProjectOptionLabel(project: PrivateOfferProjectOptio
   return `${project.title} · ${date} · ${songs} · ${balance}`;
 }
 
-function splitLines(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+function stepFromValidationError(error: PrivateOfferDraftError["step"]): FullStep {
+  return error;
 }
 
-function priceCents(value: string): number | null {
-  const trimmed = value.trim();
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{0,2})?$/.test(trimmed)) return null;
-  const [whole = "0", fraction = ""] = trimmed.split(".");
-  const cents = Number.parseInt(whole, 10) * 100 + Number.parseInt(fraction.padEnd(2, "0"), 10);
-  return Number.isSafeInteger(cents) ? cents : null;
-}
-
-function percentageBps(value: string): number | null {
-  const trimmed = value.trim();
-  if (!/^(?:\d{1,3}(?:\.\d{1,2})?|\.\d{1,2})$/.test(trimmed)) return null;
-  const [whole = "", fraction = ""] = trimmed.split(".");
-  const bps =
-    Number.parseInt(whole || "0", 10) * 100 + Number.parseInt(fraction.padEnd(2, "0") || "0", 10);
-  return bps >= 1 && bps <= 10_000 ? bps : null;
-}
-
-function bpsPercentage(bps: number): string {
-  const whole = Math.floor(bps / 100);
-  const fraction = bps % 100;
-  if (fraction === 0) return String(whole);
-  if (fraction % 10 === 0) return `${String(whole)}.${String(fraction / 10)}`;
-  return `${String(whole)}.${String(fraction).padStart(2, "0")}`;
-}
-
-function centsPrice(cents: number): string {
-  return `${String(Math.floor(cents / 100))}.${String(cents % 100).padStart(2, "0")}`;
-}
-
-function dateToLocalInput(value: Date): string {
-  const offsetMs = value.getTimezoneOffset() * 60_000;
-  return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
-}
-
-function defaultExpiryLocal(): string {
-  const expiry = new Date();
-  expiry.setDate(expiry.getDate() + 14);
-  expiry.setSeconds(0, 0);
-  return dateToLocalInput(expiry);
-}
-
-function isoToLocalInput(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? defaultExpiryLocal() : dateToLocalInput(parsed);
-}
-
-function selectedPlanState(
-  plans: readonly PaymentPlan[],
-): Pick<ComposerDraft, "fullPlan" | "splitPlan" | "monthlyPlan" | "monthlyInstallments"> {
-  const monthly = plans.find((plan) => plan.kind === "monthly");
+function planPatch(plan: "full" | "split" | "installments") {
   return {
-    fullPlan: plans.some((plan) => plan.kind === "full"),
-    splitPlan: plans.some((plan) => plan.kind === "split_50_50"),
-    monthlyPlan: monthly !== undefined,
-    monthlyInstallments: monthly?.kind === "monthly" ? String(monthly.installments) : "4",
+    fullPlan: plan === "full",
+    splitPlan: plan === "split",
+    monthlyPlan: plan === "installments",
   };
 }
 
-function royaltySeed(
-  terms: PrivateOfferInput["royaltyTerms"],
-): Pick<
-  ComposerDraft,
-  "masterMode" | "masterPercentage" | "compositionMode" | "compositionPercentage" | "royaltyNotes"
-> {
+function presetDraftPatch(id: PresetId, draft: PrivateOfferComposerDraft) {
+  const preset = getPreset(id);
+  if (!preset) return { presetId: id };
+  const durationMatch = preset.preset.duration.match(/^(\d+)\s*min$/i);
   return {
-    masterMode: terms?.master.mode ?? "none",
-    masterPercentage: terms?.master.mode === "percentage" ? bpsPercentage(terms.master.bps) : "",
-    compositionMode: terms?.composition.mode ?? "none",
-    compositionPercentage:
-      terms?.composition.mode === "percentage" ? bpsPercentage(terms.composition.bps) : "",
-    royaltyNotes: terms?.notes ?? "",
+    presetId: id,
+    name: draft.name.trim() ? draft.name : preset.defaultName,
+    service: id === "blank" ? draft.service : preset.label,
+    deliverables: preset.baseline.join("\n"),
+    cashPrice: preset.preset.price.toFixed(2),
+    includedSongSpaces: id === "blank" ? draft.includedSongSpaces : "1",
+    hasSessionAllowance: preset.preset.includesSessions,
+    sessionLimitMode: preset.preset.unlimitedSessions ? ("unlimited" as const) : ("fixed" as const),
+    sessionCount: String(Math.max(1, preset.preset.sessions)),
+    sessionDurationMin: durationMatch?.[1] ?? "60",
+    revisionMode: "fixed" as const,
+    revisionCount: String(preset.preset.revisions),
+    ...planPatch(preset.preset.paymentPlan),
   };
 }
 
-function seedDraft(props: PrivateOfferComposerProps): ComposerDraft {
-  const initial = props.initialOffer?.terms;
-  const lockedClientId = props.lockedClientId ?? props.initialOffer?.clientContactId;
-  const firstRecipientId = lockedClientId ?? props.recipients[0]?.id ?? "";
-  const session = initial?.session ?? null;
-  const revisions = initial?.revisionRule ?? { kind: "fixed" as const, count: 0 };
-  const plans = selectedPlanState(
-    initial?.enabledPaymentPlans ?? (initial?.cashPriceCents === 0 ? [] : [{ kind: "full" }]),
-  );
-
-  return {
-    recipientKind: firstRecipientId ? "existing" : "new",
-    clientContactId: firstRecipientId,
-    newRecipientName: "",
-    newRecipientEmail: "",
-    targetKind: props.initialOffer?.targetProjectId ? "existing" : "new",
-    targetProjectId: props.initialOffer?.targetProjectId ?? "",
-    name: initial?.name ?? "",
-    tagline: initial?.tagline ?? "",
-    service: initial?.service ?? "",
-    deliverables: initial?.deliverables.join("\n") ?? "",
-    includedSongSpaces: String(initial?.includedSongSpaces ?? 0),
-    hasSessionAllowance: session !== null,
-    sessionLimitMode: session?.limit.kind ?? "fixed",
-    sessionCount: session?.limit.kind === "fixed" ? String(session.limit.count) : "1",
-    sessionDurationMin: String(session?.durationMin ?? 60),
-    sessionLocationType: session?.locationType ?? "studio",
-    sessionBufferMinutes: String(session?.bufferMinutes ?? 0),
-    sessionMinLeadHours: String(session?.minLeadHours ?? 24),
-    cashPrice: centsPrice(initial?.cashPriceCents ?? 0),
-    currency:
-      (initial?.currency.toUpperCase() as PrivateOfferCurrency | undefined) ??
-      props.defaultCurrency,
-    taxMode: initial?.taxMode ?? props.taxMode,
-    taxRatePct: String(initial?.taxRatePct ?? props.taxRatePct),
-    ...plans,
-    ...royaltySeed(initial?.royaltyTerms ?? null),
-    rights: initial?.rights.join("\n") ?? "",
-    revisionMode: revisions.kind,
-    revisionCount: revisions.kind === "fixed" ? String(revisions.count) : "0",
-    agreementText: initial?.agreementText ?? "",
-    expiresAtLocal: props.initialOffer
-      ? isoToLocalInput(props.initialOffer.expiresAt)
-      : defaultExpiryLocal(),
-  };
+function quickTemplateQuantityError(
+  draft: PrivateOfferComposerDraft,
+  templateProduct: PrivateOfferTemplateProduct | undefined,
+): PrivateOfferDraftError | null {
+  if (templateProduct?.pricing.kind !== "per_song") return null;
+  const result = validatePrivateOfferTemplateQuantity(draft, templateProduct.pricing);
+  return "error" in result ? result.error : null;
 }
 
-function positiveInteger(value: string, minimum: number, maximum: number): number | null {
-  if (!/^\d+$/.test(value.trim())) return null;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
-}
-
-function royaltySide(mode: RoyaltyMode, percentage: string): ProductRoyaltyTerms["master"] | null {
-  if (mode !== "percentage") return { mode };
-  const bps = percentageBps(percentage);
-  return bps === null ? null : { mode: "percentage", bps };
-}
-
-function buildRecipientStep(
-  draft: ComposerDraft,
-  lockedClientId: string | undefined,
-  availableProjects: readonly PrivateOfferProjectOption[],
-): StepResult<RecipientStepValue> {
-  let recipient: PrivateOfferComposerRecipientPayload;
-  if (lockedClientId || draft.recipientKind === "existing") {
-    const clientContactId = lockedClientId ?? draft.clientContactId;
-    if (!clientContactId) return { error: "Choose a recipient." };
-    recipient = { kind: "existing", clientContactId };
-  } else {
-    const name = draft.newRecipientName.trim();
-    const email = draft.newRecipientEmail.trim().toLowerCase();
-    if (!name) return { error: "Add the new recipient’s name." };
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return { error: "Enter a valid recipient email." };
-    }
-    recipient = { kind: "new", name, email };
-  }
-
-  let target: PrivateOfferComposerTargetPayload = { kind: "new" };
-  if (draft.targetKind === "existing") {
-    if (!draft.targetProjectId) {
-      return { error: "Choose an existing project or switch back to a new project." };
-    }
-    if (!availableProjects.some((project) => project.id === draft.targetProjectId)) {
-      return { error: "That project is not available for this client." };
-    }
-    target = { kind: "existing", projectId: draft.targetProjectId };
-  }
-
-  return { value: { recipient, target } };
-}
-
-function buildWorkStep(draft: ComposerDraft): StepResult<WorkStepValue> {
-  const name = draft.name.trim();
-  if (!name) return { error: "Add an offer name." };
-  const service = draft.service.trim();
-  if (!service) return { error: "Add the service this offer covers." };
-  if (service.length > MAX_SERVICE_LENGTH) {
-    return { error: "Service must be 200 characters or fewer." };
-  }
-  const deliverables = splitLines(draft.deliverables);
-  if (deliverables.length === 0) return { error: "Add at least one deliverable." };
-  if (deliverables.length > MAX_DELIVERABLES) {
-    return { error: "Add no more than 20 deliverables." };
-  }
-  if (deliverables.some((deliverable) => deliverable.length > MAX_DELIVERABLE_LENGTH)) {
-    return { error: "Each deliverable must be 500 characters or fewer." };
-  }
-
-  const includedSongSpaces = positiveInteger(draft.includedSongSpaces, 0, 1_000);
-  if (includedSongSpaces === null) {
-    return { error: "Song spaces must be a whole number from 0 to 1,000." };
-  }
-
-  let session: PrivateOfferInput["session"] = null;
-  if (draft.hasSessionAllowance) {
-    const durationMin = positiveInteger(draft.sessionDurationMin, 1, 1_440);
-    const bufferMinutes = positiveInteger(draft.sessionBufferMinutes, 0, 1_440);
-    const minLeadHours = positiveInteger(draft.sessionMinLeadHours, 0, 8_760);
-    if (durationMin === null) return { error: "Session duration must be from 1 to 1,440 minutes." };
-    if (bufferMinutes === null) return { error: "Session buffer must be from 0 to 1,440 minutes." };
-    if (minLeadHours === null) return { error: "Session notice must be from 0 to 8,760 hours." };
-    const count =
-      draft.sessionLimitMode === "fixed" ? positiveInteger(draft.sessionCount, 1, 1_000) : null;
-    if (draft.sessionLimitMode === "fixed" && count === null) {
-      return { error: "Session allowance must be from 1 to 1,000." };
-    }
-    session = {
-      limit:
-        draft.sessionLimitMode === "unlimited"
-          ? { kind: "unlimited" }
-          : { kind: "fixed", count: count ?? 1 },
-      durationMin,
-      locationType: draft.sessionLocationType.trim() || "studio",
-      bufferMinutes,
-      minLeadHours,
-    };
-  }
-
-  return {
-    value: {
-      name,
-      tagline: draft.tagline.trim(),
-      service,
-      deliverables,
-      includedSongSpaces,
-      session,
-    },
-  };
-}
-
-function buildPaymentStep(draft: ComposerDraft): StepResult<PaymentStepValue> {
-  const cashPriceCents = priceCents(draft.cashPrice);
-  if (cashPriceCents === null) {
-    return { error: "Enter a valid cash price with up to two decimals." };
-  }
-  if (cashPriceCents > MAX_CASH_PRICE_CENTS) {
-    return { error: "Cash price cannot exceed 21,474,836.47." };
-  }
-  const taxRatePct = positiveInteger(draft.taxRatePct, 0, 100);
-  if (taxRatePct === null) return { error: "Tax must be a whole percentage from 0 to 100." };
-
-  const enabledPaymentPlans: PaymentPlan[] = [];
-  if (cashPriceCents > 0) {
-    if (draft.fullPlan) enabledPaymentPlans.push({ kind: "full" });
-    if (draft.splitPlan) enabledPaymentPlans.push({ kind: "split_50_50" });
-    if (draft.monthlyPlan) {
-      const installments = positiveInteger(draft.monthlyInstallments, 2, 12);
-      if (installments === null) return { error: "Monthly payments must be from 2 to 12." };
-      enabledPaymentPlans.push({ kind: "monthly", installments });
-    }
-    if (enabledPaymentPlans.length === 0) {
-      return { error: "Enable at least one payment option for a paid offer." };
-    }
-  }
-
-  return {
-    value: {
-      cashPriceCents,
-      currency: draft.currency,
-      taxMode: draft.taxMode,
-      taxRatePct,
-      enabledPaymentPlans,
-    },
-  };
-}
-
-function buildRightsStep(draft: ComposerDraft): StepResult<RightsStepValue> {
-  const revisionCount =
-    draft.revisionMode === "fixed" ? positiveInteger(draft.revisionCount, 0, 1_000) : null;
-  if (draft.revisionMode === "fixed" && revisionCount === null) {
-    return { error: "Revisions must be a whole number from 0 to 1,000." };
-  }
-
-  const master = royaltySide(draft.masterMode, draft.masterPercentage);
-  if (master === null) return { error: "Enter a master royalty from 0.01% to 100%." };
-  const composition = royaltySide(draft.compositionMode, draft.compositionPercentage);
-  if (composition === null) {
-    return { error: "Enter a composition royalty from 0.01% to 100%." };
-  }
-
-  const rights = splitLines(draft.rights);
-  if (rights.length === 0) return { error: "Write the rights included in this offer." };
-  if (rights.length > MAX_RIGHTS) return { error: "Add no more than 20 rights." };
-  if (rights.some((right) => right.length > MAX_RIGHT_LENGTH)) {
-    return { error: "Each right must be 1,000 characters or fewer." };
-  }
-  const notes = draft.royaltyNotes.trim();
-  const royaltyTerms: ProductRoyaltyTerms = {
-    master,
-    composition,
-    ...(notes ? { notes } : {}),
-  };
-
-  return {
-    value: {
-      revisionRule:
-        draft.revisionMode === "unlimited"
-          ? { kind: "unlimited" }
-          : { kind: "fixed", count: revisionCount ?? 0 },
-      royaltyTerms,
-      rights,
-    },
-  };
-}
-
-function buildAgreementStep(draft: ComposerDraft): StepResult<AgreementStepValue> {
-  const agreementText = draft.agreementText.trim();
-  if (!agreementText) return { error: "Write the exact agreement the artist will accept." };
-  if (agreementText.length > MAX_AGREEMENT_LENGTH) {
-    return { error: "Exact agreement must be 50,000 characters or fewer." };
-  }
-  const expiry = new Date(draft.expiresAtLocal);
-  if (Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
-    return { error: "Choose an expiry date in the future." };
-  }
-  return { value: { agreementText, expiry } };
-}
-
-function FieldLabel({
-  htmlFor,
-  children,
-  optional = false,
-}: {
-  htmlFor: string;
-  children: ReactNode;
-  optional?: boolean;
-}) {
+function defaultTrigger(editing: boolean): ReactElement {
   return (
-    <label
-      htmlFor={htmlFor}
-      className="text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
+    <button
+      type="button"
+      className={`sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold transition-[filter,opacity] ${
+        editing
+          ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
+          : "border border-transparent bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))] shadow-[0_8px_24px_-18px_rgb(var(--brand-primary)/0.75)] hover:brightness-105"
+      }`}
     >
-      {children}
-      {optional ? (
-        <span className="ml-1 font-medium tracking-normal normal-case">(optional)</span>
-      ) : null}
-    </label>
-  );
-}
-
-function Section({
-  title,
-  hint,
-  children,
-  headingRef,
-}: {
-  title: string;
-  hint?: string;
-  children: ReactNode;
-  headingRef?: RefObject<HTMLHeadingElement | null>;
-}) {
-  return (
-    <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.45)] p-4 sm:p-5">
-      <div className="mb-4">
-        <h3
-          ref={headingRef}
-          tabIndex={headingRef ? -1 : undefined}
-          className="w-fit rounded-[var(--radius-sm)] font-display text-[15px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(var(--brand-primary))]"
-        >
-          {title}
-        </h3>
-        {hint ? (
-          <p className="mt-1 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">{hint}</p>
-        ) : null}
-      </div>
-      <div className="flex flex-col gap-4">{children}</div>
-    </section>
-  );
-}
-
-function ToggleRow({
-  id,
-  checked,
-  disabled = false,
-  title,
-  detail,
-  onChange,
-}: {
-  id: string;
-  checked: boolean;
-  disabled?: boolean;
-  title: string;
-  detail: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label
-      htmlFor={id}
-      className="grid min-h-12 cursor-pointer grid-cols-[20px_minmax(0,1fr)] items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3 disabled:cursor-not-allowed"
-    >
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => {
-          onChange(event.target.checked);
-        }}
-        className={CHECKBOX_CLASS}
-      />
-      <span className="min-w-0">
-        <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-          {detail}
-        </span>
-      </span>
-    </label>
+      {editing ? (
+        <Pencil className="h-4 w-4" aria-hidden />
+      ) : (
+        <Plus className="h-4 w-4" aria-hidden />
+      )}
+      {editing ? "Edit private offer" : "New private offer"}
+    </button>
   );
 }
 
 export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const {
     recipients,
-    initialOffer,
     lockedClientId: lockedClientIdProp,
     taxMode,
     taxRatePct,
@@ -661,1089 +355,964 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     trigger,
     returnFocusRef,
   } = props;
+  const initialOffer = "initialOffer" in props ? props.initialOffer : undefined;
+  const templateProduct = "templateProduct" in props ? props.templateProduct : undefined;
+  const editing = initialOffer !== undefined;
+  const lockedClientId = lockedClientIdProp ?? initialOffer?.clientContactId;
   const { toast } = useToast();
   const router = useRouter();
-  const formId = useId().replace(/:/g, "");
+  const pathname = usePathname();
+  const online = useOnlineStatus();
+  const {
+    record: runtimeDraftRecord,
+    loaded: runtimeDraftLoaded,
+    save: saveRuntimeDraft,
+    clear: clearRuntimeDraft,
+  } = useProducerPrivateOfferDraft({ route: pathname });
+  const idPrefix = useId().replace(/:/g, "");
+  const entryKey = privateOfferDraftEntryKey({
+    ...(initialOffer ? { initialOffer } : {}),
+    ...(templateProduct ? { templateProduct } : {}),
+    ...(lockedClientIdProp ? { lockedClientId: lockedClientIdProp } : {}),
+  });
+  const initialFlow: ComposerFlow = templateProduct ? "quick" : "full";
+  const initialStep: ComposerStep = templateProduct ? "quick" : "recipient";
+  const seededDraft = useMemo(
+    () =>
+      seedPrivateOfferDraft({
+        defaultCurrency,
+        taxMode,
+        taxRatePct,
+        ...(lockedClientIdProp ? { lockedClientId: lockedClientIdProp } : {}),
+        ...(initialOffer ? { initialOffer } : {}),
+        ...(templateProduct ? { templateProduct } : {}),
+      }),
+    [defaultCurrency, initialOffer, lockedClientIdProp, taxMode, taxRatePct, templateProduct],
+  );
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
-  const [pending, startTransition] = useTransition();
-  const online = useOnlineStatus();
+  const [pending, setPending] = useState(false);
+  const [flow, setFlow] = useState<ComposerFlow>(initialFlow);
+  const [currentStep, setCurrentStep] = useState<ComposerStep>(initialStep);
+  const [draft, setDraft] = useState<PrivateOfferComposerDraft>(seededDraft);
   const [error, setError] = useState<string | null>(null);
-  const [currentStep, setCurrentStep] = useState<OfferStep>("recipient");
-  const [draft, setDraft] = useState<ComposerDraft>(() => seedDraft(props));
-  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
-  const stepHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const [invalidField, setInvalidField] = useState<PrivateOfferDraftField | null>(null);
+  const [missingStep, setMissingStep] = useState<FullStep | null>(null);
+  const [returnToReview, setReturnToReview] = useState(false);
+  const [reviewValue, setReviewValue] = useState<PrivateOfferReviewDraft | null>(null);
   const [projectOptionsByClient, setProjectOptionsByClient] = useState<
     Record<string, readonly PrivateOfferProjectOption[]>
   >({});
   const [loadedProjectClientIds, setLoadedProjectClientIds] = useState<string[]>([]);
   const [loadingProjectClientId, setLoadingProjectClientId] = useState<string | null>(null);
-  const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
-  const lockedClientId = lockedClientIdProp ?? initialOffer?.clientContactId;
-  const editing = initialOffer !== undefined;
+  const [projectLoadErrorsByClient, setProjectLoadErrorsByClient] = useState<
+    Record<string, string>
+  >({});
+  const [submissionOfferId, setSubmissionOfferId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [persistenceReady, setPersistenceReady] = useState(false);
+  const submissionOfferIdRef = useRef<string | null>(null);
+  const submitInFlightRef = useRef(false);
+  const projectLoadRequestRef = useRef<{ clientId: string; token: symbol } | null>(null);
+  const initializedEntryRef = useRef<string | null>(null);
+  const suppressPersistenceRef = useRef(false);
+  const persistenceReadyRef = useRef(false);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const saveStatusTimerRef = useRef<number | null>(null);
+  const errorAlertRef = useRef<HTMLDivElement>(null);
+  const latestDraftRef = useRef(draft);
+  const latestFlowRef = useRef(flow);
+  const latestStepRef = useRef(currentStep);
+  const latestSubmissionOfferIdRef = useRef(submissionOfferId);
+  const persistLatestDraftRef = useRef<
+    ((override?: { submissionOfferId: string | null }, quiet?: boolean) => boolean) | null
+  >(null);
+
+  latestDraftRef.current = draft;
+  latestFlowRef.current = flow;
+  latestStepRef.current = currentStep;
+  latestSubmissionOfferIdRef.current = submissionOfferId;
+  submissionOfferIdRef.current = submissionOfferId;
+
+  const fullSteps = useMemo<readonly ComposerStep[]>(
+    () => (templateProduct || editing ? EXISTING_FULL_STEPS : CUSTOM_FULL_STEPS),
+    [editing, templateProduct],
+  );
+  const steps = useMemo<readonly ComposerStep[]>(() => {
+    if (flow === "quick") return QUICK_STEPS;
+    return fullSteps;
+  }, [flow, fullSteps]);
+  const stepIndex = Math.max(0, steps.indexOf(currentStep));
+  const isFirstStep = stepIndex === 0;
+  const isLastStep = currentStep === "review";
+  const selectedClientId =
+    lockedClientId ?? (draft.recipientKind === "existing" ? draft.clientContactId : "");
+  const currentSelectedRecipient = recipients.find(
+    (recipient) => recipient.id === selectedClientId,
+  );
+  const editRecipientFallback =
+    editing && lockedClientId
+      ? {
+          id: lockedClientId,
+          name: initialOffer.recipientName ?? currentSelectedRecipient?.name ?? "Selected client",
+          email: initialOffer.recipientEmail ?? currentSelectedRecipient?.email ?? "",
+          projects: [] as PrivateOfferComposerProject[],
+        }
+      : null;
+  const editorRecipients = editRecipientFallback
+    ? [
+        ...recipients.filter((recipient) => recipient.id !== editRecipientFallback.id),
+        editRecipientFallback,
+      ]
+    : recipients;
+  const selectedRecipient = editorRecipients.find((recipient) => recipient.id === selectedClientId);
+  const availableProjects = selectedClientId
+    ? (projectOptionsByClient[selectedClientId] ?? [])
+    : [];
+  const projectsLoaded = selectedClientId
+    ? loadedProjectClientIds.includes(selectedClientId)
+    : false;
+  const loadingProjects = loadingProjectClientId === selectedClientId;
+  const projectLoadError = selectedClientId
+    ? (projectLoadErrorsByClient[selectedClientId] ?? null)
+    : null;
+  const selectedProject = availableProjects.find((project) => project.id === draft.targetProjectId);
+  const validated = validatePrivateOfferDraft(draft, lockedClientId, availableProjects);
+  const validReview = "value" in validated ? validated.value : reviewValue;
+  const copy = STEP_COPY[currentStep];
+
+  const finishDraftSave = useCallback((written: boolean) => {
+    setSaveStatus(written ? "saved" : "error");
+    if (saveStatusTimerRef.current !== null) {
+      window.clearTimeout(saveStatusTimerRef.current);
+    }
+    if (written) {
+      saveStatusTimerRef.current = window.setTimeout(() => {
+        setSaveStatus("idle");
+      }, 2_000);
+    }
+  }, []);
+
+  const persistLatestDraft = useCallback(
+    (override?: { submissionOfferId: string | null }, quiet = false) => {
+      if (!persistenceReadyRef.current || suppressPersistenceRef.current) return false;
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      const nextSubmissionOfferId =
+        override?.submissionOfferId ?? latestSubmissionOfferIdRef.current;
+      const record: ProducerPrivateOfferDraft = {
+        version: PRIVATE_OFFER_DRAFT_VERSION,
+        entryKey,
+        mode: editing ? "edit" : "new",
+        existingOfferId: initialOffer?.id ?? null,
+        expectedUpdatedAt: initialOffer?.expectedUpdatedAt ?? null,
+        currentStep: `${latestFlowRef.current}:${latestStepRef.current}`,
+        draftJson: JSON.stringify(latestDraftRef.current),
+        submissionOfferId: editing ? null : nextSubmissionOfferId,
+      };
+      const written = saveRuntimeDraft(record);
+      if (!quiet) finishDraftSave(written);
+      return written;
+    },
+    [editing, entryKey, finishDraftSave, initialOffer, saveRuntimeDraft],
+  );
+  persistLatestDraftRef.current = persistLatestDraft;
+
+  function resetLogicalDraft() {
+    setFlow(initialFlow);
+    setCurrentStep(initialStep);
+    setDraft(seededDraft);
+    setError(null);
+    setInvalidField(null);
+    setMissingStep(null);
+    setReturnToReview(false);
+    setReviewValue(null);
+    setSubmissionOfferId(null);
+    submissionOfferIdRef.current = null;
+    latestSubmissionOfferIdRef.current = null;
+    submitInFlightRef.current = false;
+    setPending(false);
+  }
 
   function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen && (pending || submitInFlightRef.current)) return;
+    if (!nextOpen) persistLatestDraft();
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onOpenChange?.(nextOpen);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    setCurrentStep("recipient");
-    setDraft(
-      seedDraft({
-        recipients,
-        ...(lockedClientIdProp ? { lockedClientId: lockedClientIdProp } : {}),
-        taxMode,
-        taxRatePct,
-        defaultCurrency,
-        ...(initialOffer ? { initialOffer } : {}),
-      }),
-    );
-    setError(null);
-  }, [defaultCurrency, initialOffer, lockedClientIdProp, open, recipients, taxMode, taxRatePct]);
+  function clearLogicalDraftAndClose() {
+    suppressPersistenceRef.current = true;
+    persistenceReadyRef.current = false;
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    clearRuntimeDraft();
+    setSaveStatus("idle");
+    resetLogicalDraft();
+    if (controlledOpen === undefined) setUncontrolledOpen(false);
+    onOpenChange?.(false);
+  }
 
-  const selectedClientId = lockedClientId ?? draft.clientContactId;
-  const selectedRecipient = useMemo(
-    () => recipients.find((recipient) => recipient.id === selectedClientId),
-    [recipients, selectedClientId],
-  );
-  const projectOptionsLoaded = selectedClientId
-    ? loadedProjectClientIds.includes(selectedClientId)
-    : false;
-  const availableProjects = selectedClientId
-    ? (projectOptionsByClient[selectedClientId] ?? [])
-    : [];
-  const selectedTargetProject = availableProjects.find(
-    (project) => project.id === draft.targetProjectId,
-  );
-  const loadingProjects = loadingProjectClientId === selectedClientId;
-  const currentPriceCents = priceCents(draft.cashPrice);
-  const zeroCash = currentPriceCents === 0;
-  const currentStepIndex = Math.max(
-    0,
-    OFFER_STEPS.findIndex((step) => step.id === currentStep),
-  );
-  const currentStepMeta = OFFER_STEPS.find((step) => step.id === currentStep);
-  const isFirstStep = currentStepIndex === 0;
-  const isLastStep = currentStepIndex === OFFER_STEPS.length - 1;
+  useLayoutEffect(() => {
+    if (!open) {
+      initializedEntryRef.current = null;
+      persistenceReadyRef.current = false;
+      setPersistenceReady(false);
+      return;
+    }
+    if (!runtimeDraftLoaded || initializedEntryRef.current === entryKey) return;
+
+    suppressPersistenceRef.current = true;
+    persistenceReadyRef.current = false;
+    setPersistenceReady(false);
+    initializedEntryRef.current = entryKey;
+    submitInFlightRef.current = false;
+
+    const expectedMode = editing ? "edit" : "new";
+    const matchingRecord =
+      runtimeDraftRecord?.version === PRIVATE_OFFER_DRAFT_VERSION &&
+      runtimeDraftRecord.entryKey === entryKey &&
+      runtimeDraftRecord.mode === expectedMode &&
+      runtimeDraftRecord.existingOfferId === (initialOffer?.id ?? null) &&
+      runtimeDraftRecord.expectedUpdatedAt === (initialOffer?.expectedUpdatedAt ?? null);
+    const restoredDraft = matchingRecord
+      ? parsePrivateOfferComposerDraftJson(runtimeDraftRecord.draftJson)
+      : null;
+    const restoredLocation = matchingRecord
+      ? decodePersistedComposerStep(
+          runtimeDraftRecord.currentStep,
+          fullSteps,
+          templateProduct !== undefined,
+        )
+      : null;
+
+    setError(null);
+    setInvalidField(null);
+    setMissingStep(null);
+    setReturnToReview(false);
+    setReviewValue(null);
+
+    if (restoredDraft && restoredLocation) {
+      let nextFlow = restoredLocation.flow;
+      let nextStep = restoredLocation.step;
+      if (nextStep === "review") {
+        const quantityError =
+          nextFlow === "quick" ? quickTemplateQuantityError(restoredDraft, templateProduct) : null;
+        const restoredClientId =
+          lockedClientId ??
+          (restoredDraft.recipientKind === "existing" ? restoredDraft.clientContactId : "");
+        const restoredProjects = restoredClientId
+          ? (projectOptionsByClient[restoredClientId] ?? [])
+          : [];
+        const waitingForRestoredProjects =
+          restoredDraft.targetKind === "existing" &&
+          restoredClientId.length > 0 &&
+          !loadedProjectClientIds.includes(restoredClientId);
+        if (quantityError) {
+          nextStep = "quick";
+          setError(quantityError.message);
+          setInvalidField(quantityError.field);
+        } else if (!waitingForRestoredProjects) {
+          const restoredValidation = validatePrivateOfferReviewDraft(
+            restoredDraft,
+            lockedClientId,
+            restoredProjects,
+          );
+          if ("value" in restoredValidation) {
+            setReviewValue(restoredValidation.value);
+          } else {
+            nextFlow = "full";
+            nextStep = stepFromValidationError(restoredValidation.error.step);
+            setError(restoredValidation.error.message);
+            setInvalidField(restoredValidation.error.field);
+            setMissingStep(nextStep as FullStep);
+          }
+        }
+      }
+      setFlow(nextFlow);
+      setCurrentStep(nextStep);
+      setDraft(restoredDraft);
+      const candidateSubmissionOfferId = runtimeDraftRecord?.submissionOfferId ?? null;
+      const restoredSubmissionOfferId =
+        !editing && candidateSubmissionOfferId && UUID_PATTERN.test(candidateSubmissionOfferId)
+          ? candidateSubmissionOfferId
+          : null;
+      setSubmissionOfferId(restoredSubmissionOfferId);
+      submissionOfferIdRef.current = restoredSubmissionOfferId;
+      latestSubmissionOfferIdRef.current = restoredSubmissionOfferId;
+    } else {
+      resetLogicalDraft();
+    }
+
+    suppressPersistenceRef.current = false;
+    persistenceReadyRef.current = true;
+    setPersistenceReady(true);
+  }, [
+    editing,
+    entryKey,
+    fullSteps,
+    initialOffer,
+    initialFlow,
+    initialStep,
+    loadedProjectClientIds,
+    lockedClientId,
+    open,
+    projectOptionsByClient,
+    runtimeDraftLoaded,
+    runtimeDraftRecord,
+    seededDraft,
+    templateProduct,
+  ]);
+
+  useEffect(() => {
+    if (!open || !persistenceReady || suppressPersistenceRef.current) return;
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+    setSaveStatus("saving");
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      persistLatestDraft();
+    }, PRIVATE_OFFER_AUTOSAVE_DELAY_MS);
+    return () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [currentStep, draft, flow, open, persistLatestDraft, persistenceReady, submissionOfferId]);
+
+  useEffect(() => {
+    if (!open || !persistenceReady) return;
+    const flush = () => {
+      persistLatestDraft();
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+    };
+  }, [open, persistLatestDraft, persistenceReady]);
+
+  useEffect(() => {
+    return () => {
+      persistLatestDraftRef.current?.(undefined, true);
+      if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
+      if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open || !error) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (invalidField) {
+        const field = document.querySelector<HTMLElement>(
+          `[data-private-offer-field="${invalidField}"]`,
+        );
+        if (field) {
+          field.focus();
+          return;
+        }
+      }
+      errorAlertRef.current?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [currentStep, error, invalidField, open]);
 
   useEffect(() => {
     if (
       !open ||
       draft.recipientKind === "new" ||
       !selectedClientId ||
-      loadedProjectClientIds.includes(selectedClientId)
+      projectsLoaded ||
+      projectLoadError !== null
     ) {
       return;
     }
+    if (projectLoadRequestRef.current?.clientId === selectedClientId) return;
     if (!online) {
-      setLoadingProjectClientId(null);
-      setProjectLoadError("Reconnect to load this client’s projects.");
+      setProjectLoadErrorsByClient((current) => ({
+        ...current,
+        [selectedClientId]: "Reconnect to load this client’s projects.",
+      }));
       return;
     }
 
     let active = true;
+    const token = Symbol(selectedClientId);
+    projectLoadRequestRef.current = { clientId: selectedClientId, token };
     setLoadingProjectClientId(selectedClientId);
-    setProjectLoadError(null);
+    setProjectLoadErrorsByClient((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([clientId]) => clientId !== selectedClientId),
+      ),
+    );
     void loadPrivateOfferProjectOptionsAction(selectedClientId)
       .then((result) => {
         if (!active) return;
         if (!result.ok) {
-          setProjectLoadError(result.error);
+          setProjectLoadErrorsByClient((current) => ({
+            ...current,
+            [selectedClientId]: result.error,
+          }));
           setProjectOptionsByClient((current) => ({ ...current, [selectedClientId]: [] }));
           return;
         }
         setLoadedProjectClientIds((current) =>
           current.includes(selectedClientId) ? current : [...current, selectedClientId],
         );
-        setProjectOptionsByClient((current) => ({
-          ...current,
-          [selectedClientId]: result.data,
-        }));
+        setProjectOptionsByClient((current) => ({ ...current, [selectedClientId]: result.data }));
       })
       .catch(() => {
-        if (active) setProjectLoadError("Could not load this client’s projects. Try again.");
+        if (active) {
+          setProjectLoadErrorsByClient((current) => ({
+            ...current,
+            [selectedClientId]: "Could not load this client’s projects. Try again.",
+          }));
+        }
       })
       .finally(() => {
-        if (active) setLoadingProjectClientId(null);
+        if (projectLoadRequestRef.current?.token !== token) return;
+        projectLoadRequestRef.current = null;
+        setLoadingProjectClientId((current) => (current === selectedClientId ? null : current));
       });
-
     return () => {
       active = false;
+      if (projectLoadRequestRef.current?.token === token) {
+        projectLoadRequestRef.current = null;
+        setLoadingProjectClientId((current) => (current === selectedClientId ? null : current));
+      }
     };
-  }, [draft.recipientKind, loadedProjectClientIds, online, open, selectedClientId]);
+  }, [draft.recipientKind, online, open, projectLoadError, projectsLoaded, selectedClientId]);
 
-  function patch(next: Partial<ComposerDraft>) {
-    setDraft((current) => ({ ...current, ...next }));
-  }
+  useEffect(() => {
+    if (!open || currentStep !== "review" || reviewValue !== null) return;
 
-  function handlePriceChange(value: string) {
-    const nextCents = priceCents(value);
-    patch({
-      cashPrice: value,
-      ...(nextCents === 0 ? { fullPlan: false, splitPlan: false, monthlyPlan: false } : {}),
-    });
-  }
-
-  function moveToStep(nextStep: OfferStep) {
-    setError(null);
-    setCurrentStep(nextStep);
-    window.requestAnimationFrame(() => {
-      if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
-      stepHeadingRef.current?.focus();
-    });
-  }
-
-  function currentStepResult(): StepResult<unknown> {
-    if (currentStep === "recipient") {
-      return buildRecipientStep(draft, lockedClientId, availableProjects);
+    const quantityError =
+      flow === "quick" ? quickTemplateQuantityError(draft, templateProduct) : null;
+    if (quantityError) {
+      setCurrentStep("quick");
+      setError(quantityError.message);
+      setInvalidField(quantityError.field);
+      return;
     }
-    if (currentStep === "work") return buildWorkStep(draft);
-    if (currentStep === "payment") return buildPaymentStep(draft);
-    if (currentStep === "rights") return buildRightsStep(draft);
-    return buildAgreementStep(draft);
+
+    if (draft.targetKind === "existing" && !projectsLoaded) {
+      if (projectLoadError) {
+        setFlow("full");
+        setCurrentStep("recipient");
+        setMissingStep("recipient");
+        setReturnToReview(true);
+        setError(projectLoadError);
+        setInvalidField(null);
+      }
+      return;
+    }
+
+    const restoredValidation = validatePrivateOfferReviewDraft(
+      draft,
+      lockedClientId,
+      availableProjects,
+    );
+    if ("value" in restoredValidation) {
+      setReviewValue(restoredValidation.value);
+      return;
+    }
+    setFlow("full");
+    setCurrentStep(stepFromValidationError(restoredValidation.error.step));
+    setMissingStep(stepFromValidationError(restoredValidation.error.step));
+    setReturnToReview(true);
+    setError(restoredValidation.error.message);
+    setInvalidField(restoredValidation.error.field);
+  }, [
+    availableProjects,
+    currentStep,
+    draft,
+    flow,
+    lockedClientId,
+    open,
+    projectLoadError,
+    projectsLoaded,
+    reviewValue,
+    templateProduct,
+  ]);
+
+  function patch(next: Partial<PrivateOfferComposerDraft>) {
+    if (pending || submitInFlightRef.current) return;
+    setDraft((current) => ({ ...current, ...next }));
+    setError(null);
+    setInvalidField(null);
+    setMissingStep(null);
+  }
+
+  function moveToStep(step: ComposerStep) {
+    setCurrentStep(step);
+    setError(null);
+    setInvalidField(null);
+    setMissingStep(null);
+  }
+
+  function completeMissingTerms(step = missingStep) {
+    setFlow("full");
+    setReturnToReview(false);
+    setCurrentStep(step ?? "details");
+    setMissingStep(null);
+  }
+
+  function customizeTerms() {
+    const recipient = validatePrivateOfferStep(
+      "recipient",
+      draft,
+      lockedClientId,
+      availableProjects,
+    );
+    completeMissingTerms("error" in recipient ? "recipient" : "details");
+  }
+
+  function showValidationError(validationError: PrivateOfferDraftError) {
+    setError(validationError.message);
+    setInvalidField(validationError.field);
+    setMissingStep(
+      validationError.step === "review" ? null : stepFromValidationError(validationError.step),
+    );
+  }
+
+  function handleContinue() {
+    if (pending) return;
+    if (flow === "quick" && currentStep === "quick") {
+      const quantityError = quickTemplateQuantityError(draft, templateProduct);
+      if (quantityError) {
+        showValidationError(quantityError);
+        return;
+      }
+      const result = validatePrivateOfferReviewDraft(draft, lockedClientId, availableProjects);
+      if ("error" in result) {
+        showValidationError(result.error);
+        return;
+      }
+      setReviewValue(result.value);
+      moveToStep("review");
+      return;
+    }
+
+    if (currentStep === "type") {
+      if (!draft.presetId) {
+        setError("Choose an offer type to continue.");
+        setInvalidField("presetId");
+        return;
+      }
+    } else if (currentStep !== "review" && currentStep !== "quick") {
+      const result = validatePrivateOfferStep(
+        currentStep,
+        draft,
+        lockedClientId,
+        availableProjects,
+      );
+      if ("error" in result) {
+        showValidationError(result.error);
+        return;
+      }
+    }
+
+    if (returnToReview && currentStep !== "review") {
+      const result = validatePrivateOfferReviewDraft(draft, lockedClientId, availableProjects);
+      if ("error" in result) {
+        showValidationError(result.error);
+        return;
+      }
+      setReviewValue(result.value);
+      setReturnToReview(false);
+      moveToStep("review");
+      return;
+    }
+
+    const next = steps[stepIndex + 1];
+    if (!next) return;
+    if (next === "review") {
+      const result = validatePrivateOfferReviewDraft(draft, lockedClientId, availableProjects);
+      if ("error" in result) {
+        showValidationError(result.error);
+        return;
+      }
+      setReviewValue(result.value);
+    }
+    moveToStep(next);
   }
 
   function handleBack() {
-    if (isFirstStep || pending) return;
-    const previous = OFFER_STEPS[currentStepIndex - 1];
-    if (previous) moveToStep(previous.id);
+    if (pending || isFirstStep) return;
+    const previous = steps[stepIndex - 1];
+    if (previous) moveToStep(previous);
   }
 
-  function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
+  function handleReviewEdit(step: PrivateOfferReviewEditStep) {
+    if (pending || submitInFlightRef.current) return;
+    if (flow === "quick") setFlow("full");
+    setReturnToReview(true);
+    moveToStep(step);
+  }
 
-    if (!isLastStep) {
-      const result = currentStepResult();
-      if ("error" in result) {
-        setError(result.error);
-        if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
+  function handleSubmit() {
+    if (pending || submitInFlightRef.current) return;
+    if (!online) {
+      setError(
+        editing
+          ? "Reconnect to update this private offer."
+          : "Reconnect to send this private offer.",
+      );
+      setInvalidField(null);
+      return;
+    }
+    if (flow === "quick") {
+      const quantityError = quickTemplateQuantityError(draft, templateProduct);
+      if (quantityError) {
+        setCurrentStep("quick");
+        showValidationError(quantityError);
         return;
       }
-      const next = OFFER_STEPS[currentStepIndex + 1];
-      if (next) moveToStep(next.id);
+    }
+    const result = validatePrivateOfferDraft(draft, lockedClientId, availableProjects);
+    if ("error" in result) {
+      if (result.error.step !== "review") {
+        setFlow("full");
+        setReturnToReview(false);
+        setCurrentStep(stepFromValidationError(result.error.step));
+      }
+      showValidationError(result.error);
       return;
     }
-
-    if (!online) {
-      setError("Reconnect to send or update this private offer.");
-      return;
+    const value = result.value;
+    setReviewValue(value);
+    let createOfferId: string | null = null;
+    if (!initialOffer) {
+      createOfferId = submissionOfferIdRef.current ?? crypto.randomUUID();
+      if (submissionOfferIdRef.current === null) {
+        submissionOfferIdRef.current = createOfferId;
+        latestSubmissionOfferIdRef.current = createOfferId;
+        setSubmissionOfferId(createOfferId);
+      }
+      // This write is intentionally synchronous and must succeed before the
+      // action. If browser storage is unavailable, sending would make an
+      // ambiguous response unsafe to recover after reload. Keep the same id
+      // in memory and let a later retry persist that exact logical send.
+      if (!persistLatestDraft({ submissionOfferId: createOfferId })) {
+        const message =
+          "Your browser couldn’t safely save this send. Nothing was sent. Check site storage and try again.";
+        setError(message);
+        setInvalidField(null);
+        toast(message, "error");
+        return;
+      }
     }
-
-    const recipientStep = buildRecipientStep(draft, lockedClientId, availableProjects);
-    if ("error" in recipientStep) {
-      moveToStep("recipient");
-      setError(recipientStep.error);
-      return;
-    }
-    const workStep = buildWorkStep(draft);
-    if ("error" in workStep) {
-      moveToStep("work");
-      setError(workStep.error);
-      return;
-    }
-    const paymentStep = buildPaymentStep(draft);
-    if ("error" in paymentStep) {
-      moveToStep("payment");
-      setError(paymentStep.error);
-      return;
-    }
-    const rightsStep = buildRightsStep(draft);
-    if ("error" in rightsStep) {
-      moveToStep("rights");
-      setError(rightsStep.error);
-      return;
-    }
-    const agreementStep = buildAgreementStep(draft);
-    if ("error" in agreementStep) {
-      setError(agreementStep.error);
-      return;
-    }
-
-    const terms: PrivateOfferInput = {
-      name: workStep.value.name,
-      ...(workStep.value.tagline ? { tagline: workStep.value.tagline } : {}),
-      service: workStep.value.service,
-      deliverables: workStep.value.deliverables,
-      cashPriceCents: paymentStep.value.cashPriceCents,
-      currency: paymentStep.value.currency,
-      taxMode: paymentStep.value.taxMode,
-      taxRatePct: paymentStep.value.taxRatePct,
-      includedSongSpaces: workStep.value.includedSongSpaces,
-      session: workStep.value.session,
-      revisionRule: rightsStep.value.revisionRule,
-      royaltyTerms: rightsStep.value.royaltyTerms,
-      rights: rightsStep.value.rights,
-      enabledPaymentPlans: paymentStep.value.enabledPaymentPlans,
-      agreementText: agreementStep.value.agreementText,
-    };
-
-    startTransition(async () => {
+    submitInFlightRef.current = true;
+    setPending(true);
+    void (async () => {
       try {
-        const expiresAt = agreementStep.value.expiry.toISOString();
-        const result = initialOffer
+        const actionResult = initialOffer
           ? await updatePrivateOfferAction({
               offerId: initialOffer.id,
               expectedUpdatedAt: initialOffer.expectedUpdatedAt,
-              recipient: recipientStep.value.recipient,
-              target: recipientStep.value.target,
-              terms,
-              expiresAt,
+              recipient: value.recipient.recipient,
+              target: value.recipient.target,
+              terms: value.terms,
+              expiresAt: value.expiry.toISOString(),
             } satisfies UpdatePrivateOfferComposerPayload)
           : await sendPrivateOfferAction({
-              recipient: recipientStep.value.recipient,
-              target: recipientStep.value.target,
-              terms,
-              expiresAt,
+              offerId: createOfferId ?? submissionOfferIdRef.current ?? crypto.randomUUID(),
+              ...(templateProduct ? { sourceProductId: templateProduct.source.productId } : {}),
+              recipient: value.recipient.recipient,
+              target: value.recipient.target,
+              terms: value.terms,
+              expiresAt: value.expiry.toISOString(),
             } satisfies SendPrivateOfferComposerPayload);
 
-        if (!result.ok) {
-          setError(result.error);
-          toast(result.error, "error");
+        if (!actionResult.ok) {
+          submitInFlightRef.current = false;
+          setPending(false);
+          setError(actionResult.error);
+          setInvalidField(null);
+          toast(actionResult.error, "error");
           return;
         }
-        if (!editing && "emailDelivered" in result.data && !result.data.emailDelivered) {
+        if (
+          !editing &&
+          "emailDelivered" in actionResult.data &&
+          actionResult.data.emailDelivered === null
+        ) {
+          toast("Offer was already saved. No duplicate or second email was sent.", "info");
+        } else if (
+          !editing &&
+          "emailDelivered" in actionResult.data &&
+          actionResult.data.emailDelivered === false
+        ) {
           toast(
-            "Offer saved, but the notification email could not be sent. It is still available in the app.",
+            "Offer sent, but the notification email could not be delivered. It is still available in the app.",
             "info",
           );
         } else {
           toast(editing ? "Private offer updated." : "Private offer sent.", "success");
         }
-        if (!editing) onCreated?.(result.data.id);
-        handleOpenChange(false);
+        if (!editing) onCreated?.(actionResult.data.id);
+        clearLogicalDraftAndClose();
         if (editing || !onCreated) router.refresh();
       } catch {
+        submitInFlightRef.current = false;
+        setPending(false);
         const message = editing
           ? "The offer couldn’t be updated. Try again."
           : "The offer couldn’t be sent. Try again.";
         setError(message);
+        setInvalidField(null);
         toast(message, "error");
       }
-    });
+    })();
   }
 
-  const id = (name: string) => `${formId}-${name}`;
+  const projectStepProps = {
+    idPrefix,
+    draft,
+    recipients: editorRecipients,
+    ...(lockedClientId ? { lockedClientId } : {}),
+    projects: availableProjects.map((project) => ({
+      id: project.id,
+      label: privateOfferProjectOptionLabel(project),
+    })),
+    projectsStatus: loadingProjects
+      ? ("loading" as const)
+      : projectLoadError
+        ? ("error" as const)
+        : projectsLoaded
+          ? ("ready" as const)
+          : ("idle" as const),
+    ...(projectLoadError ? { projectsError: projectLoadError } : {}),
+    invalidField,
+    ...(selectedClientId
+      ? {
+          onRetryProjects: () => {
+            setProjectLoadErrorsByClient((current) =>
+              Object.fromEntries(
+                Object.entries(current).filter(([clientId]) => clientId !== selectedClientId),
+              ),
+            );
+            setLoadedProjectClientIds((current) =>
+              current.filter((clientId) => clientId !== selectedClientId),
+            );
+          },
+        }
+      : {}),
+    patch,
+  };
+
+  let body: React.ReactNode;
+  if (currentStep === "quick" && templateProduct) {
+    body = <PrivateOfferQuickStep {...projectStepProps} templateProduct={templateProduct} />;
+  } else if (currentStep === "recipient") {
+    body = <RecipientProjectFields {...projectStepProps} />;
+  } else if (currentStep === "type") {
+    body = (
+      <div
+        data-private-offer-field="presetId"
+        aria-invalid={invalidField === "presetId" ? true : undefined}
+        tabIndex={-1}
+      >
+        <TypeStep
+          picked={draft.presetId}
+          onPick={(presetId) => {
+            patch(presetDraftPatch(presetId, draft));
+          }}
+        />
+      </div>
+    );
+  } else if (currentStep === "details") {
+    body = (
+      <PrivateOfferDetailsStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
+  } else if (currentStep === "price") {
+    body = (
+      <PrivateOfferPriceStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
+  } else if (currentStep === "payment") {
+    body = <PrivateOfferPaymentStep draft={draft} invalidField={invalidField} patch={patch} />;
+  } else if (currentStep === "delivery") {
+    body = (
+      <PrivateOfferDeliveryStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
+  } else if (currentStep === "rights") {
+    body = (
+      <PrivateOfferRightsStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
+  } else if (validReview) {
+    const lockedIdentity = lockedClientId ? selectedRecipient : undefined;
+    const recipientName = lockedIdentity
+      ? lockedIdentity.name
+      : (initialOffer?.recipientName ??
+        (draft.recipientKind === "new"
+          ? draft.newRecipientName.trim()
+          : (selectedRecipient?.name ?? "Selected client")));
+    const recipientEmail = privateOfferRecipientEmail(
+      draft,
+      lockedIdentity?.email ?? initialOffer?.recipientEmail,
+      recipients,
+    );
+    body = (
+      <PrivateOfferReview
+        snapshot={validReview.snapshot}
+        targetLabel={
+          validReview.recipient.target.kind === "new"
+            ? "New project"
+            : (selectedProject?.title ?? "Existing project")
+        }
+        recipientName={recipientName}
+        recipientEmail={recipientEmail}
+        expiresAtLocal={draft.expiresAtLocal}
+        invalidField={invalidField}
+        onExpiresAtLocalChange={(expiresAtLocal) => {
+          patch({ expiresAtLocal });
+        }}
+        onEdit={handleReviewEdit}
+        {...(templateProduct ? { sourceTemplateName: templateProduct.source.productName } : {})}
+      />
+    );
+  } else if (
+    currentStep === "review" &&
+    draft.targetKind === "existing" &&
+    selectedClientId &&
+    !projectsLoaded &&
+    !projectLoadError
+  ) {
+    body = (
+      <div
+        role="status"
+        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 text-[13px] text-[rgb(var(--fg-muted))]"
+      >
+        Loading this project before showing the offer review…
+      </div>
+    );
+  } else {
+    body = (
+      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 text-[13px] text-[rgb(var(--fg-muted))]">
+        Complete the missing terms before reviewing this offer.
+      </div>
+    );
+  }
+
+  const completeMissing = templateProduct && flow === "quick" && missingStep;
+  const shellTrigger = trigger === null ? null : (trigger ?? defaultTrigger(editing));
+  const productName = initialOffer?.terms.name ?? templateProduct?.source.productName;
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      {trigger !== null ? (
-        <DialogPrimitive.Trigger asChild>
-          {trigger ?? (
+    <EditorShell
+      open={open}
+      onOpenChange={handleOpenChange}
+      trigger={shellTrigger}
+      {...(returnFocusRef ? { returnFocusRef } : {})}
+      mode={editing ? "edit" : "new"}
+      {...(productName ? { productName } : {})}
+      steps={steps}
+      current={currentStep}
+      title={copy.title}
+      subtitle={copy.subtitle}
+      canContinue={!pending && (currentStep !== "type" || draft.presetId !== null)}
+      onBack={handleBack}
+      onContinue={handleContinue}
+      onSave={handleSubmit}
+      onPublish={handleSubmit}
+      onSaveHidden={handleSubmit}
+      onDiscard={() => {
+        clearLogicalDraftAndClose();
+      }}
+      isLastStep={isLastStep}
+      isFirstStep={isFirstStep}
+      pending={pending}
+      pendingAction={editing ? "edit" : "publish"}
+      saveStatus={saveStatus}
+      editorLabel={editing ? "Edit private offer" : "Send a private offer"}
+      stepLabel={`Step ${String(stepIndex + 1)} of ${String(steps.length)} · ${
+        editing ? "EDITING PRIVATE OFFER" : "PRIVATE OFFER"
+      }`}
+      progressLabel="Private offer setup progress"
+      closeLabel="Close private offer editor"
+      continueLabel={currentStep === "quick" ? "Review offer →" : "Continue →"}
+      finalNote={
+        editing
+          ? "The artist sees these corrections immediately. Accepted offers stay locked."
+          : "Sending notifies the invited artist and locks the offer to their verified email."
+      }
+      showDiscard
+      discardLabel="Discard draft"
+      {...(templateProduct && flow === "quick"
+        ? {
+            utilityAction: {
+              label: completeMissing ? "Complete missing terms" : "Customize terms",
+              onClick: completeMissing
+                ? () => {
+                    completeMissingTerms();
+                  }
+                : customizeTerms,
+            },
+          }
+        : {})}
+      finalActions={[
+        {
+          label: editing ? "Save corrections" : "Send private offer",
+          pendingLabel: editing ? "Saving…" : "Sending…",
+          onClick: handleSubmit,
+          variant: "primary",
+        },
+      ]}
+    >
+      {error ? (
+        <div
+          ref={errorAlertRef}
+          role="alert"
+          tabIndex={-1}
+          className="mb-4 flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2.5 text-[12.5px] font-medium text-[rgb(var(--fg-danger))] sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>{error}</span>
+          {completeMissing ? (
             <button
               type="button"
-              className={[
-                "sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold transition-[filter,opacity]",
-                editing
-                  ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
-                  : "border border-transparent bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))] shadow-[0_8px_24px_-18px_rgb(var(--brand-primary)/0.75)] hover:brightness-105",
-              ].join(" ")}
+              onClick={() => {
+                completeMissingTerms();
+              }}
+              className="sk-press shrink-0 self-start rounded-[var(--radius-md)] bg-[rgb(var(--fg-default))] px-3 py-2 text-[12px] font-semibold text-[rgb(var(--bg-elevated))] sm:self-auto"
             >
-              {editing ? (
-                <Pencil className="h-4 w-4" aria-hidden />
-              ) : (
-                <Plus className="h-4 w-4" aria-hidden />
-              )}
-              {editing ? "Edit private offer" : "New private offer"}
+              Complete missing terms
             </button>
-          )}
-        </DialogPrimitive.Trigger>
+          ) : null}
+        </div>
       ) : null}
-
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.56)] backdrop-blur-[3px]" />
-        <DialogPrimitive.Content
-          onCloseAutoFocus={(event) => {
-            const target = returnFocusRef?.current;
-            if (!target?.isConnected) return;
-            event.preventDefault();
-            target.focus();
-          }}
-          className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[760px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl max-sm:top-auto max-sm:right-0 max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[94dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none"
-        >
-          <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-5 py-4 sm:px-6">
-            <div className="min-w-0 flex-1">
-              <DialogPrimitive.Title className="font-display text-[20px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] sm:text-[24px]">
-                {editing ? "Edit private offer" : "Send a private offer"}
-              </DialogPrimitive.Title>
-              <DialogPrimitive.Description className="mt-1 max-w-[58ch] text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                {editing
-                  ? "Correct the terms or project before the artist accepts. Accepted offers stay locked."
-                  : "The artist gets a notification. They can review these exact terms only after signing in with the invited email."}
-              </DialogPrimitive.Description>
-            </div>
-            <DialogPrimitive.Close
-              aria-label="Close private offer composer"
-              disabled={pending}
-              className="sk-press -mt-1 -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </DialogPrimitive.Close>
-          </header>
-
-          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div className="shrink-0 border-b border-[rgb(var(--border-subtle))] px-5 py-3 sm:px-6">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                  {currentStepMeta?.title ?? "Recipient & project"}
-                </p>
-                <p className="shrink-0 font-mono text-[10px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
-                  Step {currentStepIndex + 1} of {OFFER_STEPS.length}
-                </p>
-              </div>
-              <ol aria-label="Private offer progress" className="mt-2 grid grid-cols-5 gap-1.5">
-                {OFFER_STEPS.map((step, index) => (
-                  <li
-                    key={step.id}
-                    aria-current={index === currentStepIndex ? "step" : undefined}
-                    className={[
-                      "h-[3px] rounded-full transition-colors",
-                      index <= currentStepIndex
-                        ? "bg-[rgb(var(--brand-primary))]"
-                        : "bg-[rgb(var(--border-subtle))]",
-                    ].join(" ")}
-                  >
-                    <span className="sr-only">
-                      Step {index + 1}: {step.shortTitle}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            <div
-              ref={scrollBodyRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5"
-            >
-              {error ? (
-                <div
-                  role="alert"
-                  className="mb-4 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger))]"
-                >
-                  {error}
-                </div>
-              ) : null}
-
-              <div key={currentStep} className="sk-step-enter">
-                {currentStep === "recipient" ? (
-                  <Section
-                    title="Recipient & project"
-                    hint="A new project is the safe default. Existing projects are limited to the same client."
-                    headingRef={stepHeadingRef}
-                  >
-                    {lockedClientId ? (
-                      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
-                        <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                          {selectedRecipient?.name ?? "Selected client"}
-                        </p>
-                        <p className="mt-0.5 text-[12px] break-all text-[rgb(var(--fg-muted))]">
-                          {selectedRecipient?.email ?? "Recipient is locked for this offer"}
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("recipient")}>Recipient</FieldLabel>
-                          <select
-                            id={id("recipient")}
-                            value={
-                              draft.recipientKind === "new" ? "__new__" : draft.clientContactId
-                            }
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              patch({
-                                recipientKind: value === "__new__" ? "new" : "existing",
-                                clientContactId: value === "__new__" ? "" : value,
-                                targetKind: "new",
-                                targetProjectId: "",
-                              });
-                            }}
-                            className={INPUT_CLASS}
-                          >
-                            {recipients.map((recipient) => (
-                              <option key={recipient.id} value={recipient.id}>
-                                {recipient.name} — {recipient.email}
-                              </option>
-                            ))}
-                            <option value="__new__">New recipient…</option>
-                          </select>
-                        </div>
-                        {draft.recipientKind === "new" ? (
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("new-name")}>Recipient name</FieldLabel>
-                              <input
-                                id={id("new-name")}
-                                type="text"
-                                value={draft.newRecipientName}
-                                maxLength={160}
-                                onChange={(event) => {
-                                  patch({ newRecipientName: event.target.value });
-                                }}
-                                placeholder="Artist or band name"
-                                className={INPUT_CLASS}
-                              />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("new-email")}>
-                                Verified account email
-                              </FieldLabel>
-                              <input
-                                id={id("new-email")}
-                                type="email"
-                                value={draft.newRecipientEmail}
-                                maxLength={320}
-                                onChange={(event) => {
-                                  patch({ newRecipientEmail: event.target.value });
-                                }}
-                                placeholder="artist@example.com"
-                                className={INPUT_CLASS}
-                              />
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
-
-                    <fieldset>
-                      <legend className="mb-2 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                        Project after acceptance
-                      </legend>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
-                          <input
-                            type="radio"
-                            name={`${formId}-target`}
-                            checked={draft.targetKind === "new"}
-                            onChange={() => {
-                              patch({ targetKind: "new", targetProjectId: "" });
-                            }}
-                            className="mt-0.5 h-5 w-5 accent-[rgb(var(--brand-primary))]"
-                          />
-                          <span>
-                            <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                              New project
-                            </span>
-                            <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                              Created only when the artist accepts.
-                            </span>
-                          </span>
-                        </label>
-                        <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3 has-disabled:cursor-not-allowed has-disabled:opacity-50">
-                          <input
-                            type="radio"
-                            name={`${formId}-target`}
-                            checked={draft.targetKind === "existing"}
-                            disabled={
-                              draft.recipientKind === "new" ||
-                              !projectOptionsLoaded ||
-                              loadingProjects ||
-                              availableProjects.length === 0
-                            }
-                            onChange={() => {
-                              patch({ targetKind: "existing" });
-                            }}
-                            className="mt-0.5 h-5 w-5 accent-[rgb(var(--brand-primary))]"
-                          />
-                          <span>
-                            <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                              Existing project
-                            </span>
-                            <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                              {loadingProjects
-                                ? "Loading this client’s projects…"
-                                : projectLoadError
-                                  ? "Projects could not be loaded. Keep the new-project target."
-                                  : projectOptionsLoaded && availableProjects.length === 0
-                                    ? "This client has no eligible active project."
-                                    : "Deliberately attach to this client’s work."}
-                            </span>
-                          </span>
-                        </label>
-                      </div>
-                    </fieldset>
-                    {draft.targetKind === "existing" ? (
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("project")}>Same-client project</FieldLabel>
-                        <select
-                          id={id("project")}
-                          value={draft.targetProjectId}
-                          disabled={loadingProjects || !projectOptionsLoaded}
-                          onChange={(event) => {
-                            patch({ targetProjectId: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        >
-                          <option value="">Choose a project…</option>
-                          {availableProjects.map((project) => (
-                            <option key={project.id} value={project.id}>
-                              {privateOfferProjectOptionLabel(project)}
-                            </option>
-                          ))}
-                        </select>
-                        {selectedTargetProject ? (
-                          <p className="rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3 py-2 text-[11.5px] leading-relaxed [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
-                            Selected: {privateOfferProjectOptionLabel(selectedTargetProject)}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </Section>
-                ) : null}
-
-                {currentStep === "work" ? (
-                  <div className="space-y-4">
-                    <Section
-                      title="Work included"
-                      hint="Write the exact scope the artist will accept."
-                      headingRef={stepHeadingRef}
-                    >
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("name")}>Offer name</FieldLabel>
-                          <input
-                            id={id("name")}
-                            type="text"
-                            value={draft.name}
-                            maxLength={200}
-                            onChange={(event) => {
-                              patch({ name: event.target.value });
-                            }}
-                            placeholder="Custom EP production"
-                            className={INPUT_CLASS}
-                          />
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("service")}>Service</FieldLabel>
-                          <input
-                            id={id("service")}
-                            type="text"
-                            value={draft.service}
-                            maxLength={MAX_SERVICE_LENGTH}
-                            onChange={(event) => {
-                              patch({ service: event.target.value });
-                            }}
-                            placeholder="Production"
-                            className={INPUT_CLASS}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("tagline")} optional>
-                          Short note
-                        </FieldLabel>
-                        <input
-                          id={id("tagline")}
-                          type="text"
-                          value={draft.tagline}
-                          maxLength={300}
-                          onChange={(event) => {
-                            patch({ tagline: event.target.value });
-                          }}
-                          placeholder="A one-line summary for the artist"
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("deliverables")}>Deliverables</FieldLabel>
-                        <textarea
-                          id={id("deliverables")}
-                          value={draft.deliverables}
-                          rows={4}
-                          maxLength={MAX_DELIVERABLES_TEXT_LENGTH}
-                          onChange={(event) => {
-                            patch({ deliverables: event.target.value });
-                          }}
-                          placeholder={"Final mix\nInstrumental\nStems"}
-                          className={TEXTAREA_CLASS}
-                        />
-                        <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
-                          One deliverable per line.
-                        </p>
-                      </div>
-                      <div className="flex max-w-[240px] flex-col gap-2">
-                        <FieldLabel htmlFor={id("songs")}>Included song spaces</FieldLabel>
-                        <input
-                          id={id("songs")}
-                          type="number"
-                          min={0}
-                          max={1_000}
-                          step={1}
-                          inputMode="numeric"
-                          value={draft.includedSongSpaces}
-                          onChange={(event) => {
-                            patch({ includedSongSpaces: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                    </Section>
-
-                    <Section
-                      title="Session allowance"
-                      hint="Optional. This snapshots the allowance; scheduling is handled later."
-                    >
-                      <ToggleRow
-                        id={id("has-sessions")}
-                        checked={draft.hasSessionAllowance}
-                        title="Include studio or remote sessions"
-                        detail="Set a fixed number or an unlimited allowance."
-                        onChange={(checked) => {
-                          patch({ hasSessionAllowance: checked });
-                        }}
-                      />
-                      {draft.hasSessionAllowance ? (
-                        <>
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("session-limit")}>Allowance</FieldLabel>
-                              <select
-                                id={id("session-limit")}
-                                value={draft.sessionLimitMode}
-                                onChange={(event) => {
-                                  patch({ sessionLimitMode: event.target.value as LimitMode });
-                                }}
-                                className={INPUT_CLASS}
-                              >
-                                <option value="fixed">Fixed</option>
-                                <option value="unlimited">Unlimited</option>
-                              </select>
-                            </div>
-                            {draft.sessionLimitMode === "fixed" ? (
-                              <div className="flex flex-col gap-2">
-                                <FieldLabel htmlFor={id("session-count")}>Sessions</FieldLabel>
-                                <input
-                                  id={id("session-count")}
-                                  type="number"
-                                  min={1}
-                                  max={1_000}
-                                  step={1}
-                                  value={draft.sessionCount}
-                                  onChange={(event) => {
-                                    patch({ sessionCount: event.target.value });
-                                  }}
-                                  className={INPUT_CLASS}
-                                />
-                              </div>
-                            ) : null}
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("session-duration")}>Minutes each</FieldLabel>
-                              <input
-                                id={id("session-duration")}
-                                type="number"
-                                min={1}
-                                max={1_440}
-                                step={1}
-                                value={draft.sessionDurationMin}
-                                onChange={(event) => {
-                                  patch({ sessionDurationMin: event.target.value });
-                                }}
-                                className={INPUT_CLASS}
-                              />
-                            </div>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("session-location")}>Location</FieldLabel>
-                              <select
-                                id={id("session-location")}
-                                value={draft.sessionLocationType}
-                                onChange={(event) => {
-                                  patch({ sessionLocationType: event.target.value });
-                                }}
-                                className={INPUT_CLASS}
-                              >
-                                <option value="studio">Studio</option>
-                                <option value="remote">Remote</option>
-                                <option value="on_location">On location</option>
-                              </select>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("session-buffer")}>Buffer minutes</FieldLabel>
-                              <input
-                                id={id("session-buffer")}
-                                type="number"
-                                min={0}
-                                max={1_440}
-                                value={draft.sessionBufferMinutes}
-                                onChange={(event) => {
-                                  patch({ sessionBufferMinutes: event.target.value });
-                                }}
-                                className={INPUT_CLASS}
-                              />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                              <FieldLabel htmlFor={id("session-lead")}>
-                                Minimum notice (hours)
-                              </FieldLabel>
-                              <input
-                                id={id("session-lead")}
-                                type="number"
-                                min={0}
-                                max={8_760}
-                                value={draft.sessionMinLeadHours}
-                                onChange={(event) => {
-                                  patch({ sessionMinLeadHours: event.target.value });
-                                }}
-                                className={INPUT_CLASS}
-                              />
-                            </div>
-                          </div>
-                        </>
-                      ) : null}
-                    </Section>
-                  </div>
-                ) : null}
-
-                {currentStep === "payment" ? (
-                  <Section
-                    title="Price, tax & payment"
-                    hint="A true zero-cash offer has no payment plan or payment proof."
-                    headingRef={stepHeadingRef}
-                  >
-                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("price")}>Cash price</FieldLabel>
-                        <input
-                          id={id("price")}
-                          type="text"
-                          inputMode="decimal"
-                          value={draft.cashPrice}
-                          onChange={(event) => {
-                            handlePriceChange(event.target.value);
-                          }}
-                          placeholder="0.00"
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("currency")}>Currency</FieldLabel>
-                        <select
-                          id={id("currency")}
-                          value={draft.currency}
-                          onChange={(event) => {
-                            patch({ currency: event.target.value as PrivateOfferCurrency });
-                          }}
-                          className={INPUT_CLASS}
-                        >
-                          {CURRENCIES.map((currency) => (
-                            <option key={currency}>{currency}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <span className="text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                        Tax treatment
-                      </span>
-                      <TaxModeSegmented
-                        value={draft.taxMode}
-                        onChange={(next) => {
-                          patch({ taxMode: next });
-                        }}
-                        size="lg"
-                        ariaLabel="Private offer tax treatment"
-                      />
-                    </div>
-                    {draft.taxMode !== "tax_free" ? (
-                      <div className="flex max-w-[240px] flex-col gap-2">
-                        <FieldLabel htmlFor={id("tax-rate")}>Tax rate (%)</FieldLabel>
-                        <input
-                          id={id("tax-rate")}
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={draft.taxRatePct}
-                          onChange={(event) => {
-                            patch({ taxRatePct: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                    ) : null}
-                    <fieldset disabled={zeroCash} className={zeroCash ? "opacity-55" : ""}>
-                      <legend className="mb-2 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                        Enabled payment plans
-                      </legend>
-                      {zeroCash ? (
-                        <p className="mb-3 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                          No plan is created for a ₪0 / royalty-only acceptance.
-                        </p>
-                      ) : null}
-                      <div className="grid gap-2 sm:grid-cols-3">
-                        <ToggleRow
-                          id={id("plan-full")}
-                          checked={!zeroCash && draft.fullPlan}
-                          disabled={zeroCash}
-                          title="Pay in full"
-                          detail="One payment."
-                          onChange={(checked) => {
-                            patch({ fullPlan: checked });
-                          }}
-                        />
-                        <ToggleRow
-                          id={id("plan-split")}
-                          checked={!zeroCash && draft.splitPlan}
-                          disabled={zeroCash}
-                          title="50% / 50%"
-                          detail="At acceptance and final approval."
-                          onChange={(checked) => {
-                            patch({ splitPlan: checked });
-                          }}
-                        />
-                        <ToggleRow
-                          id={id("plan-monthly")}
-                          checked={!zeroCash && draft.monthlyPlan}
-                          disabled={zeroCash}
-                          title="Monthly"
-                          detail="Two to twelve payments."
-                          onChange={(checked) => {
-                            patch({ monthlyPlan: checked });
-                          }}
-                        />
-                      </div>
-                    </fieldset>
-                    {!zeroCash && draft.monthlyPlan ? (
-                      <div className="flex max-w-[240px] flex-col gap-2">
-                        <FieldLabel htmlFor={id("installments")}>Monthly payments</FieldLabel>
-                        <input
-                          id={id("installments")}
-                          type="number"
-                          min={2}
-                          max={12}
-                          step={1}
-                          value={draft.monthlyInstallments}
-                          onChange={(event) => {
-                            patch({ monthlyInstallments: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                    ) : null}
-                  </Section>
-                ) : null}
-
-                {currentStep === "rights" ? (
-                  <Section
-                    title="Royalties, rights & revisions"
-                    hint="Use percentage for a numeric share, agreement when the exact text below governs it, or none."
-                    headingRef={stepHeadingRef}
-                  >
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("master-mode")}>Master royalty</FieldLabel>
-                        <select
-                          id={id("master-mode")}
-                          value={draft.masterMode}
-                          onChange={(event) => {
-                            patch({ masterMode: event.target.value as RoyaltyMode });
-                          }}
-                          className={INPUT_CLASS}
-                        >
-                          <option value="none">None</option>
-                          <option value="percentage">Percentage</option>
-                          <option value="agreement">In the agreement</option>
-                        </select>
-                        {draft.masterMode === "percentage" ? (
-                          <input
-                            aria-label="Master royalty percentage"
-                            type="text"
-                            inputMode="decimal"
-                            value={draft.masterPercentage}
-                            onChange={(event) => {
-                              patch({ masterPercentage: event.target.value });
-                            }}
-                            placeholder="2.5%"
-                            className={INPUT_CLASS}
-                          />
-                        ) : null}
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("composition-mode")}>
-                          Composition royalty
-                        </FieldLabel>
-                        <select
-                          id={id("composition-mode")}
-                          value={draft.compositionMode}
-                          onChange={(event) => {
-                            patch({ compositionMode: event.target.value as RoyaltyMode });
-                          }}
-                          className={INPUT_CLASS}
-                        >
-                          <option value="none">None</option>
-                          <option value="percentage">Percentage</option>
-                          <option value="agreement">In the agreement</option>
-                        </select>
-                        {draft.compositionMode === "percentage" ? (
-                          <input
-                            aria-label="Composition royalty percentage"
-                            type="text"
-                            inputMode="decimal"
-                            value={draft.compositionPercentage}
-                            onChange={(event) => {
-                              patch({ compositionPercentage: event.target.value });
-                            }}
-                            placeholder="5%"
-                            className={INPUT_CLASS}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <FieldLabel htmlFor={id("royalty-notes")} optional>
-                        Royalty notes
-                      </FieldLabel>
-                      <textarea
-                        id={id("royalty-notes")}
-                        value={draft.royaltyNotes}
-                        rows={2}
-                        maxLength={4_000}
-                        onChange={(event) => {
-                          patch({ royaltyNotes: event.target.value });
-                        }}
-                        className={TEXTAREA_CLASS}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <FieldLabel htmlFor={id("rights")}>Rights</FieldLabel>
-                      <textarea
-                        id={id("rights")}
-                        value={draft.rights}
-                        rows={3}
-                        maxLength={MAX_RIGHTS_TEXT_LENGTH}
-                        onChange={(event) => {
-                          patch({ rights: event.target.value });
-                        }}
-                        placeholder="Artist owns the final master subject to the royalty above."
-                        className={TEXTAREA_CLASS}
-                      />
-                      <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
-                        One right or restriction per line.
-                      </p>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("revision-mode")}>Revisions</FieldLabel>
-                        <select
-                          id={id("revision-mode")}
-                          value={draft.revisionMode}
-                          onChange={(event) => {
-                            patch({ revisionMode: event.target.value as LimitMode });
-                          }}
-                          className={INPUT_CLASS}
-                        >
-                          <option value="fixed">Fixed</option>
-                          <option value="unlimited">Unlimited</option>
-                        </select>
-                      </div>
-                      {draft.revisionMode === "fixed" ? (
-                        <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("revision-count")}>Revision rounds</FieldLabel>
-                          <input
-                            id={id("revision-count")}
-                            type="number"
-                            min={0}
-                            max={1_000}
-                            step={1}
-                            value={draft.revisionCount}
-                            onChange={(event) => {
-                              patch({ revisionCount: event.target.value });
-                            }}
-                            className={INPUT_CLASS}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  </Section>
-                ) : null}
-
-                {currentStep === "agreement" ? (
-                  <Section
-                    title="Exact agreement & expiry"
-                    hint="This text and target lock when accepted. Later changes require a new offer."
-                    headingRef={stepHeadingRef}
-                  >
-                    <div className="flex flex-col gap-2">
-                      <FieldLabel htmlFor={id("agreement")}>Exact agreement</FieldLabel>
-                      <textarea
-                        id={id("agreement")}
-                        value={draft.agreementText}
-                        rows={8}
-                        maxLength={MAX_AGREEMENT_LENGTH}
-                        onChange={(event) => {
-                          patch({ agreementText: event.target.value });
-                        }}
-                        placeholder="Write every additional term the artist is agreeing to…"
-                        className={TEXTAREA_CLASS}
-                      />
-                    </div>
-                    <div className="flex max-w-[320px] flex-col gap-2">
-                      <FieldLabel htmlFor={id("expiry")}>Expires</FieldLabel>
-                      <input
-                        id={id("expiry")}
-                        type="datetime-local"
-                        value={draft.expiresAtLocal}
-                        onChange={(event) => {
-                          patch({ expiresAtLocal: event.target.value });
-                        }}
-                        className={INPUT_CLASS}
-                      />
-                      <p className="text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                        Defaults to 14 days from now. Expired offers leave the artist’s view but
-                        remain in your history.
-                      </p>
-                    </div>
-                  </Section>
-                ) : null}
-              </div>
-            </div>
-
-            <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 py-3 max-sm:pb-[calc(12px+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-4">
-              {isFirstStep ? (
-                <DialogPrimitive.Close asChild>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                </DialogPrimitive.Close>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  disabled={pending}
-                  className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
-                >
-                  <ArrowLeft className="h-4 w-4" aria-hidden />
-                  Back
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={pending || (isLastStep && !online)}
-                className="sk-press inline-flex min-h-11 min-w-[132px] items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[13px] font-semibold text-[rgb(var(--fg-on-brand))] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none max-sm:flex-1"
-              >
-                {isLastStep ? (
-                  <>
-                    <Send className="h-4 w-4" aria-hidden />
-                    {pending ? "Saving…" : editing ? "Save corrections" : "Send private offer"}
-                  </>
-                ) : (
-                  <>
-                    Next
-                    <ArrowRight className="h-4 w-4" aria-hidden />
-                  </>
-                )}
-              </button>
-            </footer>
-          </form>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+      {body}
+    </EditorShell>
   );
 }

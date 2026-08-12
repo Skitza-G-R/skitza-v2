@@ -12,6 +12,10 @@ type ActionFailure = { ok: false; error: string };
 type ActionSuccess<T> = { ok: true; data: T };
 
 export type SendPrivateOfferPayload = {
+  /** Generate once per logical send and reuse unchanged for every retry. */
+  offerId: string;
+  /** Present only when this independent offer snapshot started from a Store product. */
+  sourceProductId?: string;
   recipient: PrivateOfferRecipient;
   target: PrivateOfferTarget;
   terms: PrivateOfferInput;
@@ -116,7 +120,7 @@ export async function loadClientPrivateOffersAction(
 
 export async function sendPrivateOfferAction(
   input: SendPrivateOfferPayload,
-): Promise<ActionSuccess<{ id: string; emailDelivered: boolean }> | ActionFailure> {
+): Promise<ActionSuccess<{ id: string; emailDelivered: boolean | null }> | ActionFailure> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };
   const expiresAt = safeDate(input.expiresAt);
@@ -125,6 +129,8 @@ export async function sendPrivateOfferAction(
   try {
     const caller = appRouter.createCaller({ userId });
     const result = await caller.privateOffers.send({
+      offerId: input.offerId,
+      ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
       recipient: input.recipient,
       target: input.target,
       terms: input.terms,

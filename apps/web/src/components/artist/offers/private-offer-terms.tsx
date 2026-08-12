@@ -37,11 +37,17 @@ function sessionLines(snapshot: PurchaseCommercialSnapshot): string[] {
   ];
 }
 
-function TermsHeading({ children }: { children: React.ReactNode }) {
+function TermsHeading({
+  children,
+  as: Heading = "h2",
+}: {
+  children: React.ReactNode;
+  as?: "h2" | "h4";
+}) {
   return (
-    <h2 className="mb-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
+    <Heading className="mb-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
       {children}
-    </h2>
+    </Heading>
   );
 }
 
@@ -57,12 +63,16 @@ function TermsCard({ children }: { children: React.ReactNode }) {
 export function PrivateOfferTerms({
   snapshot,
   targetLabel,
+  embedded = false,
 }: {
   snapshot: PurchaseCommercialSnapshot;
   targetLabel: string;
+  embedded?: boolean;
 }) {
   const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
   const selectedPlan = snapshot.selectedPaymentPlan;
+  const OfferHeading = embedded ? "h4" : "h1";
+  const sectionHeading = embedded ? "h4" : "h2";
 
   return (
     <div className="min-w-0 space-y-5" data-testid="private-offer-terms">
@@ -71,9 +81,9 @@ export function PrivateOfferTerms({
           <p className="font-mono text-[9.5px] tracking-[0.14em] text-[rgb(var(--brand-primary))] uppercase">
             Private offer
           </p>
-          <h1 className="font-syne mt-1.5 text-[22px] leading-tight font-extrabold tracking-[-0.025em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] sm:text-[26px]">
+          <OfferHeading className="font-syne mt-1.5 text-[22px] leading-tight font-extrabold tracking-[-0.025em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] sm:text-[26px]">
             {snapshot.productOrOfferName}
-          </h1>
+          </OfferHeading>
           {snapshot.tagline ? (
             <p className="mt-1.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-muted))]">
               {snapshot.tagline}
@@ -106,7 +116,7 @@ export function PrivateOfferTerms({
       </section>
 
       <section className="min-w-0" aria-label="Deliverables">
-        <TermsHeading>Deliverables</TermsHeading>
+        <TermsHeading as={sectionHeading}>Deliverables</TermsHeading>
         <TermsCard>
           {snapshot.deliverables.length > 0 ? (
             <ul className="min-w-0 space-y-2">
@@ -131,7 +141,7 @@ export function PrivateOfferTerms({
       </section>
 
       <section className="min-w-0" aria-label="Allowances and revisions">
-        <TermsHeading>Song, session & revision allowance</TermsHeading>
+        <TermsHeading as={sectionHeading}>Song, session & revision allowance</TermsHeading>
         <TermsCard>
           <dl className="min-w-0 divide-y divide-[rgb(var(--border-subtle))] text-[13px]">
             <div className="grid min-w-0 gap-1 py-3 first:pt-0 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-4">
@@ -164,7 +174,7 @@ export function PrivateOfferTerms({
       </section>
 
       <section className="min-w-0" aria-label="Price and tax">
-        <TermsHeading>Cash price, tax & currency</TermsHeading>
+        <TermsHeading as={sectionHeading}>Cash price, tax & currency</TermsHeading>
         <TermsCard>
           <ol className="min-w-0 divide-y divide-[rgb(var(--border-subtle))]">
             {snapshot.lineItems.map((item, index) => (
@@ -225,7 +235,7 @@ export function PrivateOfferTerms({
       </section>
 
       <section className="min-w-0" aria-label="Payment plans">
-        <TermsHeading>Enabled payment plans</TermsHeading>
+        <TermsHeading as={sectionHeading}>Enabled payment plans</TermsHeading>
         <TermsCard>
           {snapshot.offeredPaymentPlans.length > 0 ? (
             <ul className="min-w-0 divide-y divide-[rgb(var(--border-subtle))]">
@@ -261,7 +271,7 @@ export function PrivateOfferTerms({
       </section>
 
       <section className="min-w-0" aria-label="Rights and royalties">
-        <TermsHeading>Rights, master & royalties</TermsHeading>
+        <TermsHeading as={sectionHeading}>Rights, master & royalties</TermsHeading>
         <TermsCard>
           <dl className="min-w-0 divide-y divide-[rgb(var(--border-subtle))] text-[13px]">
             <div className="grid min-w-0 gap-1 pb-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-4">
@@ -305,7 +315,7 @@ export function PrivateOfferTerms({
       </section>
 
       <section className="min-w-0" aria-label="Exact agreement">
-        <TermsHeading>Exact agreement</TermsHeading>
+        <TermsHeading as={sectionHeading}>Exact agreement</TermsHeading>
         <div className="min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-4">
           <p className="min-w-0 text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
             {snapshot.agreementText || "No additional agreement text."}

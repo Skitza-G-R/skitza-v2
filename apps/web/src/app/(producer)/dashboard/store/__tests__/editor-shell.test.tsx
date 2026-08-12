@@ -1,11 +1,81 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { EditorShell } from "../editor-shell";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "editor-shell.tsx"), "utf8");
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "scrollIntoView",
+);
+
+function EditorShellStepHarness() {
+  const [current, setCurrent] = useState("recipient");
+  const onNoop = vi.fn();
+  const priceStep = current === "price";
+
+  return (
+    <EditorShell
+      open
+      onOpenChange={onNoop}
+      presentation="embedded"
+      mode="new"
+      steps={["recipient", "price"]}
+      current={current}
+      title={priceStep ? "Set the price" : "Choose a recipient"}
+      canContinue
+      onBack={() => {
+        setCurrent("recipient");
+      }}
+      onContinue={() => {
+        setCurrent("price");
+      }}
+      onSave={onNoop}
+      onPublish={onNoop}
+      onSaveHidden={onNoop}
+      onDiscard={onNoop}
+      isLastStep={priceStep}
+      isFirstStep={!priceStep}
+      showDiscard={false}
+    >
+      <p>{priceStep ? "Price fields" : "Recipient fields"}</p>
+    </EditorShell>
+  );
+}
+
+beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  if (originalScrollIntoView) {
+    Object.defineProperty(
+      HTMLElement.prototype,
+      "scrollIntoView",
+      originalScrollIntoView,
+    );
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
+});
 
 describe("EditorShell shell", () => {
   it("uses Radix Dialog for portal + scrim", () => {
@@ -60,7 +130,8 @@ describe("EditorShell shell", () => {
   });
 
   it("has a close X button in the header", () => {
-    expect(SRC).toMatch(/aria-label="Close"/);
+    expect(SRC).toMatch(/closeLabel = "Close"/);
+    expect(SRC).toMatch(/aria-label=\{closeLabel\}/);
     expect(SRC).toMatch(/DialogPrimitive\.Close[\s\S]*?disabled=\{pending\}/);
     expect(SRC).toContain("if (!nextOpen && pending) return");
   });
@@ -93,5 +164,15 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/bodyRef\.current\.scrollTop\s*=\s*0/);
     expect(SRC).toMatch(/\[current, open, presentation\]/);
     expect(SRC).toContain('scrollIntoView({ block: "start" })');
+  });
+
+  it("moves focus to the new step heading after an explicit step change", () => {
+    render(<EditorShellStepHarness />);
+
+    expect(screen.getByRole("heading", { name: "Choose a recipient" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    const nextHeading = screen.getByRole("heading", { name: "Set the price" });
+    expect(document.activeElement).toBe(nextHeading);
   });
 });

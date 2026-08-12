@@ -11,6 +11,7 @@ import {
   readRuntimeState,
   runtimeScope,
   writeRuntimeState,
+  type ProducerPrivateOfferDraft,
   type ProducerStoreProductDraft,
   type RuntimeSlot,
 } from "../runtime-state";
@@ -70,6 +71,22 @@ function storeProductDraft(): ProducerStoreProductDraft {
       pricingModel: "flat",
       volumeTiers: [],
     },
+  };
+}
+
+function privateOfferDraft(
+  overrides: Partial<ProducerPrivateOfferDraft> = {},
+): ProducerPrivateOfferDraft {
+  return {
+    version: 1,
+    entryKey: "new:store",
+    mode: "new",
+    existingOfferId: null,
+    expectedUpdatedAt: null,
+    currentStep: "recipient",
+    draftJson: JSON.stringify({ recipientKind: "existing", selectedClientId: "client-a" }),
+    submissionOfferId: null,
+    ...overrides,
   };
 }
 
@@ -381,6 +398,124 @@ describe("account-scoped runtime storage", () => {
       } as never),
     ).toBe(false);
     expect(storage.length).toBe(0);
+  });
+
+  it("stores an exact account-scoped private-offer draft for 30 days", () => {
+    const storage = new MemoryStorage();
+    const owner = requiredScope("user-a", "producer", "producer-a", "/dashboard/store");
+    const draft = privateOfferDraft();
+
+    expect(writeRuntimeState(storage, owner, "producer.private-offer.draft", draft, 1)).toBe(
+      true,
+    );
+    expect(
+      readRuntimeState(
+        storage,
+        owner,
+        "producer.private-offer.draft",
+        1 + RUNTIME_DRAFT_MAX_AGE_MS,
+      ),
+    ).toEqual(draft);
+    expect(
+      readRuntimeState(
+        storage,
+        requiredScope("user-b", "producer", "producer-a", "/dashboard/store"),
+        "producer.private-offer.draft",
+        2,
+      ),
+    ).toBeNull();
+    expect(
+      readRuntimeState(
+        storage,
+        requiredScope("user-a", "producer", "producer-b", "/dashboard/store"),
+        "producer.private-offer.draft",
+        2,
+      ),
+    ).toBeNull();
+    expect(
+      readRuntimeState(
+        storage,
+        requiredScope(
+          "user-a",
+          "producer",
+          "producer-a",
+          "/dashboard/clients-projects/clients/client-a",
+        ),
+        "producer.private-offer.draft",
+        2,
+      ),
+    ).toBeNull();
+    expect(
+      readRuntimeState(
+        storage,
+        owner,
+        "producer.private-offer.draft",
+        2 + RUNTIME_DRAFT_MAX_AGE_MS,
+      ),
+    ).toBeNull();
+  });
+
+  it("bounds every private-offer draft field and rejects extra keys", () => {
+    const scope = requiredScope("user-a", "producer", "producer-a", "/dashboard/store");
+    const invalidDrafts: unknown[] = [
+      { ...privateOfferDraft(), paymentIntentId: "secret" },
+      privateOfferDraft({ entryKey: "k".repeat(513) }),
+      privateOfferDraft({ currentStep: "s".repeat(129) }),
+      privateOfferDraft({ draftJson: "d".repeat(200_001) }),
+      privateOfferDraft({ submissionOfferId: "o".repeat(129) }),
+      privateOfferDraft({
+        mode: "edit",
+        existingOfferId: "o".repeat(129),
+        expectedUpdatedAt: "2026-08-11T00:00:00.000Z",
+      }),
+      privateOfferDraft({
+        mode: "edit",
+        existingOfferId: "offer-a",
+        expectedUpdatedAt: "t".repeat(129),
+      }),
+    ];
+
+    for (const invalidDraft of invalidDrafts) {
+      const storage = new MemoryStorage();
+      expect(
+        writeRuntimeState(
+          storage,
+          scope,
+          "producer.private-offer.draft",
+          invalidDraft as ProducerPrivateOfferDraft,
+        ),
+      ).toBe(false);
+      expect(storage.length).toBe(0);
+    }
+  });
+
+  it("allows private-offer drafts only on Store and client-detail composer routes", () => {
+    const allowedScopes = [
+      requiredScope("user-a", "producer", "producer-a", "/dashboard/store"),
+      requiredScope(
+        "user-a",
+        "producer",
+        "producer-a",
+        "/dashboard/clients-projects/clients/client-a",
+      ),
+    ];
+    for (const scope of allowedScopes) {
+      expect(() => buildRuntimeStorageKey(scope, "producer.private-offer.draft")).not.toThrow();
+    }
+
+    const deniedScopes = [
+      requiredScope("user-a", "producer", "producer-a", "/dashboard/clients-projects"),
+      requiredScope(
+        "user-a",
+        "producer",
+        "producer-a",
+        "/dashboard/clients-projects/project-a",
+      ),
+      requiredScope("artist-a", "artist", "producer-a", "/artist/store"),
+    ];
+    for (const scope of deniedScopes) {
+      expect(() => buildRuntimeStorageKey(scope, "producer.private-offer.draft")).toThrow();
+    }
   });
 
   it("caps safe views to the 20 newest route states per role and context", () => {
