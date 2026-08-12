@@ -21,7 +21,7 @@ export type ArtistBookPageProps = {
 };
 
 // Server Component. Resolves the artist's studios + the active
-// studio's 14-day availability up front so the client component
+// studio's one-month availability up front so the client component
 // paints immediately. The active studio is selected via ?studio=<id>
 // from the Studio Switcher; falling back to the first studio when
 // nothing is specified.
@@ -180,8 +180,8 @@ function EmptyStudios() {
           Nothing to book yet.
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Once a producer invites you, their next 14 days appear here. You pick a window, they
-          confirm.
+          Once a producer invites you, their next month of availability appears here. You pick a
+          window, they confirm.
         </p>
       </div>
     </section>
