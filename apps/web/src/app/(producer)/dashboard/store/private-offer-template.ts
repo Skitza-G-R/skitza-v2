@@ -55,7 +55,14 @@ export function buildPrivateOfferTemplateProduct(
   const decoded = decodeDescription(product.description);
   const perSong = product.pricingModel === "per_song";
   const hourly = product.pricingModel === "hourly";
-  const firstTier = product.volumeTiers?.find((tier) => tier.minQty === 1);
+  const volumeTiers = perSong
+    ? product.volumeTiers && product.volumeTiers.length > 0
+      ? product.volumeTiers.map((tier) => ({ ...tier }))
+      : product.priceCents > 0
+        ? [{ minQty: 1, pricePerUnitCents: product.priceCents }]
+        : []
+    : [];
+  const firstTier = volumeTiers.find((tier) => tier.minQty === 1);
   const cashPriceCents = perSong
     ? (firstTier?.pricePerUnitCents ?? product.priceCents)
     : hourly
@@ -120,11 +127,12 @@ export function buildPrivateOfferTemplateProduct(
       ? {
           kind: "per_song",
           initialQuantity: 1,
-          volumeTiers: (product.volumeTiers ?? []).map((tier) => ({ ...tier })),
+          volumeTiers,
         }
       : hourly
         ? { kind: "hourly", hourlyRateCents: product.hourlyRateCents ?? 0 }
         : { kind: "fixed" },
-    agreementNeedsCompletion: agreementText.length === 0 || rights.length === 0,
+    rightsNeedCompletion: rights.length === 0,
+    agreementNeedsCompletion: agreementText.length === 0,
   };
 }

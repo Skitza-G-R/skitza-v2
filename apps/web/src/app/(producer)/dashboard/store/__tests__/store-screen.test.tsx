@@ -98,10 +98,7 @@ import { StoreScreen, type StoreProduct } from "../store-screen";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "store-screen.tsx"), "utf8");
 
-function offerTemplate(
-  productId: string,
-  productName: string,
-): PrivateOfferTemplateProduct {
+function offerTemplate(productId: string, productName: string): PrivateOfferTemplateProduct {
   return {
     source: {
       productId,
@@ -125,6 +122,7 @@ function offerTemplate(
       agreementText: "Standard production agreement.",
     },
     pricing: { kind: "fixed" },
+    rightsNeedCompletion: false,
     agreementNeedsCompletion: false,
   };
 }
@@ -199,9 +197,7 @@ function renderStore() {
 }
 
 function latestComposerProps(): ComposerMockProps {
-  const latest = mocks.composerProps.mock.calls.at(-1)?.[0] as
-    | ComposerMockProps
-    | undefined;
+  const latest = mocks.composerProps.mock.calls.at(-1)?.[0] as ComposerMockProps | undefined;
   if (!latest) throw new Error("PrivateOfferComposer did not render");
   return latest;
 }
@@ -346,12 +342,8 @@ describe("StoreScreen shell", () => {
 
   it("updates visibility immediately and rolls it back when saving fails", () => {
     expect(SRC).toContain("withProductVisibility");
-    expect(SRC).toMatch(
-      /setOptimisticProducts\(\(current\)\s*=>\s*withProductVisibility/,
-    );
-    expect(SRC).toMatch(
-      /withProductVisibility\(current,\s*p\.id,\s*p\.active\)/,
-    );
+    expect(SRC).toMatch(/setOptimisticProducts\(\(current\)\s*=>\s*withProductVisibility/);
+    expect(SRC).toMatch(/withProductVisibility\(current,\s*p\.id,\s*p\.active\)/);
     expect(SRC).not.toMatch(/const previousProducts = optimisticProducts/);
   });
 
@@ -467,9 +459,7 @@ describe("StoreScreen private-offer shortcut interaction", () => {
 
   it("refreshes once after success without switching tabs or entering reorder mode", () => {
     renderStore();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Send Live production privately" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Send Live production privately" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Complete private offer" }));
 
@@ -477,9 +467,9 @@ describe("StoreScreen private-offer shortcut interaction", () => {
     expect(screen.getByRole("tab", { name: /Products/ }).getAttribute("aria-selected")).toBe(
       "true",
     );
-    expect(
-      screen.getByRole("tab", { name: /Private offers/ }).getAttribute("aria-selected"),
-    ).toBe("false");
+    expect(screen.getByRole("tab", { name: /Private offers/ }).getAttribute("aria-selected")).toBe(
+      "false",
+    );
     expect(screen.getByRole("button", { name: "Reorder" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
@@ -487,23 +477,17 @@ describe("StoreScreen private-offer shortcut interaction", () => {
   it("hides both private-offer shortcuts while reorder mode is active", () => {
     renderStore();
 
-    expect(
-      screen.getAllByRole("button", { name: /^Send .* privately$/ }),
-    ).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Send .* privately$/ })).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Reorder" }));
 
-    expect(screen.queryAllByRole("button", { name: /^Send .* privately$/ })).toHaveLength(
-      0,
-    );
+    expect(screen.queryAllByRole("button", { name: /^Send .* privately$/ })).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Products/ }).getAttribute("aria-selected")).toBe(
       "true",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    expect(
-      screen.getAllByRole("button", { name: /^Send .* privately$/ }),
-    ).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Send .* privately$/ })).toHaveLength(2);
   });
 });

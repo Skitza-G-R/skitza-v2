@@ -25,6 +25,8 @@ export type PrivateOfferTemplateProduct = Readonly<{
   }>;
   terms: PrivateOfferInput;
   pricing: PrivateOfferTemplatePricing;
-  /** True when required private agreement or rights text cannot be copied canonically. */
+  /** True when required private rights cannot be copied canonically. */
+  rightsNeedCompletion: boolean;
+  /** True when the required inline private agreement cannot be copied canonically. */
   agreementNeedsCompletion: boolean;
 }>;

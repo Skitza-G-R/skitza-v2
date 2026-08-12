@@ -61,6 +61,7 @@ export interface PrivateOfferComposerDraft {
   revisionCount: string;
   agreementText: string;
   expiresAtLocal: string;
+  rightsNeedCompletion: boolean;
   agreementNeedsCompletion: boolean;
 }
 
@@ -85,9 +86,43 @@ export interface PrivateOfferValidatedDraft extends PrivateOfferReviewDraft {
   expiry: Date;
 }
 
+export type PrivateOfferDraftField =
+  | "presetId"
+  | "templateQuantity"
+  | "clientContactId"
+  | "newRecipientName"
+  | "newRecipientEmail"
+  | "targetProjectId"
+  | "name"
+  | "tagline"
+  | "service"
+  | "deliverables"
+  | "cashPrice"
+  | "currency"
+  | "taxRatePct"
+  | "paymentPlans"
+  | "monthlyInstallments"
+  | "includedSongSpaces"
+  | "sessionCount"
+  | "sessionDurationMin"
+  | "sessionLocationType"
+  | "sessionBufferMinutes"
+  | "sessionMinLeadHours"
+  | "revisionCount"
+  | "masterMode"
+  | "masterPercentage"
+  | "compositionMode"
+  | "compositionPercentage"
+  | "collectingSociety"
+  | "royaltyNotes"
+  | "rights"
+  | "agreementText"
+  | "expiresAtLocal";
+
 export interface PrivateOfferDraftError {
   message: string;
   step: "recipient" | "details" | "price" | "payment" | "delivery" | "rights" | "review";
+  field: PrivateOfferDraftField;
 }
 
 export type DraftResult<T> = { value: T } | { error: PrivateOfferDraftError };
@@ -143,8 +178,12 @@ const PRIVATE_OFFER_DRAFT_KEYS = [
   "revisionCount",
   "agreementText",
   "expiresAtLocal",
+  "rightsNeedCompletion",
   "agreementNeedsCompletion",
 ] as const satisfies readonly (keyof PrivateOfferComposerDraft)[];
+const LEGACY_PRIVATE_OFFER_DRAFT_KEYS = PRIVATE_OFFER_DRAFT_KEYS.filter(
+  (key) => key !== "rightsNeedCompletion",
+);
 
 const PRIVATE_OFFER_DRAFT_STRING_KEYS = [
   "clientContactId",
@@ -176,10 +215,13 @@ const PRIVATE_OFFER_DRAFT_STRING_KEYS = [
   "expiresAtLocal",
 ] as const satisfies readonly (keyof PrivateOfferComposerDraft)[];
 
-function isExactPrivateOfferDraftObject(value: unknown): value is Record<string, unknown> {
+function hasExactPrivateOfferDraftKeys(
+  value: unknown,
+  expectedKeys: readonly string[],
+): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const keys = Object.keys(value).sort();
-  const expected = [...PRIVATE_OFFER_DRAFT_KEYS].sort();
+  const expected = [...expectedKeys].sort();
   return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
 }
 
@@ -203,7 +245,22 @@ export function parsePrivateOfferComposerDraftJson(
   } catch {
     return null;
   }
-  if (!isExactPrivateOfferDraftObject(value)) return null;
+  if (hasExactPrivateOfferDraftKeys(value, LEGACY_PRIVATE_OFFER_DRAFT_KEYS)) {
+    if (
+      typeof value.rights !== "string" ||
+      typeof value.agreementText !== "string" ||
+      typeof value.agreementNeedsCompletion !== "boolean"
+    ) {
+      return null;
+    }
+    value = {
+      ...value,
+      rightsNeedCompletion: value.rights.trim().length === 0,
+      agreementNeedsCompletion:
+        value.agreementNeedsCompletion && value.agreementText.trim().length === 0,
+    };
+  }
+  if (!hasExactPrivateOfferDraftKeys(value, PRIVATE_OFFER_DRAFT_KEYS)) return null;
   if (
     PRIVATE_OFFER_DRAFT_STRING_KEYS.some(
       (key) => typeof value[key] !== "string" || value[key].length > 100_000,
@@ -216,6 +273,7 @@ export function parsePrivateOfferComposerDraftJson(
     typeof value.fullPlan !== "boolean" ||
     typeof value.splitPlan !== "boolean" ||
     typeof value.monthlyPlan !== "boolean" ||
+    typeof value.rightsNeedCompletion !== "boolean" ||
     typeof value.agreementNeedsCompletion !== "boolean" ||
     !(
       value.presetId === null ||
@@ -365,13 +423,13 @@ function templatePrice(template: PrivateOfferTemplateProduct): {
 export function totalForTemplateQuantity(
   tiers: Extract<PrivateOfferTemplatePricing, { kind: "per_song" }>["volumeTiers"],
   quantity: number,
-): number {
+): number | null {
   const ordered = [...tiers].sort((left, right) => left.minQty - right.minQty);
   let active = ordered[0];
   for (const tier of ordered) {
     if (quantity >= tier.minQty) active = tier;
   }
-  if (!active) return 0;
+  if (!active) return null;
   const total = BigInt(quantity) * BigInt(active.pricePerUnitCents);
   return Number(total);
 }
@@ -379,17 +437,25 @@ export function totalForTemplateQuantity(
 export function validatePrivateOfferTemplateQuantity(
   draft: PrivateOfferComposerDraft,
   pricing: Extract<PrivateOfferTemplatePricing, { kind: "per_song" }>,
-): DraftResult<{ quantity: number; suggestedTotalCents: number }> {
+): DraftResult<{ quantity: number; suggestedTotalCents: number | null }> {
   const quantity = positiveInteger(draft.templateQuantity, 1, 1_000);
   if (quantity === null) {
-    return draftError("price", "Choose a whole number of songs from 1 to 1,000.");
+    return draftError(
+      "price",
+      "templateQuantity",
+      "Choose a whole number of songs from 1 to 1,000.",
+    );
   }
   const suggestedTotalCents = totalForTemplateQuantity(pricing.volumeTiers, quantity);
   if (
-    !Number.isSafeInteger(suggestedTotalCents) ||
-    suggestedTotalCents > MAX_CASH_PRICE_CENTS
+    suggestedTotalCents !== null &&
+    (!Number.isSafeInteger(suggestedTotalCents) || suggestedTotalCents > MAX_CASH_PRICE_CENTS)
   ) {
-    return draftError("price", "This quantity makes the offer price too high. Choose fewer songs.");
+    return draftError(
+      "price",
+      "templateQuantity",
+      "This quantity makes the offer price too high. Choose fewer songs.",
+    );
   }
   // Quantity chooses the copied product tier and its starting subtotal, but a
   // private offer is one independent fixed quote. The producer may edit that
@@ -397,6 +463,7 @@ export function validatePrivateOfferTemplateQuantity(
   if (positiveInteger(draft.includedSongSpaces, 1, 1_000) !== quantity) {
     return draftError(
       "price",
+      "templateQuantity",
       "The song quantity no longer matches the included song spaces. Re-enter the quantity.",
     );
   }
@@ -423,7 +490,8 @@ export function seedPrivateOfferDraft(input: {
   const session = source?.session ?? null;
   const revision = source?.revisionRule ?? { kind: "fixed" as const, count: 0 };
   const templatePricing = template ? templatePrice(template) : null;
-  const cashPriceCents = initial?.cashPriceCents ?? templatePricing?.cashPriceCents ?? 0;
+  const cashPriceCents =
+    initial?.cashPriceCents ?? (template ? (templatePricing?.cashPriceCents ?? null) : 0);
   const plans = selectedPlanState(
     source?.enabledPaymentPlans ?? (cashPriceCents === 0 ? [] : [{ kind: "full" }]),
   );
@@ -451,7 +519,10 @@ export function seedPrivateOfferDraft(input: {
     sessionLocationType: session?.locationType ?? "studio",
     sessionBufferMinutes: String(session?.bufferMinutes ?? 0),
     sessionMinLeadHours: String(session?.minLeadHours ?? 24),
-    cashPrice: template?.pricing.kind === "hourly" ? "" : privateOfferCentsPrice(cashPriceCents),
+    cashPrice:
+      template?.pricing.kind === "hourly" || cashPriceCents === null
+        ? ""
+        : privateOfferCentsPrice(cashPriceCents),
     currency,
     taxMode: source?.taxMode ?? input.taxMode,
     taxRatePct: String(source?.taxRatePct ?? input.taxRatePct),
@@ -465,12 +536,17 @@ export function seedPrivateOfferDraft(input: {
     expiresAtLocal: input.initialOffer
       ? isoToLocalInput(input.initialOffer.expiresAt)
       : defaultPrivateOfferExpiryLocal(),
+    rightsNeedCompletion: template?.rightsNeedCompletion ?? false,
     agreementNeedsCompletion: template?.agreementNeedsCompletion ?? false,
   };
 }
 
-function draftError(step: PrivateOfferDraftError["step"], message: string): DraftResult<never> {
-  return { error: { step, message } };
+function draftError(
+  step: PrivateOfferDraftError["step"],
+  field: PrivateOfferDraftField,
+  message: string,
+): DraftResult<never> {
+  return { error: { step, field, message } };
 }
 
 export function validatePrivateOfferRecipient(
@@ -481,31 +557,47 @@ export function validatePrivateOfferRecipient(
   let recipient: PrivateOfferRecipientValue["recipient"];
   if (lockedClientId || draft.recipientKind === "existing") {
     const clientContactId = lockedClientId ?? draft.clientContactId;
-    if (!clientContactId) return draftError("recipient", "Choose a recipient.");
+    if (!clientContactId) return draftError("recipient", "clientContactId", "Choose a recipient.");
     recipient = { kind: "existing", clientContactId };
   } else {
     const name = draft.newRecipientName.trim();
     const email = draft.newRecipientEmail.trim().toLowerCase();
-    if (!name) return draftError("recipient", "Add the new recipient’s name.");
+    if (!name) return draftError("recipient", "newRecipientName", "Add the new recipient’s name.");
     if (name.length > 160) {
-      return draftError("recipient", "Recipient name must be 160 characters or fewer.");
+      return draftError(
+        "recipient",
+        "newRecipientName",
+        "Recipient name must be 160 characters or fewer.",
+      );
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
-      return draftError("recipient", "Enter a valid recipient email.");
+      return draftError("recipient", "newRecipientEmail", "Enter a valid recipient email.");
     }
     recipient = { kind: "new", name, email };
   }
 
   if (recipient.kind === "new" && draft.targetKind === "existing") {
-    return draftError("recipient", "A new recipient must start with a new project.");
+    return draftError(
+      "recipient",
+      "targetProjectId",
+      "A new recipient must start with a new project.",
+    );
   }
 
   if (draft.targetKind === "existing") {
     if (!draft.targetProjectId) {
-      return draftError("recipient", "Choose an existing project or start a new project.");
+      return draftError(
+        "recipient",
+        "targetProjectId",
+        "Choose an existing project or start a new project.",
+      );
     }
     if (!projects.some((project) => project.id === draft.targetProjectId)) {
-      return draftError("recipient", "That project is no longer available for this client.");
+      return draftError(
+        "recipient",
+        "targetProjectId",
+        "That project is no longer available for this client.",
+      );
     }
     return {
       value: {
@@ -524,25 +616,31 @@ function validateDetails(draft: PrivateOfferComposerDraft): DraftResult<{
   deliverables: string[];
 }> {
   const name = draft.name.trim();
-  if (!name) return draftError("details", "Add an offer title.");
+  if (!name) return draftError("details", "name", "Add an offer title.");
   if (name.length > 200)
-    return draftError("details", "Offer title must be 200 characters or fewer.");
+    return draftError("details", "name", "Offer title must be 200 characters or fewer.");
   const tagline = draft.tagline.trim();
   if (tagline.length > MAX_TAGLINE_LENGTH) {
-    return draftError("details", "Short description must be 300 characters or fewer.");
+    return draftError("details", "tagline", "Short description must be 300 characters or fewer.");
   }
   const service = draft.service.trim();
-  if (!service) return draftError("details", "Add the service this offer covers.");
+  if (!service) return draftError("details", "service", "Add the service this offer covers.");
   if (service.length > MAX_SERVICE_LENGTH) {
-    return draftError("details", "Service must be 200 characters or fewer.");
+    return draftError("details", "service", "Service must be 200 characters or fewer.");
   }
   const deliverables = splitPrivateOfferLines(draft.deliverables);
-  if (deliverables.length === 0) return draftError("details", "Add at least one deliverable.");
+  if (deliverables.length === 0) {
+    return draftError("details", "deliverables", "Add at least one deliverable.");
+  }
   if (deliverables.length > MAX_DELIVERABLES) {
-    return draftError("details", "Add no more than 20 deliverables.");
+    return draftError("details", "deliverables", "Add no more than 20 deliverables.");
   }
   if (deliverables.some((deliverable) => deliverable.length > MAX_DELIVERABLE_LENGTH)) {
-    return draftError("details", "Each deliverable must be 500 characters or fewer.");
+    return draftError(
+      "details",
+      "deliverables",
+      "Each deliverable must be 500 characters or fewer.",
+    );
   }
   return { value: { name, tagline, service, deliverables } };
 }
@@ -583,18 +681,22 @@ function validatePrice(draft: PrivateOfferComposerDraft): DraftResult<{
 }> {
   const cashPriceCents = privateOfferPriceCents(draft.cashPrice);
   if (cashPriceCents === null || cashPriceCents > MAX_CASH_PRICE_CENTS) {
-    return draftError("price", "Enter a valid price with up to two decimal places.");
+    return draftError("price", "cashPrice", "Enter a valid price with up to two decimal places.");
   }
   if (!/^[A-Z]{3}$/.test(draft.currency)) {
-    return draftError("price", "Enter a valid three-letter currency code.");
+    return draftError("price", "currency", "Enter a valid three-letter currency code.");
   }
   const taxRatePct = positiveInteger(draft.taxRatePct, 0, 100);
   if (taxRatePct === null) {
-    return draftError("price", "Tax must be a whole percentage from 0 to 100.");
+    return draftError("price", "taxRatePct", "Tax must be a whole percentage from 0 to 100.");
   }
   const tax = privateOfferTaxBreakdown(cashPriceCents, draft.taxMode, taxRatePct);
   if (!tax) {
-    return draftError("price", "This price is too high after tax. Lower the price and try again.");
+    return draftError(
+      "price",
+      "cashPrice",
+      "This price is too high after tax. Lower the price and try again.",
+    );
   }
   return { value: { cashPriceCents, taxRatePct, ...tax } };
 }
@@ -610,12 +712,20 @@ function enabledPlans(
   if (draft.monthlyPlan) {
     const installments = positiveInteger(draft.monthlyInstallments, 2, 12);
     if (installments === null) {
-      return draftError("payment", "Monthly payments must be between 2 and 12.");
+      return draftError(
+        "payment",
+        "monthlyInstallments",
+        "Monthly payments must be between 2 and 12.",
+      );
     }
     plans.push({ kind: "monthly", installments });
   }
   if (plans.length === 0) {
-    return draftError("payment", "Choose at least one payment option for a paid offer.");
+    return draftError(
+      "payment",
+      "paymentPlans",
+      "Choose at least one payment option for a paid offer.",
+    );
   }
   const maximumPayments = Math.max(
     ...plans.map((plan) =>
@@ -625,6 +735,7 @@ function enabledPlans(
   if (totalCents < maximumPayments) {
     return draftError(
       "payment",
+      "monthlyInstallments",
       "Increase the price or reduce installments so every payment is at least 1 cent.",
     );
   }
@@ -638,7 +749,11 @@ function validateDelivery(draft: PrivateOfferComposerDraft): DraftResult<{
 }> {
   const includedSongSpaces = positiveInteger(draft.includedSongSpaces, 0, 1_000);
   if (includedSongSpaces === null) {
-    return draftError("delivery", "Song spaces must be a whole number from 0 to 1,000.");
+    return draftError(
+      "delivery",
+      "includedSongSpaces",
+      "Song spaces must be a whole number from 0 to 1,000.",
+    );
   }
   let session: PrivateOfferInput["session"] = null;
   if (draft.hasSessionAllowance) {
@@ -648,20 +763,32 @@ function validateDelivery(draft: PrivateOfferComposerDraft): DraftResult<{
     const count =
       draft.sessionLimitMode === "fixed" ? positiveInteger(draft.sessionCount, 1, 1_000) : null;
     if (durationMin === null) {
-      return draftError("delivery", "Session duration must be from 1 to 1,440 minutes.");
+      return draftError(
+        "delivery",
+        "sessionDurationMin",
+        "Session duration must be from 1 to 1,440 minutes.",
+      );
     }
     if (bufferMinutes === null) {
-      return draftError("delivery", "Session buffer must be from 0 to 1,440 minutes.");
+      return draftError(
+        "delivery",
+        "sessionBufferMinutes",
+        "Session buffer must be from 0 to 1,440 minutes.",
+      );
     }
     if (minLeadHours === null) {
-      return draftError("delivery", "Session notice must be from 0 to 8,760 hours.");
+      return draftError(
+        "delivery",
+        "sessionMinLeadHours",
+        "Session notice must be from 0 to 8,760 hours.",
+      );
     }
     if (draft.sessionLimitMode === "fixed" && count === null) {
-      return draftError("delivery", "Session allowance must be from 1 to 1,000.");
+      return draftError("delivery", "sessionCount", "Session allowance must be from 1 to 1,000.");
     }
     const locationType = draft.sessionLocationType.trim();
     if (!locationType || locationType.length > 100) {
-      return draftError("delivery", "Choose a session location.");
+      return draftError("delivery", "sessionLocationType", "Choose a session location.");
     }
     session = {
       limit:
@@ -679,7 +806,11 @@ function validateDelivery(draft: PrivateOfferComposerDraft): DraftResult<{
   if (draft.revisionMode === "fixed") {
     const count = positiveInteger(draft.revisionCount, 0, 1_000);
     if (count === null) {
-      return draftError("delivery", "Revisions must be a whole number from 0 to 1,000.");
+      return draftError(
+        "delivery",
+        "revisionCount",
+        "Revisions must be a whole number from 0 to 1,000.",
+      );
     }
     revisionRule = { kind: "fixed", count };
   }
@@ -703,16 +834,22 @@ function validateRights(draft: PrivateOfferComposerDraft): DraftResult<{
   let royaltyTerms: PrivateOfferInput["royaltyTerms"] = null;
   if (draft.masterMode !== null || draft.compositionMode !== null) {
     if (draft.masterMode === null) {
-      return draftError("rights", "Choose a master-rights option.");
+      return draftError("rights", "masterMode", "Choose a master-rights option.");
     }
     if (draft.compositionMode === null) {
-      return draftError("rights", "Choose a composition-rights option.");
+      return draftError("rights", "compositionMode", "Choose a composition-rights option.");
     }
     const master = royaltyPart(draft.masterMode, draft.masterPercentage);
     const compositionBase = royaltyPart(draft.compositionMode, draft.compositionPercentage);
-    if (!master) return draftError("rights", "Enter a master royalty from 0.01% to 100%.");
+    if (!master) {
+      return draftError("rights", "masterPercentage", "Enter a master royalty from 0.01% to 100%.");
+    }
     if (!compositionBase) {
-      return draftError("rights", "Enter a composition royalty from 0.01% to 100%.");
+      return draftError(
+        "rights",
+        "compositionPercentage",
+        "Enter a composition royalty from 0.01% to 100%.",
+      );
     }
     const composition =
       compositionBase.mode === "percentage"
@@ -725,26 +862,49 @@ function validateRights(draft: PrivateOfferComposerDraft): DraftResult<{
           }
         : compositionBase;
     if (draft.collectingSociety.length > 200) {
-      return draftError("rights", "Collecting society must be 200 characters or fewer.");
+      return draftError(
+        "rights",
+        "collectingSociety",
+        "Collecting society must be 200 characters or fewer.",
+      );
     }
     const notes = draft.royaltyNotes.trim();
     if (notes.length > 4_000) {
-      return draftError("rights", "Royalty notes must be 4,000 characters or fewer.");
+      return draftError(
+        "rights",
+        "royaltyNotes",
+        "Royalty notes must be 4,000 characters or fewer.",
+      );
     }
     royaltyTerms = { master, composition, ...(notes ? { notes } : {}) };
   }
   const rights = splitPrivateOfferLines(draft.rights);
-  if (rights.length === 0) return draftError("rights", "Write the rights included in this offer.");
-  if (rights.length > MAX_RIGHTS) return draftError("rights", "Add no more than 20 rights.");
+  if (rights.length === 0) {
+    return draftError("rights", "rights", "Write the rights included in this offer.");
+  }
+  if (draft.rightsNeedCompletion) {
+    return draftError("rights", "rights", "Confirm the rights included in this offer.");
+  }
+  if (rights.length > MAX_RIGHTS) {
+    return draftError("rights", "rights", "Add no more than 20 rights.");
+  }
   if (rights.some((right) => right.length > MAX_RIGHT_LENGTH)) {
-    return draftError("rights", "Each right must be 1,000 characters or fewer.");
+    return draftError("rights", "rights", "Each right must be 1,000 characters or fewer.");
   }
   const agreementText = draft.agreementText.trim();
   if (!agreementText || draft.agreementNeedsCompletion) {
-    return draftError("rights", "Write the exact agreement the artist will accept.");
+    return draftError(
+      "rights",
+      "agreementText",
+      "Write the exact agreement the artist will accept.",
+    );
   }
   if (agreementText.length > MAX_AGREEMENT_LENGTH) {
-    return draftError("rights", "Exact agreement must be 50,000 characters or fewer.");
+    return draftError(
+      "rights",
+      "agreementText",
+      "Exact agreement must be 50,000 characters or fewer.",
+    );
   }
   return { value: { royaltyTerms, rights, agreementText } };
 }
@@ -752,7 +912,7 @@ function validateRights(draft: PrivateOfferComposerDraft): DraftResult<{
 function expiryResult(draft: PrivateOfferComposerDraft): DraftResult<Date> {
   const expiry = new Date(draft.expiresAtLocal);
   if (Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
-    return draftError("review", "Choose an expiry date in the future.");
+    return draftError("review", "expiresAtLocal", "Choose an expiry date in the future.");
   }
   return { value: expiry };
 }

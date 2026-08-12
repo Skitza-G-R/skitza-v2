@@ -690,6 +690,7 @@ async function lockArtistOffer(
       offer: privateOffers,
       recipientName: clientContacts.name,
       recipientEmail: privateOffers.recipientEmail,
+      producerArchivedAt: clientContacts.producerArchivedAt,
     })
     .from(privateOffers)
     .innerJoin(
@@ -782,7 +783,10 @@ export async function acceptPrivateOffer(
 ) {
   if (!input.agreementAccepted) unavailable();
   const outcome = await db.transaction(async (tx) => {
-    const { offer, recipientName, recipientEmail } = await lockArtistOffer(tx, input);
+    const { offer, recipientName, recipientEmail, producerArchivedAt } = await lockArtistOffer(
+      tx,
+      input,
+    );
 
     if (offer.status === "accepted") {
       const [existing] = await tx
@@ -807,6 +811,11 @@ export async function acceptPrivateOffer(
         created: false,
       };
     }
+
+    // Producer archive retains offer history and an already-accepted replay,
+    // but it must not create new commercial work. The joined FOR UPDATE lock
+    // serializes this check with archiveClient's update of the same contact.
+    if (producerArchivedAt !== null) unavailable();
 
     if (isPrivateOfferExpired(offer.expiresAt, input.now) && offer.status === "sent") {
       await tx

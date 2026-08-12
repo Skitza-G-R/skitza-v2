@@ -6,9 +6,7 @@ import {
   type PrivateOfferTemplateSource,
 } from "../private-offer-template";
 
-function source(
-  patch: Partial<PrivateOfferTemplateSource> = {},
-): PrivateOfferTemplateSource {
+function source(patch: Partial<PrivateOfferTemplateSource> = {}): PrivateOfferTemplateSource {
   return {
     id: "2b79653a-8aac-4b03-9fc6-bdf19487e4b8",
     name: "Single production",
@@ -81,6 +79,33 @@ describe("buildPrivateOfferTemplateProduct", () => {
     });
     expect(template.terms.cashPriceCents).toBe(20_000);
     expect(template.terms.includedSongSpaces).toBe(1);
+  });
+
+  it("uses a legacy per-song product price when its tier rows are missing", () => {
+    const template = buildPrivateOfferTemplateProduct(
+      source({ pricingModel: "per_song", priceCents: 23_500, volumeTiers: [] }),
+      SETTINGS,
+    );
+
+    expect(template.pricing).toEqual({
+      kind: "per_song",
+      initialQuantity: 1,
+      volumeTiers: [{ minQty: 1, pricePerUnitCents: 23_500 }],
+    });
+    expect(template.terms.cashPriceCents).toBe(23_500);
+  });
+
+  it("requires an explicit private subtotal when legacy per-song pricing has no nonzero fallback", () => {
+    const template = buildPrivateOfferTemplateProduct(
+      source({ pricingModel: "per_song", priceCents: 0, volumeTiers: [] }),
+      SETTINGS,
+    );
+
+    expect(template.pricing).toEqual({
+      kind: "per_song",
+      initialQuantity: 1,
+      volumeTiers: [],
+    });
   });
 
   it("derives song-space defaults without inventing spaces for session or hourly work", () => {
@@ -162,11 +187,9 @@ describe("buildPrivateOfferTemplateProduct", () => {
       bps: 500,
     });
     expect(template.terms.rights[0]).toContain("5% master royalty");
-    expect(template.terms.enabledPaymentPlans).toEqual([
-      { kind: "full" },
-      { kind: "split_50_50" },
-    ]);
+    expect(template.terms.enabledPaymentPlans).toEqual([{ kind: "full" }, { kind: "split_50_50" }]);
     expect(template.terms.agreementText).toBe("Exact product terms");
+    expect(template.rightsNeedCompletion).toBe(false);
     expect(template.agreementNeedsCompletion).toBe(false);
   });
 
@@ -181,6 +204,7 @@ describe("buildPrivateOfferTemplateProduct", () => {
     );
 
     expect(template.terms.agreementText).toBe("");
+    expect(template.rightsNeedCompletion).toBe(false);
     expect(template.agreementNeedsCompletion).toBe(true);
   });
 
@@ -196,6 +220,7 @@ describe("buildPrivateOfferTemplateProduct", () => {
     expect(template.terms.royaltyTerms).toBeNull();
     expect(template.terms.rights).toEqual([]);
     expect(template.terms.agreementText).toBe("Exact agreement text is present.");
-    expect(template.agreementNeedsCompletion).toBe(true);
+    expect(template.rightsNeedCompletion).toBe(true);
+    expect(template.agreementNeedsCompletion).toBe(false);
   });
 });

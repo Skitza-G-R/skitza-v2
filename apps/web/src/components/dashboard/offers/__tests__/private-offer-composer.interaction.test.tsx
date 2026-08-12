@@ -99,6 +99,7 @@ const VALID_TEMPLATE: PrivateOfferTemplateProduct = {
     agreementText: "These are the complete private-offer terms.",
   },
   pricing: { kind: "fixed" },
+  rightsNeedCompletion: false,
   agreementNeedsCompletion: false,
 };
 
@@ -375,8 +376,7 @@ describe("PrivateOfferComposer shared editor", () => {
     });
     expect(
       mocks.saveDraft.mock.calls.some(
-        ([record]) =>
-          (record as { currentStep?: string }).currentStep === "full:recipient",
+        ([record]) => (record as { currentStep?: string }).currentStep === "full:recipient",
       ),
     ).toBe(false);
 
@@ -438,9 +438,7 @@ describe("PrivateOfferComposer shared editor", () => {
 
     fireEvent.change(expiry, { target: { value: "2099-09-01T12:00" } });
     expect(expiry.getAttribute("aria-invalid")).toBe("false");
-    expect(
-      within(dialog).queryByText("Choose a future expiry date and time."),
-    ).toBeNull();
+    expect(within(dialog).queryByText("Choose a future expiry date and time.")).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
 
     await waitFor(() => {
@@ -494,6 +492,21 @@ describe("PrivateOfferComposer shared editor", () => {
     expect(within(dialog).getByText("Step 1 of 2 · PRIVATE OFFER")).not.toBeNull();
     expect(within(dialog).getByLabelText<HTMLSelectElement>("Recipient").value).toBe("");
     expect(within(dialog).getByRole("button", { name: "Review offer →" })).not.toBeNull();
+  });
+
+  it("focuses and marks the missing recipient instead of the general alert", async () => {
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer />);
+
+    const dialog = screen.getByRole("dialog");
+    const recipient = within(dialog).getByLabelText<HTMLSelectElement>("Recipient");
+    await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(recipient);
+    });
+    expect(recipient.getAttribute("aria-invalid")).toBe("true");
+    expect(within(dialog).getByRole("alert").textContent).toContain("Choose a recipient.");
   });
 
   it("keeps a new project safe after a project-load failure and retries only on request", async () => {
@@ -583,9 +596,7 @@ describe("PrivateOfferComposer shared editor", () => {
       await staleRetry.promise;
     });
 
-    await user.click(
-      within(dialog).getByRole("button", { name: "Add to an existing project" }),
-    );
+    await user.click(within(dialog).getByRole("button", { name: "Add to an existing project" }));
     const projectSelect = within(dialog).getByLabelText<HTMLSelectElement>("Existing project");
     expect(projectSelect.textContent).toContain("Noah's active project");
     expect(projectSelect.textContent).not.toContain("Maya's stale project");
@@ -618,6 +629,10 @@ describe("PrivateOfferComposer shared editor", () => {
     const deliverables = within(dialog).getByLabelText<HTMLTextAreaElement>(
       "Deliverables · one per line",
     );
+    await waitFor(() => {
+      expect(document.activeElement).toBe(deliverables);
+    });
+    expect(deliverables.getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(deliverables, { target: { value: "Final master" } });
     expect(
       within(dialog).getByLabelText<HTMLTextAreaElement>("Deliverables · one per line").value,
@@ -741,14 +756,12 @@ describe("PrivateOfferComposer shared editor", () => {
 
     for (const [index, invalidQuantity] of ["2.5", "", "1001"].entries()) {
       fireEvent.change(songs, { target: { value: invalidQuantity } });
-      expect(
-        within(dialog).getByLabelText<HTMLInputElement>("Cash price").value,
-      ).toBe("100.00");
+      expect(within(dialog).getByLabelText<HTMLInputElement>("Cash price").value).toBe("100.00");
       expect(
         within(dialog).getByText((_, element) =>
           Boolean(
             element?.tagName === "P" &&
-              element.textContent.match(/Subtotal\s+—\s+·\s+18% tax added/),
+            element.textContent.match(/Subtotal\s+—\s+·\s+18% tax added/),
           ),
         ),
       ).not.toBeNull();
@@ -758,14 +771,13 @@ describe("PrivateOfferComposer shared editor", () => {
       expect(artistPaysValue.textContent).toBe("—");
       await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
       const alert = await within(dialog).findByRole("alert");
-      expect(alert.textContent).toContain(
-        "Choose a whole number of songs from 1 to 1,000.",
-      );
+      expect(alert.textContent).toContain("Choose a whole number of songs from 1 to 1,000.");
       if (index === 0) {
         await waitFor(() => {
-          expect(document.activeElement).toBe(alert);
+          expect(document.activeElement).toBe(songs);
         });
       }
+      expect(songs.getAttribute("aria-invalid")).toBe("true");
       expect(within(dialog).getByRole("heading", { name: "Recipient & price" })).not.toBeNull();
       expect(within(dialog).queryByRole("heading", { name: "Review & send" })).toBeNull();
       expect(mocks.sendOffer).not.toHaveBeenCalled();
@@ -802,9 +814,7 @@ describe("PrivateOfferComposer shared editor", () => {
     const onCreated = vi.fn();
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
-    render(
-      <ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />,
-    );
+    render(<ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
 
     const dialog = await chooseRecipientAndReview(user);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
@@ -842,6 +852,80 @@ describe("PrivateOfferComposer shared editor", () => {
     expect(mocks.clearDraft).not.toHaveBeenCalled();
   });
 
+  it("does not send until its stable operation id is safely persisted", async () => {
+    mocks.sendOffer.mockResolvedValue({
+      ok: true,
+      data: { id: "offer-created", emailDelivered: true },
+    });
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer />);
+
+    const dialog = await chooseRecipientAndReview(user);
+    // Reserve the first result for the synchronous operation-id write before send.
+    mocks.saveDraft.mockReset();
+    mocks.saveDraft.mockReturnValueOnce(false).mockImplementation((record: unknown) => {
+      mocks.draftRecord = record;
+      return true;
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
+
+    expect(mocks.sendOffer).not.toHaveBeenCalled();
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "couldn’t safely save this send",
+    );
+    expect(mocks.saveDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        submissionOfferId: "11111111-1111-4111-8111-111111111111",
+      }),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
+    await waitFor(() => {
+      expect(mocks.sendOffer).toHaveBeenCalledOnce();
+    });
+    expect(mocks.sendOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ offerId: "11111111-1111-4111-8111-111111111111" }),
+    );
+  });
+
+  it("uses the sent offer identity when an archived recipient is absent from current options", async () => {
+    const archivedOffer = {
+      ...INITIAL_OFFER,
+      recipientName: "Frozen Artist",
+      recipientEmail: "frozen@example.test",
+    };
+    const user = userEvent.setup();
+    render(
+      <PrivateOfferComposer
+        {...commonProps()}
+        recipients={[]}
+        initialOffer={archivedOffer}
+        open
+        onOpenChange={vi.fn()}
+        trigger={null}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Frozen Artist")).not.toBeNull();
+    expect(within(dialog).getByText("frozen@example.test")).not.toBeNull();
+
+    for (const heading of [
+      "Details & deliverables",
+      "Price & tax",
+      "Payment options",
+      "Delivery & sessions",
+      "Rights & agreement",
+      "Review & send",
+    ]) {
+      await user.click(within(dialog).getByRole("button", { name: "Continue →" }));
+      expect(await within(dialog).findByRole("heading", { name: heading })).not.toBeNull();
+    }
+    expect(within(dialog).getByText("Frozen Artist")).not.toBeNull();
+    expect(within(dialog).getByText("frozen@example.test")).not.toBeNull();
+  });
+
   it("blocks duplicate submits and closing while a send is pending, then closes once", async () => {
     const pendingSend = deferred<{
       ok: true;
@@ -851,9 +935,7 @@ describe("PrivateOfferComposer shared editor", () => {
     const onCreated = vi.fn();
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
-    render(
-      <ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />,
-    );
+    render(<ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
 
     const dialog = await chooseRecipientAndReview(user);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
@@ -949,9 +1031,7 @@ describe("PrivateOfferComposer shared editor", () => {
       const onCreated = vi.fn();
       const onOpenChange = vi.fn();
       const user = userEvent.setup();
-      render(
-        <ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />,
-      );
+      render(<ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
 
       const dialog = await chooseRecipientAndReview(user);
       await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));

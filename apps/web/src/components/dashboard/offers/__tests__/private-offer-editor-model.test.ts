@@ -46,7 +46,7 @@ function expectError(
   step: string,
   message: string,
 ) {
-  expect(result).toEqual({ error: { step, message } });
+  expect(result).toMatchObject({ error: { step, message } });
 }
 
 describe("private-offer editor recipient model", () => {
@@ -59,7 +59,7 @@ describe("private-offer editor recipient model", () => {
 
     expect(draft.recipientKind).toBe("existing");
     expect(draft.clientContactId).toBe("");
-    expect(validatePrivateOfferRecipient(draft, undefined, [])).toEqual({
+    expect(validatePrivateOfferRecipient(draft, undefined, [])).toMatchObject({
       error: { step: "recipient", message: "Choose a recipient." },
     });
   });
@@ -90,7 +90,7 @@ describe("private-offer editor recipient model", () => {
         newRecipientEmail: email,
       });
 
-      expect(validatePrivateOfferRecipient(draft, undefined, [])).toEqual({
+      expect(validatePrivateOfferRecipient(draft, undefined, [])).toMatchObject({
         error: { step: "recipient", message: "Enter a valid recipient email." },
       });
     },
@@ -103,7 +103,9 @@ describe("private-offer editor recipient model", () => {
       targetProjectId: "project-1",
     });
 
-    expect(validatePrivateOfferRecipient(draft, "client-1", [{ id: "project-other" }])).toEqual({
+    expect(
+      validatePrivateOfferRecipient(draft, "client-1", [{ id: "project-other" }]),
+    ).toMatchObject({
       error: {
         step: "recipient",
         message: "That project is no longer available for this client.",
@@ -122,6 +124,23 @@ describe("private-offer runtime draft parser", () => {
   it("restores the exact current draft shape", () => {
     const draft = validDraft({ cashPrice: "245.00", compositionRole: "composer" });
     expect(parsePrivateOfferComposerDraftJson(JSON.stringify(draft))).toEqual(draft);
+  });
+
+  it("migrates the prior draft shape without losing separate rights completion state", () => {
+    const current = validDraft({
+      rights: "",
+      agreementText: "Exact agreement already present.",
+      rightsNeedCompletion: true,
+      agreementNeedsCompletion: true,
+    });
+    const legacy: Partial<PrivateOfferComposerDraft> = { ...current };
+    delete legacy.rightsNeedCompletion;
+
+    expect(parsePrivateOfferComposerDraftJson(JSON.stringify(legacy))).toMatchObject({
+      rightsNeedCompletion: true,
+      agreementNeedsCompletion: false,
+      agreementText: "Exact agreement already present.",
+    });
   });
 
   it.each([
@@ -626,7 +645,7 @@ describe("private-offer Store template safety", () => {
     ).toEqual({ value: { quantity: 3, suggestedTotalCents: 24_000 } });
     expect(
       validatePrivateOfferTemplateQuantity(validDraft({ templateQuantity: "2.5" }), pricing),
-    ).toEqual({
+    ).toMatchObject({
       error: { step: "price", message: "Choose a whole number of songs from 1 to 1,000." },
     });
     expect(
@@ -640,7 +659,7 @@ describe("private-offer Store template safety", () => {
         validDraft({ templateQuantity: "3", includedSongSpaces: "2", cashPrice: "200.00" }),
         pricing,
       ),
-    ).toEqual({
+    ).toMatchObject({
       error: {
         step: "price",
         message:
@@ -657,6 +676,50 @@ describe("private-offer Store template safety", () => {
       validatePrivateOfferDraft(validDraft({ currency: "" }), undefined, []),
       "price",
       "Enter a valid three-letter currency code.",
+    );
+  });
+
+  it("does not seed a silent free offer when legacy per-song tiers and price are missing", () => {
+    const legacyTemplate: PrivateOfferTemplateProduct = {
+      source: {
+        productId: "product-legacy-per-song",
+        productName: "Legacy production",
+        productKind: "production",
+      },
+      terms: {
+        name: "Legacy production",
+        service: "Production",
+        deliverables: ["Final master"],
+        cashPriceCents: 0,
+        currency: "USD",
+        taxMode: "tax_free",
+        taxRatePct: 0,
+        includedSongSpaces: 1,
+        session: null,
+        revisionRule: null,
+        royaltyTerms: null,
+        rights: ["Artist may release the final master."],
+        enabledPaymentPlans: [],
+        agreementText: "Exact legacy terms.",
+      },
+      pricing: { kind: "per_song", initialQuantity: 1, volumeTiers: [] },
+      rightsNeedCompletion: false,
+      agreementNeedsCompletion: false,
+    };
+
+    const draft = seedPrivateOfferDraft({
+      defaultCurrency: "USD",
+      taxMode: "tax_free",
+      taxRatePct: 0,
+      lockedClientId: "client-1",
+      templateProduct: legacyTemplate,
+    });
+
+    expect(draft.cashPrice).toBe("");
+    expectError(
+      validatePrivateOfferDraft({ ...draft, expiresAtLocal: FUTURE_EXPIRY }, "client-1", []),
+      "price",
+      "Enter a valid price with up to two decimal places.",
     );
   });
 
@@ -690,6 +753,7 @@ describe("private-offer Store template safety", () => {
         agreementText: "Exact studio-session terms.",
       },
       pricing: { kind: "hourly", hourlyRateCents: 12_500 },
+      rightsNeedCompletion: false,
       agreementNeedsCompletion: false,
     };
 
@@ -715,5 +779,63 @@ describe("private-offer Store template safety", () => {
       "price",
       "Enter a valid price with up to two decimal places.",
     );
+  });
+
+  it("keeps missing rights separate from agreement completion", () => {
+    const template: PrivateOfferTemplateProduct = {
+      source: {
+        productId: "product-rights-missing",
+        productName: "Legacy mix",
+        productKind: "mix",
+      },
+      terms: {
+        name: "Legacy mix",
+        service: "Mix",
+        deliverables: ["Final mix"],
+        cashPriceCents: 20_000,
+        currency: "USD",
+        taxMode: "tax_free",
+        taxRatePct: 0,
+        includedSongSpaces: 1,
+        session: null,
+        revisionRule: null,
+        royaltyTerms: null,
+        rights: [],
+        enabledPaymentPlans: [{ kind: "full" }],
+        agreementText: "The complete exact agreement is already present.",
+      },
+      pricing: { kind: "fixed" },
+      rightsNeedCompletion: true,
+      agreementNeedsCompletion: false,
+    };
+    const draft = seedPrivateOfferDraft({
+      defaultCurrency: "USD",
+      taxMode: "tax_free",
+      taxRatePct: 0,
+      lockedClientId: "client-1",
+      templateProduct: template,
+    });
+
+    expect(draft.rightsNeedCompletion).toBe(true);
+    expect(draft.agreementNeedsCompletion).toBe(false);
+    expect(
+      validatePrivateOfferDraft(
+        { ...draft, rights: "Artist owns the final master.", expiresAtLocal: FUTURE_EXPIRY },
+        "client-1",
+        [],
+      ),
+    ).toHaveProperty("error.message", "Confirm the rights included in this offer.");
+    expect(
+      validatePrivateOfferDraft(
+        {
+          ...draft,
+          rights: "Artist owns the final master.",
+          rightsNeedCompletion: false,
+          expiresAtLocal: FUTURE_EXPIRY,
+        },
+        "client-1",
+        [],
+      ),
+    ).toHaveProperty("value.terms.agreementText", template.terms.agreementText);
   });
 });

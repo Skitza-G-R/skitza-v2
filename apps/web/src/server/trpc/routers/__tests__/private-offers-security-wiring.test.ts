@@ -188,6 +188,20 @@ describe("private-offer transition concurrency wiring", () => {
     expect(accept).toContain("operationKey: `private-offer:${offer.id}:accept:v1`");
   });
 
+  it("blocks a new acceptance for a producer-archived client without breaking accepted replay", () => {
+    const lockArtist = compact(implementationOf("lockArtistOffer"));
+    const accept = compact(implementationOf("acceptPrivateOffer"));
+    expect(lockArtist).toContain("producerArchivedAt: clientContacts.producerArchivedAt");
+    const replay = accept.indexOf('if (offer.status === "accepted")');
+    const archivedGuard = accept.indexOf("producerArchivedAt !== null");
+    const projectInsert = accept.indexOf(".insert(projects)");
+    const purchaseAcceptance = accept.indexOf("acceptPurchase(");
+    expect(replay).toBeGreaterThanOrEqual(0);
+    expect(archivedGuard).toBeGreaterThan(replay);
+    expect(projectInsert).toBeGreaterThan(archivedGuard);
+    expect(purchaseAcceptance).toBeGreaterThan(archivedGuard);
+  });
+
   it("serializes and enforces the studio-wide active-purchase guard before acceptance", () => {
     const accept = compact(implementationOf("acceptPrivateOffer"));
 

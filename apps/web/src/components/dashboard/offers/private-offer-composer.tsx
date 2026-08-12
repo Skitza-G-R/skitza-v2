@@ -42,6 +42,7 @@ import {
   type PrivateOfferComposerDraft,
   type PrivateOfferCurrency,
   type PrivateOfferDraftError,
+  type PrivateOfferDraftField,
   type PrivateOfferReviewDraft,
 } from "./private-offer-editor-model";
 import {
@@ -395,6 +396,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const [currentStep, setCurrentStep] = useState<ComposerStep>(initialStep);
   const [draft, setDraft] = useState<PrivateOfferComposerDraft>(seededDraft);
   const [error, setError] = useState<string | null>(null);
+  const [invalidField, setInvalidField] = useState<PrivateOfferDraftField | null>(null);
   const [missingStep, setMissingStep] = useState<FullStep | null>(null);
   const [returnToReview, setReturnToReview] = useState(false);
   const [reviewValue, setReviewValue] = useState<PrivateOfferReviewDraft | null>(null);
@@ -445,7 +447,25 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const isLastStep = currentStep === "review";
   const selectedClientId =
     lockedClientId ?? (draft.recipientKind === "existing" ? draft.clientContactId : "");
-  const selectedRecipient = recipients.find((recipient) => recipient.id === selectedClientId);
+  const currentSelectedRecipient = recipients.find(
+    (recipient) => recipient.id === selectedClientId,
+  );
+  const editRecipientFallback =
+    editing && lockedClientId
+      ? {
+          id: lockedClientId,
+          name: initialOffer.recipientName ?? currentSelectedRecipient?.name ?? "Selected client",
+          email: initialOffer.recipientEmail ?? currentSelectedRecipient?.email ?? "",
+          projects: [] as PrivateOfferComposerProject[],
+        }
+      : null;
+  const editorRecipients = editRecipientFallback
+    ? [
+        ...recipients.filter((recipient) => recipient.id !== editRecipientFallback.id),
+        editRecipientFallback,
+      ]
+    : recipients;
+  const selectedRecipient = editorRecipients.find((recipient) => recipient.id === selectedClientId);
   const availableProjects = selectedClientId
     ? (projectOptionsByClient[selectedClientId] ?? [])
     : [];
@@ -505,6 +525,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     setCurrentStep(initialStep);
     setDraft(seededDraft);
     setError(null);
+    setInvalidField(null);
     setMissingStep(null);
     setReturnToReview(false);
     setReviewValue(null);
@@ -570,6 +591,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
       : null;
 
     setError(null);
+    setInvalidField(null);
     setMissingStep(null);
     setReturnToReview(false);
     setReviewValue(null);
@@ -579,9 +601,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
       let nextStep = restoredLocation.step;
       if (nextStep === "review") {
         const quantityError =
-          nextFlow === "quick"
-            ? quickTemplateQuantityError(restoredDraft, templateProduct)
-            : null;
+          nextFlow === "quick" ? quickTemplateQuantityError(restoredDraft, templateProduct) : null;
         const restoredClientId =
           lockedClientId ??
           (restoredDraft.recipientKind === "existing" ? restoredDraft.clientContactId : "");
@@ -595,6 +615,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
         if (quantityError) {
           nextStep = "quick";
           setError(quantityError.message);
+          setInvalidField(quantityError.field);
         } else if (!waitingForRestoredProjects) {
           const restoredValidation = validatePrivateOfferReviewDraft(
             restoredDraft,
@@ -607,6 +628,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
             nextFlow = "full";
             nextStep = stepFromValidationError(restoredValidation.error.step);
             setError(restoredValidation.error.message);
+            setInvalidField(restoredValidation.error.field);
             setMissingStep(nextStep as FullStep);
           }
         }
@@ -691,12 +713,21 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   useEffect(() => {
     if (!open || !error) return;
     const frame = window.requestAnimationFrame(() => {
+      if (invalidField) {
+        const field = document.querySelector<HTMLElement>(
+          `[data-private-offer-field="${invalidField}"]`,
+        );
+        if (field) {
+          field.focus();
+          return;
+        }
+      }
       errorAlertRef.current?.focus();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [currentStep, error, open]);
+  }, [currentStep, error, invalidField, open]);
 
   useEffect(() => {
     if (
@@ -759,19 +790,10 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
       active = false;
       if (projectLoadRequestRef.current?.token === token) {
         projectLoadRequestRef.current = null;
-        setLoadingProjectClientId((current) =>
-          current === selectedClientId ? null : current,
-        );
+        setLoadingProjectClientId((current) => (current === selectedClientId ? null : current));
       }
     };
-  }, [
-    draft.recipientKind,
-    online,
-    open,
-    projectLoadError,
-    projectsLoaded,
-    selectedClientId,
-  ]);
+  }, [draft.recipientKind, online, open, projectLoadError, projectsLoaded, selectedClientId]);
 
   useEffect(() => {
     if (!open || currentStep !== "review" || reviewValue !== null) return;
@@ -781,6 +803,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     if (quantityError) {
       setCurrentStep("quick");
       setError(quantityError.message);
+      setInvalidField(quantityError.field);
       return;
     }
 
@@ -791,6 +814,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
         setMissingStep("recipient");
         setReturnToReview(true);
         setError(projectLoadError);
+        setInvalidField(null);
       }
       return;
     }
@@ -809,6 +833,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     setMissingStep(stepFromValidationError(restoredValidation.error.step));
     setReturnToReview(true);
     setError(restoredValidation.error.message);
+    setInvalidField(restoredValidation.error.field);
   }, [
     availableProjects,
     currentStep,
@@ -826,19 +851,22 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     if (pending || submitInFlightRef.current) return;
     setDraft((current) => ({ ...current, ...next }));
     setError(null);
+    setInvalidField(null);
     setMissingStep(null);
   }
 
   function moveToStep(step: ComposerStep) {
     setCurrentStep(step);
     setError(null);
+    setInvalidField(null);
     setMissingStep(null);
   }
 
   function completeMissingTerms(step = missingStep) {
     setFlow("full");
     setReturnToReview(false);
-    moveToStep(step ?? "details");
+    setCurrentStep(step ?? "details");
+    setMissingStep(null);
   }
 
   function customizeTerms() {
@@ -853,6 +881,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
 
   function showValidationError(validationError: PrivateOfferDraftError) {
     setError(validationError.message);
+    setInvalidField(validationError.field);
     setMissingStep(
       validationError.step === "review" ? null : stepFromValidationError(validationError.step),
     );
@@ -863,8 +892,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     if (flow === "quick" && currentStep === "quick") {
       const quantityError = quickTemplateQuantityError(draft, templateProduct);
       if (quantityError) {
-        setError(quantityError.message);
-        setMissingStep(null);
+        showValidationError(quantityError);
         return;
       }
       const result = validatePrivateOfferReviewDraft(draft, lockedClientId, availableProjects);
@@ -880,6 +908,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     if (currentStep === "type") {
       if (!draft.presetId) {
         setError("Choose an offer type to continue.");
+        setInvalidField("presetId");
         return;
       }
     } else if (currentStep !== "review" && currentStep !== "quick") {
@@ -941,14 +970,14 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           ? "Reconnect to update this private offer."
           : "Reconnect to send this private offer.",
       );
+      setInvalidField(null);
       return;
     }
     if (flow === "quick") {
       const quantityError = quickTemplateQuantityError(draft, templateProduct);
       if (quantityError) {
         setCurrentStep("quick");
-        setError(quantityError.message);
-        setMissingStep(null);
+        showValidationError(quantityError);
         return;
       }
     }
@@ -971,10 +1000,18 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
         submissionOfferIdRef.current = createOfferId;
         latestSubmissionOfferIdRef.current = createOfferId;
         setSubmissionOfferId(createOfferId);
-        // This write is intentionally synchronous and happens before the
-        // action. A network failure, reload, or ordinary close must retry the
-        // same logical send id rather than create a second offer/email.
-        persistLatestDraft({ submissionOfferId: createOfferId });
+      }
+      // This write is intentionally synchronous and must succeed before the
+      // action. If browser storage is unavailable, sending would make an
+      // ambiguous response unsafe to recover after reload. Keep the same id
+      // in memory and let a later retry persist that exact logical send.
+      if (!persistLatestDraft({ submissionOfferId: createOfferId })) {
+        const message =
+          "Your browser couldn’t safely save this send. Nothing was sent. Check site storage and try again.";
+        setError(message);
+        setInvalidField(null);
+        toast(message, "error");
+        return;
       }
     }
     submitInFlightRef.current = true;
@@ -1003,6 +1040,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           submitInFlightRef.current = false;
           setPending(false);
           setError(actionResult.error);
+          setInvalidField(null);
           toast(actionResult.error, "error");
           return;
         }
@@ -1034,6 +1072,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           ? "The offer couldn’t be updated. Try again."
           : "The offer couldn’t be sent. Try again.";
         setError(message);
+        setInvalidField(null);
         toast(message, "error");
       }
     })();
@@ -1042,7 +1081,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const projectStepProps = {
     idPrefix,
     draft,
-    recipients,
+    recipients: editorRecipients,
     ...(lockedClientId ? { lockedClientId } : {}),
     projects: availableProjects.map((project) => ({
       id: project.id,
@@ -1056,6 +1095,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           ? ("ready" as const)
           : ("idle" as const),
     ...(projectLoadError ? { projectsError: projectLoadError } : {}),
+    invalidField,
     ...(selectedClientId
       ? {
           onRetryProjects: () => {
@@ -1080,27 +1120,59 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     body = <RecipientProjectFields {...projectStepProps} />;
   } else if (currentStep === "type") {
     body = (
-      <TypeStep
-        picked={draft.presetId}
-        onPick={(presetId) => {
-          patch(presetDraftPatch(presetId, draft));
-        }}
-      />
+      <div
+        data-private-offer-field="presetId"
+        aria-invalid={invalidField === "presetId" ? true : undefined}
+        tabIndex={-1}
+      >
+        <TypeStep
+          picked={draft.presetId}
+          onPick={(presetId) => {
+            patch(presetDraftPatch(presetId, draft));
+          }}
+        />
+      </div>
     );
   } else if (currentStep === "details") {
-    body = <PrivateOfferDetailsStep idPrefix={idPrefix} draft={draft} patch={patch} />;
+    body = (
+      <PrivateOfferDetailsStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
   } else if (currentStep === "price") {
-    body = <PrivateOfferPriceStep idPrefix={idPrefix} draft={draft} patch={patch} />;
+    body = (
+      <PrivateOfferPriceStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
   } else if (currentStep === "payment") {
-    body = <PrivateOfferPaymentStep draft={draft} patch={patch} />;
+    body = <PrivateOfferPaymentStep draft={draft} invalidField={invalidField} patch={patch} />;
   } else if (currentStep === "delivery") {
-    body = <PrivateOfferDeliveryStep idPrefix={idPrefix} draft={draft} patch={patch} />;
+    body = (
+      <PrivateOfferDeliveryStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
   } else if (currentStep === "rights") {
-    body = <PrivateOfferRightsStep idPrefix={idPrefix} draft={draft} patch={patch} />;
+    body = (
+      <PrivateOfferRightsStep
+        idPrefix={idPrefix}
+        draft={draft}
+        invalidField={invalidField}
+        patch={patch}
+      />
+    );
   } else if (validReview) {
-    const lockedIdentity = lockedClientId
-      ? recipients.find((recipient) => recipient.id === lockedClientId)
-      : undefined;
+    const lockedIdentity = lockedClientId ? selectedRecipient : undefined;
     const recipientName = lockedIdentity
       ? lockedIdentity.name
       : (initialOffer?.recipientName ??
@@ -1123,6 +1195,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
         recipientName={recipientName}
         recipientEmail={recipientEmail}
         expiresAtLocal={draft.expiresAtLocal}
+        invalidField={invalidField}
         onExpiresAtLocalChange={(expiresAtLocal) => {
           patch({ expiresAtLocal });
         }}

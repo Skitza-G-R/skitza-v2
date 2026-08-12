@@ -16,6 +16,7 @@ import {
   privateOfferTaxBreakdown,
   totalForTemplateQuantity,
   type PrivateOfferComposerDraft,
+  type PrivateOfferDraftField,
 } from "./private-offer-editor-model";
 import type { PrivateOfferTemplateProduct } from "./private-offer-template-types";
 
@@ -24,6 +25,16 @@ export const PRIVATE_OFFER_INPUT_CLASS =
 const TEXTAREA_CLASS = `${PRIVATE_OFFER_INPUT_CLASS} resize-y py-2.5 leading-relaxed`;
 
 type PatchDraft = (patch: Partial<PrivateOfferComposerDraft>) => void;
+
+function invalidFieldProps(
+  invalidField: PrivateOfferDraftField | null,
+  field: PrivateOfferDraftField,
+) {
+  return {
+    "data-private-offer-field": field,
+    "aria-invalid": invalidField === field ? (true as const) : undefined,
+  };
+}
 
 export interface PrivateOfferStepRecipient {
   id: string;
@@ -113,6 +124,7 @@ export function RecipientProjectFields({
   projectsStatus,
   projectsError,
   onRetryProjects,
+  invalidField,
   patch,
 }: {
   idPrefix: string;
@@ -123,6 +135,7 @@ export function RecipientProjectFields({
   projectsStatus: "idle" | "loading" | "ready" | "error";
   projectsError?: string;
   onRetryProjects?: () => void;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   const selectedRecipient = recipients.find(
@@ -174,6 +187,7 @@ export function RecipientProjectFields({
                 <Label htmlFor={`${idPrefix}-recipient`}>Recipient</Label>
                 <select
                   id={`${idPrefix}-recipient`}
+                  {...invalidFieldProps(invalidField, "clientContactId")}
                   value={draft.clientContactId}
                   required
                   onChange={(event) => {
@@ -199,6 +213,7 @@ export function RecipientProjectFields({
                   <Label htmlFor={`${idPrefix}-new-name`}>Name</Label>
                   <input
                     id={`${idPrefix}-new-name`}
+                    {...invalidFieldProps(invalidField, "newRecipientName")}
                     value={draft.newRecipientName}
                     required
                     maxLength={160}
@@ -213,6 +228,7 @@ export function RecipientProjectFields({
                   <Label htmlFor={`${idPrefix}-new-email`}>Email</Label>
                   <input
                     id={`${idPrefix}-new-email`}
+                    {...invalidFieldProps(invalidField, "newRecipientEmail")}
                     type="email"
                     value={draft.newRecipientEmail}
                     required
@@ -293,6 +309,7 @@ export function RecipientProjectFields({
             <Label htmlFor={`${idPrefix}-project`}>Existing project</Label>
             <select
               id={`${idPrefix}-project`}
+              {...invalidFieldProps(invalidField, "targetProjectId")}
               value={draft.targetProjectId}
               required
               disabled={projectsStatus === "loading"}
@@ -360,9 +377,7 @@ function privateOfferPaymentSummary(
   const plans = [
     ...(draft.fullPlan ? ["Pay in full"] : []),
     ...(draft.splitPlan ? ["50 / 50"] : []),
-    ...(draft.monthlyPlan
-      ? [`Monthly · ${draft.monthlyInstallments || "—"} payments`]
-      : []),
+    ...(draft.monthlyPlan ? [`Monthly · ${draft.monthlyInstallments || "—"} payments`] : []),
   ];
   return plans.length > 0 ? plans.join(" · ") : "No payment option copied";
 }
@@ -377,6 +392,7 @@ export function PrivateOfferQuickStep({
   projectsStatus,
   projectsError,
   onRetryProjects,
+  invalidField,
   patch,
 }: {
   idPrefix: string;
@@ -388,6 +404,7 @@ export function PrivateOfferQuickStep({
   projectsStatus: "idle" | "loading" | "ready" | "error";
   projectsError?: string;
   onRetryProjects?: () => void;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   const parsedPriceCents = privateOfferPriceCents(draft.cashPrice);
@@ -404,14 +421,13 @@ export function PrivateOfferQuickStep({
     (Number.isSafeInteger(templateQuantity) && templateQuantity >= 1 && templateQuantity <= 1_000);
   const pricePreviewIsValid = priceIsValid && currencyIsValid && quantityIsValid;
   const taxRate = Number.parseInt(draft.taxRatePct, 10);
-  const tax =
-    pricePreviewIsValid
-      ? privateOfferTaxBreakdown(
-          priceCents,
-          draft.taxMode,
-          Number.isSafeInteger(taxRate) ? taxRate : 0,
-        )
-      : null;
+  const tax = pricePreviewIsValid
+    ? privateOfferTaxBreakdown(
+        priceCents,
+        draft.taxMode,
+        Number.isSafeInteger(taxRate) ? taxRate : 0,
+      )
+    : null;
   const hourlyPricing = templateProduct.pricing.kind === "hourly" ? templateProduct.pricing : null;
   const currencyOptions = CURRENCIES.includes(draft.currency)
     ? CURRENCIES
@@ -445,6 +461,7 @@ export function PrivateOfferQuickStep({
         projectsStatus={projectsStatus}
         {...(projectsError ? { projectsError } : {})}
         {...(onRetryProjects ? { onRetryProjects } : {})}
+        invalidField={invalidField}
         patch={patch}
       />
 
@@ -476,10 +493,11 @@ export function PrivateOfferQuickStep({
             <div className="relative">
               <input
                 id={`${idPrefix}-price`}
+                {...invalidFieldProps(invalidField, "cashPrice")}
                 value={draft.cashPrice}
                 required
                 inputMode="decimal"
-                aria-invalid={!priceIsValid}
+                aria-invalid={!priceIsValid || invalidField === "cashPrice"}
                 aria-describedby={`${idPrefix}-price-help`}
                 onChange={(event) => {
                   const cashPrice = event.target.value;
@@ -516,6 +534,7 @@ export function PrivateOfferQuickStep({
             <Label htmlFor={`${idPrefix}-quick-currency`}>Currency</Label>
             <select
               id={`${idPrefix}-quick-currency`}
+              {...invalidFieldProps(invalidField, "currency")}
               value={draft.currency}
               required
               onChange={(event) => {
@@ -536,12 +555,13 @@ export function PrivateOfferQuickStep({
               <Label htmlFor={`${idPrefix}-quantity`}>Songs</Label>
               <input
                 id={`${idPrefix}-quantity`}
+                {...invalidFieldProps(invalidField, "templateQuantity")}
                 type="number"
                 min={1}
                 max={1_000}
                 step={1}
                 required
-                aria-invalid={!quantityIsValid}
+                aria-invalid={!quantityIsValid || invalidField === "templateQuantity"}
                 aria-describedby={`${idPrefix}-quantity-help`}
                 value={draft.templateQuantity}
                 onChange={(event) => {
@@ -552,12 +572,18 @@ export function PrivateOfferQuickStep({
                   patch({
                     templateQuantity,
                     ...(Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 1_000
-                      ? {
-                          includedSongSpaces: String(quantity),
-                          cashPrice: (
-                            totalForTemplateQuantity(perSongPricing.volumeTiers, quantity) / 100
-                          ).toFixed(2),
-                        }
+                      ? (() => {
+                          const suggestedTotal = totalForTemplateQuantity(
+                            perSongPricing.volumeTiers,
+                            quantity,
+                          );
+                          return {
+                            includedSongSpaces: String(quantity),
+                            ...(suggestedTotal === null
+                              ? {}
+                              : { cashPrice: (suggestedTotal / 100).toFixed(2) }),
+                          };
+                        })()
                       : {}),
                   });
                 }}
@@ -580,8 +606,7 @@ export function PrivateOfferQuickStep({
         </div>
         <div className="mt-4 flex items-end justify-between gap-4 border-t border-[rgb(var(--border-subtle))] pt-3">
           <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            Subtotal{" "}
-            {pricePreviewIsValid ? formatMoney(priceCents, draft.currency) : "—"}
+            Subtotal {pricePreviewIsValid ? formatMoney(priceCents, draft.currency) : "—"}
             {" · "}
             {Number.isSafeInteger(taxRate) ? String(taxRate) : "—"}% tax{" "}
             {draft.taxMode === "tax_added"
@@ -621,10 +646,12 @@ export function PrivateOfferQuickStep({
 export function PrivateOfferDetailsStep({
   idPrefix,
   draft,
+  invalidField,
   patch,
 }: {
   idPrefix: string;
   draft: PrivateOfferComposerDraft;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   return (
@@ -634,6 +661,7 @@ export function PrivateOfferDetailsStep({
           <Label htmlFor={`${idPrefix}-name`}>Offer title</Label>
           <input
             id={`${idPrefix}-name`}
+            {...invalidFieldProps(invalidField, "name")}
             value={draft.name}
             required
             maxLength={200}
@@ -647,6 +675,7 @@ export function PrivateOfferDetailsStep({
           <Label htmlFor={`${idPrefix}-service`}>Service</Label>
           <input
             id={`${idPrefix}-service`}
+            {...invalidFieldProps(invalidField, "service")}
             value={draft.service}
             required
             maxLength={MAX_SERVICE_LENGTH}
@@ -661,6 +690,7 @@ export function PrivateOfferDetailsStep({
         <Label htmlFor={`${idPrefix}-tagline`}>Short description</Label>
         <input
           id={`${idPrefix}-tagline`}
+          {...invalidFieldProps(invalidField, "tagline")}
           value={draft.tagline}
           maxLength={MAX_TAGLINE_LENGTH}
           onChange={(event) => {
@@ -673,6 +703,7 @@ export function PrivateOfferDetailsStep({
         <Label htmlFor={`${idPrefix}-deliverables`}>Deliverables · one per line</Label>
         <textarea
           id={`${idPrefix}-deliverables`}
+          {...invalidFieldProps(invalidField, "deliverables")}
           value={draft.deliverables}
           required
           rows={7}
@@ -690,10 +721,12 @@ export function PrivateOfferDetailsStep({
 export function PrivateOfferPriceStep({
   idPrefix,
   draft,
+  invalidField,
   patch,
 }: {
   idPrefix: string;
   draft: PrivateOfferComposerDraft;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   const subtotal = privateOfferPriceCents(draft.cashPrice) ?? 0;
@@ -713,6 +746,7 @@ export function PrivateOfferPriceStep({
           <Label htmlFor={`${idPrefix}-cash-price`}>Cash price</Label>
           <input
             id={`${idPrefix}-cash-price`}
+            {...invalidFieldProps(invalidField, "cashPrice")}
             value={draft.cashPrice}
             required
             inputMode="decimal"
@@ -732,6 +766,7 @@ export function PrivateOfferPriceStep({
           <Label htmlFor={`${idPrefix}-currency`}>Currency</Label>
           <select
             id={`${idPrefix}-currency`}
+            {...invalidFieldProps(invalidField, "currency")}
             value={draft.currency}
             required
             onChange={(event) => {
@@ -765,6 +800,7 @@ export function PrivateOfferPriceStep({
           <Label htmlFor={`${idPrefix}-tax-rate`}>Tax rate (%)</Label>
           <input
             id={`${idPrefix}-tax-rate`}
+            {...invalidFieldProps(invalidField, "taxRatePct")}
             type="number"
             min={0}
             max={100}
@@ -801,9 +837,11 @@ export function PrivateOfferPriceStep({
 
 export function PrivateOfferPaymentStep({
   draft,
+  invalidField,
   patch,
 }: {
   draft: PrivateOfferComposerDraft;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   const subtotal = privateOfferPriceCents(draft.cashPrice) ?? 0;
@@ -813,9 +851,15 @@ export function PrivateOfferPaymentStep({
     draft.taxMode,
     Number.isSafeInteger(rate) ? rate : 0,
   )?.totalCents;
+  const validationField =
+    invalidField === "monthlyInstallments" ? "monthlyInstallments" : "paymentPlans";
   if (subtotal === 0) {
     return (
-      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
+      <div
+        {...invalidFieldProps(invalidField, validationField)}
+        tabIndex={-1}
+        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5"
+      >
         <h3 className="font-display text-[16px] font-bold">No payment schedule</h3>
         <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
           This is a free offer. The artist accepts the terms without making a payment.
@@ -824,25 +868,27 @@ export function PrivateOfferPaymentStep({
     );
   }
   return (
-    <PaymentStep
-      selection={{
-        full: draft.fullPlan,
-        split50: draft.splitPlan,
-        monthly: draft.monthlyPlan,
-        monthlyInstallments: Number.parseInt(draft.monthlyInstallments, 10) || 4,
-      }}
-      previewTotalCents={total ?? subtotal}
-      currency={draft.currency}
-      pricingModel="flat"
-      onChange={(selection) => {
-        patch({
-          fullPlan: selection.full,
-          splitPlan: selection.split50,
-          monthlyPlan: selection.monthly,
-          monthlyInstallments: String(selection.monthlyInstallments),
-        });
-      }}
-    />
+    <div {...invalidFieldProps(invalidField, validationField)} tabIndex={-1}>
+      <PaymentStep
+        selection={{
+          full: draft.fullPlan,
+          split50: draft.splitPlan,
+          monthly: draft.monthlyPlan,
+          monthlyInstallments: Number.parseInt(draft.monthlyInstallments, 10) || 4,
+        }}
+        previewTotalCents={total ?? subtotal}
+        currency={draft.currency}
+        pricingModel="flat"
+        onChange={(selection) => {
+          patch({
+            fullPlan: selection.full,
+            splitPlan: selection.split50,
+            monthlyPlan: selection.monthly,
+            monthlyInstallments: String(selection.monthlyInstallments),
+          });
+        }}
+      />
+    </div>
   );
 }
 
@@ -853,6 +899,8 @@ function NumericField({
   min,
   max,
   step = 1,
+  field,
+  invalidField,
   onChange,
 }: {
   id: string;
@@ -861,6 +909,8 @@ function NumericField({
   min: number;
   max: number;
   step?: number;
+  field: PrivateOfferDraftField;
+  invalidField: PrivateOfferDraftField | null;
   onChange: (value: string) => void;
 }) {
   return (
@@ -868,6 +918,7 @@ function NumericField({
       <Label htmlFor={id}>{label}</Label>
       <input
         id={id}
+        {...invalidFieldProps(invalidField, field)}
         type="number"
         min={min}
         max={max}
@@ -885,10 +936,12 @@ function NumericField({
 export function PrivateOfferDeliveryStep({
   idPrefix,
   draft,
+  invalidField,
   patch,
 }: {
   idPrefix: string;
   draft: PrivateOfferComposerDraft;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   return (
@@ -899,6 +952,8 @@ export function PrivateOfferDeliveryStep({
         value={draft.includedSongSpaces}
         min={0}
         max={1_000}
+        field="includedSongSpaces"
+        invalidField={invalidField}
         onChange={(includedSongSpaces) => {
           patch({ includedSongSpaces });
         }}
@@ -941,6 +996,8 @@ export function PrivateOfferDeliveryStep({
                 value={draft.sessionCount}
                 min={1}
                 max={1_000}
+                field="sessionCount"
+                invalidField={invalidField}
                 onChange={(sessionCount) => {
                   patch({ sessionCount });
                 }}
@@ -952,6 +1009,8 @@ export function PrivateOfferDeliveryStep({
               value={draft.sessionDurationMin}
               min={1}
               max={1_440}
+              field="sessionDurationMin"
+              invalidField={invalidField}
               onChange={(sessionDurationMin) => {
                 patch({ sessionDurationMin });
               }}
@@ -960,6 +1019,7 @@ export function PrivateOfferDeliveryStep({
               <Label htmlFor={`${idPrefix}-location`}>Location</Label>
               <input
                 id={`${idPrefix}-location`}
+                {...invalidFieldProps(invalidField, "sessionLocationType")}
                 value={draft.sessionLocationType}
                 maxLength={100}
                 onChange={(event) => {
@@ -974,6 +1034,8 @@ export function PrivateOfferDeliveryStep({
               value={draft.sessionBufferMinutes}
               min={0}
               max={1_440}
+              field="sessionBufferMinutes"
+              invalidField={invalidField}
               onChange={(sessionBufferMinutes) => {
                 patch({ sessionBufferMinutes });
               }}
@@ -984,6 +1046,8 @@ export function PrivateOfferDeliveryStep({
               value={draft.sessionMinLeadHours}
               min={0}
               max={8_760}
+              field="sessionMinLeadHours"
+              invalidField={invalidField}
               onChange={(sessionMinLeadHours) => {
                 patch({ sessionMinLeadHours });
               }}
@@ -1020,6 +1084,8 @@ export function PrivateOfferDeliveryStep({
               value={draft.revisionCount}
               min={0}
               max={1_000}
+              field="revisionCount"
+              invalidField={invalidField}
               onChange={(revisionCount) => {
                 patch({ revisionCount });
               }}
@@ -1034,14 +1100,22 @@ export function PrivateOfferDeliveryStep({
 function RoyaltyPicker({
   name,
   value,
+  field,
+  invalidField,
   onChange,
 }: {
   name: string;
   value: PrivateOfferComposerDraft["masterMode"];
+  field: "masterMode" | "compositionMode";
+  invalidField: PrivateOfferDraftField | null;
   onChange: (value: "none" | "percentage" | "agreement") => void;
 }) {
   return (
-    <div className="grid grid-cols-1 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+    <div
+      {...invalidFieldProps(invalidField, field)}
+      tabIndex={-1}
+      className="grid grid-cols-1 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+    >
       {(["none", "percentage", "agreement"] as const).map((mode) => (
         <label key={mode} className="flex min-h-11 cursor-pointer items-center gap-2 px-2 py-2.5">
           <input
@@ -1065,10 +1139,12 @@ function RoyaltyPicker({
 export function PrivateOfferRightsStep({
   idPrefix,
   draft,
+  invalidField,
   patch,
 }: {
   idPrefix: string;
   draft: PrivateOfferComposerDraft;
+  invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
 }) {
   return (
@@ -1078,6 +1154,8 @@ export function PrivateOfferRightsStep({
         <RoyaltyPicker
           name={`${idPrefix}-master-mode`}
           value={draft.masterMode}
+          field="masterMode"
+          invalidField={invalidField}
           onChange={(masterMode) => {
             patch({ masterMode });
           }}
@@ -1091,6 +1169,8 @@ export function PrivateOfferRightsStep({
               min={0.01}
               max={100}
               step={0.01}
+              field="masterPercentage"
+              invalidField={invalidField}
               onChange={(masterPercentage) => {
                 patch({ masterPercentage });
               }}
@@ -1103,6 +1183,8 @@ export function PrivateOfferRightsStep({
         <RoyaltyPicker
           name={`${idPrefix}-composition-mode`}
           value={draft.compositionMode}
+          field="compositionMode"
+          invalidField={invalidField}
           onChange={(compositionMode) => {
             patch({ compositionMode });
           }}
@@ -1116,6 +1198,8 @@ export function PrivateOfferRightsStep({
               min={0.01}
               max={100}
               step={0.01}
+              field="compositionPercentage"
+              invalidField={invalidField}
               onChange={(compositionPercentage) => {
                 patch({ compositionPercentage });
               }}
@@ -1145,6 +1229,7 @@ export function PrivateOfferRightsStep({
               <Label htmlFor={`${idPrefix}-society`}>Collecting society · optional</Label>
               <input
                 id={`${idPrefix}-society`}
+                {...invalidFieldProps(invalidField, "collectingSociety")}
                 value={draft.collectingSociety}
                 maxLength={200}
                 placeholder="e.g. ACUM"
@@ -1161,6 +1246,7 @@ export function PrivateOfferRightsStep({
         <Label htmlFor={`${idPrefix}-royalty-notes`}>Royalty notes · optional</Label>
         <textarea
           id={`${idPrefix}-royalty-notes`}
+          {...invalidFieldProps(invalidField, "royaltyNotes")}
           value={draft.royaltyNotes}
           maxLength={4_000}
           rows={3}
@@ -1172,14 +1258,24 @@ export function PrivateOfferRightsStep({
       </div>
       <div className="flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] pt-5">
         <Label htmlFor={`${idPrefix}-rights`}>Rights included · one per line</Label>
+        {draft.rightsNeedCompletion ? (
+          <p
+            role="alert"
+            className="rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.1)] px-3 py-2 text-[12px] font-medium text-[rgb(var(--fg-default))]"
+          >
+            This Store product had no canonical rights to copy. Confirm the exact rights before
+            sending.
+          </p>
+        ) : null}
         <textarea
           id={`${idPrefix}-rights`}
+          {...invalidFieldProps(invalidField, "rights")}
           value={draft.rights}
           required
           maxLength={MAX_RIGHTS * MAX_RIGHT_LENGTH + MAX_RIGHTS - 1}
           rows={5}
           onChange={(event) => {
-            patch({ rights: event.target.value });
+            patch({ rights: event.target.value, rightsNeedCompletion: false });
           }}
           className={TEXTAREA_CLASS}
         />
@@ -1197,6 +1293,7 @@ export function PrivateOfferRightsStep({
         ) : null}
         <textarea
           id={`${idPrefix}-agreement`}
+          {...invalidFieldProps(invalidField, "agreementText")}
           value={draft.agreementText}
           required
           maxLength={MAX_AGREEMENT_LENGTH}

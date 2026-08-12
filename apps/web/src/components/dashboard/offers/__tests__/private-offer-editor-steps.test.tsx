@@ -3,10 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  RecipientProjectFields,
-  PrivateOfferQuickStep,
-} from "../private-offer-editor-steps";
+import { RecipientProjectFields, PrivateOfferQuickStep } from "../private-offer-editor-steps";
 import { seedPrivateOfferDraft } from "../private-offer-editor-model";
 import type { PrivateOfferTemplateProduct } from "../private-offer-template-types";
 
@@ -33,6 +30,7 @@ const HOURLY_TEMPLATE: PrivateOfferTemplateProduct = {
     agreementText: "Standard studio agreement.",
   },
   pricing: { kind: "hourly", hourlyRateCents: 18_000 },
+  rightsNeedCompletion: true,
   agreementNeedsCompletion: false,
 };
 
@@ -55,6 +53,7 @@ describe("private-offer editor steps", () => {
         recipients={[]}
         projects={[]}
         projectsStatus="idle"
+        invalidField={null}
         patch={vi.fn()}
       />,
     );
@@ -91,6 +90,7 @@ describe("private-offer editor steps", () => {
         recipients={[{ id: "client-1", name: "Existing Artist", email: "old@example.com" }]}
         projects={[{ id: "project-1", label: "Existing album" }]}
         projectsStatus="ready"
+        invalidField={null}
         patch={patch}
       />,
     );

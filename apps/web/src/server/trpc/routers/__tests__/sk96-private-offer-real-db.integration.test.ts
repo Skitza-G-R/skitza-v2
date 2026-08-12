@@ -26,6 +26,10 @@ import {
   connectVerifiedArtistToProducer,
   stampUnownedArtistContactsForCreatedUser,
 } from "~/server/contacts/connect-artist";
+import { clientManagementRepository } from "~/server/domain/client-management/db";
+import { archiveClient } from "~/server/domain/client-management/service";
+import { projectLifecycleRepository } from "~/server/domain/project-lifecycle/db";
+import { cancelProject, completeProject } from "~/server/domain/project-lifecycle/service";
 import {
   acceptPrivateOffer,
   cancelPrivateOffer,
@@ -135,6 +139,94 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     );
     if (!row) throw new Error("SK-96 project fixture was not created");
     return row.id;
+  }
+
+  async function createArchiveAcceptanceFixture(label: string, zero = false) {
+    const fixtureSuffix = randomUUID();
+    const fixtureProducerClerkId = `sk219-archive-producer-${fixtureSuffix}`;
+    const fixtureArtistClerkId = `sk219-archive-artist-${fixtureSuffix}`;
+    const fixtureArtistEmail = `sk219-archive-${fixtureSuffix}@example.invalid`;
+    const fixtureArtistEmailHash = emailHashFor(fixtureArtistEmail);
+    const [fixtureProducer] = await safely(() =>
+      activeDb()
+        .insert(producers)
+        .values({
+          clerkUserId: fixtureProducerClerkId,
+          email: `sk219-archive-producer-${fixtureSuffix}@example.invalid`,
+          slug: `sk219-archive-${fixtureSuffix}`,
+          displayName: `SK-219 ${label}`,
+        })
+        .returning({ id: producers.id }),
+    );
+    if (!fixtureProducer) throw new Error("SK-219 archive fixture producer was not created");
+    const [fixtureClient] = await safely(() =>
+      activeDb()
+        .insert(clientContacts)
+        .values({
+          producerId: fixtureProducer.id,
+          emailHash: fixtureArtistEmailHash,
+          email: fixtureArtistEmail,
+          name: `SK-219 ${label} Artist`,
+          clerkUserId: fixtureArtistClerkId,
+        })
+        .returning({ id: clientContacts.id }),
+    );
+    if (!fixtureClient) throw new Error("SK-219 archive fixture client was not created");
+    const now = new Date();
+    const created = await createPrivateOffer(activeDb(), {
+      offerId: randomUUID(),
+      producerId: fixtureProducer.id,
+      recipient: { kind: "existing", clientContactId: fixtureClient.id },
+      target: { kind: "new" },
+      terms: terms({ name: `SK-219 ${label} offer`, zero }),
+      now,
+    });
+    return {
+      producerId: fixtureProducer.id,
+      clientContactId: fixtureClient.id,
+      artistClerkUserId: fixtureArtistClerkId,
+      verifiedEmailHashes: [fixtureArtistEmailHash],
+      offer: created.offer,
+    };
+  }
+
+  async function archiveAcceptanceState(input: {
+    producerId: string;
+    clientContactId: string;
+    offerId: string;
+  }) {
+    const [client] = await safely(() =>
+      activeDb()
+        .select({ producerArchivedAt: clientContacts.producerArchivedAt })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, input.clientContactId))
+        .limit(1),
+    );
+    const [offer] = await safely(() =>
+      activeDb()
+        .select({ status: privateOffers.status })
+        .from(privateOffers)
+        .where(eq(privateOffers.id, input.offerId))
+        .limit(1),
+    );
+    const purchaseRows = await safely(() =>
+      activeDb()
+        .select({ id: purchases.id })
+        .from(purchases)
+        .where(eq(purchases.privateOfferId, input.offerId)),
+    );
+    const projectRows = await safely(() =>
+      activeDb()
+        .select({ id: projects.id, lifecycleStatus: projects.lifecycleStatus })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.producerId, input.producerId),
+            eq(projects.clientContactId, input.clientContactId),
+          ),
+        ),
+    );
+    return { client, offer, purchaseRows, projectRows };
   }
 
   beforeAll(async () => {
@@ -358,6 +450,130 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     expect(rows).toEqual([{ id: offerId, productId: null }]);
   });
 
+  it("rejects acceptance after the producer archives the recipient without creating work", async () => {
+    const fixture = await createArchiveAcceptanceFixture("archive first");
+    await archiveClient(clientManagementRepository(activeDb()), {
+      producerId: fixture.producerId,
+      clientId: fixture.clientContactId,
+      archivedAt: new Date(),
+    });
+
+    const acceptanceError = await offerError(
+      acceptPrivateOffer(activeDb(), {
+        clerkUserId: fixture.artistClerkUserId,
+        verifiedEmailHashes: fixture.verifiedEmailHashes,
+        offerId: fixture.offer.id,
+        expectedUpdatedAt: fixture.offer.updatedAt,
+        expectedTargetProjectTitle: null,
+        selectedPaymentPlan: { kind: "full" },
+        agreementAccepted: true,
+        now: new Date(),
+      }),
+    );
+    expect(acceptanceError.code).toBe("UNAVAILABLE");
+
+    const state = await archiveAcceptanceState({
+      producerId: fixture.producerId,
+      clientContactId: fixture.clientContactId,
+      offerId: fixture.offer.id,
+    });
+    expect(state.client?.producerArchivedAt).not.toBeNull();
+    expect(state.offer?.status).toBe("sent");
+    expect(state.purchaseRows).toEqual([]);
+    expect(state.projectRows).toEqual([]);
+  });
+
+  it("serializes acceptance against producer archive so only one commercial state wins", async () => {
+    const fixture = await createArchiveAcceptanceFixture("archive race");
+    const [archive, acceptance] = await Promise.allSettled([
+      archiveClient(clientManagementRepository(activeDb()), {
+        producerId: fixture.producerId,
+        clientId: fixture.clientContactId,
+        archivedAt: new Date(),
+      }),
+      acceptPrivateOffer(activeDb(), {
+        clerkUserId: fixture.artistClerkUserId,
+        verifiedEmailHashes: fixture.verifiedEmailHashes,
+        offerId: fixture.offer.id,
+        expectedUpdatedAt: fixture.offer.updatedAt,
+        expectedTargetProjectTitle: null,
+        selectedPaymentPlan: { kind: "full" },
+        agreementAccepted: true,
+        now: new Date(),
+      }),
+    ]);
+    expect([archive, acceptance].filter((result) => result.status === "fulfilled")).toHaveLength(1);
+
+    const state = await archiveAcceptanceState({
+      producerId: fixture.producerId,
+      clientContactId: fixture.clientContactId,
+      offerId: fixture.offer.id,
+    });
+    if (acceptance.status === "fulfilled") {
+      expect(archive.status).toBe("rejected");
+      if (archive.status === "rejected") {
+        expect(archive.reason).toMatchObject({ code: "BLOCKING_PROJECT" });
+      }
+      expect(state.client?.producerArchivedAt).toBeNull();
+      expect(state.offer?.status).toBe("accepted");
+      expect(state.purchaseRows).toHaveLength(1);
+      expect(state.projectRows).toHaveLength(1);
+    } else {
+      expect(archive.status).toBe("fulfilled");
+      expect(acceptance.reason).toBeInstanceOf(PrivateOfferPersistenceError);
+      expect(acceptance.reason).toMatchObject({ code: "UNAVAILABLE" });
+      expect(state.client?.producerArchivedAt).not.toBeNull();
+      expect(state.offer?.status).toBe("sent");
+      expect(state.purchaseRows).toEqual([]);
+      expect(state.projectRows).toEqual([]);
+    }
+  });
+
+  it("replays an already accepted offer after its completed client is later archived", async () => {
+    const fixture = await createArchiveAcceptanceFixture("accepted replay after archive", true);
+    const input = {
+      clerkUserId: fixture.artistClerkUserId,
+      verifiedEmailHashes: fixture.verifiedEmailHashes,
+      offerId: fixture.offer.id,
+      expectedUpdatedAt: fixture.offer.updatedAt,
+      expectedTargetProjectTitle: null,
+      selectedPaymentPlan: null,
+      agreementAccepted: true as const,
+      now: new Date(),
+    };
+    const accepted = await acceptPrivateOffer(activeDb(), input);
+    await completeProject(projectLifecycleRepository(activeDb()), {
+      producerId: fixture.producerId,
+      projectId: accepted.projectId,
+      completedAt: new Date(),
+    });
+    await archiveClient(clientManagementRepository(activeDb()), {
+      producerId: fixture.producerId,
+      clientId: fixture.clientContactId,
+      archivedAt: new Date(),
+    });
+
+    const replay = await acceptPrivateOffer(activeDb(), input);
+
+    expect(replay).toMatchObject({
+      created: false,
+      purchaseId: accepted.purchaseId,
+      projectId: accepted.projectId,
+      lifecycleStatus: "active",
+    });
+    const state = await archiveAcceptanceState({
+      producerId: fixture.producerId,
+      clientContactId: fixture.clientContactId,
+      offerId: fixture.offer.id,
+    });
+    expect(state.client?.producerArchivedAt).not.toBeNull();
+    expect(state.offer?.status).toBe("accepted");
+    expect(state.purchaseRows).toHaveLength(1);
+    expect(state.projectRows).toEqual([
+      { id: accepted.projectId, lifecycleStatus: "completed" },
+    ]);
+  });
+
   it("accepts live and hidden product provenance but rejects archived and foreign products", async () => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1_000);
@@ -502,12 +718,9 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
       activeDb()
         .select({ id: privateOffers.id, productId: privateOffers.productId })
         .from(privateOffers)
-        .where(inArray(privateOffers.id, [
-          liveOfferId,
-          hiddenOfferId,
-          archivedOfferId,
-          foreignOfferId,
-        ])),
+        .where(
+          inArray(privateOffers.id, [liveOfferId, hiddenOfferId, archivedOfferId, foreignOfferId]),
+        ),
     );
     expect(stored).toHaveLength(2);
     expect(stored).toEqual(
@@ -833,6 +1046,11 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
         .limit(1),
     );
     expect(project?.lifecycleStatus).toBe("active");
+    await completeProject(projectLifecycleRepository(activeDb()), {
+      producerId,
+      projectId: first.projectId,
+      completedAt: new Date(),
+    });
   });
 
   it("serializes accept against reject so the first valid terminal transition wins", async () => {
@@ -883,6 +1101,15 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     );
     expect(purchaseRows).toHaveLength(offer?.status === "accepted" ? 1 : 0);
     expect(["accepted", "declined"]).toContain(offer?.status);
+    if (acceptance.status === "fulfilled") {
+      await cancelProject(projectLifecycleRepository(activeDb()), {
+        producerId,
+        projectId: acceptance.value.projectId,
+        actorId: "sk96-test-cleanup",
+        reason: "Isolated test cleanup",
+        canceledAt: new Date(),
+      });
+    }
   });
 
   it("serializes producer cancellation against acceptance", async () => {
@@ -921,6 +1148,15 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
         .limit(1),
     );
     expect(["accepted", "canceled"]).toContain(offer?.status);
+    if (acceptance.status === "fulfilled") {
+      await cancelProject(projectLifecycleRepository(activeDb()), {
+        producerId,
+        projectId: acceptance.value.projectId,
+        actorId: "sk96-test-cleanup",
+        reason: "Isolated test cleanup",
+        canceledAt: new Date(),
+      });
+    }
   });
 
   it("corrects only a same-client target before acceptance and locks it afterward", async () => {
@@ -1004,6 +1240,13 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     expect(allowanceRows).toEqual([
       { purchaseId: accepted.purchaseId, kind: "fixed", sessionLimit: 2 },
     ]);
+    await cancelProject(projectLifecycleRepository(activeDb()), {
+      producerId,
+      projectId: accepted.projectId,
+      actorId: "sk96-test-cleanup",
+      reason: "Isolated test cleanup",
+      canceledAt: new Date(),
+    });
   });
 
   it("requires the artist to review a renamed existing project before acceptance", async () => {

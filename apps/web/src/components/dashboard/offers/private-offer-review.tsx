@@ -5,6 +5,8 @@ import { useId, useMemo } from "react";
 
 import { PrivateOfferTerms } from "~/components/artist/offers/private-offer-terms";
 
+import type { PrivateOfferDraftField } from "./private-offer-editor-model";
+
 export type PrivateOfferReviewEditStep =
   | "recipient"
   | "details"
@@ -19,6 +21,7 @@ interface PrivateOfferReviewProps {
   recipientName: string;
   recipientEmail: string;
   expiresAtLocal: string;
+  invalidField: PrivateOfferDraftField | null;
   onExpiresAtLocalChange: (value: string) => void;
   onEdit?: (step: PrivateOfferReviewEditStep) => void;
   sourceTemplateName?: string | null;
@@ -43,6 +46,7 @@ export function PrivateOfferReview({
   recipientName,
   recipientEmail,
   expiresAtLocal,
+  invalidField,
   onExpiresAtLocalChange,
   onEdit,
   sourceTemplateName,
@@ -138,11 +142,12 @@ export function PrivateOfferReview({
           </label>
           <input
             id={expiryId}
+            data-private-offer-field="expiresAtLocal"
             type="datetime-local"
             value={expiresAtLocal}
             min={expiryMinimum}
             required
-            aria-invalid={expiryInvalid}
+            aria-invalid={expiryInvalid || invalidField === "expiresAtLocal"}
             aria-describedby={`${expiryId}-help${expiryInvalid ? ` ${expiryId}-error` : ""}`}
             onChange={(event) => {
               onExpiresAtLocalChange(event.currentTarget.value);

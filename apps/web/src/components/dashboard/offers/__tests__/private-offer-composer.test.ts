@@ -7,6 +7,7 @@ const COMPOSER = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-composer.t
 const MODEL = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-editor-model.ts"), "utf8");
 const STEPS = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-editor-steps.tsx"), "utf8");
 const REVIEW = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-review.tsx"), "utf8");
+const MANAGER = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-manager.tsx"), "utf8");
 
 describe("PrivateOfferComposer shared-product-editor contract", () => {
   it("uses the regular editor shell and regular leaf components", () => {
@@ -50,6 +51,11 @@ describe("PrivateOfferComposer shared-product-editor contract", () => {
     expect(COMPOSER).toContain("persistLatestDraft({ submissionOfferId: createOfferId })");
     expect(COMPOSER).toContain("sourceProductId: templateProduct.source.productId");
     expect(COMPOSER).toContain("clearLogicalDraftAndClose()");
+  });
+
+  it("passes the sent recipient identity into edit fallback state", () => {
+    expect(MANAGER).toMatch(/recipientName:\s*offer\.recipientName/);
+    expect(MANAGER).toMatch(/recipientEmail:\s*offer\.recipientEmail/);
   });
 
   it("preserves every private-only commercial field", () => {
