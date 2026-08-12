@@ -32,7 +32,7 @@ describe("runtime launch role resolver", () => {
       },
       "/onboarding",
     ],
-    [{ kind: "orphan" as const }, "/onboarding"],
+    [{ kind: "orphan" as const }, "/producer-access"],
     [{ kind: "unauthenticated" as const }, "/sign-up"],
   ])("routes %o to %s", (role, expected) => {
     expect(runtimeLaunchHrefForRole(role)).toBe(expected);
@@ -126,6 +126,16 @@ describe("membership-aware runtime launch resolver", () => {
         artist: { hasAccess: false, hasActiveConnections: false },
       }),
     ).toBe("/sign-up");
+  });
+
+  it("sends a signed-in account without a role to Producer invitation information", () => {
+    expect(
+      runtimeLaunchHrefForMemberships({
+        isAuthenticated: true,
+        producer: { status: "none", profile: null },
+        artist: { hasAccess: false, hasActiveConnections: false },
+      }),
+    ).toBe("/producer-access");
   });
 
   it("carries only an allowlisted saved screen into new-user sign-up", () => {

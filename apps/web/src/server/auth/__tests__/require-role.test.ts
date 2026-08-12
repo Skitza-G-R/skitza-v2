@@ -56,8 +56,8 @@ describe("decideRoleRedirect — producer policy", () => {
     expect(decideRoleRedirect(proIncomplete, "producer")).toBe("/onboarding");
   });
 
-  it("orphan → /onboarding (webhook race; wizard waits idempotently)", () => {
-    expect(decideRoleRedirect(orphan, "producer")).toBe("/onboarding");
+  it("orphan → /producer-access", () => {
+    expect(decideRoleRedirect(orphan, "producer")).toBe("/producer-access");
   });
 
   it("producer-complete → null (render)", () => {
@@ -82,12 +82,10 @@ describe("decideRoleRedirect — artist policy", () => {
     expect(decideRoleRedirect(proIncomplete, "artist")).toBe("/onboarding");
   });
 
-  it("orphan → /sign-in (no DB identity yet; re-trigger resolution)", () => {
-    // Orphan = authed Clerk session but neither producers nor
-    // client_contacts row. /artist-welcome would be wrong: it needs
-    // studio context an orphan doesn't have. /sign-in re-runs the
-    // identity flow once the webhook lands.
-    expect(decideRoleRedirect(orphan, "artist")).toBe("/sign-in");
+  it("orphan → /producer-access (the account has no Artist role)", () => {
+    // /artist-welcome would be wrong: it needs an Artist identity and
+    // studio context that a no-role account does not have.
+    expect(decideRoleRedirect(orphan, "artist")).toBe("/producer-access");
   });
 
   it("artist → null (render)", () => {
@@ -136,5 +134,16 @@ describe("decideAccountMembershipRedirect", () => {
 
     expect(decideAccountMembershipRedirect(incompleteDual, "artist")).toBeNull();
     expect(decideAccountMembershipRedirect(incompleteDual, "producer")).toBe("/onboarding");
+  });
+
+  it("redirects a signed-in account without any role to Producer invitation information", () => {
+    const noRole: UserAccountMemberships = {
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: false, hasActiveConnections: false },
+    };
+
+    expect(decideAccountMembershipRedirect(noRole, "producer")).toBe("/producer-access");
+    expect(decideAccountMembershipRedirect(noRole, "artist")).toBe("/producer-access");
   });
 });

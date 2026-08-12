@@ -24,8 +24,9 @@ export function runtimeLaunchHrefForRole(
     case "producer-complete":
       return requestedRuntimeHref("producer", requestedHref) ?? "/dashboard";
     case "producer-incomplete":
-    case "orphan":
       return "/onboarding";
+    case "orphan":
+      return "/producer-access";
     case "unauthenticated":
       return "/sign-up";
   }

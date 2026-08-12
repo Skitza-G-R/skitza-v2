@@ -207,12 +207,6 @@ export function normalizeSameOriginPostSignInTarget(
   }
 }
 
-function isExplicitCreateStudioTarget(
-  target: SanitizedPostSignInTarget | null,
-): boolean {
-  return target?.href === "/onboarding/studio?intent=create-studio";
-}
-
 function isGenericProducerSignUpTarget(
   target: SanitizedPostSignInTarget | null,
 ): boolean {
@@ -344,17 +338,6 @@ export function postSignInDestination(
     return target?.href ?? "/";
   }
 
-  // This one Producer-family URL is also an explicit Artist account action.
-  // Preserve it through an expired session without broadening Artist access to
-  // any other onboarding or dashboard target; the onboarding layout and action
-  // independently validate the trusted route-derived intent.
-  if (
-    isExplicitCreateStudioTarget(target) &&
-    memberships.artist.hasAccess
-  ) {
-    return target?.href ?? "/artist";
-  }
-
   // Role-specific links win over the remembered role for a dual account.
   // The protected destination still rechecks the real DB membership.
   if (target?.platform === "artist" && memberships.artist.hasAccess) {
@@ -381,7 +364,7 @@ export function postSignInDestination(
     return target?.platform === "artist" ? target.href : "/artist";
   }
 
-  return "/onboarding";
+  return "/producer-access";
 }
 
 /**

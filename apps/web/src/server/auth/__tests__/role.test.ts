@@ -18,8 +18,7 @@ import { emailToSlug } from "~/lib/slug";
 //     null or slug is still the auto-generated email-derived default
 //   - "producer-complete": producer row with displayName + custom slug
 //   - "orphan": authenticated but no producer row AND no
-//     client_contacts — typically a sub-second window during the
-//     Clerk webhook race, or a webhook delivery failure
+//     client_contacts — a valid account with no application role
 
 const completeProducer: ProducerRow = {
   id: "producer-1",
@@ -101,10 +100,7 @@ describe("resolveUserRole", () => {
     }
   });
 
-  it("returns 'orphan' when no producer row AND no client_contacts (webhook race)", () => {
-    // Sub-second window during Clerk webhook delivery: Clerk session
-    // exists, DB rows don't yet. /onboarding wizard should still let
-    // them fill the form (the action upserts idempotently).
+  it("returns 'orphan' when no producer row AND no client_contacts", () => {
     const role = resolveUserRole({
       userId: "user_racing",
       producerRow: null,

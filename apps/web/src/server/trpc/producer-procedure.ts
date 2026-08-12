@@ -51,7 +51,7 @@ function resolveProducerContext(ctx: object, userId: string): Promise<ProducerCo
 
 // Resolve the caller's Producer.id once per request/caller context. Throws
 // UNAUTHORIZED if no userId in context (caller didn't sign in), or NOT_FOUND
-// if the Clerk user has no Producer row yet (webhook race — see onboarding).
+// if the Clerk user has no Producer membership.
 //
 // Lives in its own module (rather than inside `routers/portfolio.ts`)
 // because every producer-scoped router needs the same middleware.

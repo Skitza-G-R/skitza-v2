@@ -42,8 +42,9 @@ import { OnboardingRuntimeBoundary } from "./runtime-boundary";
 //   - artist → /artist (the hard wall — Task 16 primary fix)
 //   - producer-complete on /onboarding/studio → /dashboard
 //   - producer-complete on /onboarding/{2,3,4} → render (mid-flow)
-//   - producer-incomplete OR orphan on /onboarding/studio → render
-//   - producer-incomplete OR orphan on /onboarding/{2,3,4} → /onboarding/studio
+//   - producer-incomplete on /onboarding/studio → render
+//   - producer-incomplete on /onboarding/{2,3,4} → /onboarding/studio
+//   - authenticated account without Producer access → /producer-access
 export default async function OnboardingLayout({ children }: { children: ReactNode }) {
   const reqHeaders = await headers();
 
@@ -69,10 +70,7 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
   const pathname = reqHeaders.get("x-pathname");
   const currentStep = stepFromPath(pathname);
-  const redirectTo = decideOnboardingMembershipRedirect(memberships, currentStep, {
-    allowArtistCreateStudio:
-      reqHeaders.get("x-onboarding-intent") === "create-studio",
-  });
+  const redirectTo = decideOnboardingMembershipRedirect(memberships, currentStep);
   if (redirectTo) redirect(redirectTo);
 
   const identity =

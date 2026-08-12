@@ -50,8 +50,8 @@ function BrandPanel() {
             The business side of music, in rhythm.
           </h1>
           <p className="mt-5 max-w-[470px] text-[15px] leading-[1.6] text-white/70">
-            Let artists book, keep every version in its place, and know when a payment
-            clears—without stitching five tools together.
+            Let artists book, keep every version in its place, and know when an external payment is
+            recorded—without stitching five tools together.
           </p>
 
           <WorkflowPreview />
@@ -121,7 +121,7 @@ function WorkflowPreview() {
           status="Shared"
         />
         <WorkflowStep
-          label="Payment cleared"
+          label="External payment recorded"
           detail="The final delivery is unlocked"
           status="Paid"
         />

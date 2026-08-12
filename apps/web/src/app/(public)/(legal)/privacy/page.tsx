@@ -1,70 +1,266 @@
+import type { ReactNode } from "react";
+
 export const metadata = { title: "Privacy" };
 
-// Placeholder privacy policy — plain-language bullets, honest about
-// what we collect, why, and what we don't. Replace with a proper legal
-// version before public launch; this is the minimal responsible shape.
+const GOOGLE_USER_DATA_POLICY =
+  "https://developers.google.com/terms/api-services-user-data-policy";
+
 export default function PrivacyPage() {
   return (
     <div className="py-16 md:py-24">
       <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-        Privacy
+        Privacy notice
       </p>
       <h1 className="font-syne mt-3 text-5xl font-extrabold leading-tight tracking-tight">
-        What we collect.
+        Your data, in plain English.
       </h1>
       <p className="mt-2 font-mono text-sm text-[rgb(var(--fg-muted))]">
-        Last updated: April 2026 · Plain English · Tell us at privacy@skitza.app if
-        anything reads wrong.
+        Last updated: August 12, 2026
       </p>
 
       <div className="mt-12 space-y-10 text-[rgb(var(--fg-secondary))]">
-        <Section title="As a producer">
-          We collect your email, display name, studio URL (slug), currency, timezone, and
-          brand settings — the things you enter during onboarding and in /dashboard/settings.
-          We store these to render your portfolio and operate your studio. We store
-          nothing you don&apos;t tell us.
+        <Section title="Who this notice covers">
+          <p>
+            This notice explains how Skitza handles personal information when Producers,
+            Artists, public visitors, and people who contact us use skitza.app. Skitza is a
+            web service for independent music Producers and the Artists they work with.
+          </p>
+          <p className="mt-3">
+            Questions or privacy requests can be sent to{" "}
+            <MailLink address="privacy@skitza.app" />.
+          </p>
         </Section>
 
-        <Section title="When a lead opens your link">
-          When someone clicks a /m/&lt;token&gt; URL you sent, we log: the time of the open,
-          an approximate IP (from the proxy headers), a short user-agent string, and the
-          referring URL (if the browser provides one). This is shown to you as analytics
-          (opens, devices, dwell time). We do not share this with anyone.
+        <Section title="Information we collect">
+          <List>
+            <li>
+              <strong>Account and profile data:</strong> your name, email address,
+              authentication identifier, account role, profile image, studio name and URL,
+              timezone, currency, brand settings, preferences, and sign-in status.
+            </li>
+            <li>
+              <strong>Client and studio data:</strong> contact details, private Producer notes,
+              tags, projects, products, offers, accepted terms, sessions, comments, files,
+              artwork, credits, notification choices, and availability settings.
+            </li>
+            <li>
+              <strong>External-payment records:</strong> a Producer&apos;s payment instructions,
+              the price and payment plan users agree to, payment status, and proof of a payment
+              made outside Skitza. Skitza does not collect payment-card details or move money
+              between Producers and Artists.
+            </li>
+            <li>
+              <strong>Communications:</strong> messages and transactional email details needed
+              for invitations, bookings, reminders, comments, payment updates, and support.
+            </li>
+            <li>
+              <strong>Technical and usage data:</strong> IP address, browser and device data,
+              pages and features used, request and error details, security events, and similar
+              operational data. Depending on our production configuration, this can include
+              analytics and session-replay data described below.
+            </li>
+          </List>
         </Section>
 
-        <Section title="What we don&apos;t do">
-          <ul className="mt-3 space-y-2">
-            <Neg>No third-party analytics, trackers, or ad pixels.</Neg>
-            <Neg>No cross-site cookies.</Neg>
-            <Neg>No selling or sharing of producer or lead data.</Neg>
-            <Neg>No email marketing lists built from your lead opens.</Neg>
-          </ul>
+        <Section title="How we use information">
+          <List>
+            <li>Authenticate users and keep Producer and Artist workspaces separate.</li>
+            <li>
+              Operate profiles, projects, bookings, agreements, external-payment records,
+              audio review, controlled downloads, notifications, and support.
+            </li>
+            <li>Protect accounts and files, prevent abuse, troubleshoot, and improve Skitza.</li>
+            <li>
+              Keep an accurate history of accepted terms, work, sessions, payment records, and
+              changes where that history is part of the service users asked us to provide.
+            </li>
+          </List>
         </Section>
 
-        <Section title="Magic link tokens">
-          The raw tokens we issue are never stored — only a SHA-256 hash. If the database
-          is leaked, an attacker cannot recover working URLs from the hash alone.
+        <Section title="Google Calendar data">
+          <p>
+            Connecting Google Calendar is optional and available only to a Producer. We request
+            access only after the Producer chooses <strong>Connect Google Calendar</strong>.
+          </p>
+
+          <h3 className="mt-5 font-bold text-[rgb(var(--fg-primary))]">What we access</h3>
+          <List>
+            <li>The connected Google account identifier and email address.</li>
+            <li>
+              The calendar list, including calendar names, timezones, access roles, and which
+              calendar is primary, so the Producer can choose calendars inside Skitza.
+            </li>
+            <li>
+              Busy and free time from the calendars the Producer selects, so Skitza can avoid
+              offering times that are already busy.
+            </li>
+            <li>
+              The Skitza-linked Google events needed to create, update, cancel, restore, watch,
+              and reconcile sessions. This can include the session title and time, the booked
+              Artist&apos;s attendee email and RSVP, an Artist-safe Skitza link, and private linkage
+              metadata.
+            </li>
+          </List>
+
+          <h3 className="mt-5 font-bold text-[rgb(var(--fg-primary))]">What we store</h3>
+          <p className="mt-3">
+            We store the connected Google account identifier and email, granted permissions,
+            connection and sync status, encrypted access and refresh tokens, calendar names and
+            timezones, access roles, selected-calendar settings, encrypted calendar identifiers,
+            and limited linked-event and sync records. Google access and refresh tokens are
+            encrypted before they are stored.
+          </p>
+          <p className="mt-3">
+            For unrelated Google events, Skitza uses busy/free intervals and does not store or
+            display their title, attendees, description, location, Google Meet details, or
+            reminders. Artists can see which Skitza booking times are available; they do not see
+            the Producer&apos;s unrelated Google event details.
+          </p>
+
+          <h3 className="mt-5 font-bold text-[rgb(var(--fg-primary))]">
+            How Google data is used and shared
+          </h3>
+          <p className="mt-3">
+            We use Google data only to provide the visible Calendar features described above,
+            maintain and secure the integration, provide support, and comply with law. We do not
+            sell Google user data, use it for advertising or credit decisions, or use it to train
+            a generalized AI model. We disclose it only to service providers acting for Skitza
+            where needed to host, secure, operate, or troubleshoot the integration; when the user
+            directs or consents to the disclosure; or when security or law requires it.
+          </p>
+          <p className="mt-3">
+            People at Skitza or its service providers do not read Google user data unless you
+            specifically ask for support and agree to that access, the access is needed to
+            investigate a security or abuse incident, the law requires it, or the data has been
+            aggregated and de-identified for internal operations.
+          </p>
+          <p className="mt-3">
+            Skitza&apos;s use of information received from Google Workspace APIs will adhere to the{" "}
+            <ExternalLink href={GOOGLE_USER_DATA_POLICY}>
+              Google API Services User Data Policy
+            </ExternalLink>
+            , including its Limited Use requirements.
+          </p>
+
+          <h3 className="mt-5 font-bold text-[rgb(var(--fg-primary))]">
+            Disconnecting or deleting Google data
+          </h3>
+          <ol className="mt-3 list-decimal space-y-2 pl-5">
+            <li>
+              Open <strong>Dashboard → Calendar</strong>, open the Google Calendar control, and
+              choose <strong>Disconnect</strong>.
+            </li>
+            <li>
+              Skitza then tries to stop Calendar notifications and revoke Google authorization,
+              permanently clears the stored access and refresh tokens, and removes the saved
+              calendar selections. New changes stop syncing.
+            </li>
+            <li>
+              Existing Google events remain in Google Calendar and can be removed there. A
+              retained connection record can include the account email, permissions, status,
+              timestamps, safe error codes, and linked booking or sync history.
+            </li>
+            <li>
+              To request deletion of the remaining Google-derived account or operational data,
+              email <MailLink address="privacy@skitza.app" /> from the account email. We may need
+              to verify your identity. You can also remove Skitza from your Google Account&apos;s
+              third-party connections, but that alone does not delete data already stored by
+              Skitza.
+            </li>
+          </ol>
         </Section>
 
-        <Section title="Data you own, data you can delete">
-          You can delete your profile and all related data (portfolio tracks, magic links,
-          analytics) by emailing privacy@skitza.app — we&apos;ll comply within 7 days. A
-          self-serve delete button lands soon.
+        <Section title="Analytics, diagnostics, and browser storage">
+          <p>
+            When configured, PostHog helps us understand page and feature use. For signed-in
+            users, it can receive the Clerk user ID, email address, first name, pageviews, and
+            product events. We configure it to respect the browser&apos;s Do Not Track setting.
+          </p>
+          <p className="mt-3">
+            When configured, Sentry receives error, performance, request, device, and diagnostic
+            information. That information may include an IP address or account context. Sentry
+            session replay is currently disabled. Public song-listening and invitation routes have
+            additional collection protections.
+          </p>
+          <p className="mt-3">
+            Skitza and Clerk use cookies and similar browser storage for sign-in, security,
+            language and studio preferences, invitation flow, uploads, playback, and offline or
+            recent-audio behavior. Clearing site data in your browser removes locally stored
+            Skitza data and may sign you out.
+          </p>
         </Section>
 
-        <Section title="Processors we use">
-          <ul className="mt-3 space-y-2 font-mono text-sm">
-            <Row>Authentication — Clerk (USA)</Row>
-            <Row>Database — Neon Postgres (EU · Frankfurt)</Row>
-            <Row>Hosting — Vercel (USA / Global edge)</Row>
-          </ul>
+        <Section title="When we share information">
+          <p>
+            We use service providers to run Skitza. They process information for the function
+            listed here and under their own service terms and privacy commitments:
+          </p>
+          <List>
+            <li>Clerk — authentication, account management, and invitations.</li>
+            <li>Neon — database hosting.</li>
+            <li>Vercel — website hosting and server runtime.</li>
+            <li>Cloudflare R2 — audio, artwork, documents, and payment-proof storage.</li>
+            <li>Resend — transactional email delivery.</li>
+            <li>Google — the optional Google Calendar connection and attendee updates.</li>
+            <li>PostHog — product analytics, when configured.</li>
+            <li>Sentry — error, performance, and diagnostic information, when configured.</li>
+          </List>
+          <p className="mt-3">
+            We may also disclose information when a user directs us to, to protect users or the
+            service, in response to a valid legal requirement, or as part of a business transfer
+            subject to applicable notice and consent requirements. We do not sell personal
+            information or use it for targeted advertising.
+          </p>
+        </Section>
+
+        <Section title="Retention and deletion">
+          <p>
+            We keep information for as long as needed to provide and secure Skitza, maintain the
+            records users asked us to keep, resolve disputes, and meet legal obligations. The
+            period differs by category. Short-lived authorization and upload data expires sooner;
+            account, project, content, booking, and operational records can remain while an
+            account or relationship is active.
+          </p>
+          <p className="mt-3">
+            Accepted agreements, purchases, external-payment records, proofs, session history,
+            and related audit records may remain after an account closes because changing or
+            silently erasing that shared history could harm another user or conflict with legal,
+            contractual, security, or record-keeping needs. Provider logs and backups may also
+            remain for their normal limited retention periods. When retention is no longer
+            needed, we delete or de-identify the information where practical.
+          </p>
+        </Section>
+
+        <Section title="Your choices and requests">
+          <p>
+            Depending on where you live, you may have rights to access, correct, export, object
+            to, restrict, or delete personal information. You can change many profile,
+            notification, file, public-link, and Calendar settings inside Skitza. For another
+            request, email <MailLink address="privacy@skitza.app" />. We may verify your identity
+            and may keep information where the law or the integrity of another user&apos;s shared
+            record requires it.
+          </p>
+        </Section>
+
+        <Section title="Security and changes">
+          <p>
+            We use access controls, HTTPS, encrypted Google tokens, hashed public-link tokens,
+            and private or short-lived file-delivery methods. No online service can promise
+            perfect security.
+          </p>
+          <p className="mt-3">
+            We may update this notice when the service or our legal obligations change. We will
+            update the date above and provide additional notice when a material change requires
+            it. We will ask for consent before using previously collected Google data for a new
+            purpose when Google&apos;s policies or applicable law require it.
+          </p>
         </Section>
       </div>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
       <h2 className="font-syne text-2xl font-bold tracking-tight text-[rgb(var(--fg-primary))]">
@@ -75,20 +271,27 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Neg({ children }: { children: React.ReactNode }) {
+function List({ children }: { children: ReactNode }) {
+  return <ul className="mt-3 list-disc space-y-2 pl-5">{children}</ul>;
+}
+
+function MailLink({ address }: { address: string }) {
   return (
-    <li className="flex items-start gap-2">
-      <span aria-hidden className="mt-0.5 text-[rgb(var(--fg-danger))]">✕</span>
-      <span>{children}</span>
-    </li>
+    <a className="font-medium underline underline-offset-4" href={`mailto:${address}`}>
+      {address}
+    </a>
   );
 }
 
-function Row({ children }: { children: React.ReactNode }) {
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <li className="flex items-start gap-2">
-      <span aria-hidden className="mt-1 block h-1.5 w-1.5 rounded-full bg-[rgb(var(--fg-muted))]" />
-      <span>{children}</span>
-    </li>
+    <a
+      className="font-medium underline underline-offset-4"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {children}
+    </a>
   );
 }

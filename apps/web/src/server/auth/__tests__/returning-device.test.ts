@@ -84,12 +84,10 @@ describe("auth page switch URLs", () => {
     expect(signInSwitchHref("/onboarding")).toBe("/sign-in");
   });
 
-  it("preserves explicit onboarding and Artist targets on that handoff", () => {
+  it("preserves safe Producer and Artist targets on that handoff", () => {
     expect(
-      signInSwitchHref("/onboarding/studio?intent=create-studio"),
-    ).toBe(
-      "/sign-in?redirect_url=%2Fonboarding%2Fstudio%3Fintent%3Dcreate-studio",
-    );
+      signInSwitchHref("/onboarding/studio"),
+    ).toBe("/sign-in?redirect_url=%2Fonboarding%2Fstudio");
     expect(
       signInSwitchHref("/join/northline-studio/continue?action=book"),
     ).toBe(

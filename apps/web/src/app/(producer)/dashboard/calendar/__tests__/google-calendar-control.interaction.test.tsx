@@ -113,9 +113,16 @@ describe("GoogleCalendarControl", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Connect Google Calendar" }));
     const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("How Skitza uses your Google data")).not.toBeNull();
+    expect(within(dialog).getByText(/reads your Google account email/i)).not.toBeNull();
+    expect(within(dialog).getByText(/checks only busy and free times/i)).not.toBeNull();
+    expect(within(dialog).getByText(/create, update, read, and delete/i)).not.toBeNull();
+    expect(within(dialog).getByText(/stores encrypted Google tokens/i)).not.toBeNull();
     expect(
-      within(dialog).getByText(/does not show unrelated Google event details/i),
-    ).not.toBeNull();
+      within(dialog).getByRole<HTMLAnchorElement>("link", { name: "Privacy Notice" }).getAttribute(
+        "href",
+      ),
+    ).toBe("/privacy");
 
     const connectButton = within(dialog).getByRole("button", {
       name: "Connect Google Calendar",
@@ -206,6 +213,7 @@ describe("GoogleCalendarControl", () => {
     ).not.toBeNull();
     expect(within(dialog).queryAllByRole("radio")).toHaveLength(0);
     expect(within(dialog).getByText(/Your Google connection is saved/i)).not.toBeNull();
+    expect(within(dialog).getByText("How Skitza uses your Google data")).not.toBeNull();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Try loading again" }));
     await act(() => Promise.resolve());
@@ -298,6 +306,7 @@ describe("GoogleCalendarControl", () => {
     expect(
       within(dialog).getByText("Google needs permission again. Your Skitza sessions are safe."),
     ).not.toBeNull();
+    expect(within(dialog).getByText("How Skitza uses your Google data")).not.toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Reconnect Google Calendar" }));
     await act(() => Promise.resolve());
     expect(reconnect).toHaveBeenCalledTimes(1);
@@ -317,6 +326,7 @@ describe("GoogleCalendarControl", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Switch account" }));
     expect(within(dialog).getByRole("heading", { name: "Switch Google account?" })).not.toBeNull();
     expect(within(dialog).getByText("Choose in Google")).not.toBeNull();
+    expect(within(dialog).getByText("How Skitza uses your Google data")).not.toBeNull();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Keep current account" }));
     expect(confirmAccountSwitch).not.toHaveBeenCalled();
@@ -368,9 +378,21 @@ describe("GoogleCalendarControl", () => {
 
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    expect(within(dialog).getByText(/Disconnecting stops future Google access/i)).not.toBeNull();
+    expect(within(dialog).getByText(/removes its saved Google access tokens/i)).not.toBeNull();
+    expect(within(dialog).getByText(/keeps the connected account email/i)).not.toBeNull();
     expect(
-      within(dialog).getByText(/Skitza sessions and existing Google events stay/i),
-    ).not.toBeNull();
+      within(dialog)
+        .getByRole<HTMLAnchorElement>("link", { name: "privacy@skitza.app" })
+        .getAttribute("href"),
+    ).toBe("mailto:privacy@skitza.app");
+    expect(
+      within(dialog)
+        .getByRole<HTMLAnchorElement>("link", {
+          name: /Google Account's third-party connections/i,
+        })
+        .getAttribute("href"),
+    ).toBe("https://myaccount.google.com/connections");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Keep connected" }));
     expect(disconnect).not.toHaveBeenCalled();

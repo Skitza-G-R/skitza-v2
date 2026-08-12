@@ -24,14 +24,14 @@ export default function AboutPage() {
 
       <div className="mt-10 space-y-6 text-lg leading-relaxed text-[rgb(var(--fg-secondary))]">
         <p>
-          Skitza was built after I lost a $4k mix. No signed contract, no proof of
-          delivery — the artist ghosted, and I had nothing to point at.
+          Skitza was built after a mix went unpaid. No accepted agreement, no clear
+          delivery record — the artist disappeared, and I had nothing solid to point at.
         </p>
         <p>
           The tools to prevent it existed: Calendly for booking, Samply for files,
           Notion for notes, DocuSign for the contract, Stripe for the deposit,
-          WhatsApp for everything else. Six tools, six logins, forty-seven emails per
-          session. The friction <em>was</em> the product.
+          WhatsApp for everything else. Too many tools, too many logins, and too much
+          context switching. The friction <em>was</em> the product.
         </p>
         <p>
           Skitza is what I wish I&apos;d had that night — one link, every client,
@@ -48,15 +48,14 @@ export default function AboutPage() {
 
       <div className="mt-14 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-7 sm:p-8">
         <h2 className="font-syne text-2xl font-extrabold tracking-tight">
-          Start your studio
+          Producer access
         </h2>
         <p className="mt-2 text-[rgb(var(--fg-secondary))]">
-          Free to start. No card. Three minutes to your first booking link.
+          Producer access is invitation-only. Artists create accounts through a Producer&apos;s
+          Skitza link.
         </p>
         <Button asChild size="lg" className="mt-5 rounded-[var(--radius-lg)]">
-          <Link href="/sign-up?redirect_url=%2Fonboarding">
-            Get demo access →
-          </Link>
+          <Link href="/producer-access">Learn about access →</Link>
         </Button>
       </div>
     </div>

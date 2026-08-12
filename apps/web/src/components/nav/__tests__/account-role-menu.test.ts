@@ -43,10 +43,12 @@ describe("SK-161 account role menu", () => {
     expect(globalCss).toContain('[data-role-current-status="true"]');
   });
 
-  it("offers explicit Producer setup actions from Artist mode", () => {
-    expect(source).toContain("Create a studio");
+  it("shows invitation information before an Artist has Producer access", () => {
+    expect(source).toContain("Become a Producer");
+    expect(source).toContain("/producer-access");
     expect(source).toContain("Finish studio setup");
-    expect(source).toContain("intent=create-studio");
+    expect(source).not.toContain("intent=create-studio");
+    expect(source).not.toContain("Create a studio");
   });
 
   it("renders the other-role unread indicator only inside the role action", () => {

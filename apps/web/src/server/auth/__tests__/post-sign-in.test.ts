@@ -397,13 +397,13 @@ describe("postSignInDestination", () => {
     ).toBe("/onboarding");
   });
 
-  it("preserves an explicit Create-a-studio onboarding action", () => {
+  it("preserves an onboarding deep link for an existing Producer", () => {
     expect(
       postSignInDestination(
         producerOnly,
-        "/onboarding/studio?intent=create-studio",
+        "/onboarding/studio",
       ),
-    ).toBe("/onboarding/studio?intent=create-studio");
+    ).toBe("/onboarding/studio");
   });
 
   it("preserves a matching artist deep link", () => {
@@ -458,7 +458,7 @@ describe("postSignInDestination", () => {
     ).toBe("/onboarding");
   });
 
-  it("routes a webhook-race orphan to onboarding", () => {
+  it("routes an authenticated account without a role to Producer invitation information", () => {
     expect(
       postSignInDestination(
         {
@@ -468,7 +468,7 @@ describe("postSignInDestination", () => {
         },
         null,
       ),
-    ).toBe("/onboarding");
+    ).toBe("/producer-access");
   });
 
   it("keeps a disconnected artist account on the artist platform", () => {
@@ -502,13 +502,13 @@ describe("postSignInDestination", () => {
     ).toBe("/artist/book?studio=producer-target");
   });
 
-  it("preserves only the exact Create-a-studio action for an Artist after sign-in", () => {
+  it("never treats a create-studio URL as Producer access for an Artist", () => {
     expect(
       postSignInDestination(
         artistOnly,
         "/onboarding/studio?intent=create-studio",
       ),
-    ).toBe("/onboarding/studio?intent=create-studio");
+    ).toBe("/artist");
     expect(
       postSignInDestination(
         artistOnly,

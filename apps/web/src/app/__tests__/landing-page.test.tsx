@@ -7,19 +7,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 //
 // Pins the same composition contract that the PR #50 build pinned,
 // against the v3 single-component output:
-//   1. Auth redirect — signed-in producers MUST land on /dashboard
+//   1. Auth redirect — signed-in accounts MUST pass through /auth/resolve
 //      and the landing markup MUST NOT render at all.
 //   2. Section composition for signed-out visitors — every section's
 //      distinguishing landmark is present in the rendered markup, in
 //      order. The 11 v3 sections are sibling JSX in landing-page.tsx;
 //      this test asserts each id / class fingerprint is present.
-//   3. CTA wiring — every primary signup CTA points at
-//      /sign-up?redirect_url=/onboarding (PRD §3.5: no waitlist; all
-//      CTAs drive sign-up directly, even though the v3 design source
-//      offered a WaitlistModal — the modal was retired in this port).
-//      Visible CTA text is "Start free trial" (the prior "Get demo
-//      access" copy was bait-and-switch since the destination is the
-//      sign-up form, not a demo).
+//   3. CTA wiring — Producer marketing CTAs explain invitation-only access.
 //   4. No fabricated social proof / no waitlist copy.
 //
 // In-repo testing convention: `react-dom/server` `renderToStaticMarkup`
@@ -80,15 +74,15 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it("redirects signed-in producers to /dashboard and does NOT render landing content", async () => {
+  it("routes signed-in accounts through invitation and membership resolution", async () => {
     authMock.mockResolvedValue({ userId: "user_123" });
     const { default: HomePage } = await import("../page");
 
     // The redirect mock throws to halt server-component execution —
     // mirroring Next.js runtime. The page MUST NOT return markup for a
     // signed-in producer.
-    await expect(HomePage()).rejects.toThrow("__REDIRECT__:/dashboard");
-    expect(redirectMock).toHaveBeenCalledWith("/dashboard");
+    await expect(HomePage()).rejects.toThrow("__REDIRECT__:/auth/resolve");
+    expect(redirectMock).toHaveBeenCalledWith("/auth/resolve");
     expect(redirectMock).toHaveBeenCalledTimes(1);
   });
 
@@ -138,11 +132,11 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
 
     // The 6 small-card feature titles in the FeatureGrid section.
     // If a card title is renamed/removed, this catches it.
-    expect(html).toContain("Contracts that sign themselves");
+    expect(html).toContain("Exact terms, accepted in-app");
     expect(html).toContain("Client history, all in one place");
-    expect(html).toContain("Lead pipeline that doesn");
-    expect(html).toContain("Files stay yours");
-    expect(html).toContain("One link, every channel");
+    expect(html).toContain("Bookings that respect availability");
+    expect(html).toContain("Private files, controlled delivery");
+    expect(html).toContain("One link for each studio");
     expect(html).toContain("Works on every device");
   });
 
@@ -152,20 +146,18 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    expect(html).toContain("Stop running your studio out of WhatsApp.");
-    expect(html).toContain("Stream freely. Download when paid.");
-    // Apostrophe encodes as &#x27; in renderToStaticMarkup, so match
-    // the literal-encoded form rather than the curly-apostrophe.
-    expect(html).toMatch(/reminders you.{1,8}d never send/i);
+    expect(html).toContain("One link for every Artist.");
+    expect(html).toContain("Feedback stays with the right version.");
+    expect(html).toContain("Keep sessions and payments moving.");
   });
 
-  it("every primary signup CTA points at /sign-up?redirect_url=%2Fonboarding", async () => {
+  it("every primary Producer CTA points at invitation information", async () => {
     authMock.mockResolvedValue({ userId: null });
     const { default: HomePage } = await import("../page");
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    // Count Sign-up href occurrences. Minimum surfaces:
+    // Count Producer-access href occurrences. Minimum surfaces:
     //   - Nav desktop CTA
     //   - Nav mobile menu CTA (rendered always; hidden by .lg:hidden)
     //   - Hero primary CTA
@@ -174,9 +166,20 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     // The mobile menu fold-out only renders when `menuOpen` is true,
     // so it's NOT in the static SSR output (initial `menuOpen=false`).
     // That leaves 4 surfaces in SSR.
-    const signUpHref = 'href="/sign-up?redirect_url=%2Fonboarding"';
-    const matches = html.match(new RegExp(escapeRegExp(signUpHref), "g")) ?? [];
+    const producerAccessHref = 'href="/producer-access"';
+    const matches = html.match(new RegExp(escapeRegExp(producerAccessHref), "g")) ?? [];
     expect(matches.length).toBeGreaterThanOrEqual(4);
+    expect(html).not.toContain("Start free trial");
+    expect(html).not.toContain('/sign-up?redirect_url=%2Fonboarding');
+  });
+
+  it("serializes waveform heights deterministically for hydration", async () => {
+    authMock.mockResolvedValue({ userId: null });
+    const { default: HomePage } = await import("../page");
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain('height:71.6473%');
+    expect(html).not.toContain('height:71.64733502929566%');
   });
 
   it("'Sign in' link points at /sign-in (nav-only)", async () => {
@@ -199,10 +202,8 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    // The v3 design source uses a WaitlistModal triggered by every
-    // "Get demo access" CTA. PRD §3.5 retired all waitlist concepts —
-    // every CTA drives sign-up directly. Pinning here so a future port
-    // doesn't accidentally reintroduce the modal.
+    // The general homepage explains invitation-backed access; it does not
+    // collect a separate waitlist submission.
     expect(html).not.toMatch(/Join the Waiting List/i);
     expect(html).not.toMatch(/Join Waitlist/i);
     expect(html).not.toMatch(/waitlist/i);
@@ -210,17 +211,37 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     expect(html).not.toMatch(/Get Early Access/i);
   });
 
-  it("renders the v3 founder note social-proof line", async () => {
+  it("renders the founder note without an unverified loss amount", async () => {
     authMock.mockResolvedValue({ userId: null });
     const { default: HomePage } = await import("../page");
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    // The founder note quotes the "$4k mix" origin story — pinning
-    // this catches accidental copy regressions when the next phase
-    // touches the founder section.
-    expect(html).toContain("losing a $4k mix");
+    expect(html).toContain("a mix went unpaid");
+    expect(html).not.toContain("$4k mix");
     expect(html).toContain("Gili Asraf");
+  });
+
+  it("describes the real beta, external-payment, and Google Calendar behavior", async () => {
+    authMock.mockResolvedValue({ userId: null });
+    const { default: HomePage } = await import("../page");
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain("Free");
+    expect(html).toContain("during beta");
+    expect(html).toContain("external-payment records");
+    expect(html).toContain("Connect Google Calendar");
+    expect(html).toContain("checks selected busy times to avoid conflicts");
+    expect(html).toContain("Unrelated event details stay private");
+    expect(html).toContain("view private products and prices after sign-in");
+    expect(html).toContain("skitza.app/join/your-name");
+
+    expect(html).not.toContain("Automated invoicing &amp; Stripe payments");
+    expect(html).not.toContain("Stripe handles payment plans");
+    expect(html).not.toContain("WhatsApp + email automation");
+    expect(html).not.toContain("Invoice paid");
+    expect(html).not.toContain("app.skitza.com");
+    expect(html).not.toContain("$29");
   });
 
   it("renders sk-reveal classes that drive scroll-reveal (paired with RevealOnScroll)", async () => {

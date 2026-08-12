@@ -18,12 +18,8 @@ import { PublicConnectivityNotice } from "~/components/public/public-connectivit
 // 2026-04-26 (landing-restore CSS scoping)). Every section's distinguishing
 // landmark is pinned by the test at apps/web/src/app/__tests__/landing-page.test.tsx.
 //
-// Design fidelity vs PRD §3.5 reconciliation:
-// - The v3 design source uses a `WaitlistModal` triggered by every
-//   "Get demo access" CTA. PRD §3.5 explicitly retired the waitlist —
-//   every CTA must drive sign-up directly.
-// - Reconciliation: keep the v3 visual + the "Get demo access" copy, but
-//   wire every CTA at `/sign-up?redirect_url=/onboarding`. No modal.
+// Producer access is invitation-only (SK-229). Marketing CTAs explain the
+// invitation flow; Artist signup remains on each Producer's `/join/[slug]`.
 // - Logged in the handoff doc.
 //
 // CSS contract:
@@ -36,7 +32,7 @@ import { PublicConnectivityNotice } from "~/components/public/public-connectivit
 // Inline SVGs: every icon is hand-written below. No `lucide-react` (see
 // Phase 1 + 2 precedent in CLAUDE.md).
 
-const SIGNUP_HREF = "/sign-up?redirect_url=%2Fonboarding";
+const PRODUCER_ACCESS_HREF = "/producer-access";
 
 export function LandingPage() {
   // FAQ accordion — single-active-row state.
@@ -405,7 +401,7 @@ function Nav({
             Sign in
           </Link>
           <Link
-            href={SIGNUP_HREF}
+            href={PRODUCER_ACCESS_HREF}
             className="sk-pop sk-press inline-flex min-h-11 items-center rounded-[10px] px-4 py-2 text-[13px] font-bold tracking-tight"
             style={{
               background: "rgb(var(--brand-primary))",
@@ -413,7 +409,7 @@ function Nav({
               boxShadow: "0 2px 12px rgba(212,150,10,0.3)",
             }}
           >
-            Start free trial →
+            Producer access →
           </Link>
         </div>
         {/* Mobile toggle */}
@@ -476,14 +472,14 @@ function Nav({
               Sign in
             </Link>
             <Link
-              href={SIGNUP_HREF}
+              href={PRODUCER_ACCESS_HREF}
               className="sk-press mt-2 inline-flex min-h-11 items-center justify-center rounded-[10px] px-4 py-3 text-center text-[14px] font-bold"
               style={{
                 background: "rgb(var(--brand-primary))",
                 color: "#111009",
               }}
             >
-              Start free trial →
+              Producer access →
             </Link>
           </div>
         </div>
@@ -583,14 +579,14 @@ function Hero() {
               letterSpacing: "-0.005em",
             }}
           >
-            The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion &amp;
-            WhatsApp. One link, one inbox, one bill — sessions book themselves and the
-            mix delivers itself the moment the invoice clears.
+            One Producer workspace for clients, projects, music, sessions, agreements,
+            external-payment records, and delivery. One link lets Artists hear public music,
+            join your studio, and keep the work in one shared place.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <Link
-              href={SIGNUP_HREF}
+              href={PRODUCER_ACCESS_HREF}
               className="sk-pop sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[12px] px-[22px] py-4 text-[15px] font-bold tracking-tight sm:py-[14px] sm:text-[14.5px]"
               style={{
                 background: "rgb(var(--brand-primary))",
@@ -598,7 +594,7 @@ function Hero() {
                 boxShadow: "0 8px 24px rgba(212,150,10,0.35)",
               }}
             >
-              Start free trial
+              How to get access
               <Icon name="arrow-right" size={16} strokeWidth={2.6} />
             </Link>
             <a
@@ -615,7 +611,7 @@ function Hero() {
             </a>
           </div>
 
-          {/* Trial-terms strip — pre-launch, no fabricated social proof. */}
+          {/* Early-access strip — pre-launch, no fabricated social proof. */}
           <div
             className="mt-9 flex flex-wrap items-center gap-x-4 gap-y-2.5 text-[12.5px] sm:mt-10 sm:gap-x-5 sm:gap-y-2"
             style={{ color: "rgb(242 237 230 / 0.65)" }}
@@ -629,17 +625,16 @@ function Hero() {
                 }}
                 aria-hidden
               />
-              <strong className="font-bold text-white">5 founding producers</strong>{" "}
-              · onboarding now
+              <strong className="font-bold text-white">Invitation-only Producer beta</strong>
             </span>
             <span className="hidden sm:inline" style={{ color: "rgb(242 237 230 / 0.35)" }}>·</span>
             <span className="inline-flex items-center gap-1.5">
               <Icon name="check" size={13} strokeWidth={3} />
-              14-day free trial
+              Producer invitation required
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Icon name="check" size={13} strokeWidth={3} />
-              No credit card
+              Artist signup stays open
             </span>
           </div>
         </div>
@@ -675,7 +670,7 @@ function HeroProductPeek() {
               className="font-mono rounded-md border bg-white px-2.5 py-1 text-[10px]"
               style={{ borderColor: "#e3dac6", color: "#6b6359" }}
             >
-              app.skitza.com / overview
+              skitza.app / dashboard
             </div>
           </div>
         </div>
@@ -733,7 +728,7 @@ function HeroProductPeek() {
                 className="text-[9.5px] font-semibold"
                 style={{ color: "rgb(255 255 255 / 0.75)" }}
               >
-                Gili Avraham
+                  Gili Studio
               </div>
             </div>
           </div>
@@ -747,7 +742,7 @@ function HeroProductPeek() {
                   Good evening, Gili.
                 </div>
                 <div className="font-mono text-[9.5px]" style={{ color: "#6b6359" }}>
-                  Tuesday · 3 sessions today
+                  Example workspace · 3 sessions today
                 </div>
               </div>
               <div
@@ -777,7 +772,7 @@ function HeroProductPeek() {
                   className="font-mono text-[11.5px] font-semibold"
                   style={{ color: "#fff" }}
                 >
-                  skitza.app/join/gili
+                  skitza.app/join/your-name
                 </div>
               </div>
               <div className="relative flex gap-1.5">
@@ -788,7 +783,7 @@ function HeroProductPeek() {
                     color: "rgb(255 255 255 / 0.7)",
                   }}
                 >
-                  248 visits / 7d
+                  Public link ready
                 </span>
                 <span
                   className="rounded px-1.5 py-0.5 text-[9px] font-bold"
@@ -804,8 +799,8 @@ function HeroProductPeek() {
                 never wrap mid-word. */}
             <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {[
-                { label: "Earned · Nov", value: "$8,420", note: "+ 22% vs Oct", noteColor: "#15803d", dot: false },
-                { label: "Outstanding", value: "$1,200", note: "2 invoices", noteColor: "#6b6359", dot: false },
+                { label: "Recorded · Nov", value: "$8,420", note: "external payments", noteColor: "#15803d", dot: false },
+                { label: "Outstanding", value: "$1,200", note: "2 payments", noteColor: "#6b6359", dot: false },
                 {
                   label: "Follow up",
                   value: "Marcus T.",
@@ -863,7 +858,7 @@ function HeroProductPeek() {
               {[
                 { c: "Yael N.", p: "Album · 4 tracks", s: "Mix v3 awaiting feedback", color: "#d4960a" },
                 { c: "Tom R.", p: "Single", s: "Final approval pending", color: "#15803d" },
-                { c: "Marcus T.", p: "EP · 3 tracks", s: "Invoice 9d overdue", color: "#dc2626" },
+                { c: "Marcus T.", p: "EP · 3 tracks", s: "Payment 9d overdue", color: "#dc2626" },
               ].map((r, i) => (
                 <div
                   key={r.c}
@@ -919,7 +914,7 @@ function HeroProductPeek() {
         </div>
       </div>
 
-      {/* Floating "paid" toast — desktop only */}
+      {/* Floating external-payment record toast — desktop only */}
       <div
         className="reveal-up absolute hidden lg:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px]"
         style={{
@@ -939,9 +934,9 @@ function HeroProductPeek() {
           <Icon name="dollar-sign" size={14} strokeWidth={2.8} />
         </div>
         <div>
-          <div className="font-bold">Invoice paid · auto</div>
+          <div className="font-bold">Payment confirmed</div>
           <div className="font-mono text-[10px]" style={{ color: "#6b6359" }}>
-            $450 received
+            $450 · proof recorded
           </div>
         </div>
       </div>
@@ -950,11 +945,11 @@ function HeroProductPeek() {
 }
 
 // =============================================================================
-// 3. Stack Replace ("Six tabs. Six logins.")
+// 3. Stack Replace
 // =============================================================================
 
 function StackReplace() {
-  const tools = ["Calendly", "Notion", "DocuSign", "Stripe", "Samply", "WhatsApp"];
+  const tools = ["Bookings", "Agreements", "Payments", "Files", "Clients", "Calendar"];
   return (
     <section
       id="stack-replace"
@@ -978,14 +973,11 @@ function StackReplace() {
             color: "rgb(var(--fg-default))",
           }}
         >
-          Six tabs. Six logins.
+          One studio business.
           {/* Forced break is a desktop rhythm; on phones it fights the
               balanced wrapper and produces five thin lines. */}
           <br className="hidden sm:inline" />{" "}
-          {/* nowrap: browsers treat the hyphen in "Forty-seven" as a
-              line-break spot, which split the word across lines. */}
-          <span className="whitespace-nowrap">Forty-seven</span> emails per
-          session.
+          Too many separate records.
         </h2>
 
         <div className="mx-auto mt-10 grid max-w-4xl gap-8 sm:mt-14 md:grid-cols-2 md:items-stretch">
@@ -1041,7 +1033,7 @@ function StackReplace() {
               className="font-mono mt-3.5 text-center text-[11px]"
               style={{ color: "#6b6359", letterSpacing: "-0.01em" }}
             >
-              ≈ 6 fees · 4 contexts · 1 confused client
+              Separate tools · scattered context · repeated admin
             </div>
           </div>
 
@@ -1078,14 +1070,14 @@ function StackReplace() {
                   className="font-mono text-center text-[12px]"
                   style={{ color: "rgb(255 255 255 / 0.6)" }}
                 >
-                  skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>gili</span>
+                  skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>your-name</span>
                 </div>
               </div>
               <div
                 className="font-mono mt-3.5 text-center text-[11px]"
                 style={{ color: "rgb(255 255 255 / 0.7)" }}
               >
-                1 link · 1 fee · 1 inbox
+                1 link · 1 studio · 1 shared record
               </div>
             </div>
           </div>
@@ -1120,15 +1112,15 @@ function FeaturesSection() {
               lineHeight: 1.02,
             }}
           >
-            Your studio. On autopilot.
+            Your studio. In one place.
           </h2>
         </div>
 
         <FeatureHero
           index="01"
-          label="Storefront & booking"
-          title="Stop running your studio out of WhatsApp."
-          body="Right now: a lead asks about rates in DMs, you send a Calendly link, they pick a slot, you message back to confirm, you draft a contract in Notion, paste it into DocuSign, send a Stripe invoice, follow up three times. Skitza collapses all of it into one tap on your link. Slot picked, contract signed, deposit paid — confirmed before you even reply."
+          label="Artist entry & booking"
+          title="One link for every Artist."
+          body="Share one Skitza link. Artists can hear public samples, create an account for your studio, view private products and prices after sign-in, and request an eligible time. Sessions confirm automatically only when you enable auto-confirm; otherwise you approve them."
         >
           <FeatureStorefrontMock />
         </FeatureHero>
@@ -1136,8 +1128,8 @@ function FeaturesSection() {
         <FeatureHero
           index="02"
           label="Files & feedback"
-          title="Stream freely. Download when paid."
-          body="Clients leave timestamped feedback right on the waveform. The high-res download stays locked until the final invoice clears. Feedback in. Money in. Files out."
+          title="Feedback stays with the right version."
+          body="Artists leave timestamped comments on exact audio versions. Downloads stay locked until the Producer confirms the required external payment, unless the Producer explicitly allows an early download."
           reverse
         >
           <FeatureLockedMock />
@@ -1145,9 +1137,9 @@ function FeaturesSection() {
 
         <FeatureHero
           index="03"
-          label="Follow-ups"
-          title="The reminders you'd never send."
-          body="Booking confirmations, session reminders, post-session thank-yous, payment nudges — sent over WhatsApp or email, in your voice. You don't lift a finger. Clients feel taken care of."
+          label="Email reminders"
+          title="Keep sessions and payments moving."
+          body="Skitza sends booking updates, session reminders, comment alerts, and payment reminders by email. Producers stay in control of the business record."
         >
           <FeatureAutomationMock />
         </FeatureHero>
@@ -1222,7 +1214,7 @@ function FeatureStorefrontMock() {
     >
       <div className="mb-3.5 flex items-center justify-between">
         <span className="font-mono text-[10px]" style={{ color: "#6b6359" }}>
-          skitza.app/join/gili
+          skitza.app/artist/store
         </span>
         <span
           className="rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
@@ -1232,14 +1224,14 @@ function FeatureStorefrontMock() {
             border: "1px solid rgba(34,197,94,0.22)",
           }}
         >
-          ● Live
+          Signed in
         </span>
       </div>
       <div
         className="font-syne mb-3 text-[22px] font-extrabold"
         style={{ letterSpacing: "-0.035em" }}
       >
-        Services
+        Studio services
       </div>
       <div className="flex flex-col gap-2.5">
         {[
@@ -1264,7 +1256,7 @@ function FeatureStorefrontMock() {
               className="rounded-md px-3 py-1.5 text-[11px] font-bold text-white"
               style={{ background: "#111009" }}
             >
-              Book →
+              Review →
             </div>
           </div>
         ))}
@@ -1277,7 +1269,7 @@ function FeatureStorefrontMock() {
           borderColor: "rgb(var(--border-subtle))",
         }}
       >
-        <div className="label-tiny mb-2">Pick a slot</div>
+        <div className="label-tiny mb-2">Available session times</div>
         <div className="grid grid-cols-5 gap-1.5">
           {["Mon", "Tue", "Wed", "Thu", "Fri"].map((d, i) => (
             <div
@@ -1339,7 +1331,9 @@ function FeatureLockedMock() {
               key={i}
               className="flex-1"
               style={{
-                height: `${String(v * 100)}%`,
+                // Keep the SSR and browser-normalized CSS value identical so
+                // React does not report a hydration mismatch for long floats.
+                height: `${(v * 100).toFixed(4)}%`,
                 borderRadius: 1,
                 background: played ? "rgb(var(--brand-primary))" : "rgb(255 255 255 / 0.18)",
               }}
@@ -1399,7 +1393,7 @@ function FeatureLockedMock() {
         <div className="flex-1">
           <div className="text-[12.5px] font-bold">Final_Master.wav · 24/48</div>
           <div className="font-mono mt-0.5 text-[10.5px]" style={{ color: "rgba(252,165,165,0.85)" }}>
-            Unlocks after $150 final payment
+            Unlocks after $150 is confirmed
           </div>
         </div>
         <span
@@ -1423,14 +1417,14 @@ function FeatureAutomationMock() {
         boxShadow: "0 20px 50px rgba(17,16,9,0.08)",
       }}
     >
-      <div className="label-tiny mb-3">Auto-sent today · 0 lifted fingers</div>
+      <div className="label-tiny mb-3">Email activity · example</div>
       <div className="flex flex-col gap-2.5">
         {[
           {
             who: "Marcus T.",
             when: "09:14",
             msg: "Hey Marcus, your session is confirmed for Tue 15:00 🎛",
-            kind: "WhatsApp",
+            kind: "Email",
             g: "grad-rose",
           },
           {
@@ -1443,14 +1437,14 @@ function FeatureAutomationMock() {
           {
             who: "The Halflights",
             when: "14:08",
-            msg: "Your stems are ready. Tap to download — 450MB.",
-            kind: "WhatsApp",
+            msg: "A new version is ready for your review.",
+            kind: "Email",
             g: "grad-emerald",
           },
           {
             who: "Dana R.",
             when: "16:55",
-            msg: "3 days since you asked about rates — still good to chat?",
+            msg: "A new comment was added at 01:42.",
             kind: "Email",
             g: "grad-amber",
           },
@@ -1502,8 +1496,8 @@ function FeatureGrid() {
   const items: Array<{ i: IconName; t: string; b: string }> = [
     {
       i: "file-signature",
-      t: "Contracts that sign themselves",
-      b: "Custom copyright + split sheets, signed from a phone before the session starts.",
+      t: "Exact terms, accepted in-app",
+      b: "Artists review and accept the exact service, rights, royalty, revision, and payment terms shown to them.",
     },
     {
       i: "users",
@@ -1512,18 +1506,18 @@ function FeatureGrid() {
     },
     {
       i: "inbox",
-      t: "Lead pipeline that doesn't ghost",
-      b: "Someone goes quiet on Instagram? Skitza tracks the lead and follows up automatically.",
+      t: "Bookings that respect availability",
+      b: "Working hours, blackouts, active sessions, and selected Google busy times protect each eligible slot.",
     },
     {
       i: "shield-check",
-      t: "Files stay yours",
-      b: "Cloudflare R2, AES-256, single-tenant audit log. Cancel anytime — your audio is still 100% yours.",
+      t: "Private files, controlled delivery",
+      b: "Uploaded audio stays in private Cloudflare R2 storage. Playback and downloads use authorized delivery.",
     },
     {
       i: "globe",
-      t: "One link, every channel",
-      b: "Drops cleanly into IG bio, Spotify, WhatsApp status. Clients remember one URL.",
+      t: "One link for each studio",
+      b: "Artists use one Producer link to hear public samples, join that studio, and return to their work.",
     },
     {
       i: "smartphone",
@@ -1585,9 +1579,21 @@ function FeatureGrid() {
 
 function HowSection() {
   const steps = [
-    { n: "01", t: "Connect your studio", b: "Link calendar, payments, and storage. ~10 minutes." },
-    { n: "02", t: "Set your rules", b: "Rates, availability, deposit %, contract template. Skitza handles the rest." },
-    { n: "03", t: "Share one link", b: "IG bio, business card, Spotify. Every client now flows through it." },
+    {
+      n: "01",
+      t: "Connect Google Calendar",
+      b: "Choose calendars. Skitza checks selected busy times to avoid conflicts and creates or updates Skitza session events. Unrelated event details stay private.",
+    },
+    {
+      n: "02",
+      t: "Set your studio rules",
+      b: "Define services, availability, external-payment instructions, and whether eligible sessions confirm automatically.",
+    },
+    {
+      n: "03",
+      t: "Share one Producer link",
+      b: "Artists can hear public music, join your studio, and keep bookings, agreements, files, and payment records together.",
+    },
   ];
   return (
     <section
@@ -1680,9 +1686,9 @@ function FounderNote() {
             className="m-0 text-[17px] leading-[1.6]"
             style={{ color: "rgb(var(--fg-default))", fontWeight: 500 }}
           >
-            I built Skitza after losing a $4k mix. No signed contract, no proof of
-            delivery — the artist ghosted, and I had nothing to point at. The tools to
-            prevent it existed; they were just scattered across six different apps.
+            I built Skitza after a mix went unpaid. No accepted agreement, no clear
+            delivery record — the artist disappeared, and I had nothing solid to point at.
+            The tools to prevent it existed; the record was just scattered across separate apps.
           </p>
           <p
             className="mt-4 text-[15px] leading-[1.6]"
@@ -1726,7 +1732,7 @@ function Pricing() {
               lineHeight: 1.02,
             }}
           >
-            One plan. No surprises.
+            Early access is invitation-only.
           </h2>
         </div>
 
@@ -1742,7 +1748,7 @@ function Pricing() {
             className="absolute right-0 top-0 rounded-bl-xl px-4 py-2 text-[10.5px] font-bold uppercase tracking-[0.1em]"
             style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
           >
-            Early access
+            Beta
           </div>
 
           <div className="mb-2 mt-2.5 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
@@ -1750,37 +1756,29 @@ function Pricing() {
               className="font-syne text-[56px] font-extrabold sm:text-[64px]"
               style={{ letterSpacing: "-0.04em", lineHeight: 1 }}
             >
-              $29
+              Free
             </span>
             <span className="text-[14px]" style={{ color: "rgb(var(--fg-muted))" }}>
-              /month
-            </span>
-            {/* On phones this drops to its own line instead of
-                wrapping mid-phrase against the card edge. */}
-            <span
-              className="font-mono w-full text-[12px] line-through sm:w-auto"
-              style={{ color: "rgb(var(--fg-muted))" }}
-            >
-              $79 after launch
+              during beta
             </span>
           </div>
           <div
             className="font-mono mb-6 text-[11.5px]"
             style={{ color: "rgb(var(--brand-primary))" }}
           >
-            · Lock in this rate forever ·
+            · Skitza does not collect a card for beta access ·
           </div>
 
           <div className="mb-7 grid gap-y-2 sm:grid-cols-2 sm:gap-x-5">
             {[
-              "Unlimited sessions & bookings",
-              "Automated invoicing & Stripe payments",
-              "Branded gated file delivery",
-              "Full client CRM",
-              "WhatsApp + email automation",
-              "Lead pipeline + auto follow-ups",
-              "Encrypted cloud storage included",
-              "Priority support",
+              "1 GB of Producer audio storage",
+              "Client and project workspace",
+              "Versioned audio and feedback",
+              "Bookings and session records",
+              "Exact agreements and external-payment history",
+              "Optional Google Calendar sync",
+              "Email notifications and reminders",
+              "Controlled playback and downloads",
             ].map((f) => (
               <div key={f} className="flex items-center gap-2 text-[13.5px]">
                 <Icon
@@ -1795,17 +1793,17 @@ function Pricing() {
           </div>
 
           <Link
-            href={SIGNUP_HREF}
+            href={PRODUCER_ACCESS_HREF}
             className="sk-pop sk-press block min-h-11 w-full rounded-xl px-5 py-4 text-center text-[15px] font-bold"
             style={{ background: "#111009", color: "#fff" }}
           >
-            Start free trial →
+            Producer access →
           </Link>
           <div
             className="font-mono mt-3 text-center text-[11.5px]"
             style={{ color: "rgb(var(--fg-muted))" }}
           >
-            14-day free trial · No credit card · Cancel anytime
+            Invitation-only · Artist signup stays open through Producer links
           </div>
         </div>
       </div>
@@ -1826,24 +1824,24 @@ function FAQ({
 }) {
   const items = [
     {
-      q: "Do you store my master files?",
-      a: "All files stay in encrypted cloud storage — Skitza holds metadata and signed URLs only. Cancel and your audio is still 100% yours.",
+      q: "Do you store my audio files?",
+      a: "Yes. Skitza stores uploaded audio in private Cloudflare R2 storage. Protected playback and downloads use authorized delivery. Keep your own backup of any file that is critical to your business.",
     },
     {
       q: "What if my client doesn't pay?",
-      a: "Stripe handles payment plans + late-fee logic. The high-res download stays locked behind paid status. The watermarked preview is always streamable; the deliverable is gated.",
+      a: "Payment happens outside Skitza using the Producer's instructions. The Artist can upload proof and the Producer records what was received. Downloads remain locked until the required payment is confirmed, unless the Producer explicitly allows an early download.",
     },
     {
       q: "Can I use my own domain?",
-      a: "Not at launch. You get skitza.app/<your-name> — clean, memorable, zero DNS. Custom domains are on the Studio-tier roadmap.",
+      a: "Not in the current beta. Each Producer gets a Skitza link such as skitza.app/join/your-name.",
     },
     {
-      q: "How is this different from Samply?",
-      a: "Samply does file delivery — that's what it does. Skitza does the rest of the studio: booking, contracts, invoices, follow-ups, the link. If Samply replaced Dropbox for you, Skitza replaces the other five tabs.",
+      q: "What does the Google Calendar connection do?",
+      a: "A Producer can choose calendars whose busy times block Artist booking and one destination calendar for Skitza session events. Skitza does not display or store unrelated Google event titles, attendees, locations, or descriptions.",
     },
     {
       q: "Can I import my existing clients and audio?",
-      a: "Audio uploads work day one — drag-and-drop into any project. CSV client import and Samply migration are on the post-launch roadmap.",
+      a: "You can add clients and upload audio to projects. CSV client import and third-party audio migration are not available in the current beta.",
     },
   ];
   return (
@@ -1863,7 +1861,7 @@ function FAQ({
               lineHeight: 1.02,
             }}
           >
-            Things people ask before signing up.
+            Things people ask before requesting access.
           </h2>
         </div>
         <div style={{ borderTop: "1px solid rgb(var(--border-subtle))" }}>
@@ -1933,17 +1931,18 @@ function FinalCTA() {
             lineHeight: 0.98,
           }}
         >
-          The studio that runs itself is here
+          One shared record for your studio
           <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
         </h2>
         <p
           className="mt-5 text-[16px] leading-[1.5]"
           style={{ color: "rgb(255 255 255 / 0.6)" }}
         >
-          Stop spending hours on admin. Make the music you actually want to make.
+          Keep clients, projects, sessions, agreements, external-payment records, and music work
+          together.
         </p>
         <Link
-          href={SIGNUP_HREF}
+          href={PRODUCER_ACCESS_HREF}
           className="sk-pop sk-press mt-8 inline-flex min-h-11 w-full items-center justify-center gap-2.5 rounded-xl px-7 py-4 text-[15px] font-bold sm:w-auto"
           style={{
             background: "rgb(var(--brand-primary))",
@@ -1951,14 +1950,14 @@ function FinalCTA() {
             boxShadow: "0 12px 30px rgba(212,150,10,0.4)",
           }}
         >
-          Start free trial
+          Learn about Producer access
           <Icon name="arrow-right" size={16} strokeWidth={2.6} />
         </Link>
         <div
           className="font-mono mt-3.5 text-[11.5px]"
           style={{ color: "rgb(255 255 255 / 0.55)" }}
         >
-          14-day trial · no card · cancel anytime
+          Invitation-only · sent by Skitza
         </div>
       </div>
     </section>

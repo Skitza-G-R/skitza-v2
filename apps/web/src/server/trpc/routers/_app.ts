@@ -22,7 +22,6 @@ import { purchaseLedgerRouter } from "./purchase-ledger";
 import { publicProfileRouter } from "./public-profile";
 import { songPublicationRouter } from "./song-publication";
 import { songArtworkRouter } from "./song-artwork";
-import { waitlistRouter } from "./waitlist";
 
 export const appRouter = router({
   artist: artistRouter,
@@ -48,7 +47,6 @@ export const appRouter = router({
   publicProfile: publicProfileRouter,
   songPublication: songPublicationRouter,
   songArtwork: songArtworkRouter,
-  waitlist: waitlistRouter,
 });
 
 export type AppRouter = typeof appRouter;

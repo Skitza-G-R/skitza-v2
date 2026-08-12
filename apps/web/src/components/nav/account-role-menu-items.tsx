@@ -128,10 +128,10 @@ export function useAccountRoleMenuModel({
               unread: false,
             }
           : {
-              label: "Create a studio",
-              href: "/onboarding/studio?intent=create-studio",
-            unread: false,
-          };
+              label: "Become a Producer",
+              href: "/producer-access",
+              unread: false,
+            };
 
   const roleActionHref = roleAction?.href ?? null;
   const onRoleActionSelect = useCallback(() => {

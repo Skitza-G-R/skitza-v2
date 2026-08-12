@@ -52,7 +52,7 @@ async function loadGoogleFont(
 // Glyphs we render — keep in sync with the JSX so the subset stays minimal.
 const SYNE_TEXT = "Sskitza.Oneapp.Yourwholestudio";
 const OUTFIT_TEXT =
-  "NOW BOOKING · EARLY ACCESS The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion & WhatsApp.skitza.appBeta · Join the waiting listv1.0 — early access";
+  "NOW BOOKING · EARLY ACCESS Clients, projects, audio review, bookings, agreements and external-payment records — one place for solo music producers.skitza.appBeta · Producer access by invitationv1.0 — early access";
 
 export default async function OgImage() {
   const [syne, outfit] = await Promise.all([
@@ -227,8 +227,8 @@ export default async function OgImage() {
               maxWidth: 840,
             }}
           >
-            The producer dashboard that replaces Calendly, DocuSign, Stripe,
-            Notion & WhatsApp.
+            Clients, projects, audio review, bookings, agreements and
+            external-payment records — one place for solo music producers.
           </div>
         </div>
 
@@ -262,7 +262,7 @@ export default async function OgImage() {
               <span style={{ color: "rgba(242, 237, 230, 0.62)" }}>skitza</span>
               <span style={{ color: "#D4960A" }}>.app</span>
             </div>
-            <div style={{ display: "flex" }}>Beta · Join the waiting list</div>
+            <div style={{ display: "flex" }}>Beta · Producer access by invitation</div>
           </div>
         </div>
       </div>

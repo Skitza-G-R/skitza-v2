@@ -1,7 +1,7 @@
 # Skitza — Product Requirements Document
 
-**Version:** 5.1
-**Date:** 8 August 2026
+**Version:** 5.2
+**Date:** 12 August 2026
 **Status:** Durable product source of truth
 
 ## 1. Authority and scope
@@ -18,6 +18,11 @@ When sources conflict, use this order:
 6. Older plans and backlog behavior.
 
 The approved plans replace older behavior for Clients, Projects, Music, Store, sessions, sharing, agreements, Payments, payment proofs, and downloads. For Calendar scope, the August contract supersedes older manual-session rules and artist Google Calendar connection plans.
+
+For account access, Gili's 12 August 2026 decision supersedes every older
+open-Producer-signup or self-service Create-a-studio rule. The implementation
+contract is Linear SK-229 and
+`docs/plans/active/2026-08-12-producer-invitation-access.md`.
 
 It does not authorize a production reset, migration, merge, deployment, or promotion. Those actions require separate exact approval from Gili.
 
@@ -49,6 +54,32 @@ For a true ₪0 private offer, acceptance makes the purchase fully paid and acti
 - No AI dependency.
 - No custom domains; the producer's permanent acquisition link remains under Skitza.
 - Mobile layouts must be complete at true 390px and 360px, with desktop behavior preserved.
+
+### Account access and roles
+
+- Clerk remains in Public mode so Artists can create accounts through a
+  Producer's join link.
+- Producer access is invitation-only. Gili sends a Clerk application
+  invitation, and Skitza grants Producer membership only after the server
+  verifies that the invitation was accepted by the matching Clerk user.
+- Ordinary signup, a button click, a URL/query value, and client-writeable
+  metadata never grant Producer access.
+- Artist signup remains available only through a valid Producer join flow and
+  creates Artist access, never a fallback Producer.
+- Artist and Producer memberships are additive. An existing Artist who accepts
+  a Producer invitation keeps all Artist relationships and can switch roles on
+  the same Clerk account.
+- An accepted invitation is a one-time authorization. Revoking that Clerk
+  invitation later does not revoke an existing Producer membership; removing
+  Producer access is a separate founder action.
+- Clicking **Become a Producer** while uninvited only explains that an
+  invitation is required; it makes no account change.
+- A signed-in Clerk user with neither a valid Artist membership nor a verified
+  Producer invitation has no Skitza application role.
+- Production marketing and legal pages may become public only after these
+  server-side gates are implemented and verified. Dashboard, onboarding,
+  settings, projects, and Google Calendar connection remain membership
+  protected.
 
 ## 3. Core product model
 

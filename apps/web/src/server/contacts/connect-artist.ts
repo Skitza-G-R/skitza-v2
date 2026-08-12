@@ -5,8 +5,6 @@ import {
   gt,
   inArray,
   isNull,
-  ne,
-  notExists,
   or,
   privateOffers,
   sql,
@@ -99,41 +97,6 @@ export async function connectArtistToProducer(
     );
   }
   assertStableArtistOwnerAssignment(contact.clerkUserId, input.clerkUserId);
-}
-
-/**
- * Claims pre-existing contacts during Clerk's user.created webhook without
- * letting a mutable email edit bypass a pending offer's frozen recipient.
- */
-export async function stampUnownedArtistContactsForCreatedUser(
-  db: Db,
-  input: { email: string; clerkUserId: string; now?: Date },
-): Promise<void> {
-  const emailHash = emailHashFor(input.email);
-  const now = input.now ?? new Date();
-  await db
-    .update(clientContacts)
-    .set({ clerkUserId: input.clerkUserId })
-    .where(
-      and(
-        eq(clientContacts.emailHash, emailHash),
-        isNull(clientContacts.clerkUserId),
-        notExists(
-          db
-            .select({ id: privateOffers.id })
-            .from(privateOffers)
-            .where(
-              and(
-                eq(privateOffers.clientContactId, clientContacts.id),
-                eq(privateOffers.producerId, clientContacts.producerId),
-                eq(privateOffers.status, "sent"),
-                gt(privateOffers.expiresAt, now),
-                ne(privateOffers.recipientEmailHash, emailHash),
-              ),
-            ),
-        ),
-      ),
-    );
 }
 
 /**

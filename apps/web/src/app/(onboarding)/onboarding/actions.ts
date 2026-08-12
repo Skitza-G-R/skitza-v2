@@ -2,8 +2,8 @@
 
 import { randomBytes } from "node:crypto";
 
-import { auth, currentUser } from "@clerk/nextjs/server";
-import { createDb, eq, producers } from "@skitza/db";
+import { auth } from "@clerk/nextjs/server";
+import { and, createDb, eq, producers } from "@skitza/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
@@ -35,7 +35,6 @@ const Input = z.object({
   displayName: z.string().trim().min(1).max(80),
   timezone: z.string().min(1).max(64),
   currency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
-  intent: z.literal("create-studio").optional(),
 });
 
 const MAX_SLUG_ATTEMPTS = 3;
@@ -50,7 +49,6 @@ export async function completeStudio(input: {
   displayName: string;
   timezone: string;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
-  intent?: "create-studio";
 }): Promise<{
   slug: string;
   currency: "USD" | "EUR" | "GBP" | "ILS";
@@ -64,20 +62,12 @@ export async function completeStudio(input: {
   const parsed = Input.parse(input);
   const reqHeaders = await headers();
 
-  // Defense in depth: Artist access is additive only through the explicit
-  // Create-a-studio route. Middleware derives this header from the exact
-  // /onboarding/studio?intent=create-studio URL; requiring it alongside the
-  // validated action input keeps ordinary or input-only raw POSTs closed.
+  // Defense in depth: onboarding may update only a Producer row that was
+  // provisioned by the invitation proof flow. A URL, request header, client
+  // input, Artist membership, or webhook race can never create that access.
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
-  const hasAuthorizedArtistCreateStudioIntent =
-    parsed.intent === "create-studio" &&
-    reqHeaders.get("x-onboarding-intent") === "create-studio";
-  if (
-    memberships.artist.hasAccess &&
-    memberships.producer.status === "none" &&
-    !hasAuthorizedArtistCreateStudioIntent
-  ) {
-    throw new Error("forbidden: artists cannot access producer onboarding");
+  if (memberships.producer.status === "none") {
+    throw new Error("forbidden: producer access is invitation-only");
   }
 
   // Server-derive currency. Country header is the most specific signal
@@ -89,12 +79,6 @@ export async function completeStudio(input: {
   const country = reqHeaders.get("x-vercel-ip-country");
   const acceptLanguage = reqHeaders.get("accept-language");
   const currency = parsed.currency ?? inferCurrency(country, acceptLanguage);
-
-  // Upsert by clerkUserId so onboarding works whether the Clerk webhook
-  // fired first or not — same idempotent shape as completeOnboarding.
-  const user = await currentUser();
-  const email = user?.emailAddresses[0]?.emailAddress;
-  if (!email) throw new Error("unable to resolve email from Clerk session");
 
   const db = createDb(dbUrl);
 
@@ -110,26 +94,29 @@ export async function completeStudio(input: {
         : slugFromDisplayName(parsed.displayName, hash);
 
     try {
-      await db
-        .insert(producers)
-        .values({
-          clerkUserId: userId,
-          email,
+      const [updated] = await db
+        .update(producers)
+        .set({
           displayName: parsed.displayName,
           slug,
           defaultCurrency: currency,
           timezone: parsed.timezone,
+          updatedAt: new Date(),
         })
-        .onConflictDoUpdate({
-          target: producers.clerkUserId,
-          set: {
-            displayName: parsed.displayName,
-            slug,
-            defaultCurrency: currency,
-            timezone: parsed.timezone,
-            updatedAt: new Date(),
-          },
-        });
+        .where(
+          and(
+            eq(producers.id, memberships.producer.profile.id),
+            eq(producers.clerkUserId, userId),
+          ),
+        )
+        .returning({ id: producers.id });
+
+      // The membership lookup and this write are separate operations. If the
+      // invitation-backed Producer row was removed between them, never turn
+      // onboarding into a second provisioning path by inserting it again.
+      if (!updated) {
+        throw new Error("forbidden: producer access is invitation-only");
+      }
 
       // TODO(telemetry): fire producer.onboarding.step_completed
       // with { step: "studio" }. No server-side analytics helper

@@ -1046,6 +1046,43 @@
   font-size: 0.64rem;
 }
 
+.inlineSuccess {
+  margin: 0;
+  color: rgb(var(--success));
+  font-size: 0.64rem;
+}
+
+.producerInviteControl {
+  display: grid;
+  max-width: 22rem;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.producerInviteConfirmation {
+  display: grid;
+  justify-items: end;
+  gap: 0.55rem;
+  border: 1px solid rgb(var(--brand-primary) / 0.42);
+  border-radius: var(--radius-md);
+  background: rgb(var(--brand-primary) / 0.07);
+  padding: 0.7rem;
+  text-align: right;
+}
+
+.producerInviteConfirmation strong {
+  color: rgb(var(--fg-default));
+  font-size: 0.72rem;
+}
+
+.producerInviteConfirmation p {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: rgb(var(--fg-muted));
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
+
 .revealedNote {
   display: grid;
   gap: 0.55rem;
@@ -1096,12 +1133,7 @@
   display: block;
   width: 42%;
   height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgb(var(--bg-elevated) / 0.7),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, rgb(var(--bg-elevated) / 0.7), transparent);
   content: "";
   animation: registered-users-loading 1.25s ease-in-out infinite;
 }
@@ -1224,6 +1256,14 @@
   }
 
   .profileMeta > code {
+    text-align: left;
+  }
+
+  .producerInviteControl,
+  .producerInviteConfirmation {
+    width: 100%;
+    max-width: none;
+    justify-items: start;
     text-align: left;
   }
 

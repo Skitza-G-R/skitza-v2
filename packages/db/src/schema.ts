@@ -2764,6 +2764,46 @@ export const clerkUserSyncReceipts = pgTable(
 export type ClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferSelect;
 export type NewClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferInsert;
 
+// Accepted Clerk Producer invitations are claimed exactly once before the
+// Producer role is created. The immutable receipt keeps the external
+// invitation, Clerk instance, Clerk user, and verified email identity bound
+// together without depending on webhook delivery order.
+export const producerInvitationGrants = pgTable(
+  "producer_invitation_grants",
+  {
+    clerkInvitationId: text("clerk_invitation_id").primaryKey(),
+    clerkUserId: text("clerk_user_id").notNull(),
+    clerkInstanceId: text("clerk_instance_id").notNull(),
+    invitedEmailHash: text("invited_email_hash").notNull(),
+    invitationCreatedAt: timestamp("invitation_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    providerUpdatedAt: timestamp("provider_updated_at", {
+      withTimezone: true,
+    }).notNull(),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clerkUserUnique: unique("producer_invitation_grants_clerk_user_unique").on(
+      t.clerkUserId,
+    ),
+    identityShape: check(
+      "producer_invitation_grants_identity_shape",
+      sql`${t.clerkInvitationId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.invitedEmailHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    timestampShape: check(
+      "producer_invitation_grants_timestamp_shape",
+      sql`${t.providerUpdatedAt} >= ${t.invitationCreatedAt}`,
+    ),
+  }),
+);
+
+export type ProducerInvitationGrant = typeof producerInvitationGrants.$inferSelect;
+export type NewProducerInvitationGrant = typeof producerInvitationGrants.$inferInsert;
+
 // ─── Artist platform account preferences (SK-153) ──────────────────
 // Clerk remains the source of truth for profile identity and photo. This
 // single global row stores only product-owned artist preferences.

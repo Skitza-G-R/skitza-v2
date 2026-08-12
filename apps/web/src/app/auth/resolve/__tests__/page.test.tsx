@@ -9,6 +9,9 @@ const membershipsMock = vi.fn<
     userId: string | null;
   }) => Promise<UserAccountMemberships>
 >();
+const syncInvitationMock = vi.fn<
+  (input: { dbUrl: string; userId: string | null }) => Promise<{ status: string }>
+>();
 const redirectMock = vi.fn((href: string) => {
   throw new Error(`__REDIRECT__:${href}`);
 });
@@ -24,6 +27,13 @@ vi.mock("~/server/auth/role", () => ({
   }) => membershipsMock(input),
 }));
 
+vi.mock("~/server/auth/producer-invitation-sync", () => ({
+  syncAcceptedProducerInvitation: (input: {
+    dbUrl: string;
+    userId: string | null;
+  }) => syncInvitationMock(input),
+}));
+
 vi.mock("next/navigation", () => ({
   redirect: (href: string) => redirectMock(href),
 }));
@@ -33,7 +43,9 @@ import AuthResolvePage from "../page";
 describe("/auth/resolve", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     process.env.DATABASE_URL = "postgres://test.invalid/skitza";
+    syncInvitationMock.mockResolvedValue({ status: "not_invited" });
   });
 
   it("routes a single artist back to the requested deep link", async () => {
@@ -57,6 +69,13 @@ describe("/auth/resolve", () => {
       dbUrl: "postgres://test.invalid/skitza",
       userId: "artist-user",
     });
+    expect(syncInvitationMock).toHaveBeenCalledWith({
+      dbUrl: "postgres://test.invalid/skitza",
+      userId: "artist-user",
+    });
+    expect(membershipsMock.mock.invocationCallOrder[0]).toBeLessThan(
+      syncInvitationMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
   });
 
   it("lets an explicit role deep link override the saved role for a dual account", async () => {
@@ -84,5 +103,62 @@ describe("/auth/resolve", () => {
     ).rejects.toThrow(
       "__REDIRECT__:/artist/payments/purchase-1",
     );
+    expect(syncInvitationMock).not.toHaveBeenCalled();
+  });
+
+  it("routes a signed-in account without a role to Producer invitation information", async () => {
+    authMock.mockResolvedValueOnce({ userId: "no-role-user" });
+    membershipsMock.mockResolvedValueOnce({
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: false, hasActiveConnections: false },
+    });
+
+    await expect(
+      AuthResolvePage({ searchParams: Promise.resolve({}) }),
+    ).rejects.toThrow("__REDIRECT__:/producer-access");
+  });
+
+  it("sends a newly granted Artist directly to Producer onboarding", async () => {
+    authMock.mockResolvedValueOnce({ userId: "artist-user" });
+    membershipsMock
+      .mockResolvedValueOnce({
+        isAuthenticated: true,
+        producer: { status: "none", profile: null },
+        artist: { hasAccess: true, hasActiveConnections: true },
+      })
+      .mockResolvedValueOnce({
+        isAuthenticated: true,
+        producer: {
+          status: "incomplete",
+          profile: {
+            id: "producer-new",
+            displayName: null,
+            slug: "private-placeholder",
+            email: "artist@example.test",
+          },
+        },
+        artist: { hasAccess: true, hasActiveConnections: true },
+      });
+    syncInvitationMock.mockResolvedValueOnce({ status: "created" });
+
+    await expect(
+      AuthResolvePage({ searchParams: Promise.resolve({}) }),
+    ).rejects.toThrow("__REDIRECT__:/onboarding");
+    expect(membershipsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps existing Artist access when Clerk reconciliation is unavailable", async () => {
+    authMock.mockResolvedValueOnce({ userId: "artist-user" });
+    membershipsMock.mockResolvedValueOnce({
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: true, hasActiveConnections: true },
+    });
+    syncInvitationMock.mockRejectedValueOnce(new Error("Clerk unavailable"));
+
+    await expect(
+      AuthResolvePage({ searchParams: Promise.resolve({}) }),
+    ).rejects.toThrow("__REDIRECT__:/artist");
   });
 });

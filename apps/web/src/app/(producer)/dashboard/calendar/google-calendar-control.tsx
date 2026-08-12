@@ -336,7 +336,7 @@ function SummaryPanel({
           badge={connecting ? { label: "Connecting", tone: "warning" } : undefined}
         />
         <div className="px-5 py-4 sm:px-6">
-          <PrivacyNote />
+          <GoogleDataDisclosure />
         </div>
         <PanelFooter
           feedback={feedback}
@@ -374,7 +374,7 @@ function SummaryPanel({
         <div className="space-y-3 px-5 py-4 sm:px-6">
           <AccountStrip label="Previous account" value={model.accountLabel} />
           <SyncHealthSummary summary={model.syncSummary} disconnected />
-          <PrivacyNote />
+          <GoogleDataDisclosure />
         </div>
         <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
           <Button
@@ -417,7 +417,7 @@ function SummaryPanel({
         <div className="space-y-3 px-5 py-4 sm:px-6">
           <AccountStrip label="Connected account" value={model.accountLabel} />
           <SyncHealthSummary summary={model.syncSummary} disconnected />
-          <PrivacyNote />
+          <GoogleDataDisclosure />
         </div>
         <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
           <Button
@@ -589,6 +589,7 @@ function EmptyCalendarSelectionPanel({
             are safe.
           </p>
         </div>
+        <GoogleDataDisclosure />
       </div>
       <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
         <Button
@@ -845,7 +846,7 @@ function AccountSwitchConfirmation({
         description="Existing events stay in the old account. Old event links will not be reused."
         badge={{ label: "Confirm switch", tone: "warning" }}
       />
-      <div className="px-5 py-4 sm:px-6">
+      <div className="space-y-4 px-5 py-4 sm:px-6">
         <div className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <AccountCard
             label={previousAccount ? "Previous" : "Current"}
@@ -868,6 +869,7 @@ function AccountSwitchConfirmation({
         <p className="mt-4 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
           New sessions will use the new account after you choose its calendars.
         </p>
+        <GoogleDataDisclosure />
       </div>
       <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
         <Button
@@ -920,10 +922,29 @@ function DisconnectConfirmation({
         description="Skitza sessions and existing Google events stay. New changes stop syncing."
         badge={{ label: "Disconnect", tone: "danger" }}
       />
-      <div className="px-5 py-4 sm:px-6">
+      <div className="space-y-3 px-5 py-4 sm:px-6">
         <p className="text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          You can reconnect later. Disconnecting does not cancel a session or remove an existing
-          Google event.
+          Disconnecting stops future Google access and sync. Skitza removes its saved Google
+          access tokens and calendar choices and asks Google to revoke the permission. Your
+          Skitza sessions and existing Google events stay.
+        </p>
+        <p className="text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          Skitza keeps the connected account email and technical event and sync records so a
+          reconnect does not create duplicate events. Delete existing events directly in Google
+          Calendar. To request deletion of retained Google connection data, email{" "}
+          <a className="font-semibold underline underline-offset-2" href="mailto:privacy@skitza.app">
+            privacy@skitza.app
+          </a>
+          . You can also remove Skitza from your{" "}
+          <a
+            className="font-semibold underline underline-offset-2"
+            href="https://myaccount.google.com/connections"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Google Account&apos;s third-party connections
+          </a>
+          .
         </p>
       </div>
       <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
@@ -1030,7 +1051,7 @@ function PanelFooter({
   );
 }
 
-function PrivacyNote() {
+function GoogleDataDisclosure() {
   return (
     <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] p-3.5">
       <ShieldCheck
@@ -1038,9 +1059,41 @@ function PrivacyNote() {
         size={17}
         aria-hidden
       />
-      <p className="text-[12px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-        Skitza checks busy and free time. It does not show unrelated Google event details.
-      </p>
+      <div className="min-w-0 text-[12px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+        <p className="font-bold text-[rgb(var(--fg-default))]">
+          How Skitza uses your Google data
+        </p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-4">
+          <li>
+            Skitza reads your Google account email and calendar names, timezones, and access
+            levels so you can choose calendars.
+          </li>
+          <li>
+            On calendars you choose for availability, Skitza checks only busy and free times. It
+            does not read unrelated event titles or details.
+          </li>
+          <li>
+            Google&apos;s event permission covers the calendars you can access. Skitza uses it only
+            to create, update, read, and delete Skitza session events in the destination calendar
+            you choose. These events can include the session title and time, Producer and Artist
+            names and email addresses, RSVP status, and a Skitza link.
+          </li>
+          <li>
+            Skitza stores encrypted Google tokens, your account identity, calendar choices, and
+            technical sync records only to run this feature. It does not sell Google data, use it
+            for advertising, or share it except with service providers that operate Skitza as
+            explained in the Privacy Notice.
+          </li>
+        </ul>
+        <p className="mt-2">
+          Select the Google action below to continue to Google and choose whether to grant these
+          permissions. You can disconnect at any time. Read the{" "}
+          <a className="font-semibold underline underline-offset-2" href="/privacy">
+            Privacy Notice
+          </a>
+          .
+        </p>
+      </div>
     </div>
   );
 }
