@@ -342,10 +342,14 @@ describe("authoritative producer availability", () => {
     expect(dates[13]).toBe("2026-11-13");
   });
 
-  it("keeps a full 14-day choice window beyond the purchased minimum lead time", () => {
+  it("keeps the configured choice window beyond the purchased minimum lead time", () => {
     expect(sessionAvailabilityHorizonDays(0)).toBe(14);
     expect(sessionAvailabilityHorizonDays(12)).toBe(15);
     expect(sessionAvailabilityHorizonDays(30 * 24)).toBe(44);
+    expect(sessionAvailabilityHorizonDays(365 * 24, 30)).toBe(395);
+    expect(() => sessionAvailabilityHorizonDays(365 * 24 + 1, 30)).toThrow(
+      expect.objectContaining({ code: "INVALID_ALLOWANCE" }),
+    );
   });
 
   it("converts a producer-local date and minute into one authoritative instant", () => {

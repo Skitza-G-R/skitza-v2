@@ -148,7 +148,7 @@ export const producerLocalDateKey = zonedLocalDateKey;
 
 export function producerLocalDateKeys(startDate: string, count: number): string[] {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate);
-  if (!match || !Number.isSafeInteger(count) || count < 0 || count > 14 + 365) {
+  if (!match || !Number.isSafeInteger(count) || count < 0 || count > 30 + 365) {
     throw new SessionBookingDomainError("INVALID_SLOT", "The studio calendar range is invalid");
   }
   const year = Number(match[1]);
@@ -192,7 +192,7 @@ export function sessionAvailabilityHorizonDays(minLeadHours: number, baseDays = 
     );
   }
   const horizonDays = baseDays + Math.ceil(minLeadHours / 24);
-  if (horizonDays > 14 + 365) {
+  if (horizonDays > baseDays + 365) {
     throw new SessionBookingDomainError(
       "INVALID_ALLOWANCE",
       "The purchased session lead time exceeds the calendar horizon",

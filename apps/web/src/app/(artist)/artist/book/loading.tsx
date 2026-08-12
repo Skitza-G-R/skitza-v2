@@ -14,7 +14,7 @@ function Block({ className }: { className: string }) {
 export default function Loading() {
   return (
     <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
-      {/* eyebrow row — "Book." + "Next 14 days" */}
+      {/* eyebrow row — "Book." + session link */}
       <div className="flex items-baseline justify-between px-1 sm:px-0">
         <Block className="h-5 w-16 rounded-[8px]" />
         <Block className="h-3 w-24 rounded-[6px]" />

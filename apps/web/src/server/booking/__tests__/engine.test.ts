@@ -217,6 +217,387 @@ describe("producer exact-slot generation", () => {
 });
 
 describe("artist exact-slot generation", () => {
+  const dailyAvailability = Array.from({ length: 7 }, (_, weekday) => ({
+    weekday,
+    startMin: 10 * 60,
+    endMin: 11 * 60,
+  }));
+
+  it("includes exactly today through day 30 and excludes day 31", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityWindowDays: 30,
+      availabilityBlocks: dailyAvailability,
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-07-19");
+    expect(studioDates[29]).toBe("2026-08-17");
+    expect(studioDates).not.toContain("2026-08-18");
+  });
+
+  it("preserves a full 30-day choice window after the minimum lead time", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 48,
+      availabilityWindowDays: 30,
+      availabilityBlocks: dailyAvailability,
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-07-21");
+    expect(studioDates[29]).toBe("2026-08-19");
+    expect(studioDates).not.toContain("2026-07-20");
+  });
+
+  it("preserves 30 bookable dates when the lead boundary falls after the daily slot", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T12:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 48,
+      availabilityWindowDays: 30,
+      availabilityBlocks: dailyAvailability,
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-07-22");
+    expect(studioDates[29]).toBe("2026-08-20");
+    expect(studioDates).not.toContain("2026-07-21");
+  });
+
+  it("does not add a carry date when the lead-boundary day still has a bookable slot", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T12:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 48,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => ({
+        weekday,
+        startMin: 13 * 60,
+        endMin: 14 * 60,
+      })),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-07-21");
+    expect(studioDates[29]).toBe("2026-08-19");
+    expect(studioDates).not.toContain("2026-08-20");
+  });
+
+  it("preserves 30 producer-local dates across the spring DST lead boundary", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-03-08T04:30:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      artistTimeZone: "America/New_York",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => ({
+        weekday,
+        startMin: 60,
+        endMin: 90,
+      })),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-03-09");
+    expect(studioDates[29]).toBe("2026-04-07");
+    expect(studioDates).not.toContain("2026-04-08");
+  });
+
+  it("shifts the spring DST window when every boundary candidate is before the cutoff", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-03-08T04:30:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      artistTimeZone: "America/New_York",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => ({
+        weekday,
+        startMin: 0,
+        endMin: 30,
+      })),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-03-10");
+    expect(studioDates[29]).toBe("2026-04-08");
+    expect(studioDates).not.toContain("2026-03-09");
+  });
+
+  it("keeps exactly 30 dates when the fall DST lead boundary slot is eligible", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-11-01T04:30:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      artistTimeZone: "America/New_York",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => ({
+        weekday,
+        startMin: 23 * 60 + 30,
+        endMin: 24 * 60,
+      })),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-11-01");
+    expect(studioDates[29]).toBe("2026-11-30");
+    expect(studioDates).not.toContain("2026-12-01");
+  });
+
+  it("shifts but does not lengthen the 30-date window at the fall DST lead boundary", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-11-01T04:30:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      artistTimeZone: "America/New_York",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => ({
+        weekday,
+        startMin: 10 * 60,
+        endMin: 10 * 60 + 30,
+      })),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2026-11-02");
+    expect(studioDates[29]).toBe("2026-12-01");
+    expect(studioDates).not.toContain("2026-12-02");
+  });
+
+  it("keeps the fall boundary when it has both rejected and eligible candidates", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-11-01T04:30:00.000Z"),
+      canBook: true,
+      producerTimeZone: "America/New_York",
+      artistTimeZone: "America/New_York",
+      durationMin: 30,
+      bufferMinutes: 0,
+      minLeadHours: 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => [
+        { weekday, startMin: 10 * 60, endMin: 10 * 60 + 30 },
+        { weekday, startMin: 23 * 60 + 30, endMin: 24 * 60 },
+      ]).flat(),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+    const boundaryStarts = generated.days
+      .find((day) => day.date === "2026-11-01")
+      ?.slots.map((slot) => slot.startsAt.toISOString());
+
+    expect(studioDates).toHaveLength(59);
+    expect(boundaryStarts).toEqual(["2026-11-02T04:30:00.000Z"]);
+    expect(studioDates).toContain("2026-11-30");
+    expect(studioDates).not.toContain("2026-12-01");
+  });
+
+  it("does not shift when the lead-boundary weekday has no recurring candidates", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T12:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 48,
+      availabilityWindowDays: 30,
+      availabilityBlocks: [{ weekday: 4, startMin: 10 * 60, endMin: 11 * 60 }],
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toEqual([
+      "2026-07-23",
+      "2026-07-30",
+      "2026-08-06",
+      "2026-08-13",
+    ]);
+    expect(studioDates).not.toContain("2026-08-20");
+  });
+
+  it("preserves the 30-day window at the maximum supported minimum lead time", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 365 * 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: dailyAvailability,
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2027-07-19");
+    expect(studioDates[29]).toBe("2027-08-17");
+  });
+
+  it("preserves 30 bookable dates at the intraday maximum lead boundary", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T12:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 365 * 24,
+      availabilityWindowDays: 30,
+      availabilityBlocks: dailyAvailability,
+      blackouts: [],
+      existingBookings: [],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(30);
+    expect(studioDates[0]).toBe("2027-07-20");
+    expect(studioDates[29]).toBe("2027-08-18");
+    expect(studioDates).not.toContain("2027-07-19");
+  });
+
+  it("keeps the producer and Artist local-date boundaries across the 30-day window", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T15:30:00.000Z"),
+      canBook: true,
+      producerTimeZone: "Asia/Tokyo",
+      artistTimeZone: "America/Los_Angeles",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityWindowDays: 30,
+      availabilityBlocks: Array.from({ length: 7 }, (_, weekday) => ({
+        weekday,
+        startMin: 30,
+        endMin: 90,
+      })),
+      blackouts: [],
+      existingBookings: [],
+    });
+    const slots = generated.days.flatMap((day) =>
+      day.slots.map((slot) => ({ artistDate: day.date, studioDate: slot.studioDate })),
+    );
+
+    expect(slots).toHaveLength(30);
+    expect(slots[0]).toEqual({ artistDate: "2026-07-19", studioDate: "2026-07-20" });
+    expect(slots[29]).toEqual({ artistDate: "2026-08-17", studioDate: "2026-08-18" });
+    expect(slots.some((slot) => slot.studioDate === "2026-08-19")).toBe(false);
+  });
+
+  it("removes Google-busy time in days 15–30 without shortening the window", () => {
+    const generated = generateArtistExactSessionSlots({
+      now: new Date("2026-07-19T00:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "UTC",
+      artistTimeZone: "UTC",
+      durationMin: 60,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityWindowDays: 30,
+      availabilityBlocks: dailyAvailability,
+      blackouts: [],
+      existingBookings: [],
+      googleBusyIntervals: [
+        {
+          startsAt: new Date("2026-08-07T10:00:00.000Z"),
+          endsAt: new Date("2026-08-07T11:00:00.000Z"),
+        },
+      ],
+    });
+    const studioDates = generated.days.flatMap((day) =>
+      day.slots.map((slot) => slot.studioDate),
+    );
+
+    expect(studioDates).toHaveLength(29);
+    expect(studioDates).toContain("2026-08-06");
+    expect(studioDates).not.toContain("2026-08-07");
+    expect(studioDates).toContain("2026-08-08");
+    expect(studioDates[28]).toBe("2026-08-17");
+  });
+
   it("keeps both real instants during a repeated DST wall clock", () => {
     const generated = generateArtistExactSessionSlots({
       now: new Date("2026-10-31T00:00:00.000Z"),
