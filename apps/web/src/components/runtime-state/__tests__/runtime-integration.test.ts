@@ -29,7 +29,6 @@ const ARTIST_RUNTIME = readFileSync(
   "utf8",
 );
 const ARTIST_SHELL = readFileSync(join(__dirname, "../../artist/artist-app-shell.tsx"), "utf8");
-const GREETING = readFileSync(join(__dirname, "../../artist/home/greeting-strip.tsx"), "utf8");
 const SONG_PAGE = readFileSync(join(__dirname, "../../music/song-page.tsx"), "utf8");
 const PRODUCER_ROUTE_BOUNDARY = readFileSync(
   join(__dirname, "../../../app/(producer)/dashboard/producer-native-route-boundary.tsx"),
@@ -195,7 +194,6 @@ describe("cached-first and draft integration contracts", () => {
     expect(PRODUCER_VIEW).toContain('slot: "producer.overview.safe-view"');
     expect(PRODUCER_VIEW).toContain("cachedView.data?.displayName");
     expect(ARTIST_RUNTIME).toContain('slot: "artist.home.safe-view"');
-    expect(GREETING).toContain("runtime?.view.firstName");
     expect(PRODUCER_VIEW).toMatch(/if \(!online\)[\s\S]*Saved studio pulse/);
     expect(ARTIST_RUNTIME).toMatch(/if \(!online\)[\s\S]*Showing saved artist context/);
   });

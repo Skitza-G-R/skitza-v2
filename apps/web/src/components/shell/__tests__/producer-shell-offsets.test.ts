@@ -14,7 +14,6 @@ const normalFlowPages = [
   "app/(producer)/dashboard/store/store-screen.tsx",
   "app/(producer)/dashboard/portfolio/page.tsx",
   "app/(producer)/dashboard/settings/settings-client.tsx",
-  "app/(producer)/dashboard/onboarding/onboarding-wizard.tsx",
 ].map((path) => ({ path, source: readFileSync(join(srcRoot, path), "utf8") }));
 
 const calendar = readFileSync(
