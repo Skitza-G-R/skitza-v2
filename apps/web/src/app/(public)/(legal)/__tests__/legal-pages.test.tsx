@@ -15,6 +15,12 @@ describe("public legal pages", () => {
     expect(html).toContain("How Google data is used and shared");
     expect(html).toContain("Disconnecting or deleting Google data");
     expect(html).toContain("Busy and free time");
+    expect(html).toContain("event permission covers the calendars you can access");
+    expect(html).toContain("watch, and reconcile");
+    expect(html).toContain("Producer and Artist names and email addresses");
+    expect(html).toContain("other attendees already on that event");
+    expect(html).toContain("does not save those other attendees in its database");
+    expect(html).toContain("calendar invitations and updates");
     expect(html).toContain("encrypted access and refresh tokens");
     expect(html).toContain("do not read Google user data unless");
     expect(html).toContain("Limited Use requirements");
@@ -33,6 +39,7 @@ describe("public legal pages", () => {
       "Vercel",
       "Cloudflare R2",
       "Resend",
+      "Namecheap",
       "Google",
       "PostHog",
       "Sentry",
@@ -51,6 +58,25 @@ describe("public legal pages", () => {
     expect(html).not.toContain("No third-party analytics");
     expect(html).not.toContain("within 7 days");
     expect(html).not.toContain("Placeholder privacy policy");
+  });
+
+  it("publishes the confirmed operator, age, response, and retention details", () => {
+    const html = renderToStaticMarkup(<PrivacyPage />);
+
+    expect(html).toContain("Gili Asraf");
+    expect(html).toContain("315016071");
+    expect(html).toContain("Ein Gedi 7, Hadera, Israel");
+    expect(html).toContain("aged 18 or older");
+    expect(html).toContain("initial response within 7 business days");
+    expect(html).toContain("Google event or watch identifiers");
+    expect(html).toContain("Gmail for receiving and storing forwarded legal and privacy requests");
+    expect(html).toContain("pass through Namecheap email forwarding");
+    expect(html).toContain("sender&#x27;s name and email address");
+    expect(html).toContain("Legal, privacy, and support messages");
+    expect(html).toContain("within 30 days");
+    expect(html).toContain("up to 90 days");
+    expect(html).toContain("up to 12 months");
+    expect(html).toContain("up to 7 years");
   });
 
   it("states the current invitation, beta, and external-payment terms", () => {
@@ -75,12 +101,28 @@ describe("public legal pages", () => {
     expect(html).not.toContain("Stripe handles");
   });
 
+  it("publishes the confirmed contracting party, eligibility, and dispute rules", () => {
+    const html = renderToStaticMarkup(<TermsPage />);
+
+    expect(html).toContain("Gili Asraf");
+    expect(html).toContain("315016071");
+    expect(html).toContain("Ein Gedi 7, Hadera, Israel");
+    expect(html).toContain("at least 18 years old");
+    expect(html).toContain("offered only to users in Israel");
+    expect(html).not.toContain("parent or guardian consent");
+    expect(html).toContain("Israeli law governs these Terms");
+    expect(html).toContain("mandatory consumer protection");
+    expect(html).toContain("resolve the dispute in writing");
+    expect(html).toContain("Tel Aviv–Jaffa");
+    expect(html).toContain("do not require arbitration");
+  });
+
   it("keeps the About page on the invitation-only Producer flow", () => {
     const html = renderToStaticMarkup(<AboutPage />);
 
     expect(html).toContain("Producer access is invitation-only");
     expect(html).toContain('href="/producer-access"');
-    expect(html).not.toContain('/sign-up?redirect_url=%2Fonboarding');
+    expect(html).not.toContain("/sign-up?redirect_url=%2Fonboarding");
     expect(html).not.toContain("Three minutes to your first booking link");
   });
 });

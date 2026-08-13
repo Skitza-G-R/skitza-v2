@@ -116,12 +116,15 @@ describe("GoogleCalendarControl", () => {
     expect(within(dialog).getByText("How Skitza uses your Google data")).not.toBeNull();
     expect(within(dialog).getByText(/reads your Google account email/i)).not.toBeNull();
     expect(within(dialog).getByText(/checks only busy and free times/i)).not.toBeNull();
-    expect(within(dialog).getByText(/create, update, read, and delete/i)).not.toBeNull();
+    expect(within(dialog).getByText(/watch, and reconcile/i)).not.toBeNull();
+    expect(
+      within(dialog).getByText(/temporarily read and preserve other attendees/i),
+    ).not.toBeNull();
     expect(within(dialog).getByText(/stores encrypted Google tokens/i)).not.toBeNull();
     expect(
-      within(dialog).getByRole<HTMLAnchorElement>("link", { name: "Privacy Notice" }).getAttribute(
-        "href",
-      ),
+      within(dialog)
+        .getByRole<HTMLAnchorElement>("link", { name: "Privacy Notice" })
+        .getAttribute("href"),
     ).toBe("/privacy");
 
     const connectButton = within(dialog).getByRole("button", {

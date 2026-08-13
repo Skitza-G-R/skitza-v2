@@ -924,15 +924,18 @@ function DisconnectConfirmation({
       />
       <div className="space-y-3 px-5 py-4 sm:px-6">
         <p className="text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Disconnecting stops future Google access and sync. Skitza removes its saved Google
-          access tokens and calendar choices and asks Google to revoke the permission. Your
-          Skitza sessions and existing Google events stay.
+          Disconnecting stops future Google access and sync. Skitza removes its saved Google access
+          tokens and calendar choices and asks Google to revoke the permission. Your Skitza sessions
+          and existing Google events stay.
         </p>
         <p className="text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
           Skitza keeps the connected account email and technical event and sync records so a
           reconnect does not create duplicate events. Delete existing events directly in Google
           Calendar. To request deletion of retained Google connection data, email{" "}
-          <a className="font-semibold underline underline-offset-2" href="mailto:privacy@skitza.app">
+          <a
+            className="font-semibold underline underline-offset-2"
+            href="mailto:privacy@skitza.app"
+          >
             privacy@skitza.app
           </a>
           . You can also remove Skitza from your{" "}
@@ -1060,23 +1063,23 @@ function GoogleDataDisclosure() {
         aria-hidden
       />
       <div className="min-w-0 text-[12px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-        <p className="font-bold text-[rgb(var(--fg-default))]">
-          How Skitza uses your Google data
-        </p>
+        <p className="font-bold text-[rgb(var(--fg-default))]">How Skitza uses your Google data</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-4">
           <li>
-            Skitza reads your Google account email and calendar names, timezones, and access
-            levels so you can choose calendars.
+            Skitza reads your Google account email and calendar names, timezones, and access levels
+            so you can choose calendars.
           </li>
           <li>
             On calendars you choose for availability, Skitza checks only busy and free times. It
             does not read unrelated event titles or details.
           </li>
           <li>
-            Google&apos;s event permission covers the calendars you can access. Skitza uses it only
-            to create, update, read, and delete Skitza session events in the destination calendar
-            you choose. These events can include the session title and time, Producer and Artist
-            names and email addresses, RSVP status, and a Skitza link.
+            Google&apos;s event permission covers the calendars you can access. Skitza uses it to
+            create, update, read, delete, watch, and reconcile Skitza session events in the
+            destination calendar you choose. These events can include the session title and time,
+            Producer and Artist names and email addresses, RSVP status, and a Skitza link. When
+            updating one of these events, Skitza may temporarily read and preserve other attendees
+            already on it but does not save them in its database.
           </li>
           <li>
             Skitza stores encrypted Google tokens, your account identity, calendar choices, and
