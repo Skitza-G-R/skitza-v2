@@ -2630,27 +2630,15 @@ html[data-theme="dark"] .sk-auth-shell {
   }
 }
 
-/* Installed iOS WebKit uses two viewport conventions: some releases expose a
- * visual-viewport top offset, while others report offset zero but omit the
- * translucent status-bar area from the measured height. Use the larger of the
- * measured viewport and the remaining classic viewport below that offset so
- * the in-flow footer reaches the physical bottom in either convention. Keep
- * this unlayered so it wins over Tailwind's layered `fixed` utility only in
- * the affected standalone mobile mode. */
+/* Current iOS can expose a classic viewport that extends into an OS-owned,
+ * unpaintable band in a Home Screen app. Keep the installed producer shell
+ * inside the measured visual viewport so its in-flow footer is always fully
+ * visible. Artist uses the same measured-viewport contract in its shell.
+ * Keep this unlayered so it wins over Tailwind's layered `fixed` utility only
+ * in standalone mobile mode. */
 @media (display-mode: standalone) and (max-width: 1023px) {
   .sk-producer-app-shell {
     inset: 0 0 auto;
-    height: max(
-      var(--sk-viewport-height, 100dvh),
-      calc(100vh - var(--sk-viewport-offset-top, 0px))
-    );
-    max-height: max(
-      var(--sk-viewport-height, 100dvh),
-      calc(100vh - var(--sk-viewport-offset-top, 0px))
-    );
-  }
-
-  body[data-sk-keyboard="open"] .sk-producer-app-shell {
     height: var(--sk-viewport-height, 100dvh);
     max-height: var(--sk-viewport-height, 100dvh);
   }

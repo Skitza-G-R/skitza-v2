@@ -114,7 +114,7 @@ describe("native app manifest", () => {
       appleWebApp: {
         capable: true,
         title: "Skitza",
-        statusBarStyle: "black-translucent",
+        statusBarStyle: "black",
       },
       formatDetection: {
         telephone: false,

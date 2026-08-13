@@ -172,7 +172,7 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain(".sk-native-action-dock");
   });
 
-  it("fills both installed-iPhone viewport conventions without hiding behind the keyboard", async () => {
+  it("keeps the producer footer inside the paintable installed-iPhone viewport", async () => {
     expect(appShellSource).toContain("sk-producer-app-shell");
 
     const productionCss = await postcss([
@@ -188,14 +188,13 @@ describe("native CSS contracts", () => {
     expect(productionCss.css).toContain("display-mode:standalone");
     expect(standaloneShellRule).toBeDefined();
     expect(standaloneShellRule).toContain(
-      "height:max(var(--sk-viewport-height,100dvh), calc(100vh - var(--sk-viewport-offset-top,0px)))",
+      "height:var(--sk-viewport-height,100dvh)",
     );
     expect(standaloneShellRule).toContain(
-      "max-height:max(var(--sk-viewport-height,100dvh), calc(100vh - var(--sk-viewport-offset-top,0px)))",
+      "max-height:var(--sk-viewport-height,100dvh)",
     );
-    expect(keyboardShellRule).toBeDefined();
-    expect(keyboardShellRule).toContain("height:var(--sk-viewport-height,100dvh)");
-    expect(keyboardShellRule).not.toContain("top:");
+    expect(standaloneShellRule).not.toContain("100vh");
+    expect(keyboardShellRule).toBeUndefined();
     expect(nativeViewportSource).not.toContain("--sk-viewport-bottom");
     expect(productionCss.css).toContain(
       ".sk-producer-app-shell .persistent-player-dock",
@@ -205,38 +204,20 @@ describe("native CSS contracts", () => {
     );
     expect(productionCss.css).toContain("position:absolute");
 
-    const resolveClosedShellHeight = ({
-      classicViewportHeight,
-      measuredViewportHeight,
-      viewportOffsetTop,
-    }: {
-      classicViewportHeight: number;
-      measuredViewportHeight: number;
-      viewportOffsetTop: number;
-    }) =>
-      Math.max(measuredViewportHeight, classicViewportHeight - viewportOffsetTop);
-
+    // Current iOS standalone can expose a 402 x 874 physical screen while
+    // only 812 CSS pixels are paintable. The shell must end at 812 rather
+    // than selecting classic 100vh (874) and clipping the 68px nav row.
     expect(
-      resolveClosedShellHeight({
-        classicViewportHeight: 844,
-        measuredViewportHeight: 785,
-        viewportOffsetTop: 59,
-      }),
-    ).toBe(785);
-    expect(
-      resolveClosedShellHeight({
-        classicViewportHeight: 852,
-        measuredViewportHeight: 793,
+      calculateNativeViewportMetrics({
+        innerHeight: 812,
+        viewportHeight: 812,
         viewportOffsetTop: 0,
       }),
-    ).toBe(852);
-    expect(
-      resolveClosedShellHeight({
-        classicViewportHeight: 932,
-        measuredViewportHeight: 873,
-        viewportOffsetTop: 0,
-      }),
-    ).toBe(932);
+    ).toMatchObject({
+      height: 812,
+      offsetTop: 0,
+      keyboardOpen: false,
+    });
   });
 
   it("gates directional flow and progress motion for reduced-motion users", () => {
