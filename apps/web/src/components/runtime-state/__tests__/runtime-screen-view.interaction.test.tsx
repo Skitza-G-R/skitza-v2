@@ -13,7 +13,12 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Link from "next/link";
 
-import { RUNTIME_MAIN_NAVIGATION_INTENT_EVENT } from "~/lib/runtime-state/navigation-cache";
+import {
+  announceRuntimeMainNavigationIntent,
+  RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
+  RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT,
+  type RuntimeMainNavigationIntentDetail,
+} from "~/lib/runtime-state/navigation-cache";
 import {
   writeRuntimeLaunchPointer,
   writeRuntimeScreenSafeView,
@@ -33,7 +38,9 @@ const mocked = vi.hoisted(() => ({
   },
   online: true,
   pathname: "/dashboard",
+  privateStateAccessAllowed: true,
   search: "",
+  storageAvailable: true,
   router: {
     push: vi.fn(),
     replace: vi.fn(),
@@ -53,8 +60,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("../runtime-state-provider", () => ({
   useRuntimeState: () => ({
     identity: mocked.identity,
-    privateStateAccessAllowed: true,
-    storage: window.localStorage,
+    privateStateAccessAllowed: mocked.privateStateAccessAllowed,
+    storage: mocked.storageAvailable ? window.localStorage : null,
   }),
 }));
 
@@ -63,6 +70,7 @@ import {
   RuntimeScreenSafeViewWriter,
   RuntimeScreenTransitionBoundary,
 } from "../runtime-screen-view";
+import { RuntimeNavigationBridge } from "../runtime-navigation-bridge";
 
 const PRODUCER: RuntimeStateIdentity = {
   userId: "producer-user",
@@ -112,13 +120,17 @@ function overviewView(title = "Saved studio overview"): RuntimeScreenSafeView {
   };
 }
 
-function announceNavigation(href: string, localOnly = false): void {
+function announceNavigation(
+  href: string,
+  { localOnly = false, warm = false }: { localOnly?: boolean; warm?: boolean } = {},
+): void {
   act(() => {
     window.dispatchEvent(
-      new CustomEvent(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, {
+      new CustomEvent(RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT, {
         detail: {
           href,
           ...(localOnly ? { localOnly: true } : {}),
+          ...(warm ? { warm: true } : {}),
         },
       }),
     );
@@ -146,7 +158,9 @@ beforeEach(() => {
   };
   mocked.online = true;
   mocked.pathname = "/dashboard";
+  mocked.privateStateAccessAllowed = true;
   mocked.search = "";
+  mocked.storageAvailable = true;
   mocked.router.push.mockReset();
   mocked.router.replace.mockReset();
   Object.defineProperty(window.navigator, "onLine", {
@@ -224,8 +238,8 @@ describe("instant runtime screen transitions", () => {
       cachedView: musicView(),
     },
   ])(
-    "keeps the current real screen online while $label navigation commits",
-    ({ origin, destination, cachedView }) => {
+    "shows the $label destination scaffold immediately while online navigation commits",
+    ({ label, origin, destination, cachedView }) => {
       mocked.pathname = origin;
       expect(
         writeRuntimeScreenSafeView(
@@ -239,32 +253,168 @@ describe("instant runtime screen transitions", () => {
 
       announceNavigation(destination);
 
-      expect(screen.getByTestId("current-server-screen")).toBeTruthy();
+      expect(screen.queryByTestId("current-server-screen")).toBeNull();
       expect(screen.queryByText(cachedView.title)).toBeNull();
       expect(
         document.querySelector('[data-runtime-screen-source="cache"]'),
       ).toBeNull();
       expect(
         document.querySelector('[data-runtime-screen-source="scaffold"]'),
-      ).toBeNull();
-      expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+      ).toBeTruthy();
+      expect(screen.getByLabelText(`Loading ${label}`)).toBeTruthy();
+      expect(document.documentElement.dataset.skScreenSource).toBe("scaffold");
     },
   );
 
-  it("keeps the current real screen online for a never-seen destination", () => {
+  it("shows a destination-shaped scaffold online for a never-seen destination", () => {
     renderTransitionBoundary();
 
     announceNavigation("/dashboard/calendar");
 
-    expect(screen.getByTestId("current-server-screen")).toBeTruthy();
-    expect(screen.queryByLabelText("Loading Calendar")).toBeNull();
+    expect(screen.queryByTestId("current-server-screen")).toBeNull();
+    expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
     expect(
       document.querySelector('[data-runtime-screen-source="cache"]'),
     ).toBeNull();
     expect(
       document.querySelector('[data-runtime-screen-source="scaffold"]'),
-    ).toBeNull();
+    ).toBeTruthy();
+    expect(document.documentElement.dataset.skScreenSource).toBe("scaffold");
+  });
+
+  it("still reacts immediately online when private browser storage is unavailable", () => {
+    mocked.storageAvailable = false;
+    renderTransitionBoundary();
+
+    announceNavigation("/dashboard/calendar");
+
+    expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
+    expect(screen.queryByTestId("current-server-screen")).toBeNull();
+  });
+
+  it("shows only a public scaffold while Clerk verifies the server identity", () => {
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Private saved music"),
+      ),
+    ).toBe(true);
+    mocked.privateStateAccessAllowed = false;
+    renderTransitionBoundary();
+
+    announceNavigation("/dashboard/music");
+
+    expect(screen.getByLabelText("Loading Music")).toBeTruthy();
+    expect(screen.queryByText("Private saved music")).toBeNull();
+    expect(screen.queryByTestId("current-server-screen")).toBeNull();
+  });
+
+  it("keeps a warm destination visible without flashing a scaffold", () => {
+    renderTransitionBoundary();
+    const classifyWarm = (event: Event) => {
+      const detail = (event as CustomEvent<RuntimeMainNavigationIntentDetail>).detail;
+      detail.warm = true;
+    };
+    window.addEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, classifyWarm);
+
+    try {
+      act(() => {
+        announceRuntimeMainNavigationIntent("/dashboard/music");
+      });
+    } finally {
+      window.removeEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, classifyWarm);
+    }
+
+    expect(screen.getByTestId("current-server-screen")).toBeTruthy();
+    expect(screen.queryByLabelText("Loading Music")).toBeNull();
     expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+  });
+
+  it("keeps a cold destination scaffold until the route commits", () => {
+    vi.useFakeTimers();
+    renderTransitionBoundary();
+    announceNavigation("/dashboard/calendar");
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
+    expect(screen.queryByTestId("current-server-screen")).toBeNull();
+  });
+
+  it("cancels a cold destination scaffold when the current screen is tapped", () => {
+    renderTransitionBoundary();
+    announceNavigation("/dashboard/music");
+    expect(screen.getByLabelText("Loading Music")).toBeTruthy();
+
+    announceNavigation("/dashboard");
+
+    expect(screen.getByTestId("current-server-screen")).toBeTruthy();
+    expect(screen.queryByLabelText("Loading Music")).toBeNull();
+    expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+  });
+
+  it("replaces a cold scaffold with the destination after its route paints", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const boundary = renderTransitionBoundary();
+    announceNavigation("/dashboard/calendar");
+
+    mocked.pathname = "/dashboard/calendar";
+    boundary.rerender(
+      <RuntimeScreenTransitionBoundary>
+        <div data-testid="calendar-server-screen">Calendar server screen</div>
+      </RuntimeScreenTransitionBoundary>,
+    );
+    expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
+
+    act(() => {
+      frames[0]?.(0);
+    });
+    expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
+    act(() => {
+      frames[1]?.(16);
+    });
+
+    expect(screen.getByTestId("calendar-server-screen")).toBeTruthy();
+    expect(screen.queryByLabelText("Loading Calendar")).toBeNull();
+    expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+  });
+
+  it("replaces an online scaffold with the saved destination if connectivity drops", () => {
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Connectivity-safe music"),
+      ),
+    ).toBe(true);
+    renderTransitionBoundary();
+    announceNavigation("/dashboard/music");
+    expect(screen.getByLabelText("Loading Music")).toBeTruthy();
+
+    mocked.online = false;
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+
+    expect(screen.getByText("Connectivity-safe music")).toBeTruthy();
+    expect(screen.queryByText("Updating Connectivity-safe music")).toBeNull();
+    expect(document.documentElement.dataset.skScreenSource).toBe("cache");
+
+    mocked.online = true;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(mocked.router.push).toHaveBeenCalledOnce();
+    expect(mocked.router.push).toHaveBeenCalledWith("/dashboard/music");
   });
 
   it("shows a cached destination synchronously for an offline navigation", () => {
@@ -279,7 +429,7 @@ describe("instant runtime screen transitions", () => {
     ).toBe(true);
     renderTransitionBoundary();
 
-    announceNavigation("/dashboard/music");
+    announceNavigation("/dashboard/music", { localOnly: true });
 
     expect(screen.getByText("Saved music library")).toBeTruthy();
     expect(screen.getByText("Midnight")).toBeTruthy();
@@ -430,6 +580,41 @@ describe("instant runtime screen transitions", () => {
     expect(mocked.router.push).not.toHaveBeenCalled();
   });
 
+  it("cancels a real offline destination click when the current tab is tapped", () => {
+    mocked.online = false;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    render(
+      <>
+        <RuntimeNavigationBridge restoreOnOpen={false} />
+        <RuntimeScreenTransitionBoundary>
+          <div data-testid="current-server-screen">Current server screen</div>
+        </RuntimeScreenTransitionBoundary>
+        <Link href="/dashboard/music" data-sk-nav-destination="/dashboard/music">
+          Music
+        </Link>
+        <Link href="/dashboard" data-sk-nav-destination="/dashboard">
+          Today
+        </Link>
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Music" }));
+    expect(screen.getByLabelText("Loading Music")).toBeTruthy();
+    expect(document.documentElement.dataset.skNavState).toBe("pending");
+
+    fireEvent.click(screen.getByRole("link", { name: "Today" }));
+
+    expect(screen.getByTestId("current-server-screen")).toBeTruthy();
+    expect(screen.queryByLabelText("Loading Music")).toBeNull();
+    expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+    expect(document.documentElement.dataset.skNavState).toBeUndefined();
+    expect(screen.getByRole("link", { name: "Music" }).getAttribute("aria-busy")).toBeNull();
+    expect(screen.getByRole("link", { name: "Today" }).getAttribute("aria-busy")).toBeNull();
+  });
+
   it("shows an unseen destination scaffold offline and continues after reconnect", () => {
     mocked.online = false;
     render(
@@ -569,7 +754,16 @@ describe("close and reopen runtime restore", () => {
     expect(mocked.router.replace).not.toHaveBeenCalled();
   });
 
-  it("shows only the neutral launch cover while an online resume resolves", () => {
+  it("server-renders the orange CSS startup mark before app JavaScript runs", () => {
+    const serverHtml = renderToString(<RuntimeResumeBoundary navigate />);
+
+    expect(serverHtml).toContain('data-runtime-launch-cover=""');
+    expect(serverHtml).toContain('src="/icons/skitza-192.png"');
+    expect(serverHtml).toContain("sk-pwa-startup__mark");
+    expect(serverHtml).toContain("Opening Skitza…");
+  });
+
+  it("shows only the animated neutral launch cover while an online resume resolves", () => {
     expect(
       writeRuntimeScreenSafeView(
         window.localStorage,
@@ -589,6 +783,8 @@ describe("close and reopen runtime restore", () => {
     render(<RuntimeResumeBoundary navigate />);
 
     expect(document.querySelector("[data-runtime-launch-cover]")).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Opening Skitza…" })).toBeTruthy();
+    expect(document.querySelector('img[src="/icons/skitza-192.png"]')).toBeTruthy();
     expect(document.querySelector("[data-runtime-resume-shell]")).toBeNull();
     expect(
       document.querySelector('[data-runtime-screen-source="resume"]'),

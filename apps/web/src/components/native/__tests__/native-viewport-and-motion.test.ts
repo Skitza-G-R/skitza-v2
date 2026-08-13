@@ -278,6 +278,28 @@ describe("native CSS contracts", () => {
     expect(reduceBlocks).toContain(".sk-native-spinner");
   });
 
+  it("animates the PWA startup mark with CSS and keeps reduced motion still", () => {
+    const motionBlocks = [
+      ...globalsCss.matchAll(
+        /@media \(prefers-reduced-motion: no-preference\) \{([\s\S]*?)\n {2}\}/g,
+      ),
+    ]
+      .map((match) => match[1] ?? "")
+      .join("\n");
+    const reduceBlocks = [
+      ...globalsCss.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n {2}\}/g),
+    ]
+      .map((match) => match[1] ?? "")
+      .join("\n");
+
+    expect(globalsCss).toContain("@keyframes skitza-pwa-startup-float");
+    expect(globalsCss).toContain("@keyframes skitza-pwa-startup-pulse");
+    expect(motionBlocks).toContain(".sk-pwa-startup__mark");
+    expect(motionBlocks).toContain("animation: skitza-pwa-startup-float");
+    expect(reduceBlocks).toContain(".sk-pwa-startup__mark");
+    expect(reduceBlocks).toContain("animation: none");
+  });
+
   it("provides immediate coarse-pointer feedback and comfortable targets", () => {
     expect(globalsCss).toMatch(
       /\.sk-press:active,\s*\.sk-press\[data-sk-nav-pending\]\s*\{[\s\S]*transition-duration:\s*60ms/,

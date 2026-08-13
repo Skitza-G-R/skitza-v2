@@ -786,6 +786,15 @@
   @keyframes skitza-native-spin {
     to { transform: rotate(360deg); }
   }
+  @keyframes skitza-pwa-startup-float {
+    0%, 100% { transform: translate3d(0, 0, 0) rotate(-1deg); }
+    50%      { transform: translate3d(0, -6px, 0) rotate(1deg); }
+  }
+  @keyframes skitza-pwa-startup-pulse {
+    0%   { opacity: 0.36; transform: scale(0.78); }
+    72%  { opacity: 0; transform: scale(1.24); }
+    100% { opacity: 0; transform: scale(1.24); }
+  }
   /* New — equalizer bars on the playing track. */
   @keyframes skitza-eq {
     0%   { height: 20%; }
@@ -868,6 +877,87 @@
   }
   .pulse-glow  { animation: skitza-pulse-glow 3s ease-in-out infinite; }
 
+  /* The cached /launch document paints this supplied install mark before
+     authentication or route data resolves. Its studio-monitor pulse is CSS
+     only, so the app feels alive before JavaScript hydrates. */
+  .sk-pwa-startup {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    min-height: 100dvh;
+    place-items: center;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 46%, rgb(var(--brand-primary) / 0.13), transparent 17rem),
+      rgb(var(--bg-background));
+    color: rgb(var(--fg-default));
+  }
+  .sk-pwa-startup__lockup {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    transform: translateY(-2vh);
+  }
+  .sk-pwa-startup__pulse {
+    position: relative;
+    display: grid;
+    width: 7.5rem;
+    height: 7.5rem;
+    place-items: center;
+    isolation: isolate;
+  }
+  .sk-pwa-startup__pulse::before,
+  .sk-pwa-startup__pulse::after {
+    position: absolute;
+    inset: 0.5rem;
+    z-index: -1;
+    content: "";
+    border: 1px solid rgb(var(--brand-primary) / 0.5);
+    border-radius: 30%;
+    opacity: 0.18;
+  }
+  .sk-pwa-startup__mark {
+    display: block;
+    width: 6rem;
+    height: 6rem;
+    overflow: hidden;
+    border-radius: 1.5rem;
+    box-shadow:
+      0 0 0 1px rgb(var(--brand-primary) / 0.18),
+      0 18px 42px -16px rgb(var(--brand-primary) / 0.65);
+  }
+  .sk-pwa-startup__wordmark {
+    font-family: var(--font-syne), system-ui, sans-serif;
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .sk-pwa-startup__wordmark > span {
+    color: rgb(var(--brand-primary));
+  }
+  .sk-pwa-startup__status {
+    margin-top: -0.45rem;
+    color: rgb(var(--fg-muted));
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .sk-pwa-startup__mark {
+      animation: skitza-pwa-startup-float 1.8s var(--ease-in-out-strong) infinite;
+      will-change: transform;
+    }
+    .sk-pwa-startup__pulse::before,
+    .sk-pwa-startup__pulse::after {
+      animation: skitza-pwa-startup-pulse 1.8s var(--ease-out-strong) infinite;
+    }
+    .sk-pwa-startup__pulse::after {
+      animation-delay: 0.6s;
+    }
+  }
   /* ----------------------------------------------------------------
    * Card / surface glow — kept for the onboarding setup card.
    * ---------------------------------------------------------------- */
@@ -1908,6 +1998,9 @@
     .sk-press { transition-duration: 0ms !important; }
     .sk-press:active,
     .sk-press[data-sk-nav-pending] { transform: none !important; filter: none !important; }
+    .sk-pwa-startup__mark,
+    .sk-pwa-startup__pulse::before,
+    .sk-pwa-startup__pulse::after { animation: none !important; }
     .sk-cta-press { transition-duration: 0ms !important; }
     .sk-cta-press:active { transform: none !important; filter: none !important; }
     .sk-press-pop,

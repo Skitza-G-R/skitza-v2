@@ -13,7 +13,9 @@ import {
   RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
   RUNTIME_MAIN_NAVIGATION_LINK_PREFETCH,
   RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE,
+  RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT,
   runtimeMainNavigationDestinations,
+  type RuntimeMainNavigationIntentDetail,
 } from "../navigation-cache";
 
 describe("runtime main navigation destinations", () => {
@@ -126,10 +128,45 @@ describe("runtime main navigation destinations", () => {
       Object.assign(globalThis, { window: originalWindow });
     }
 
-    expect(dispatched).toHaveLength(1);
+    expect(dispatched).toHaveLength(2);
     expect(dispatched[0]?.type).toBe(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT);
+    expect(dispatched[1]?.type).toBe(RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT);
     expect((dispatched[0] as CustomEvent).detail).toEqual({
       href: "/dashboard/music",
+    });
+    expect((dispatched[1] as CustomEvent).detail).toBe(
+      (dispatched[0] as CustomEvent).detail,
+    );
+  });
+
+  it("presents the warm classification after every intent listener has run", () => {
+    const dispatched: Event[] = [];
+    const originalWindow = globalThis.window;
+    Object.assign(globalThis, {
+      window: {
+        dispatchEvent(event: Event) {
+          dispatched.push(event);
+          if (event.type === RUNTIME_MAIN_NAVIGATION_INTENT_EVENT) {
+            (event as CustomEvent<RuntimeMainNavigationIntentDetail>).detail.warm = true;
+          }
+          return true;
+        },
+      },
+    });
+
+    try {
+      announceRuntimeMainNavigationIntent("/dashboard/music");
+    } finally {
+      Object.assign(globalThis, { window: originalWindow });
+    }
+
+    expect(dispatched.map((event) => event.type)).toEqual([
+      RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
+      RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT,
+    ]);
+    expect((dispatched[1] as CustomEvent).detail).toEqual({
+      href: "/dashboard/music",
+      warm: true,
     });
   });
 
@@ -153,7 +190,7 @@ describe("runtime main navigation destinations", () => {
       Object.assign(globalThis, { window: originalWindow });
     }
 
-    expect((dispatched[0] as CustomEvent).detail).toEqual({
+    expect((dispatched[1] as CustomEvent).detail).toEqual({
       href: "/dashboard/music",
       localOnly: true,
     });
