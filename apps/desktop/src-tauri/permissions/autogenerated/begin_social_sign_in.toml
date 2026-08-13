@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-social-sign-in"
+description = "Enables the begin_social_sign_in command without any pre-configured scope."
+commands.allow = ["begin_social_sign_in"]
+
+[[permission]]
+identifier = "deny-begin-social-sign-in"
+description = "Denies the begin_social_sign_in command without any pre-configured scope."
+commands.deny = ["begin_social_sign_in"]
