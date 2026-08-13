@@ -67,7 +67,7 @@ describe("ProducerBottomNav rendered behavior", () => {
     expect(html).toContain("liquid-glass-bottom-nav__magnifier-grid");
     for (const tab of tabs) {
       expect(tab.attributes).toContain("liquid-glass-bottom-nav__tab");
-      expect(tab.attributes).toContain("min-height:60px");
+      expect(tab.attributes).toContain("min-height:68px");
     }
   });
 

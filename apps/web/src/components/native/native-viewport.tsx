@@ -11,7 +11,6 @@ interface ViewportMeasurement {
 export interface NativeViewportMetrics {
   height: number;
   offsetTop: number;
-  viewportBottom: number;
   keyboardInset: number;
   keyboardOpen: boolean;
 }
@@ -40,15 +39,10 @@ export function calculateNativeViewportMetrics({
   );
   const keyboardThreshold = Math.min(200, Math.max(120, innerHeight * 0.18));
   const keyboardOpen = obscuredHeight >= keyboardThreshold;
-  const visualBottom = Math.max(1, offsetTop + height);
-  const viewportBottom = keyboardOpen
-    ? visualBottom
-    : Math.max(Math.max(1, Math.round(innerHeight)), visualBottom);
 
   return {
     height,
     offsetTop,
-    viewportBottom,
     keyboardInset: keyboardOpen ? obscuredHeight : 0,
     keyboardOpen,
   };
@@ -111,7 +105,6 @@ export function NativeViewportSync() {
 
       root.style.setProperty("--sk-viewport-height", `${String(metrics.height)}px`);
       root.style.setProperty("--sk-viewport-offset-top", `${String(metrics.offsetTop)}px`);
-      root.style.setProperty("--sk-viewport-bottom", `${String(metrics.viewportBottom)}px`);
       root.style.setProperty("--sk-keyboard-inset", `${String(metrics.keyboardInset)}px`);
       root.style.setProperty("--sk-viewport-growth", `${String(viewportGrowth)}px`);
       body.dataset.skKeyboard = metrics.keyboardOpen ? "open" : "closed";
@@ -142,7 +135,6 @@ export function NativeViewportSync() {
       window.visualViewport?.removeEventListener("scroll", scheduleMetrics);
       root.style.removeProperty("--sk-viewport-height");
       root.style.removeProperty("--sk-viewport-offset-top");
-      root.style.removeProperty("--sk-viewport-bottom");
       root.style.removeProperty("--sk-keyboard-inset");
       root.style.removeProperty("--sk-viewport-growth");
       delete body.dataset.skKeyboard;

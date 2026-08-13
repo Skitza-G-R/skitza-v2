@@ -26,6 +26,10 @@ const appShellSource = readFileSync(
   fileURLToPath(new URL("../../shell/app-shell.tsx", import.meta.url)),
   "utf8",
 );
+const nativeViewportSource = readFileSync(
+  fileURLToPath(new URL("../native-viewport.tsx", import.meta.url)),
+  "utf8",
+);
 const tailwindRequire = createRequire(
   createRequire(import.meta.url).resolve("@tailwindcss/postcss"),
 );
@@ -47,8 +51,20 @@ describe("native viewport metrics", () => {
     ).toEqual({
       height: 520,
       offsetTop: 0,
-      viewportBottom: 520,
       keyboardInset: 324,
+      keyboardOpen: true,
+    });
+
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 844,
+        viewportHeight: 520,
+        viewportOffsetTop: 59,
+      }),
+    ).toEqual({
+      height: 520,
+      offsetTop: 59,
+      keyboardInset: 265,
       keyboardOpen: true,
     });
   });
@@ -63,34 +79,6 @@ describe("native viewport metrics", () => {
     ).toMatchObject({
       height: 800,
       keyboardInset: 0,
-      keyboardOpen: false,
-    });
-  });
-
-  it("keeps a top-anchored standalone shell on the physical bottom edge", () => {
-    expect(
-      calculateNativeViewportMetrics({
-        innerHeight: 844,
-        viewportHeight: 785,
-        viewportOffsetTop: 59,
-      }),
-    ).toMatchObject({
-      height: 785,
-      offsetTop: 59,
-      viewportBottom: 844,
-      keyboardOpen: false,
-    });
-
-    expect(
-      calculateNativeViewportMetrics({
-        innerHeight: 844,
-        viewportHeight: 751,
-        viewportOffsetTop: 59,
-      }),
-    ).toMatchObject({
-      height: 751,
-      offsetTop: 59,
-      viewportBottom: 844,
       keyboardOpen: false,
     });
   });
@@ -184,7 +172,7 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain(".sk-native-action-dock");
   });
 
-  it("anchors standalone producer chrome to the measured visual viewport", async () => {
+  it("fills both installed-iPhone viewport conventions without hiding behind the keyboard", async () => {
     expect(appShellSource).toContain("sk-producer-app-shell");
 
     const productionCss = await postcss([
@@ -193,16 +181,22 @@ describe("native CSS contracts", () => {
     const standaloneShellRule = productionCss.css.match(
       /\.sk-producer-app-shell\{([^}]*)\}/,
     )?.[1];
+    const keyboardShellRule = productionCss.css.match(
+      /body\[data-sk-keyboard=open\] \.sk-producer-app-shell\{([^}]*)\}/,
+    )?.[1];
 
     expect(productionCss.css).toContain("display-mode:standalone");
     expect(standaloneShellRule).toBeDefined();
     expect(standaloneShellRule).toContain(
-      "height:var(--sk-viewport-bottom,100dvh)",
+      "height:max(var(--sk-viewport-height,100dvh), calc(100vh - var(--sk-viewport-offset-top,0px)))",
     );
     expect(standaloneShellRule).toContain(
-      "max-height:var(--sk-viewport-bottom,100dvh)",
+      "max-height:max(var(--sk-viewport-height,100dvh), calc(100vh - var(--sk-viewport-offset-top,0px)))",
     );
-    expect(standaloneShellRule).not.toContain("height:100vh");
+    expect(keyboardShellRule).toBeDefined();
+    expect(keyboardShellRule).toContain("height:var(--sk-viewport-height,100dvh)");
+    expect(keyboardShellRule).not.toContain("top:");
+    expect(nativeViewportSource).not.toContain("--sk-viewport-bottom");
     expect(productionCss.css).toContain(
       ".sk-producer-app-shell .persistent-player-dock",
     );
@@ -210,6 +204,39 @@ describe("native CSS contracts", () => {
       ".sk-producer-app-shell .mobile-full-player-sheet",
     );
     expect(productionCss.css).toContain("position:absolute");
+
+    const resolveClosedShellHeight = ({
+      classicViewportHeight,
+      measuredViewportHeight,
+      viewportOffsetTop,
+    }: {
+      classicViewportHeight: number;
+      measuredViewportHeight: number;
+      viewportOffsetTop: number;
+    }) =>
+      Math.max(measuredViewportHeight, classicViewportHeight - viewportOffsetTop);
+
+    expect(
+      resolveClosedShellHeight({
+        classicViewportHeight: 844,
+        measuredViewportHeight: 785,
+        viewportOffsetTop: 59,
+      }),
+    ).toBe(785);
+    expect(
+      resolveClosedShellHeight({
+        classicViewportHeight: 852,
+        measuredViewportHeight: 793,
+        viewportOffsetTop: 0,
+      }),
+    ).toBe(852);
+    expect(
+      resolveClosedShellHeight({
+        classicViewportHeight: 932,
+        measuredViewportHeight: 873,
+        viewportOffsetTop: 0,
+      }),
+    ).toBe(932);
   });
 
   it("gates directional flow and progress motion for reduced-motion users", () => {
