@@ -5,21 +5,40 @@ use reqwest::{
 use url::Url;
 use zeroize::Zeroize;
 
+use crate::origin::OriginPolicy;
+
 const BYPASS_ENV: &str = "SKITZA_DESKTOP_PROTECTION_BYPASS";
 const BYPASS_PARAMETER: &str = "x-vercel-protection-bypass";
 const SET_BYPASS_COOKIE_PARAMETER: &str = "x-vercel-set-bypass-cookie";
+const PRODUCTION_ORIGIN: &str = "https://skitza.app";
 
 pub struct ProtectionBypass {
     value: String,
 }
 
 impl ProtectionBypass {
-    pub fn from_env() -> Result<Option<Self>, &'static str> {
-        match std::env::var(BYPASS_ENV) {
-            Ok(value) => Self::parse(value).map(Some),
-            Err(std::env::VarError::NotPresent) => Ok(None),
-            Err(std::env::VarError::NotUnicode(_)) => Err("protection-bypass-invalid"),
+    pub fn from_env(origin: &OriginPolicy) -> Result<Option<Self>, &'static str> {
+        let value = match std::env::var(BYPASS_ENV) {
+            Ok(value) => Some(value),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => return Err("protection-bypass-invalid"),
+        };
+        Self::for_origin(origin, value)
+    }
+
+    pub(crate) fn for_origin(
+        origin: &OriginPolicy,
+        mut value: Option<String>,
+    ) -> Result<Option<Self>, &'static str> {
+        let Some(value) = value.take() else {
+            return Ok(None);
+        };
+        if origin.as_str() == PRODUCTION_ORIGIN {
+            let mut value = value;
+            value.zeroize();
+            return Err("protection-bypass-production-forbidden");
         }
+        Self::parse(value).map(Some)
     }
 
     fn parse(mut value: String) -> Result<Self, &'static str> {
@@ -47,7 +66,7 @@ impl ProtectionBypass {
         headers
     }
 
-    fn add_launch_query(&self, mut url: Url) -> Url {
+    fn add_entry_query(&self, mut url: Url) -> Url {
         url.query_pairs_mut()
             .append_pair(BYPASS_PARAMETER, &self.value)
             .append_pair(SET_BYPASS_COOKIE_PARAMETER, "true");
@@ -61,9 +80,9 @@ impl Drop for ProtectionBypass {
     }
 }
 
-pub fn launch_navigation_url(base: Url, bypass: Option<&ProtectionBypass>) -> Url {
+pub fn protected_entry_url(base: Url, bypass: Option<&ProtectionBypass>) -> Url {
     match bypass {
-        Some(value) => value.add_launch_query(base),
+        Some(value) => value.add_entry_query(base),
         None => base,
     }
 }
@@ -94,6 +113,25 @@ mod tests {
     }
 
     #[test]
+    fn absent_value_keeps_production_and_proof_behavior_unchanged() {
+        for origin in ["https://skitza.app", "https://proof.example"] {
+            let origin = OriginPolicy::parse(origin).unwrap();
+            assert!(ProtectionBypass::for_origin(&origin, None)
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn production_origin_rejects_even_a_valid_value() {
+        let origin = OriginPolicy::parse(PRODUCTION_ORIGIN).unwrap();
+        match ProtectionBypass::for_origin(&origin, Some("A".repeat(32))) {
+            Err(error) => assert_eq!(error, "protection-bypass-production-forbidden"),
+            Ok(_) => panic!("production origin accepted a protection bypass"),
+        }
+    }
+
+    #[test]
     fn native_header_is_exact_and_marked_sensitive() {
         let bypass = ProtectionBypass::parse("A".repeat(32)).unwrap();
         let headers = bypass.default_headers();
@@ -106,12 +144,12 @@ mod tests {
     }
 
     #[test]
-    fn webview_launch_query_keeps_the_exact_origin_and_sets_cookie() {
+    fn protected_entry_query_keeps_the_exact_origin_and_sets_cookie() {
         let base = Url::parse("https://proof.example/launch").unwrap();
-        assert_eq!(launch_navigation_url(base.clone(), None), base);
+        assert_eq!(protected_entry_url(base.clone(), None), base);
 
         let bypass = ProtectionBypass::parse("z".repeat(32)).unwrap();
-        let launch = launch_navigation_url(base, Some(&bypass));
+        let launch = protected_entry_url(base, Some(&bypass));
         let pairs: Vec<_> = launch.query_pairs().into_owned().collect();
 
         assert_eq!(

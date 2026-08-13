@@ -12,7 +12,7 @@ use std::time::Duration;
 use auth::{begin_social_sign_in, handle_deep_link, AuthState};
 use origin::OriginPolicy;
 #[cfg(feature = "gate1-proof")]
-use protection_bypass::{launch_navigation_url, ProtectionBypass};
+use protection_bypass::{protected_entry_url, ProtectionBypass};
 use session::{report_session_validation, start_validation_loop, SessionValidationState};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -49,7 +49,7 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
         return Err("connection-unavailable".into());
     }
     #[cfg(feature = "gate1-proof")]
-    let navigation_url = launch_navigation_url(launch_url, state.protection_bypass.as_ref());
+    let navigation_url = protected_entry_url(launch_url, state.protection_bypass.as_ref());
     #[cfg(not(feature = "gate1-proof"))]
     let navigation_url = launch_url;
     window
@@ -183,8 +183,8 @@ fn handle_callback_argument(app: AppHandle, value: &str) {
 fn main() {
     let origin = OriginPolicy::compile_time();
     #[cfg(feature = "gate1-proof")]
-    let protection_bypass =
-        ProtectionBypass::from_env().expect("invalid Gate 1 protection bypass configuration");
+    let protection_bypass = ProtectionBypass::from_env(&origin)
+        .expect("invalid Gate 1 protection bypass configuration");
     let client_builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(12))

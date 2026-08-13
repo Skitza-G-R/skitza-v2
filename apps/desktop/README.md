@@ -27,7 +27,10 @@ When that private proof origin uses Vercel Deployment Protection, the
 `SKITZA_DESKTOP_PROTECTION_BYPASS`. It must be exactly 32 ASCII letters,
 numbers, underscores, or hyphens. Keep the value in the private test secret
 store; never add it to this repository or a build setting. The app does not
-read this environment variable when the proof feature is disabled.
+read this environment variable when the proof feature is disabled, and it
+refuses the value when compiled for `https://skitza.app`. The private proof's
+first WebView launch and social-auth system-browser entry use it only to set
+Vercel's same-origin bypass cookie through a clean redirect.
 
 ## Gate 1 bridge
 
