@@ -12,6 +12,8 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 use url::Url;
 use zeroize::Zeroize;
 
+#[cfg(feature = "gate1-proof")]
+use crate::protection_bypass::protected_entry_url;
 use crate::{DesktopState, MAIN_WINDOW_LABEL};
 
 const AUTH_LIFETIME: Duration = Duration::from_secs(60);
@@ -109,6 +111,15 @@ fn authorization_url(
     Ok(url)
 }
 
+#[cfg(feature = "gate1-proof")]
+fn protected_authorization_url(
+    origin: &crate::origin::OriginPolicy,
+    attempt: &AuthAttempt,
+    bypass: Option<&crate::protection_bypass::ProtectionBypass>,
+) -> Result<Url, String> {
+    authorization_url(origin, attempt).map(|url| protected_entry_url(url, bypass))
+}
+
 #[tauri::command]
 pub fn begin_social_sign_in(
     provider: String,
@@ -122,6 +133,10 @@ pub fn begin_social_sign_in(
         verifier: random_url_safe(32),
         created_at: Instant::now(),
     };
+    #[cfg(feature = "gate1-proof")]
+    let url =
+        protected_authorization_url(&state.origin, &attempt, state.protection_bypass.as_ref())?;
+    #[cfg(not(feature = "gate1-proof"))]
     let url = authorization_url(&state.origin, &attempt)?;
     {
         let mut slot = state
@@ -361,6 +376,30 @@ mod tests {
         assert!(url.as_str().contains("code_challenge_method=S256"));
         assert!(!url.as_str().contains("redirect_uri"));
         assert!(!url.as_str().contains(&verifier));
+    }
+
+    #[cfg(feature = "gate1-proof")]
+    #[test]
+    fn private_proof_social_auth_sets_bypass_cookie_on_exact_origin() {
+        let attempt = AuthAttempt {
+            state: "s".repeat(43),
+            verifier: "v".repeat(43),
+            created_at: Instant::now(),
+        };
+        let origin = OriginPolicy::parse("https://proof.example").unwrap();
+        let bypass =
+            crate::protection_bypass::ProtectionBypass::for_origin(&origin, Some("B".repeat(32)))
+                .unwrap()
+                .unwrap();
+        let url = protected_authorization_url(&origin, &attempt, Some(&bypass)).unwrap();
+        let pairs: Vec<_> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(url.origin().ascii_serialization(), "https://proof.example");
+        assert_eq!(url.path(), "/api/desktop/auth/start");
+        assert!(pairs.contains(&("state".into(), "s".repeat(43))));
+        assert!(pairs.contains(&("code_challenge_method".into(), "S256".into())));
+        assert!(pairs.contains(&("x-vercel-protection-bypass".into(), "B".repeat(32))));
+        assert!(pairs.contains(&("x-vercel-set-bypass-cookie".into(), "true".into())));
     }
 
     #[test]
