@@ -34,6 +34,7 @@ function acceptedInvitation(overrides: Record<string, unknown> = {}) {
     revoked: false,
     createdAt: CUTOFF_MS + 1_000,
     updatedAt: CUTOFF_MS + 2_000,
+    publicMetadata: { skitzaProducerInvitation: true },
     ...overrides,
   };
 }
@@ -55,6 +56,7 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: null,
+        providerUserId: null,
         environment: { NODE_ENV: "test" },
       }),
     ).resolves.toEqual({ status: "not_authenticated" });
@@ -71,7 +73,8 @@ describe("syncAcceptedProducerInvitation", () => {
     await expect(
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
-        userId: "user_artist",
+        userId: "user_historical",
+        providerUserId: "user_artist",
         environment: {
           CLERK_INSTANCE_ID: "ins_skitza",
           NODE_ENV: "test",
@@ -115,7 +118,8 @@ describe("syncAcceptedProducerInvitation", () => {
     await expect(
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
-        userId: "user_artist",
+        userId: "user_historical",
+        providerUserId: "user_artist",
         environment,
       }),
     ).resolves.toEqual({ status: "created" });
@@ -139,18 +143,16 @@ describe("syncAcceptedProducerInvitation", () => {
       query: "bookings@example.test",
       status: "accepted",
     });
-    expect(mocks.claimProducerInvitationGrant).toHaveBeenCalledWith(
-      "postgres://test",
-      {
-        clerkInstanceId: "ins_skitza",
-        clerkUserId: "user_artist",
-        invitationId: "inv_producer",
-        emailAddress: "artist@example.test",
-        emailHash: emailHashFor("artist@example.test"),
-        createdAt: CUTOFF_MS + 1_000,
-        updatedAt: CUTOFF_MS + 2_000,
-      },
-    );
+    expect(mocks.claimProducerInvitationGrant).toHaveBeenCalledWith("postgres://test", {
+      clerkInstanceId: "ins_skitza",
+      clerkUserId: "user_historical",
+      providerClerkUserId: "user_artist",
+      invitationId: "inv_producer",
+      emailAddress: "artist@example.test",
+      emailHash: emailHashFor("artist@example.test"),
+      createdAt: CUTOFF_MS + 1_000,
+      updatedAt: CUTOFF_MS + 2_000,
+    });
   });
 
   it("fails closed when the Clerk secret belongs to another instance", async () => {
@@ -160,6 +162,7 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: "user_artist",
+        providerUserId: "user_artist",
         environment,
       }),
     ).rejects.toThrow("CLERK_INSTANCE_MISMATCH");
@@ -175,6 +178,7 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: "user_artist",
+        providerUserId: "user_artist",
         environment,
       }),
     ).rejects.toThrow("Clerk instance lookup failed");
@@ -197,6 +201,7 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: "user_artist",
+        providerUserId: "user_artist",
         environment,
       }),
     ).resolves.toEqual({ status: "not_invited" });
@@ -222,6 +227,36 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: "user_artist",
+        providerUserId: "user_artist",
+        environment,
+      }),
+    ).resolves.toEqual({ status: "not_invited" });
+    expect(mocks.claimProducerInvitationGrant).not.toHaveBeenCalled();
+  });
+
+  it("does not grant from an unrelated accepted Clerk app invitation", async () => {
+    getUser.mockResolvedValue({
+      id: "user_artist",
+      emailAddresses: [
+        {
+          emailAddress: "artist@example.test",
+          verification: { status: "verified" },
+        },
+      ],
+    });
+    getInvitationList.mockResolvedValue({
+      data: [
+        acceptedInvitation({
+          publicMetadata: { anotherInvitationFlow: true },
+        }),
+      ],
+    });
+
+    await expect(
+      syncAcceptedProducerInvitation({
+        dbUrl: "postgres://test",
+        userId: "user_artist",
+        providerUserId: "user_artist",
         environment,
       }),
     ).resolves.toEqual({ status: "not_invited" });
@@ -235,6 +270,7 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: "user_artist",
+        providerUserId: "user_artist",
         environment,
       }),
     ).rejects.toThrow("Clerk user lookup failed");
@@ -258,6 +294,7 @@ describe("syncAcceptedProducerInvitation", () => {
       syncAcceptedProducerInvitation({
         dbUrl: "postgres://test",
         userId: "user_artist",
+        providerUserId: "user_artist",
         environment,
       }),
     ).rejects.toThrow("Clerk invitation lookup failed");

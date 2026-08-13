@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
@@ -9,7 +9,7 @@ import {
   JOIN_INTENT_COOKIE,
   type JoinContinuationAction,
   type JoinIntentAction,
-  joinIntentSecret,
+  joinIntentVerificationSecrets,
   verifyJoinIntentToken,
 } from "~/server/auth/join-intent";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
@@ -28,12 +28,7 @@ import {
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
 function requireJoinAction(action: string): JoinIntentAction {
-  if (
-    action !== "book" &&
-    action !== "unlock" &&
-    action !== "home" &&
-    action !== "store"
-  ) {
+  if (action !== "book" && action !== "unlock" && action !== "home" && action !== "store") {
     notFound();
   }
   return action === "store" ? "home" : action;
@@ -76,14 +71,14 @@ export async function continueAsArtist(slug: string, rawAction: string): Promise
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   if (!userId) redirect(joinSignInHref(slug, action));
 
   const target = await findJoinTargetProducer(dbUrl, slug);
   if (!target) notFound();
 
   try {
-    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
+    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, providerUserId, target });
     clearJoinIntentCookie(await cookies(), process.env.NODE_ENV === "production");
     redirect(completedJoinHref(action, target, bookingHref));
   } catch (error) {
@@ -98,7 +93,7 @@ export async function resumeTrustedJoinIntent(
   const action = requireTrustedJoinAction(rawAction);
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   if (!userId) redirect(joinSignInHref(slug, action));
 
   const cookieStore = await cookies();
@@ -108,7 +103,7 @@ export async function resumeTrustedJoinIntent(
       token,
       expectedSlug: slug,
       expectedAction: action,
-      secret: joinIntentSecret(),
+      secret: joinIntentVerificationSecrets(),
     })
   ) {
     return { ok: false };
@@ -121,7 +116,7 @@ export async function resumeTrustedJoinIntent(
   }
 
   try {
-    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
+    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, providerUserId, target });
     clearJoinIntentCookie(cookieStore, process.env.NODE_ENV === "production");
     redirect(completedJoinHref(action, target, bookingHref));
   } catch (error) {

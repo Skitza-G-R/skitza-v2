@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { and, createDb, eq, producerExternalLinks } from "@skitza/db";
 import { z } from "zod";
 

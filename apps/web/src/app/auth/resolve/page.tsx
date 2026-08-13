@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
@@ -24,13 +24,12 @@ export default async function AuthResolvePage({
 }: {
   searchParams: Promise<{ next?: string | string[] }>;
 }) {
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
   const query = await searchParams;
-  const requestedTarget =
-    typeof query.next === "string" ? query.next : null;
+  const requestedTarget = typeof query.next === "string" ? query.next : null;
   let memberships = await fetchUserAccountMemberships({ dbUrl, userId });
 
   // Established Producers never need Clerk invitation reconciliation. For an
@@ -39,7 +38,7 @@ export default async function AuthResolvePage({
   if (memberships.producer.status === "none") {
     let sync: ProducerInvitationSyncResult | null = null;
     try {
-      sync = await syncAcceptedProducerInvitation({ dbUrl, userId });
+      sync = await syncAcceptedProducerInvitation({ dbUrl, userId, providerUserId });
     } catch {
       console.error("[producer-invitation] reconciliation unavailable");
     }

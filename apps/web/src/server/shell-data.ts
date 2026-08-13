@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import {
   and,
   clientContacts,
@@ -133,8 +133,8 @@ const DEFAULT_STATE: ShellState = {
 };
 
 export const getShellState = cache(async (): Promise<ShellState> => {
-  const { userId } = await auth();
-  if (!userId) return DEFAULT_STATE;
+  const { userId, providerUserId } = await auth();
+  if (!userId || !providerUserId) return DEFAULT_STATE;
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) return DEFAULT_STATE;
 
@@ -165,59 +165,56 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     purchaseId: notifications.purchaseId,
     readAt: notifications.readAt,
   };
-  const [
-    unreadCountRows,
-    unreadRows,
-    recentReadRows,
-    artistContactRows,
-    artistUnreadCount,
-  ] = await Promise.all([
-    db
-      .select({ value: sql<number>`count(*)`.mapWith(Number) })
-      .from(notifications)
-      .where(
-        and(
-          eq(notifications.producerId, row.id),
-          isNull(notifications.readAt),
-          isNull(notifications.archivedAt),
+  const [unreadCountRows, unreadRows, recentReadRows, artistContactRows, artistUnreadCount] =
+    await Promise.all([
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.producerId, row.id),
+            isNull(notifications.readAt),
+            isNull(notifications.archivedAt),
+          ),
         ),
-      ),
-    db
-      .select(notificationSelection)
-      .from(notifications)
-      .where(
-        and(
-          eq(notifications.producerId, row.id),
-          isNull(notifications.readAt),
-          isNull(notifications.archivedAt),
-        ),
-      )
-      .orderBy(desc(notifications.createdAt))
-      .limit(NOTIFICATION_FEED_LIMIT),
-    db
-      .select(notificationSelection)
-      .from(notifications)
-      .where(
-        and(
-          eq(notifications.producerId, row.id),
-          isNotNull(notifications.readAt),
-          isNull(notifications.archivedAt),
-        ),
-      )
-      .orderBy(desc(notifications.createdAt))
-      .limit(NOTIFICATION_FEED_LIMIT),
-    db
-      .select({ id: clientContacts.id })
-      .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, userId))
-      .limit(1),
-    artistNotificationUnreadCount(db, userId),
-  ]);
+      db
+        .select(notificationSelection)
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.producerId, row.id),
+            isNull(notifications.readAt),
+            isNull(notifications.archivedAt),
+          ),
+        )
+        .orderBy(desc(notifications.createdAt))
+        .limit(NOTIFICATION_FEED_LIMIT),
+      db
+        .select(notificationSelection)
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.producerId, row.id),
+            isNotNull(notifications.readAt),
+            isNull(notifications.archivedAt),
+          ),
+        )
+        .orderBy(desc(notifications.createdAt))
+        .limit(NOTIFICATION_FEED_LIMIT),
+      db
+        .select({ id: clientContacts.id })
+        .from(clientContacts)
+        .where(eq(clientContacts.clerkUserId, userId))
+        .limit(1),
+      artistNotificationUnreadCount(db, userId),
+    ]);
 
   const recentNotifications = mergeShellNotificationRows(unreadRows, recentReadRows);
 
   return {
-    userId,
+    // Browser/local runtime identity deliberately remains the raw provider id.
+    // All database reads above use the canonical userId.
+    userId: providerUserId,
     producerId: row.id,
     slug: row.slug,
     displayName: row.displayName,

@@ -65,6 +65,10 @@ import {
   readProducerAudioStorageQuota,
 } from "~/server/domain/audio-storage/quota";
 import { reconcileProducerFirstVersionUploadReservations } from "~/server/domain/first-version-uploads/reconciliation";
+import {
+  lockProducerCapabilityState,
+  type LockedProducerCapabilityState,
+} from "~/server/domain/producer-capabilities/open-state";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
 import { emitArtistNewVersionNotification } from "~/server/artist/notification-emitters";
 import {
@@ -930,6 +934,12 @@ function mapVersionUploadDomainError(error: unknown): never {
   throw new TRPCError({ code: "NOT_FOUND" });
 }
 
+function requireMultipartProducerOpen(producer: LockedProducerCapabilityState | null): void {
+  if (!producer || producer.closedAt !== null) {
+    throw new VersionUploadDomainError("INACTIVE", "This studio is closed");
+  }
+}
+
 function mapAudioStorageQuotaError(error: unknown): never {
   if (!(error instanceof AudioStorageQuotaError)) throw error;
   throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
@@ -1177,28 +1187,32 @@ export const audioRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       const issuedAt = new Date();
-      let contentLength: number;
       try {
         // Commit the exact byte capability and its expiry before any signed
-        // URL can leave the server.
-        ({ contentLength } = await authorizePendingMultipartPart(ctx, { ...input, issuedAt }));
+        // URL can leave the server, while the Producer closure lock is held.
+        return await authorizePendingMultipartPart(
+          ctx,
+          { ...input, issuedAt },
+          async ({ contentLength }) => {
+            const cmd = new UploadPartCommand({
+              Bucket: BUCKETS.audio,
+              Key: input.key,
+              UploadId: input.uploadId,
+              PartNumber: input.partNumber,
+              ContentLength: contentLength,
+            });
+            const url = await getSignedUrl(getR2BrowserUpload(), cmd, {
+              expiresIn: AUDIO_PART_URL_TTL_SECONDS,
+              signingDate: issuedAt,
+              signableHeaders: new Set(["content-length"]),
+            });
+            return { url };
+          },
+        );
       } catch (error) {
         if (error instanceof VersionUploadDomainError) mapVersionUploadDomainError(error);
         mapPendingMultipartCancellationError(error);
       }
-      const cmd = new UploadPartCommand({
-        Bucket: BUCKETS.audio,
-        Key: input.key,
-        UploadId: input.uploadId,
-        PartNumber: input.partNumber,
-        ContentLength: contentLength,
-      });
-      const url = await getSignedUrl(getR2BrowserUpload(), cmd, {
-        expiresIn: AUDIO_PART_URL_TTL_SECONDS,
-        signingDate: issuedAt,
-        signableHeaders: new Set(["content-length"]),
-      });
-      return { url };
     }),
 
   // Finalise the multipart upload and record the object on the
@@ -1252,6 +1266,7 @@ export const audioRouter = router({
         | Readonly<{ kind: "pending"; completeWasAttempted: boolean }>;
       try {
         staged = await ctx.db.transaction(async (tx) => {
+          const producer = await lockProducerCapabilityState(tx, ctx.producerId);
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${projectId}, 0))`);
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${purchaseId}, 0))`);
           const [lockedProject] = await tx
@@ -1384,6 +1399,7 @@ export const audioRouter = router({
             }
             throw error;
           }
+          requireMultipartProducerOpen(producer);
           if (decision === "stage") {
             throw new TRPCError({
               code: "CONFLICT",
@@ -1516,6 +1532,7 @@ export const audioRouter = router({
         | Readonly<{ kind: "completion"; completeWasAttempted: boolean }>;
       try {
         completionBoundary = await ctx.db.transaction(async (tx) => {
+          const producer = await lockProducerCapabilityState(tx, ctx.producerId);
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${projectId}, 0))`);
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${purchaseId}, 0))`);
           const [lockedVersion] = await tx
@@ -1623,6 +1640,7 @@ export const audioRouter = router({
               key: lockedVersion.audioR2Key as string,
             };
           }
+          requireMultipartProducerOpen(producer);
           if (decision === "observe_only") {
             return { kind: "completion" as const, completeWasAttempted: true };
           }
@@ -1703,6 +1721,7 @@ export const audioRouter = router({
               // The attempt marker is already committed. Reacquire both locks
               // so cancellation in the commit/call gap wins safely; if this
               // transaction wins, it keeps them through the sole remote call.
+              requireMultipartProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
               await tx.execute(
                 sql`select pg_advisory_xact_lock(hashtextextended(${projectId}, 0))`,
               );
@@ -1813,6 +1832,7 @@ export const audioRouter = router({
               });
             });
       } catch (error) {
+        if (error instanceof VersionUploadDomainError) mapVersionUploadDomainError(error);
         if (!(error instanceof CompletedAudioObjectCleanupRequiredError)) throw error;
         const cleanupFinished = await cleanupCompletedAudioObjectIfIdentityMatches(ctx, {
           key: input.key,
@@ -1852,6 +1872,7 @@ export const audioRouter = router({
 
       try {
         await ctx.db.transaction(async (tx) => {
+          requireMultipartProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${projectId}, 0))`);
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${purchaseId}, 0))`);
           const [lockedProject] = await tx

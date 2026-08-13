@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
@@ -16,9 +16,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // the project's canonical client→server channel; we don't have a tRPC
 // react-query client wired up.
 
-export type AcknowledgePaymentResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type AcknowledgePaymentResult = { ok: true } | { ok: false; error: string };
 
 export async function acknowledgePaymentAction(input: {
   bookingId: string;

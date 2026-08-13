@@ -48,6 +48,7 @@ type AcceptanceContextFixture = {
     archivedAt: Date | null;
   };
   producerName: string;
+  producerClosedAt: Date | null;
   taxMode: string;
   taxRatePct: number;
 };
@@ -165,6 +166,7 @@ function context(
       ...patch.product,
     },
     producerName: patch.producerName ?? "SK-95 Studio",
+    producerClosedAt: null,
     taxMode: patch.taxMode ?? "tax_free",
     taxRatePct: patch.taxRatePct ?? 18,
   };
@@ -247,9 +249,7 @@ describe("Store acceptance preview and plan allowlisting", () => {
 
   it("rejects an unoffered plan in both preview and acceptance before any write", async () => {
     const fixture = context({ product: { paymentPlans: [{ kind: "full" }] } });
-    const previewFailure = await storeError(
-      preview(fixture, { kind: "split_50_50" }),
-    );
+    const previewFailure = await storeError(preview(fixture, { kind: "split_50_50" }));
     expect(previewFailure).toMatchObject({ code: "INVALID" });
 
     const db = new QueuedAcceptanceDb([fixture]);
@@ -379,12 +379,12 @@ describe("Store acceptance proposal digest", () => {
                 ]),
           ).asDb(),
           {
-          clerkUserId: "artist-clerk",
-          purchaseRequestId: original.request.id,
-          selectedPaymentPlan: { kind: "full" },
-          expectedSnapshotDigest: previewed.snapshotDigest,
-          operationKey: `sk95-stale-${change}`,
-          agreementAccepted: true,
+            clerkUserId: "artist-clerk",
+            purchaseRequestId: original.request.id,
+            selectedPaymentPlan: { kind: "full" },
+            expectedSnapshotDigest: previewed.snapshotDigest,
+            operationKey: `sk95-stale-${change}`,
+            agreementAccepted: true,
           },
         ),
       );

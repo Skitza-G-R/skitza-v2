@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { notFound, redirect } from "next/navigation";
 
@@ -11,25 +11,18 @@ type PageProps = {
 };
 
 /** Compatibility route for links created before proof records had stable URLs. */
-export default async function LegacyArtistPurchaseProofPage({
-  params,
-  searchParams,
-}: PageProps) {
+export default async function LegacyArtistPurchaseProofPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) notFound();
   const { purchaseId } = await params;
   const { installment } = await searchParams;
 
   try {
-    const data = await appRouter
-      .createCaller({ userId })
-      .artist.purchase.proofOfPayment.state({
-        purchaseId,
-        ...(installment ? { installmentId: installment } : {}),
-      });
-    const latest = data.proofs
-      .filter((proof) => proof.installmentId === data.installmentId)
-      .at(-1);
+    const data = await appRouter.createCaller({ userId }).artist.purchase.proofOfPayment.state({
+      purchaseId,
+      ...(installment ? { installmentId: installment } : {}),
+    });
+    const latest = data.proofs.filter((proof) => proof.installmentId === data.installmentId).at(-1);
     if (latest) {
       redirect(
         withArtistStudio(
@@ -48,10 +41,7 @@ export default async function LegacyArtistPurchaseProofPage({
       );
     }
     redirect(
-      withArtistStudio(
-        `/artist/payments/${encodeURIComponent(data.purchaseId)}`,
-        data.producerId,
-      ),
+      withArtistStudio(`/artist/payments/${encodeURIComponent(data.purchaseId)}`, data.producerId),
     );
   } catch (error) {
     if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();

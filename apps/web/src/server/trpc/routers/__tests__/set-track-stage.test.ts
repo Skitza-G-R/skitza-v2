@@ -159,6 +159,7 @@ vi.mock("@skitza/db", () => ({
   notifications: { __table: "notifications" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   or: (...conds: unknown[]) => ({ or: conds }),
   desc: (col: unknown) => ({ desc: col }),
   asc: (col: unknown) => ({ asc: col }),
@@ -217,13 +218,7 @@ describe("project.setTrackStage", () => {
   });
 
   it("accepts all 5 workflow stages", async () => {
-    const stages = [
-      "brief",
-      "production",
-      "mixing",
-      "mastering",
-      "done",
-    ] as const;
+    const stages = ["brief", "production", "mixing", "mastering", "done"] as const;
     for (const stage of stages) {
       setSongWorkflowStageMock.mockResolvedValueOnce({ workflowStage: stage });
       const caller = await buildCaller();

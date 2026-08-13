@@ -10,14 +10,17 @@ import {
   prepareProducerSongArtwork,
   SongArtworkDomainError,
 } from "~/server/domain/song-artwork/service";
+import { configuredCapabilitySecrets } from "~/server/security/capability-secrets";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
 function songArtworkSecret(): string {
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret) throw new Error("Missing CLERK_SECRET_KEY");
-  return secret;
+  return configuredCapabilitySecrets().active;
+}
+
+function songArtworkVerificationSecrets(): readonly string[] {
+  return configuredCapabilitySecrets().verification;
 }
 
 function mapSongArtworkError(error: unknown): never {
@@ -72,7 +75,7 @@ export const songArtworkRouter = router({
           trackId: input.trackId,
           uploadToken: input.uploadToken,
           objectEtag: input.objectEtag,
-          serverSecret: songArtworkSecret(),
+          serverSecret: songArtworkVerificationSecrets(),
         });
       } catch (error) {
         mapSongArtworkError(error);

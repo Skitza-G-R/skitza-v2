@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { createDb, eq, producers } from "@skitza/db";
+import { and, createDb, eq, isNull, producers } from "@skitza/db";
 import { publicProcedure } from "./init";
 
 type ProducerContext = {
@@ -26,7 +26,7 @@ async function loadProducerContext(userId: string): Promise<ProducerContext> {
   const [row] = await db
     .select({ id: producers.id })
     .from(producers)
-    .where(eq(producers.clerkUserId, userId))
+    .where(and(eq(producers.clerkUserId, userId), isNull(producers.closedAt)))
     .limit(1);
   if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "producer not provisioned" });
   return { db, producerId: row.id };
@@ -57,6 +57,9 @@ function resolveProducerContext(ctx: object, userId: string): Promise<ProducerCo
 // because every producer-scoped router needs the same middleware.
 export const producerProcedure = publicProcedure.use(async ({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+  if (ctx.accountClosureStarted) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "account closure started" });
+  }
   const producerContext = await resolveProducerContext(ctx, ctx.userId);
   return next({ ctx: { ...ctx, ...producerContext } });
 });

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
@@ -75,8 +75,7 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
   // is completely empty with no next step to take.
-  const showSetupNudge =
-    skipOnboarding && packages?.length === 0 && today.items.length === 0;
+  const showSetupNudge = skipOnboarding && packages?.length === 0 && today.items.length === 0;
 
   // Today's session = first session item whose occurredAt is today.
   // Producer.today fans the items list across sessions/comments/

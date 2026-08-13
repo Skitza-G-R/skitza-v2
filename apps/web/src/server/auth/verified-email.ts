@@ -1,6 +1,7 @@
 import { currentUser } from "@clerk/nextjs/server";
 
 import { emailHashFor } from "~/server/artist/identity";
+import { auth } from "~/server/auth/clerk-identity";
 
 type ClerkEmailAddress = Readonly<{
   emailAddress: string;
@@ -33,5 +34,7 @@ export function verifiedEmailHashesFromUser(
 }
 
 export async function currentVerifiedEmailHashes(expectedClerkUserId: string): Promise<string[]> {
-  return verifiedEmailHashesFromUser(await currentUser(), expectedClerkUserId);
+  const { userId, providerUserId } = await auth();
+  if (userId !== expectedClerkUserId || !providerUserId) return [];
+  return verifiedEmailHashesFromUser(await currentUser(), providerUserId);
 }

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
 import type { UploadTrackModalProject } from "~/components/dashboard/song/upload-track-modal";

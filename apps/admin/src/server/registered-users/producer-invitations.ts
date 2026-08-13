@@ -177,6 +177,7 @@ export async function sendProducerInvitation(
     provider: ProducerInvitationProvider;
     redirectUrl: string;
     targetClerkUserId: string;
+    targetProviderClerkUserId: string;
   }>,
 ): Promise<
   Readonly<{
@@ -186,7 +187,8 @@ export async function sendProducerInvitation(
   }>
 > {
   const clerkInstanceId = requiredIdentifier(input.clerkInstanceId);
-  const targetClerkUserId = requiredIdentifier(input.targetClerkUserId);
+  requiredIdentifier(input.targetClerkUserId);
+  const targetProviderClerkUserId = requiredIdentifier(input.targetProviderClerkUserId);
   requiredIdentifier(input.operationKey);
   let redirectUrl: URL;
   try {
@@ -209,9 +211,9 @@ export async function sendProducerInvitation(
     const actualInstanceId = await input.provider.getInstanceId();
     if (actualInstanceId !== clerkInstanceId) return stop("UNAVAILABLE");
 
-    const user = await input.provider.getUser(targetClerkUserId);
+    const user = await input.provider.getUser(targetProviderClerkUserId);
     if (!user) return stop("TARGET_NOT_ELIGIBLE");
-    if (user.id !== targetClerkUserId) return stop("UNAVAILABLE");
+    if (user.id !== targetProviderClerkUserId) return stop("UNAVAILABLE");
     const emailAddress = exactVerifiedPrimaryEmail(user);
 
     const candidates = await input.provider.listInvitations({

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";

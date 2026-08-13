@@ -22,7 +22,7 @@ describe("InvitationAccountSwitchButton", () => {
     window.history.replaceState(
       {},
       "",
-      "/sign-up?__clerk_ticket=secret_ticket&redirect_url=%2Fauth%2Fresolve",
+      "/sign-up?__clerk_ticket=secret_ticket&__clerk_status=sign_in&redirect_url=%2Fauth%2Fresolve",
     );
   });
 
@@ -34,7 +34,8 @@ describe("InvitationAccountSwitchButton", () => {
     await user.click(screen.getByRole("button", { name: "Sign out and accept invitation" }));
 
     expect(signOutMock).toHaveBeenCalledWith({
-      redirectUrl: "/sign-up?__clerk_ticket=secret_ticket&redirect_url=%2Fauth%2Fresolve",
+      redirectUrl:
+        "/sign-up?__clerk_ticket=secret_ticket&__clerk_status=sign_in&redirect_url=%2Fauth%2Fresolve",
     });
   });
 

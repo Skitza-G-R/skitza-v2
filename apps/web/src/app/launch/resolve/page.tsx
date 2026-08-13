@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
 import { runtimeLaunchHrefForMemberships } from "~/lib/runtime-state/launch-role";
@@ -16,8 +16,7 @@ export default async function ResolveLaunchRolePage({
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
   const query = await searchParams;
-  const requestedHref =
-    typeof query.next === "string" ? query.next : null;
+  const requestedHref = typeof query.next === "string" ? query.next : null;
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
   redirect(runtimeLaunchHrefForMemberships(memberships, requestedHref));
 }

@@ -74,6 +74,7 @@ vi.mock("@skitza/db", () => ({
   producers: producersMarker,
   producerExternalLinks: externalLinksMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
+  isNull: (col: unknown) => ({ isNull: col }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     sql: [...strings],
@@ -264,11 +265,7 @@ describe("publicProfile.forJoin — external links (Wave 2, PRD §6.2 Section B)
 
     const { producerExternalLinks } = await import("@skitza/db");
     expect(
-      containsEq(
-        lastExternalLinksWhereArgs,
-        producerExternalLinks.producerId,
-        PRODUCER_ID,
-      ),
+      containsEq(lastExternalLinksWhereArgs, producerExternalLinks.producerId, PRODUCER_ID),
     ).toBe(true);
   });
 });
@@ -323,9 +320,9 @@ describe("publicProfile.forJoin — 404", () => {
   it("throws NOT_FOUND when slug has no producer", async () => {
     producerSelectMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
-    await expect(
-      caller.publicProfile.forJoin({ slug: "does-not-exist" }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.publicProfile.forJoin({ slug: "does-not-exist" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });
 
@@ -411,9 +408,36 @@ describe("publicProfile.forJoin — limit 3", () => {
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
     // The domain read model is already capped to 3 by its wrapper.
     trackSelectMock.mockResolvedValueOnce([
-      { id: TRACK_ID_1, title: "Most recent", artist: null, audioUrl: null, durationMs: null, peaksR2Key: null, isPublicSample: true, createdAt: new Date("2026-03-05") },
-      { id: TRACK_ID_2, title: "Middle", artist: null, audioUrl: null, durationMs: null, peaksR2Key: null, isPublicSample: true, createdAt: new Date("2026-03-04") },
-      { id: TRACK_ID_3, title: "Oldest of 3", artist: null, audioUrl: null, durationMs: null, peaksR2Key: null, isPublicSample: true, createdAt: new Date("2026-03-03") },
+      {
+        id: TRACK_ID_1,
+        title: "Most recent",
+        artist: null,
+        audioUrl: null,
+        durationMs: null,
+        peaksR2Key: null,
+        isPublicSample: true,
+        createdAt: new Date("2026-03-05"),
+      },
+      {
+        id: TRACK_ID_2,
+        title: "Middle",
+        artist: null,
+        audioUrl: null,
+        durationMs: null,
+        peaksR2Key: null,
+        isPublicSample: true,
+        createdAt: new Date("2026-03-04"),
+      },
+      {
+        id: TRACK_ID_3,
+        title: "Oldest of 3",
+        artist: null,
+        audioUrl: null,
+        durationMs: null,
+        peaksR2Key: null,
+        isPublicSample: true,
+        createdAt: new Date("2026-03-03"),
+      },
     ]);
     const caller = await buildCaller();
     const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });

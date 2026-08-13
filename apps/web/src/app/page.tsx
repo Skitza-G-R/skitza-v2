@@ -2,7 +2,7 @@ import "~/styles/landing.css";
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { LandingPage } from "~/components/landing/landing-page";
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";

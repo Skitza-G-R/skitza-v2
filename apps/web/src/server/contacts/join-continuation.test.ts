@@ -94,7 +94,12 @@ async function expectJoinError(operation: Promise<unknown>, code: JoinContinuati
 describe("join continuation security", () => {
   it("rejects an unauthenticated request before reading Clerk", async () => {
     await expectJoinError(
-      connectCurrentUserForJoin({ dbUrl: "postgres://test", userId: null, target }),
+      connectCurrentUserForJoin({
+        dbUrl: "postgres://test",
+        userId: null,
+        providerUserId: null,
+        target,
+      }),
       "UNAUTHENTICATED",
     );
     expect(currentUserMock).not.toHaveBeenCalled();
@@ -111,6 +116,7 @@ describe("join continuation security", () => {
       connectCurrentUserForJoin({
         dbUrl: "postgres://test",
         userId: "owner-user",
+        providerUserId: "owner-user",
         target,
       }),
       "SELF_JOIN",
@@ -128,6 +134,7 @@ describe("join continuation security", () => {
       connectCurrentUserForJoin({
         dbUrl: "postgres://test",
         userId: "artist-user",
+        providerUserId: "artist-user",
         target,
       }),
       "UNVERIFIED_EMAIL",
@@ -145,7 +152,8 @@ describe("join continuation security", () => {
     await expect(
       connectCurrentUserForJoin({
         dbUrl: "postgres://test",
-        userId: "artist-user",
+        userId: "artist-historical",
+        providerUserId: "artist-user",
         target,
       }),
     ).resolves.toBe("/artist/book?studio=producer-target");
@@ -156,7 +164,7 @@ describe("join continuation security", () => {
       primaryEmail: "ada@example.com",
       verifiedEmailHashes: ["a".repeat(64)],
       name: "Ada Artist",
-      clerkUserId: "artist-user",
+      clerkUserId: "artist-historical",
     });
     expect(findConfirmedContactMock).toHaveBeenCalledOnce();
   });
@@ -170,6 +178,7 @@ describe("join continuation security", () => {
       connectCurrentUserForJoin({
         dbUrl: "postgres://test",
         userId: "artist-user",
+        providerUserId: "artist-user",
         target,
       }),
       "CONNECTION_NOT_CONFIRMED",

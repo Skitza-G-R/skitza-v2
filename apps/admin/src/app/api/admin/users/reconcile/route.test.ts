@@ -35,10 +35,7 @@ vi.mock("~/server/registered-users/clerk-environment", () => ({
 }));
 
 vi.mock("~/server/registered-users/reconciliation", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("~/server/registered-users/reconciliation")
-    >();
+  const actual = await importOriginal<typeof import("~/server/registered-users/reconciliation")>();
   return {
     ...actual,
     createClerkReconciliationProvider: vi.fn(),
@@ -65,13 +62,13 @@ const repository = {
   applySnapshots: vi.fn(),
 };
 
-function request(input: Readonly<{
-  cursor?: string;
-  idempotencyKey?: string;
-}> = {}): Request {
-  const cursor = input.cursor
-    ? `&cursor=${encodeURIComponent(input.cursor)}`
-    : "";
+function request(
+  input: Readonly<{
+    cursor?: string;
+    idempotencyKey?: string;
+  }> = {},
+): Request {
+  const cursor = input.cursor ? `&cursor=${encodeURIComponent(input.cursor)}` : "";
   const headers = new Headers({
     origin: "https://admin.skitza.app",
     "sec-fetch-site": "same-origin",
@@ -88,10 +85,8 @@ function request(input: Readonly<{
 describe("registered-user reconciliation route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.ADMIN_LIVE_DATABASE_URL =
-      "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL =
-      "postgresql://test.example.test/skitza";
+    process.env.ADMIN_LIVE_DATABASE_URL = "postgresql://live.example.test/skitza";
+    process.env.ADMIN_TEST_DATABASE_URL = "postgresql://test.example.test/skitza";
     vi.mocked(requireActiveAdminAccess).mockResolvedValue(founder);
     vi.mocked(isSameOriginMutation).mockReturnValue(true);
     vi.mocked(resolveAdminClerkEnvironment).mockReturnValue({
@@ -99,9 +94,7 @@ describe("registered-user reconciliation route", () => {
       secretKey: "sk_test_hidden",
     });
     vi.mocked(createClerkReconciliationProvider).mockReturnValue(provider);
-    vi.mocked(createRegisteredAccountReconciliationRepository).mockReturnValue(
-      repository,
-    );
+    vi.mocked(createRegisteredAccountReconciliationRepository).mockReturnValue(repository);
     vi.mocked(reconcileRegisteredAccounts).mockResolvedValue({
       applied: 2,
       complete: true,
@@ -190,7 +183,9 @@ describe("registered-user reconciliation route", () => {
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ applied: 2, complete: true });
-    expect(reconcileRegisteredAccounts).toHaveBeenCalledWith({
+    expect(reconcileRegisteredAccounts).toHaveBeenCalledOnce();
+    const reconciliationInput = vi.mocked(reconcileRegisteredAccounts).mock.calls[0]?.[0];
+    expect(reconciliationInput).toMatchObject({
       actorClerkUserId: "user_founder",
       clerkInstanceId: "ins_test",
       cursor: "opaque_cursor",
@@ -199,6 +194,7 @@ describe("registered-user reconciliation route", () => {
       provider,
       repository,
     });
+    expect(typeof reconciliationInput?.identityResolver.resolveCanonicalUserId).toBe("function");
     expect(JSON.stringify(body)).not.toContain("sk_test_hidden");
   });
 

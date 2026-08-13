@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ProducerAccessPage() {
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   let invitationCheckUnavailable = false;
 
@@ -33,7 +33,7 @@ export default async function ProducerAccessPage() {
 
     let sync: ProducerInvitationSyncResult | null = null;
     try {
-      sync = await syncAcceptedProducerInvitation({ dbUrl, userId });
+      sync = await syncAcceptedProducerInvitation({ dbUrl, userId, providerUserId });
     } catch {
       // No invitation grant is made when Clerk cannot be checked. Existing
       // Artist access stays usable, and this page offers a safe retry.
@@ -87,8 +87,8 @@ export default async function ProducerAccessPage() {
         </p>
 
         <p className="mt-3">
-          If the link expired, was revoked, or opened under another account, sign out and reopen
-          the invitation email. If it still does not work, ask Skitza for a new invitation.
+          If the link expired, was revoked, or opened under another account, sign out and reopen the
+          invitation email. If it still does not work, ask Skitza for a new invitation.
         </p>
 
         <Link

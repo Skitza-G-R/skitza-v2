@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -8,7 +8,7 @@ import { Button } from "~/components/ui/button";
 import {
   JOIN_INTENT_COOKIE,
   type JoinIntentAction,
-  joinIntentSecret,
+  joinIntentVerificationSecrets,
   verifyJoinIntentToken,
 } from "~/server/auth/join-intent";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
@@ -49,8 +49,7 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
   ) {
     notFound();
   }
-  const requestedAction: JoinIntentAction =
-    query.action === "store" ? "home" : query.action;
+  const requestedAction: JoinIntentAction = query.action === "store" ? "home" : query.action;
   if (!session.userId) redirect(joinSignInHref(slug, requestedAction));
 
   const dbUrl = process.env.DATABASE_URL;
@@ -74,7 +73,7 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
       token: cookieStore.get(JOIN_INTENT_COOKIE)?.value,
       expectedSlug: slug,
       expectedAction: trustedAction,
-      secret: joinIntentSecret(),
+      secret: joinIntentVerificationSecrets(),
     });
   const producerBackHref =
     memberships.producer.status === "incomplete" ? "/onboarding" : "/dashboard";
@@ -82,8 +81,7 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
   const publicStudioHref = `/join/${encodeURIComponent(slug)}`;
   const action = continueAsArtist.bind(null, slug, requestedAction);
   const retryProblem =
-    query.problem === JOIN_UNVERIFIED_EMAIL ||
-    query.problem === JOIN_CONNECTION_PENDING
+    query.problem === JOIN_UNVERIFIED_EMAIL || query.problem === JOIN_CONNECTION_PENDING
       ? query.problem
       : null;
 
@@ -125,9 +123,7 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
           <AuthHero
             eyebrow={needsVerifiedEmail ? "Verification needed" : "Almost connected"}
             title={
-              needsVerifiedEmail
-                ? "Verify your email, then retry"
-                : "Connection is still finishing"
+              needsVerifiedEmail ? "Verify your email, then retry" : "Connection is still finishing"
             }
             blurb={
               needsVerifiedEmail

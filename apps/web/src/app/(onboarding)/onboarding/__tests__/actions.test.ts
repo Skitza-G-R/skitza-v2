@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import type {
-  UserAccountMemberships,
-  UserRole,
-} from "~/server/auth/role";
+import type { UserAccountMemberships, UserRole } from "~/server/auth/role";
 
 // Story 03 — completeStudio server action.
 //
@@ -53,6 +50,7 @@ let mockRole: UserRole = {
   },
 };
 let mockHistoricalArtistAccess = false;
+let mockClosureStarted = false;
 
 function membershipsForMockRole(): UserAccountMemberships {
   const producer =
@@ -64,6 +62,7 @@ function membershipsForMockRole(): UserAccountMemberships {
   const activeArtist = mockRole.kind === "artist";
   return {
     isAuthenticated: mockRole.kind !== "unauthenticated",
+    accountStatus: mockClosureStarted ? "closure_started" : "open",
     producer,
     artist: {
       hasAccess: activeArtist || mockHistoricalArtistAccess,
@@ -90,13 +89,13 @@ vi.mock("@clerk/nextjs/server", () => ({
 }));
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
-  producers: { id: "producer_id", clerkUserId: "clerk_user_id" },
+  producers: { id: "producer_id", clerkUserId: "clerk_user_id", closedAt: "closed_at" },
   eq: (a: unknown, b: unknown) => ({ a, b }),
+  isNull: (column: unknown) => ({ column, operator: "is-null" }),
   and: (...conditions: unknown[]) => ({ conditions }),
 }));
 vi.mock("~/server/auth/role", () => ({
-  fetchUserAccountMemberships: () =>
-    Promise.resolve(membershipsForMockRole()),
+  fetchUserAccountMemberships: () => Promise.resolve(membershipsForMockRole()),
 }));
 vi.mock("next/headers", () => ({
   headers: () =>
@@ -149,6 +148,7 @@ beforeEach(() => {
   mockCountryHeader = null;
   mockOnboardingIntentHeader = null;
   mockHistoricalArtistAccess = false;
+  mockClosureStarted = false;
   mockHashQueue = ["abcd"];
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -178,6 +178,7 @@ describe("completeStudio — happy path + invariant carryover", () => {
       conditions: [
         { a: "producer_id", b: "producer-incomplete-1" },
         { a: "clerk_user_id", b: "user_test_1" },
+        { column: "closed_at", operator: "is-null" },
       ],
     });
     expect(returningMock).toHaveBeenCalledOnce();
@@ -242,6 +243,7 @@ describe("completeStudio — safe re-entry", () => {
       conditions: [
         { a: "producer_id", b: "producer-complete-1" },
         { a: "clerk_user_id", b: "user_test_1" },
+        { column: "closed_at", operator: "is-null" },
       ],
     });
   });
@@ -326,6 +328,13 @@ describe("completeStudio — auth + role invariants (carried over from completeO
     await expect(completeStudio(validInput)).rejects.toThrow(
       "forbidden: producer access is invitation-only",
     );
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a closing Producer before any studio profile write", async () => {
+    mockClosureStarted = true;
+    const { completeStudio } = await import("../actions");
+    await expect(completeStudio(validInput)).rejects.toThrow("forbidden: account closure started");
     expect(updateMock).not.toHaveBeenCalled();
   });
 

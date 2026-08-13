@@ -80,13 +80,13 @@ vi.mock("@skitza/db", () => ({
   trackVersions: trackVersionsMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   or: (...conds: unknown[]) => ({ or: conds }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
 }));
 
 vi.mock("~/server/domain/song-management/db", () => ({
-  createPortfolioTrackFromSongVersion:
-    songManagementMocks.createPortfolioTrackFromSongVersion,
+  createPortfolioTrackFromSongVersion: songManagementMocks.createPortfolioTrackFromSongVersion,
   renameSongVersion: vi.fn(),
   setProducerFinalVersion: vi.fn(),
   setSongArchiveState: vi.fn(),
@@ -101,9 +101,7 @@ beforeEach(() => {
   storedAudioSelectMock.mockReset().mockResolvedValue([]);
   storedAudioWhereSpy.mockReset();
   trackListMock.mockReset().mockResolvedValue([]);
-  trackInsertReturningMock
-    .mockReset()
-    .mockResolvedValue([{ id: TRACK_ID, title: "x" }]);
+  trackInsertReturningMock.mockReset().mockResolvedValue([{ id: TRACK_ID, title: "x" }]);
   trackInsertValuesSpy.mockReset();
   trackUpdateReturningMock.mockReset().mockResolvedValue([{ id: TRACK_ID }]);
   trackDeleteWhereMock.mockReset().mockResolvedValue(undefined);
@@ -296,8 +294,7 @@ describe("portfolio.create", () => {
 
   it("keeps an external URL with a key-shaped path on the generic create path", async () => {
     const caller = await buildCaller();
-    const externalUrl =
-      `https://mirror.example.test/producers/${PRODUCER_ID}/tracks/${TRACK_ID}/external.mp3`;
+    const externalUrl = `https://mirror.example.test/producers/${PRODUCER_ID}/tracks/${TRACK_ID}/external.mp3`;
 
     await caller.portfolio.create({ title: "External mirror", audioUrl: externalUrl });
 
@@ -315,10 +312,10 @@ describe("portfolio.createFromVersion", () => {
     const row = await caller.portfolio.createFromVersion({ versionId: TRACK_ID });
 
     expect(row).toMatchObject({ id: TRACK_ID, title: "From version" });
-    expect(songManagementMocks.createPortfolioTrackFromSongVersion).toHaveBeenCalledWith(
-      dbMock,
-      { producerId: PRODUCER_ID, versionId: TRACK_ID },
-    );
+    expect(songManagementMocks.createPortfolioTrackFromSongVersion).toHaveBeenCalledWith(dbMock, {
+      producerId: PRODUCER_ID,
+      versionId: TRACK_ID,
+    });
   });
 
   it("conceals unavailable, deleted, and cross-tenant versions as not found", async () => {
@@ -327,12 +324,12 @@ describe("portfolio.createFromVersion", () => {
     );
     const caller = await buildCaller();
 
-    await expect(
-      caller.portfolio.createFromVersion({ versionId: TRACK_ID }),
-    ).rejects.toMatchObject({
-      code: "NOT_FOUND",
-      message: "The live version was not found.",
-    });
+    await expect(caller.portfolio.createFromVersion({ versionId: TRACK_ID })).rejects.toMatchObject(
+      {
+        code: "NOT_FOUND",
+        message: "The live version was not found.",
+      },
+    );
   });
 
   it("returns a safe client error for an already-published version", async () => {
@@ -341,9 +338,9 @@ describe("portfolio.createFromVersion", () => {
     );
     const caller = await buildCaller();
 
-    await expect(
-      caller.portfolio.createFromVersion({ versionId: TRACK_ID }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.portfolio.createFromVersion({ versionId: TRACK_ID })).rejects.toMatchObject(
+      { code: "BAD_REQUEST" },
+    );
   });
 });
 
@@ -358,18 +355,18 @@ describe("portfolio.update", () => {
   it("throws FORBIDDEN when track belongs to a different producer", async () => {
     trackSelectByIdMock.mockResolvedValueOnce([{ producerId: "other-producer" }]);
     const caller = await buildCaller();
-    await expect(
-      caller.portfolio.update({ id: TRACK_ID, title: "Renamed" }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.portfolio.update({ id: TRACK_ID, title: "Renamed" })).rejects.toMatchObject(
+      { code: "FORBIDDEN" },
+    );
     expect(trackUpdateReturningMock).not.toHaveBeenCalled();
   });
 
   it("throws NOT_FOUND when track id is unknown", async () => {
     trackSelectByIdMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
-    await expect(
-      caller.portfolio.update({ id: TRACK_ID, title: "Renamed" }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.portfolio.update({ id: TRACK_ID, title: "Renamed" })).rejects.toMatchObject(
+      { code: "NOT_FOUND" },
+    );
     expect(trackUpdateReturningMock).not.toHaveBeenCalled();
   });
 
@@ -425,9 +422,9 @@ describe("portfolio.reorder", () => {
 
   it("throws UNAUTHORIZED when ctx.userId is null", async () => {
     const caller = await buildCaller(null);
-    await expect(
-      caller.portfolio.reorder({ orderedIds: [TRACK_ID] }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.portfolio.reorder({ orderedIds: [TRACK_ID] })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
     expect(trackUpdateReturningMock).not.toHaveBeenCalled();
   });
 });
@@ -438,9 +435,7 @@ describe("portfolio.togglePublicSample", () => {
   // non-existent track OR a track owned by another producer both
   // land as the same NOT_FOUND outcome (enumeration-proof).
   it("flips is_public_sample when caller owns the track", async () => {
-    trackUpdateReturningMock.mockResolvedValueOnce([
-      { id: TRACK_ID, isPublicSample: true },
-    ]);
+    trackUpdateReturningMock.mockResolvedValueOnce([{ id: TRACK_ID, isPublicSample: true }]);
     const caller = await buildCaller();
     const res = await caller.portfolio.togglePublicSample({
       trackId: TRACK_ID,
@@ -451,9 +446,7 @@ describe("portfolio.togglePublicSample", () => {
   });
 
   it("returns the { ok: true } shape literally", async () => {
-    trackUpdateReturningMock.mockResolvedValueOnce([
-      { id: TRACK_ID, isPublicSample: false },
-    ]);
+    trackUpdateReturningMock.mockResolvedValueOnce([{ id: TRACK_ID, isPublicSample: false }]);
     const caller = await buildCaller();
     const res = await caller.portfolio.togglePublicSample({
       trackId: TRACK_ID,

@@ -27,8 +27,7 @@ vi.mock("~/server/domain/purchase-ledger/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/server/domain/purchase-ledger/db")>();
   return {
     ...actual,
-    purchaseLedgerRepositoryForTransaction:
-      ledgerMocks.purchaseLedgerRepositoryForTransaction,
+    purchaseLedgerRepositoryForTransaction: ledgerMocks.purchaseLedgerRepositoryForTransaction,
   };
 });
 
@@ -215,7 +214,7 @@ class PortfolioListingQuery implements PromiseLike<unknown[]> {
   private rows: unknown[] = [];
 
   constructor(
-    private readonly kind: "tracks" | "versions",
+    private readonly kind: "producer" | "tracks" | "versions",
     private readonly owner: PortfolioListingDb,
   ) {}
 
@@ -229,6 +228,12 @@ class PortfolioListingQuery implements PromiseLike<unknown[]> {
 
   where(condition: unknown): this {
     const details = inspectSql(condition);
+    if (this.kind === "producer") {
+      this.owner.producerGuardWasApplied =
+        details.columns.includes("closed_at") && details.parameters.includes(this.owner.producerId);
+      this.rows = this.owner.producerClosedAt === null ? [{ id: this.owner.producerId }] : [];
+      return this;
+    }
     if (this.kind === "tracks") {
       const appliesMarkerFilter =
         details.columns.includes("portfolio_published_at") &&
@@ -259,9 +264,14 @@ class PortfolioListingQuery implements PromiseLike<unknown[]> {
     return this;
   }
 
+  limit(): this {
+    return this;
+  }
+
   for(lock: string): this {
     if (lock !== "share") throw new Error("Portfolio reads must use shared row locks");
-    if (this.kind === "tracks") this.owner.trackShareLocks += 1;
+    if (this.kind === "producer") this.owner.producerShareLocks += 1;
+    else if (this.kind === "tracks") this.owner.trackShareLocks += 1;
     else this.owner.versionShareLocks += 1;
     return this;
   }
@@ -276,8 +286,10 @@ class PortfolioListingQuery implements PromiseLike<unknown[]> {
 
 class PortfolioListingDb {
   trackFilterWasApplied = false;
+  producerGuardWasApplied = false;
   readonly versionQueries: string[] = [];
   transactions = 0;
+  producerShareLocks = 0;
   trackShareLocks = 0;
   versionShareLocks = 0;
 
@@ -285,11 +297,16 @@ class PortfolioListingDb {
     readonly producerId: string,
     readonly tracks: readonly PortfolioListingTrack[],
     readonly versionsByTrack: ReadonlyMap<string, readonly PublicStoredVersionCandidate[]>,
+    readonly producerClosedAt: Date | null = null,
   ) {}
 
   select(selection: Record<string, unknown>): PortfolioListingQuery {
     return new PortfolioListingQuery(
-      Object.hasOwn(selection, "portfolioPublishedAt") ? "tracks" : "versions",
+      Object.hasOwn(selection, "closedAt")
+        ? "producer"
+        : Object.hasOwn(selection, "portfolioPublishedAt")
+          ? "tracks"
+          : "versions",
       this,
     );
   }
@@ -354,6 +371,7 @@ function linkDb(
 ): QueuedPublicReadDb {
   const rows: unknown[][] = [
     [scope],
+    [{ id: scope.producerId }],
     [{ id: scope.projectId, producerId: scope.producerId }],
     [
       {
@@ -398,6 +416,7 @@ function commercialLinkDb(
 ): QueuedPublicReadDb {
   return new QueuedPublicReadDb([
     [scope],
+    [{ id: scope.producerId }],
     [{ id: scope.projectId, producerId: scope.producerId }],
     [
       {
@@ -429,6 +448,7 @@ function portfolioDb(
 ): QueuedPublicReadDb {
   return new QueuedPublicReadDb([
     [scope],
+    [{ id: scope.producerId }],
     [{ id: scope.projectId, producerId: scope.producerId }],
     [
       {
@@ -461,6 +481,65 @@ function sqlText(value: unknown): string {
 }
 
 describe("public song reads and audio delivery", () => {
+  it("fails closed before reading song metadata or opening storage for a closed producer", async () => {
+    const token = createSongPublicToken(SECRET, {
+      linkId: scope.linkId,
+      tokenVersion: 2,
+    });
+    const closed = new QueuedPublicReadDb([[scope], []]);
+    const open = vi.fn((request: AudioObjectRequest) => Promise.resolve(request));
+
+    await expect(readPublicSong(closed.asDb(), { secret: SECRET, token })).rejects.toBeInstanceOf(
+      SongPublicReadError,
+    );
+    expect(open).not.toHaveBeenCalled();
+
+    const closedAudio = new QueuedPublicReadDb([[scope], []]);
+    await expect(
+      deliverSongLinkAudio(
+        closedAudio.asDb(),
+        { secret: SECRET, token, versionId: OLDER_VERSION_ID },
+        open,
+      ),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+    expect(open).not.toHaveBeenCalled();
+    expect(closedAudio.rowLockModes).toEqual(["share"]);
+
+    await expect(
+      readSongLinkDownloadEntitlements(new QueuedPublicReadDb([[scope], []]).asDb(), {
+        secret: SECRET,
+        token,
+        now: NOW,
+      }),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+    await expect(
+      deliverSongLinkDownload(
+        new QueuedPublicReadDb([[scope], []]).asDb(),
+        { secret: SECRET, token, versionId: OLDER_VERSION_ID, now: NOW },
+        open,
+      ),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+
+    const capability = createPortfolioAudioCapability(
+      SECRET,
+      {
+        producerId: scope.producerId,
+        trackId: scope.trackId,
+        versionId: OLDER_VERSION_ID,
+        portfolioPublishedAtEpochMs: PORTFOLIO_PUBLISHED_AT.getTime(),
+      },
+      NOW,
+    );
+    await expect(
+      deliverPortfolioSongAudio(
+        new QueuedPublicReadDb([[scope], []]).asDb(),
+        { secret: SECRET, capability, versionId: OLDER_VERSION_ID, now: NOW },
+        open,
+      ),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("invalidates the old page and audio token immediately after reset", async () => {
     const oldToken = createSongPublicToken(SECRET, { linkId: scope.linkId, tokenVersion: 1 });
     const currentToken = createSongPublicToken(SECRET, { linkId: scope.linkId, tokenVersion: 2 });
@@ -667,7 +746,9 @@ describe("public song reads and audio delivery", () => {
     });
 
     expect(database.trackFilterWasApplied).toBe(true);
+    expect(database.producerGuardWasApplied).toBe(true);
     expect(database.transactions).toBe(1);
+    expect(database.producerShareLocks).toBe(1);
     expect(database.trackShareLocks).toBe(1);
     expect(database.versionShareLocks).toBe(3);
     expect(database.versionQueries).not.toContain(unmarked.trackId);
@@ -687,6 +768,33 @@ describe("public song reads and audio delivery", () => {
     expect(songs.map((song) => song.id)).not.toEqual(
       expect.arrayContaining([unmarked.trackId, noAudio.trackId, noncanonical.trackId]),
     );
+  });
+
+  it("returns no portfolio discovery rows after the producer closes", async () => {
+    const publicSong: PortfolioListingTrack = {
+      ...scope,
+      title: "Glass Houses",
+      artist: "Maya",
+      portfolioPublishedAt: PORTFOLIO_PUBLISHED_AT,
+    };
+    const database = new PortfolioListingDb(
+      scope.producerId,
+      [publicSong],
+      new Map([
+        [publicSong.trackId, [listingVersion(publicSong, NEWEST_VERSION_ID, NOW.toISOString())]],
+      ]),
+      NOW,
+    );
+
+    await expect(
+      listPublicPortfolioSongs(database.asDb(), {
+        producerId: scope.producerId,
+        secret: SECRET,
+      }),
+    ).resolves.toEqual([]);
+    expect(database.producerGuardWasApplied).toBe(true);
+    expect(database.producerShareLocks).toBe(1);
+    expect(database.versionQueries).toEqual([]);
   });
 });
 

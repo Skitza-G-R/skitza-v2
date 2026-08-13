@@ -620,6 +620,10 @@ const musicSubrouter = router({
               lifecycleStatus: projects.lifecycleStatus,
             })
             .from(projects)
+            .innerJoin(
+              producers,
+              and(eq(producers.id, projects.producerId), isNull(producers.closedAt)),
+            )
             .where(eq(projects.id, discovered.projectId))
             .limit(1)
             .for("update");
@@ -1175,6 +1179,7 @@ async function loadArtistSessionRows(
 
 type ArtistSessionRow = Awaited<ReturnType<typeof loadArtistSessionRows>>[number];
 type ArtistBookingBlockedReason =
+  | "studio_closed"
   | "purchase_waiting_for_payment"
   | "purchase_canceled"
   | "project_waiting_for_payment"
@@ -1262,7 +1267,7 @@ const bookSubrouter = router({
             maxSessionsPerDay: producers.maxSessionsPerDay,
           })
           .from(producers)
-          .where(eq(producers.id, input.producerId))
+          .where(and(eq(producers.id, input.producerId), isNull(producers.closedAt)))
           .limit(1),
         getArtistProfile(ctx.db, ctx.clerkUserId),
       ]);
@@ -1640,6 +1645,7 @@ const bookSubrouter = router({
             inArray(purchases.clientContactId, myContactIds),
             eq(purchases.lifecycleStatus, "active"),
             eq(projects.lifecycleStatus, "active"),
+            isNull(producers.closedAt),
             isNull(purchaseSessionAllowances.closedAt),
             eq(purchaseSessionAllowances.bookingEnabledSnapshot, true),
           ),
@@ -1850,6 +1856,7 @@ const bookSubrouter = router({
             sessionAllowanceId: purchaseSessionAllowances.id,
             producerId: purchases.producerId,
             producerName: producers.displayName,
+            producerClosedAt: producers.closedAt,
             projectId: projects.id,
             projectTitle: projects.title,
             projectLifecycleStatus: projects.lifecycleStatus,
@@ -1928,32 +1935,36 @@ const bookSubrouter = router({
             allowance.kind === "unlimited"
               ? null
               : Math.max(0, (allowance.sessionLimit ?? 0) - sessionsUsed);
-          const canBook = sessionAllowanceCanBook({
-            purchaseLifecycleStatus: allowance.purchaseLifecycleStatus,
-            projectLifecycleStatus: allowance.projectLifecycleStatus,
-            allowanceClosedAt: allowance.closedAt,
-            bookingEnabledSnapshot: allowance.bookingEnabledSnapshot,
-            allowanceKind: allowance.kind,
-            sessionLimit: allowance.sessionLimit,
-            existingUses: uses,
-          });
+          const canBook =
+            allowance.producerClosedAt === null &&
+            sessionAllowanceCanBook({
+              purchaseLifecycleStatus: allowance.purchaseLifecycleStatus,
+              projectLifecycleStatus: allowance.projectLifecycleStatus,
+              allowanceClosedAt: allowance.closedAt,
+              bookingEnabledSnapshot: allowance.bookingEnabledSnapshot,
+              allowanceKind: allowance.kind,
+              sessionLimit: allowance.sessionLimit,
+              existingUses: uses,
+            });
           const bookingBlockedReason: ArtistBookingBlockedReason = canBook
             ? null
-            : allowance.purchaseLifecycleStatus !== "active"
-              ? allowance.purchaseLifecycleStatus === "waiting_for_payment"
-                ? "purchase_waiting_for_payment"
-                : "purchase_canceled"
-              : allowance.projectLifecycleStatus !== "active"
-                ? allowance.projectLifecycleStatus === "waiting_for_payment"
-                  ? "project_waiting_for_payment"
-                  : allowance.projectLifecycleStatus === "paused"
-                    ? "project_paused"
-                    : allowance.projectLifecycleStatus === "completed"
-                      ? "project_completed"
-                      : "project_canceled"
-                : allowance.closedAt !== null
-                  ? "allowance_closed"
-                  : "allowance_exhausted";
+            : allowance.producerClosedAt !== null
+              ? "studio_closed"
+              : allowance.purchaseLifecycleStatus !== "active"
+                ? allowance.purchaseLifecycleStatus === "waiting_for_payment"
+                  ? "purchase_waiting_for_payment"
+                  : "purchase_canceled"
+                : allowance.projectLifecycleStatus !== "active"
+                  ? allowance.projectLifecycleStatus === "waiting_for_payment"
+                    ? "project_waiting_for_payment"
+                    : allowance.projectLifecycleStatus === "paused"
+                      ? "project_paused"
+                      : allowance.projectLifecycleStatus === "completed"
+                        ? "project_completed"
+                        : "project_canceled"
+                  : allowance.closedAt !== null
+                    ? "allowance_closed"
+                    : "allowance_exhausted";
           return {
             purchaseId: allowance.purchaseId,
             sessionAllowanceId: allowance.sessionAllowanceId,

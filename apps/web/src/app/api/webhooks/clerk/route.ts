@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { Webhook } from "svix";
-import { type Db, createDb } from "@skitza/db";
+import { type Db, createDb, resolveCanonicalClerkUserIdWithDb } from "@skitza/db";
 import {
   createRegisteredAccountSyncRepository,
   RegisteredAccountSyncError,
@@ -65,6 +65,7 @@ export async function POST(req: Request) {
         svixId,
         eventDigest,
         expectedInstanceId,
+        (identity) => resolveCanonicalClerkUserIdWithDb(tx, identity),
       );
     });
   } catch (error) {

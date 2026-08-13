@@ -94,6 +94,18 @@ describe("decideRoleRedirect — artist policy", () => {
 });
 
 describe("decideAccountMembershipRedirect", () => {
+  it("blocks normal app routes once a verified closure starts", () => {
+    const closing: UserAccountMemberships = {
+      isAuthenticated: true,
+      accountStatus: "closure_started",
+      producer: { status: "complete", profile: completeProducer },
+      artist: { hasAccess: true, hasActiveConnections: true },
+    };
+
+    expect(decideAccountMembershipRedirect(closing, "producer")).toBe("/account-closed");
+    expect(decideAccountMembershipRedirect(closing, "artist")).toBe("/account-closed");
+  });
+
   it("allows a dual-role account through either route family", () => {
     const dual: UserAccountMemberships = {
       isAuthenticated: true,

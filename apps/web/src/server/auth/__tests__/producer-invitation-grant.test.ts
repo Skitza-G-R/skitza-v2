@@ -21,6 +21,7 @@ vi.mock("@skitza/db", async (importOriginal) => {
 type StoredReceipt = Readonly<{
   clerkInvitationId: string;
   clerkUserId: string;
+  providerClerkUserId: string;
   clerkInstanceId: string;
   invitedEmailHash: string;
   invitationCreatedAt: Date;
@@ -44,6 +45,7 @@ type StoredProducer = Readonly<{
 const input: ProducerInvitationGrantInput = {
   invitationId: "inv_producer",
   clerkUserId: "user_artist",
+  providerClerkUserId: "user_artist",
   clerkInstanceId: "ins_skitza",
   emailAddress: "artist@example.test",
   emailHash: emailHashFor("artist@example.test"),
@@ -51,12 +53,11 @@ const input: ProducerInvitationGrantInput = {
   updatedAt: Date.parse("2026-08-12T00:01:00.000Z"),
 };
 
-function receiptFor(
-  overrides: Partial<StoredReceipt> = {},
-): StoredReceipt {
+function receiptFor(overrides: Partial<StoredReceipt> = {}): StoredReceipt {
   return {
     clerkInvitationId: input.invitationId,
     clerkUserId: input.clerkUserId,
+    providerClerkUserId: input.providerClerkUserId,
     clerkInstanceId: input.clerkInstanceId,
     invitedEmailHash: input.emailHash,
     invitationCreatedAt: new Date(input.createdAt),
@@ -138,15 +139,14 @@ function installFakeDatabase(options: FakeDatabaseOptions = {}) {
               working.receipt = {
                 clerkInvitationId: String(insertedValues.clerkInvitationId),
                 clerkUserId: String(insertedValues.clerkUserId),
+                providerClerkUserId: String(insertedValues.providerClerkUserId),
                 clerkInstanceId: String(insertedValues.clerkInstanceId),
                 invitedEmailHash: String(insertedValues.invitedEmailHash),
                 invitationCreatedAt: insertedValues.invitationCreatedAt as Date,
                 providerUpdatedAt: insertedValues.providerUpdatedAt as Date,
                 grantedAt: new Date("2026-08-12T00:02:00.000Z"),
               };
-              return Promise.resolve([
-                { clerkInvitationId: working.receipt.clerkInvitationId },
-              ]);
+              return Promise.resolve([{ clerkInvitationId: working.receipt.clerkInvitationId }]);
             }
 
             if (table === producers) {

@@ -107,6 +107,7 @@ vi.mock("@skitza/db", () => ({
   notifications: { __table: "notifications" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   or: (...conds: unknown[]) => ({ or: conds }),
   desc: (col: unknown) => ({ desc: col }),
   asc: (col: unknown) => ({ asc: col }),
@@ -128,11 +129,7 @@ vi.mock("~/server/stripe/client", () => ({
 
 import { projects } from "@skitza/db";
 
-function findPredicate(
-  where: unknown,
-  operator: "eq" | "inArray",
-  columnMarker: unknown,
-): unknown {
+function findPredicate(where: unknown, operator: "eq" | "inArray", columnMarker: unknown): unknown {
   if (!where || typeof where !== "object") return null;
   if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
     for (const p of (where as { and: unknown[] }).and) {
@@ -163,9 +160,7 @@ const buildCaller = async () => {
 
 describe("project.updateNotes", () => {
   it("happy path: writes notes + bumps updatedAt on the producer's project", async () => {
-    projectSelectQueue.push([
-      { id: PROJECT_ID, producerId: PRODUCER_ID },
-    ]);
+    projectSelectQueue.push([{ id: PROJECT_ID, producerId: PRODUCER_ID }]);
     const caller = await buildCaller();
 
     const before = Date.now();
@@ -202,9 +197,7 @@ describe("project.updateNotes", () => {
     // The middleware resolves the caller's producer row first, returning
     // PRODUCER_ID; then the procedure looks up the project and finds it
     // owned by OTHER_PRODUCER_ID. Should reject without writing.
-    projectSelectQueue.push([
-      { id: PROJECT_ID, producerId: OTHER_PRODUCER_ID },
-    ]);
+    projectSelectQueue.push([{ id: PROJECT_ID, producerId: OTHER_PRODUCER_ID }]);
 
     const caller = await buildCaller();
     await expect(
@@ -236,9 +229,7 @@ describe("project.updateNotes", () => {
     // length validator and not because the project lookup short-
     // circuits. A correct implementation should never reach the
     // SELECT; the input validator runs first.
-    projectSelectQueue.push([
-      { id: PROJECT_ID, producerId: PRODUCER_ID },
-    ]);
+    projectSelectQueue.push([{ id: PROJECT_ID, producerId: PRODUCER_ID }]);
     const tooLong = "x".repeat(5001);
     const caller = await buildCaller();
 
@@ -252,9 +243,7 @@ describe("project.updateNotes", () => {
   });
 
   it("accepts the empty string (clearing the notes)", async () => {
-    projectSelectQueue.push([
-      { id: PROJECT_ID, producerId: PRODUCER_ID },
-    ]);
+    projectSelectQueue.push([{ id: PROJECT_ID, producerId: PRODUCER_ID }]);
     const caller = await buildCaller();
 
     await caller.project.updateNotes({

@@ -1,5 +1,7 @@
 import { emailHashFor } from "~/server/artist/identity";
 
+export const SKITZA_PRODUCER_INVITATION_METADATA_KEY = "skitzaProducerInvitation" as const;
+
 type ClerkEmailAddress = Readonly<{
   emailAddress: string;
   verification?: Readonly<{ status?: string | null }> | null;
@@ -22,6 +24,7 @@ export type ProducerInvitationCandidate = Readonly<{
   createdAt: number;
   updatedAt: number;
   revoked?: boolean | undefined;
+  publicMetadata: unknown;
 }>;
 
 export type AcceptedProducerInvitation = Readonly<{
@@ -51,6 +54,18 @@ const NO_MATCH = { status: "no_match" } as const;
 
 function normalizeEmail(emailAddress: string): string {
   return emailAddress.trim().toLowerCase();
+}
+
+function hasTrustedProducerInvitationMarker(publicMetadata: unknown): boolean {
+  return (
+    publicMetadata !== null &&
+    typeof publicMetadata === "object" &&
+    !Array.isArray(publicMetadata) &&
+    Object.prototype.hasOwnProperty.call(publicMetadata, SKITZA_PRODUCER_INVITATION_METADATA_KEY) &&
+    (publicMetadata as Readonly<Record<string, unknown>>)[
+      SKITZA_PRODUCER_INVITATION_METADATA_KEY
+    ] === true
+  );
 }
 
 function compareNewestInvitation(
@@ -103,6 +118,7 @@ export function selectAcceptedProducerInvitation({
         candidate.id.length === 0 ||
         candidate.status !== "accepted" ||
         candidate.revoked === true ||
+        !hasTrustedProducerInvitationMarker(candidate.publicMetadata) ||
         !Number.isFinite(candidate.createdAt) ||
         !Number.isFinite(candidate.updatedAt) ||
         candidate.updatedAt < candidate.createdAt ||

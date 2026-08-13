@@ -48,6 +48,7 @@ function send(redirectUrl = "https://skitza-test.example/sign-up") {
     provider,
     redirectUrl,
     targetClerkUserId: "user_artist",
+    targetProviderClerkUserId: "user_artist",
   });
 }
 

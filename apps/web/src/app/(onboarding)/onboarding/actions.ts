@@ -2,16 +2,13 @@
 
 import { randomBytes } from "node:crypto";
 
-import { auth } from "@clerk/nextjs/server";
-import { and, createDb, eq, producers } from "@skitza/db";
+import { auth } from "~/server/auth/clerk-identity";
+import { and, createDb, eq, isNull, producers } from "@skitza/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
 import { inferCurrency, slugFromDisplayName } from "~/lib/onboarding/derive";
-import {
-  fetchUserAccountMemberships,
-  fetchUserRole,
-} from "~/server/auth/role";
+import { fetchUserAccountMemberships, fetchUserRole } from "~/server/auth/role";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Story 03 — completeStudio.
@@ -66,6 +63,9 @@ export async function completeStudio(input: {
   // provisioned by the invitation proof flow. A URL, request header, client
   // input, Artist membership, or webhook race can never create that access.
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
+  if (memberships.accountStatus === "closure_started") {
+    throw new Error("forbidden: account closure started");
+  }
   if (memberships.producer.status === "none") {
     throw new Error("forbidden: producer access is invitation-only");
   }
@@ -107,6 +107,7 @@ export async function completeStudio(input: {
           and(
             eq(producers.id, memberships.producer.profile.id),
             eq(producers.clerkUserId, userId),
+            isNull(producers.closedAt),
           ),
         )
         .returning({ id: producers.id });
@@ -172,10 +173,18 @@ export async function saveServiceRoles(input: { roles: string[] }): Promise<void
 
   const parsed = ServiceRolesInput.parse(input);
   const db = createDb(dbUrl);
-  await db
+  const [updated] = await db
     .update(producers)
     .set({ serviceRoles: parsed.roles, updatedAt: new Date() })
-    .where(eq(producers.id, role.producer.id));
+    .where(
+      and(
+        eq(producers.id, role.producer.id),
+        eq(producers.clerkUserId, userId),
+        isNull(producers.closedAt),
+      ),
+    )
+    .returning({ id: producers.id });
+  if (!updated) throw new Error("forbidden: account closure started");
 }
 
 // ─── createOnboardingPackage (Step 3 — service templates) ───────────

@@ -1,5 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import {
+  configuredCapabilitySecrets,
+  resolveCapabilitySecret,
+  type CapabilityVerificationSecrets,
+} from "~/server/security/capability-secrets";
+
 export const JOIN_INTENT_COOKIE = "skitza-join-intent";
 export const JOIN_INTENT_MAX_AGE_SECONDS = 10 * 60;
 export type JoinIntentAction = "book" | "unlock" | "home";
@@ -18,9 +24,7 @@ export function issueJoinIntentToken(input: {
   nowMs?: number;
 }): string | null {
   if (!JOIN_SLUG_PATTERN.test(input.slug) || !input.secret) return null;
-  const expiresAt =
-    Math.floor((input.nowMs ?? Date.now()) / 1000) +
-    JOIN_INTENT_MAX_AGE_SECONDS;
+  const expiresAt = Math.floor((input.nowMs ?? Date.now()) / 1000) + JOIN_INTENT_MAX_AGE_SECONDS;
   const payload = `${String(expiresAt)}.${input.slug}.${input.action}`;
   return `${payload}.${signature(payload, input.secret)}`;
 }
@@ -28,20 +32,30 @@ export function issueJoinIntentToken(input: {
 export function verifiedJoinIntentAction(input: {
   token: string | null | undefined;
   expectedSlug: string;
+  secret: CapabilityVerificationSecrets;
+  nowMs?: number;
+}): JoinIntentAction | null {
+  try {
+    return resolveCapabilitySecret(input.secret, (secret) => {
+      const action = verifiedJoinIntentActionWithSecret({ ...input, secret });
+      if (action === null) throw new Error("Invalid join intent");
+      return action;
+    }).value;
+  } catch {
+    return null;
+  }
+}
+
+function verifiedJoinIntentActionWithSecret(input: {
+  token: string | null | undefined;
+  expectedSlug: string;
   secret: string;
   nowMs?: number;
 }): JoinIntentAction | null {
-  if (
-    !input.token ||
-    !input.secret ||
-    !JOIN_SLUG_PATTERN.test(input.expectedSlug)
-  ) {
+  if (!input.token || !input.secret || !JOIN_SLUG_PATTERN.test(input.expectedSlug)) {
     return null;
   }
-  const match =
-    /^(\d+)\.([a-z0-9-]+)\.(book|unlock|home)\.([A-Za-z0-9_-]{43})$/.exec(
-      input.token,
-    );
+  const match = /^(\d+)\.([a-z0-9-]+)\.(book|unlock|home)\.([A-Za-z0-9_-]{43})$/.exec(input.token);
   if (!match) return null;
   const expiresAt = Number(match[1]);
   const slug = match[2];
@@ -61,17 +75,14 @@ export function verifiedJoinIntentAction(input: {
   const expectedSignature = signature(payload, input.secret);
   const supplied = Buffer.from(suppliedSignature);
   const expected = Buffer.from(expectedSignature);
-  return supplied.length === expected.length &&
-    timingSafeEqual(supplied, expected)
-    ? action
-    : null;
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected) ? action : null;
 }
 
 export function verifyJoinIntentToken(input: {
   token: string | null | undefined;
   expectedSlug: string;
   expectedAction: JoinIntentAction;
-  secret: string;
+  secret: CapabilityVerificationSecrets;
   nowMs?: number;
 }): boolean {
   return verifiedJoinIntentAction(input) === input.expectedAction;
@@ -108,15 +119,13 @@ export function clearJoinIntentCookie(
   },
   isProduction: boolean,
 ): void {
-  cookieStore.set(
-    JOIN_INTENT_COOKIE,
-    "",
-    clearedJoinIntentCookieOptions(isProduction),
-  );
+  cookieStore.set(JOIN_INTENT_COOKIE, "", clearedJoinIntentCookieOptions(isProduction));
 }
 
 export function joinIntentSecret(): string {
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret) throw new Error("missing Clerk secret for join intent");
-  return secret;
+  return configuredCapabilitySecrets().active;
+}
+
+export function joinIntentVerificationSecrets(): readonly string[] {
+  return configuredCapabilitySecrets().verification;
 }

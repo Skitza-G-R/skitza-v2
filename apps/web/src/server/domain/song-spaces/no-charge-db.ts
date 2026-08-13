@@ -27,10 +27,7 @@ function isCanonicalClerkUserId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value === value.trim();
 }
 
-async function artistHasProducerIdentity(
-  db: ReadDb,
-  artistClerkUserId: unknown,
-): Promise<boolean> {
+async function artistHasProducerIdentity(db: ReadDb, artistClerkUserId: unknown): Promise<boolean> {
   // Malformed contact identity is treated as producer/unsafe so every caller
   // fails closed even if an alternate auth adapter passes a trimmed value.
   if (!isCanonicalClerkUserId(artistClerkUserId)) return true;
@@ -45,9 +42,7 @@ async function artistHasProducerIdentity(
 function includedSongSpaceCapacity(snapshot: unknown): number | null {
   if (typeof snapshot !== "object" || snapshot === null) return null;
   const capacity = (snapshot as Record<string, unknown>).includedSongSpaces;
-  return Number.isSafeInteger(capacity) && (capacity as number) >= 0
-    ? (capacity as number)
-    : null;
+  return Number.isSafeInteger(capacity) && (capacity as number) >= 0 ? (capacity as number) : null;
 }
 
 async function activeSongSpaceCapacityExhausted(
@@ -90,10 +85,7 @@ async function activeSongSpaceCapacityExhausted(
     );
   const allocatedByPurchase = new Map<string, number>();
   for (const track of allocatedTracks) {
-    allocatedByPurchase.set(
-      track.purchaseId,
-      (allocatedByPurchase.get(track.purchaseId) ?? 0) + 1,
-    );
+    allocatedByPurchase.set(track.purchaseId, (allocatedByPurchase.get(track.purchaseId) ?? 0) + 1);
   }
 
   return activePurchases.every((purchase) => {
@@ -116,6 +108,7 @@ async function loadProjectContext(
     eq(projects.producerId, input.producerId),
     eq(projects.lifecycleStatus, "active"),
     isNull(clientContacts.archivedAt),
+    isNull(producers.closedAt),
   ];
   if (input.clientContactId) {
     predicates.push(eq(projects.clientContactId, input.clientContactId));
@@ -284,15 +277,13 @@ export function noChargeProposalRepository(db: Db): NoChargeProposalRepository {
                   eq(projects.producerId, lockedPayload.producerId),
                   eq(projects.clientContactId, lockedPayload.clientContactId),
                   eq(projects.lifecycleStatus, "active"),
+                  isNull(producers.closedAt),
                 ),
               )
               .limit(1)
               .for("update");
             if (!project) return null;
-            const producerIdentity = await artistHasProducerIdentity(
-              tx,
-              project.artistClerkUserId,
-            );
+            const producerIdentity = await artistHasProducerIdentity(tx, project.artistClerkUserId);
             const [anchor] = await tx
               .select({
                 sourceProductId: products.id,

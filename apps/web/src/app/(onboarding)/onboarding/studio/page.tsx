@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb, eq, producers } from "@skitza/db";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";

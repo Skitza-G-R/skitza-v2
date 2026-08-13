@@ -1,4 +1,8 @@
-import { withNeonSessionAdvisoryLock } from "@skitza/db";
+import {
+  createClerkIdentityBindingRepository,
+  resolveActiveProviderClerkUserId,
+  withNeonSessionAdvisoryLock,
+} from "@skitza/db";
 import { NextResponse } from "next/server";
 
 import { isValidRegisteredUserId } from "~/features/registered-users/view-model";
@@ -74,12 +78,25 @@ export async function POST(request: Request, context: { params: Promise<{ userId
         }
 
         const provider = createClerkProducerInvitationProvider(clerk.secretKey);
+        let targetProviderClerkUserId: string;
+        try {
+          targetProviderClerkUserId = await resolveActiveProviderClerkUserId(
+            createClerkIdentityBindingRepository(db),
+            {
+              canonicalClerkUserId: userId,
+              clerkInstanceId: clerk.instanceId,
+            },
+          );
+        } catch {
+          throw new ProducerInvitationError("UNAVAILABLE");
+        }
         return sendProducerInvitation({
           clerkInstanceId: clerk.instanceId,
           operationKey,
           provider,
           redirectUrl: new URL("/sign-up", webAppUrl).toString(),
           targetClerkUserId: userId,
+          targetProviderClerkUserId,
         });
       },
     );

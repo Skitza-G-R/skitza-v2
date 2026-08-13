@@ -30,6 +30,10 @@ import {
   reconcilePurchaseLedger,
   recordConfirmedPurchasePayment,
 } from "~/server/domain/purchase-ledger/service";
+import {
+  resolveCapabilitySecret,
+  type CapabilityVerificationSecrets,
+} from "~/server/security/capability-secrets";
 
 import {
   assertProofAmount,
@@ -51,6 +55,7 @@ import {
   createProofEvidenceToken,
   createProofUploadToken,
   PROOF_EVIDENCE_TTL_SECONDS,
+  proofObjectKeys,
   ProofTokenError,
   verifyOwnedProofUploadToken,
   verifyProofUploadToken,
@@ -99,6 +104,7 @@ type PurchaseContext = Readonly<{
   artistClerkUserId: string | null;
   artistArchivedAt: Date | null;
   producerName: string | null;
+  producerClosedAt: Date | null;
 }>;
 
 type InstallmentRow = typeof purchaseInstallments.$inferSelect;
@@ -245,6 +251,7 @@ async function loadPurchaseContext(
       artistClerkUserId: clientContacts.clerkUserId,
       artistArchivedAt: clientContacts.archivedAt,
       producerName: producers.displayName,
+      producerClosedAt: producers.closedAt,
     })
     .from(purchases)
     .innerJoin(
@@ -299,6 +306,24 @@ async function loadProducerPurchaseContext(
     and(eq(purchases.id, purchaseId), eq(purchases.producerId, producerId)),
     lock,
   );
+}
+
+/**
+ * Serialize proof-write capabilities with Producer closure. The query does
+ * not filter closed rows because submit must still inspect immutable proof
+ * state and permit an exact replay of a write committed before closure.
+ */
+async function lockProducerClosureState(db: ProofDb, producerId: string): Promise<Date | null> {
+  const [producer] = await db
+    .select({ id: producers.id, closedAt: producers.closedAt })
+    .from(producers)
+    .where(eq(producers.id, producerId))
+    .limit(1)
+    .for("share");
+  if (!producer) {
+    throw new PaymentProofDomainError("NOT_FOUND", "Purchase was not found");
+  }
+  return producer.closedAt;
 }
 
 async function loadInstallments(db: ProofDb, context: PurchaseContext): Promise<InstallmentRow[]> {
@@ -500,7 +525,7 @@ function evidenceHref(token: string): string {
 }
 
 export async function loadArtistPaymentProofState(
-  db: Db,
+  db: ProofDb,
   input: {
     clerkUserId: string;
     purchaseId: string;
@@ -534,6 +559,7 @@ export async function loadArtistPaymentProofState(
       installment.status !== "canceled" && installmentRemainingCents(installment, ledger) > 0,
   );
   const proofUploadAvailability = resolveArtistProofUploadAvailability({
+    studioClosed: context.producerClosedAt !== null,
     purchaseCanceled: context.lifecycleStatus === "canceled",
     hasPendingProof: pending !== null,
     paidInFull,
@@ -614,34 +640,50 @@ export async function prepareArtistProofUpload(
   try {
     const originalFileName = normalizeProofFileName(input.originalFileName);
     assertProofUploadMetadata({ contentType: input.contentType, sizeBytes: input.sizeBytes });
-    const state = await loadArtistPaymentProofState(db, {
-      clerkUserId: input.clerkUserId,
-      purchaseId: input.purchaseId,
-      installmentId: input.installmentId,
-      serverSecret: input.serverSecret,
-      now: input.now,
-    });
-    if (!state.proofUploadsAvailable) {
-      throw new PaymentProofDomainError(
-        "CONFLICT",
-        "This installment is not ready for another payment proof",
+    return await db.transaction(async (tx) => {
+      const context = await loadArtistPurchaseContext(tx, input.clerkUserId, input.purchaseId);
+      if (!context) throw new PaymentProofDomainError("NOT_FOUND", "Purchase was not found");
+
+      // Hold this exact Producer row lock through both signing and presigning.
+      // Closure either commits first (and this request fails) or waits until
+      // the already-issued short-lived capability has its fixed expiry.
+      const producerClosedAt = await lockProducerClosureState(tx, context.producerId);
+      if (producerClosedAt !== null) {
+        throw new PaymentProofDomainError(
+          "CONFLICT",
+          "A closed studio cannot accept a new payment proof",
+        );
+      }
+
+      const state = await loadArtistPaymentProofState(tx, {
+        clerkUserId: input.clerkUserId,
+        purchaseId: input.purchaseId,
+        installmentId: input.installmentId,
+        serverSecret: input.serverSecret,
+        now: input.now,
+      });
+      if (!state.proofUploadsAvailable) {
+        throw new PaymentProofDomainError(
+          "CONFLICT",
+          "This installment is not ready for another payment proof",
+        );
+      }
+      const signed = createProofUploadToken(
+        requireServerSecret(input.serverSecret),
+        {
+          purchaseId: state.purchaseId,
+          installmentId: state.installmentId,
+          viewerClerkUserId: input.clerkUserId,
+          originalFileName,
+          contentType: input.contentType,
+          sizeBytes: input.sizeBytes,
+          operationKey: input.operationKey,
+        },
+        input.now,
       );
-    }
-    const signed = createProofUploadToken(
-      requireServerSecret(input.serverSecret),
-      {
-        purchaseId: state.purchaseId,
-        installmentId: state.installmentId,
-        viewerClerkUserId: input.clerkUserId,
-        originalFileName,
-        contentType: input.contentType,
-        sizeBytes: input.sizeBytes,
-        operationKey: input.operationKey,
-      },
-      input.now,
-    );
-    const upload = await createPrivateProofUpload(input.serverSecret, signed.payload);
-    return { ...upload, uploadToken: signed.token };
+      const upload = await createPrivateProofUpload(input.serverSecret, signed.payload);
+      return { ...upload, uploadToken: signed.token };
+    });
   } catch (error) {
     asDomainError(error);
   }
@@ -652,21 +694,23 @@ export async function cancelArtistProofUpload(input: {
   purchaseId: string;
   installmentId: string;
   uploadToken: string;
-  serverSecret: string;
+  serverSecret: CapabilityVerificationSecrets;
   now?: Date | undefined;
 }): Promise<{ cancelled: true }> {
   try {
-    const serverSecret = requireServerSecret(input.serverSecret);
-    const token = verifyOwnedProofUploadToken(
-      serverSecret,
-      input.uploadToken,
-      {
-        viewerClerkUserId: input.clerkUserId,
-        purchaseId: input.purchaseId,
-        installmentId: input.installmentId,
-      },
-      input.now,
+    const verified = resolveCapabilitySecret(input.serverSecret, (secret) =>
+      verifyOwnedProofUploadToken(
+        requireServerSecret(secret),
+        input.uploadToken,
+        {
+          viewerClerkUserId: input.clerkUserId,
+          purchaseId: input.purchaseId,
+          installmentId: input.installmentId,
+        },
+        input.now,
+      ),
     );
+    const { secret: serverSecret, value: token } = verified;
     await deletePrivateProofStagingUpload(serverSecret, token);
     return { cancelled: true };
   } catch (error) {
@@ -674,7 +718,7 @@ export async function cancelArtistProofUpload(input: {
   }
 }
 
-function exactProofReplay(
+function exactSignedProofReplay(
   proof: typeof paymentProofs.$inferSelect,
   input: {
     purchaseId: string;
@@ -683,7 +727,6 @@ function exactProofReplay(
     amountCents: number;
     currency: string;
     storageKey: string;
-    objectEtag: string;
     originalFileName: string;
     contentType: string;
     sizeBytes: number;
@@ -697,7 +740,6 @@ function exactProofReplay(
     proof.amountCents === input.amountCents &&
     proof.currency === input.currency &&
     proof.storageKey === input.storageKey &&
-    proof.objectEtag === input.objectEtag &&
     proof.originalFileName === input.originalFileName &&
     proof.contentType === input.contentType &&
     proof.sizeBytes === input.sizeBytes &&
@@ -734,17 +776,19 @@ export async function submitArtistPaymentProof(
     uploadToken: string;
     amountCents: number;
     note?: string | undefined;
-    serverSecret: string;
+    serverSecret: CapabilityVerificationSecrets;
     now?: Date | undefined;
   },
 ): Promise<SubmitArtistProofResult> {
   const now = input.now ?? new Date();
-  let finalized: Awaited<ReturnType<typeof finalizePrivateProofUpload>> | null = null;
+  const finalizationState: { storageKey: string | null } = { storageKey: null };
   let verifiedUpload: ReturnType<typeof verifyProofUploadToken> | null = null;
   let verifiedServerSecret: string | null = null;
   try {
-    const serverSecret = requireServerSecret(input.serverSecret);
-    const token = verifyProofUploadToken(serverSecret, input.uploadToken, now);
+    const verified = resolveCapabilitySecret(input.serverSecret, (secret) =>
+      verifyProofUploadToken(requireServerSecret(secret), input.uploadToken, now),
+    );
+    const { secret: serverSecret, value: token } = verified;
     if (
       token.viewerClerkUserId !== input.clerkUserId ||
       token.purchaseId !== input.purchaseId ||
@@ -755,8 +799,7 @@ export async function submitArtistPaymentProof(
     verifiedUpload = token;
     verifiedServerSecret = serverSecret;
     const note = normalizeProofNote(input.note);
-    finalized = await finalizePrivateProofUpload(serverSecret, token);
-    const proofObject = finalized;
+    const finalStorageKey = proofObjectKeys(serverSecret, token.uploadId).finalKey;
 
     const result = await db.transaction(async (tx) => {
       await tx.execute(
@@ -769,31 +812,31 @@ export async function submitArtistPaymentProof(
         true,
       );
       if (!context) throw new PaymentProofDomainError("NOT_FOUND", "Purchase was not found");
+      const lockedProducerClosedAt = await lockProducerClosureState(tx, context.producerId);
       const installments = await loadInstallments(tx, context);
       const installment = installments.find((row) => row.id === input.installmentId);
       if (!installment) {
         throw new PaymentProofDomainError("NOT_FOUND", "Payment installment was not found");
       }
-      const replayInput = {
+      const signedReplayInput = {
         purchaseId: context.purchaseId,
         installmentId: installment.id,
         producerId: context.producerId,
         amountCents: input.amountCents,
         currency: context.currency,
-        storageKey: proofObject.storageKey,
-        objectEtag: proofObject.objectEtag,
+        storageKey: finalStorageKey,
         originalFileName: token.originalFileName,
-        contentType: proofObject.contentType,
-        sizeBytes: proofObject.sizeBytes,
+        contentType: token.contentType,
+        sizeBytes: token.sizeBytes,
         note,
       };
       const [existing] = await tx
         .select()
         .from(paymentProofs)
-        .where(eq(paymentProofs.storageKey, proofObject.storageKey))
+        .where(eq(paymentProofs.storageKey, finalStorageKey))
         .limit(1);
       if (existing) {
-        if (!exactProofReplay(existing, replayInput)) {
+        if (!exactSignedProofReplay(existing, signedReplayInput)) {
           throw new PaymentProofDomainError(
             "CONFLICT",
             "This upload token already belongs to a different proof submission",
@@ -804,6 +847,12 @@ export async function submitArtistPaymentProof(
           context,
           created: false,
         };
+      }
+      if (lockedProducerClosedAt !== null) {
+        throw new PaymentProofDomainError(
+          "CONFLICT",
+          "A closed studio cannot accept a new payment proof",
+        );
       }
       if (context.lifecycleStatus === "canceled") {
         throw new PaymentProofDomainError("CONFLICT", "A canceled purchase cannot accept proof");
@@ -827,6 +876,12 @@ export async function submitArtistPaymentProof(
         );
       }
       assertProofAmount(input.amountCents, installmentRemainingCents(installment, ledger));
+
+      // Keep the Producer closure lock through the final R2 copy. Closure
+      // either wins first and rejects this write, or waits for this exact
+      // submission to commit before starting its capability-expiry clock.
+      const proofObject = await finalizePrivateProofUpload(serverSecret, token);
+      finalizationState.storageKey = proofObject.storageKey;
 
       const replacedIds = new Set(
         proofs.map((proof) => proof.replacesProofId).filter((id): id is string => id !== null),
@@ -906,13 +961,14 @@ export async function submitArtistPaymentProof(
         console.error("[proof-storage] private staging cleanup failed");
       }
     }
-    if (finalized) {
+    if (finalizationState.storageKey) {
+      const finalizedStorageKey = finalizationState.storageKey;
       let persisted = false;
       try {
         const [row] = await db
           .select({ id: paymentProofs.id })
           .from(paymentProofs)
-          .where(eq(paymentProofs.storageKey, finalized.storageKey))
+          .where(eq(paymentProofs.storageKey, finalizedStorageKey))
           .limit(1);
         persisted = Boolean(row);
       } catch {
@@ -920,7 +976,7 @@ export async function submitArtistPaymentProof(
         // private object rather than deleting evidence a committed row owns.
         persisted = true;
       }
-      if (!persisted) await deletePrivateProofObjectQuietly(finalized.storageKey);
+      if (!persisted) await deletePrivateProofObjectQuietly(finalizedStorageKey);
     }
     asDomainError(error);
   }

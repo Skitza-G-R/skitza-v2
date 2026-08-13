@@ -51,6 +51,71 @@ describe("accepted-purchase proof API security", () => {
     );
   });
 
+  it("keeps history readable but makes a closed studio replay-only for proof writes", () => {
+    expect(serviceSource).toContain("producerClosedAt: producers.closedAt");
+    expect(serviceSource).toContain("studioClosed: context.producerClosedAt !== null");
+
+    const submit = serviceSource.slice(
+      serviceSource.indexOf("export async function submitArtistPaymentProof"),
+      serviceSource.indexOf("function producerProofSelection"),
+    );
+    const producerLock = submit.indexOf("lockProducerClosureState(tx, context.producerId)");
+    const exactReplay = submit.indexOf("if (existing)");
+    const closedGuard = submit.indexOf("lockedProducerClosedAt !== null");
+    const finalize = submit.indexOf("finalizePrivateProofUpload(serverSecret, token)");
+    const proofInsert = submit.indexOf(".insert(paymentProofs)");
+    expect(producerLock).toBeGreaterThanOrEqual(0);
+    expect(exactReplay).toBeGreaterThan(producerLock);
+    expect(exactReplay).toBeGreaterThanOrEqual(0);
+    expect(closedGuard).toBeGreaterThan(exactReplay);
+    expect(finalize).toBeGreaterThan(closedGuard);
+    expect(proofInsert).toBeGreaterThan(closedGuard);
+    expect(proofInsert).toBeGreaterThan(finalize);
+
+    const cancel = serviceSource.slice(
+      serviceSource.indexOf("export async function cancelArtistProofUpload"),
+      serviceSource.indexOf("function exactSignedProofReplay"),
+    );
+    expect(cancel).toContain("deletePrivateProofStagingUpload");
+    expect(cancel).not.toContain("producerClosedAt");
+  });
+
+  it("holds the open Producer lock through payment-proof token and URL issuance", () => {
+    const lockHelper = serviceSource.slice(
+      serviceSource.indexOf("async function lockProducerClosureState"),
+      serviceSource.indexOf("async function loadInstallments"),
+    );
+    expect(lockHelper).toContain(".where(eq(producers.id, producerId))");
+    expect(lockHelper).toContain('.for("share")');
+    expect(lockHelper).not.toContain("isNull(producers.closedAt)");
+
+    const prepare = serviceSource.slice(
+      serviceSource.indexOf("export async function prepareArtistProofUpload"),
+      serviceSource.indexOf("export async function cancelArtistProofUpload"),
+    );
+    const transaction = prepare.indexOf("return await db.transaction(async (tx)");
+    const producerLock = prepare.indexOf(
+      "lockProducerClosureState(tx, context.producerId)",
+      transaction,
+    );
+    const openGuard = prepare.indexOf("producerClosedAt !== null", producerLock);
+    const stateCheck = prepare.indexOf("loadArtistPaymentProofState(tx", openGuard);
+    const token = prepare.indexOf("createProofUploadToken(", stateCheck);
+    const uploadUrl = prepare.indexOf("createPrivateProofUpload(", token);
+    const transactionReturn = prepare.indexOf(
+      "return { ...upload, uploadToken: signed.token }",
+      uploadUrl,
+    );
+
+    expect(transaction).toBeGreaterThanOrEqual(0);
+    expect(producerLock).toBeGreaterThan(transaction);
+    expect(openGuard).toBeGreaterThan(producerLock);
+    expect(stateCheck).toBeGreaterThan(openGuard);
+    expect(token).toBeGreaterThan(stateCheck);
+    expect(uploadUrl).toBeGreaterThan(token);
+    expect(transactionReturn).toBeGreaterThan(uploadUrl);
+  });
+
   it("scopes producer reads and decisions to ctx.producerId", () => {
     const producerProofRouter = purchaseSource.slice(
       purchaseSource.lastIndexOf("  proofOfPayment: router({"),

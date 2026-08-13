@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
@@ -114,9 +114,7 @@ export async function l3ResolveComment(input: {
   }
 }
 
-export async function l3ApproveVersion(input: {
-  versionId: string;
-}): Promise<MusicL3ActionResult> {
+export async function l3ApproveVersion(input: { versionId: string }): Promise<MusicL3ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {

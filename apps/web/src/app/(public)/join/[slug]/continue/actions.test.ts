@@ -43,7 +43,7 @@ vi.mock("~/server/auth/join-intent", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/server/auth/join-intent")>();
   return {
     ...actual,
-    joinIntentSecret: () => "test-secret",
+    joinIntentVerificationSecrets: () => ["test-secret"],
     verifyJoinIntentToken: (input: unknown): boolean => verifyIntentMock(input),
   };
 });
@@ -182,9 +182,7 @@ describe("join continuation actions", () => {
     cookiesMock.mockResolvedValue(cookieStore());
     findTargetMock.mockResolvedValue(null);
 
-    await expect(continueAsArtist("missing-studio", "store")).rejects.toThrow(
-      "__NOT_FOUND__",
-    );
+    await expect(continueAsArtist("missing-studio", "store")).rejects.toThrow("__NOT_FOUND__");
 
     expect(connectMock).not.toHaveBeenCalled();
   });
@@ -201,9 +199,7 @@ describe("join continuation actions", () => {
   it("sends an unverified email to bounded retry and account-switch recovery", async () => {
     const store = cookieStore();
     cookiesMock.mockResolvedValue(store);
-    connectMock.mockRejectedValue(
-      new JoinContinuationError("UNVERIFIED_EMAIL"),
-    );
+    connectMock.mockRejectedValue(new JoinContinuationError("UNVERIFIED_EMAIL"));
 
     await expect(continueAsArtist("northline-studio", "book")).rejects.toThrow(
       "__REDIRECT__:/join/northline-studio/continue?action=book&problem=unverified-email",
@@ -215,13 +211,9 @@ describe("join continuation actions", () => {
   it("sends an unconfirmed connection to bounded retry recovery", async () => {
     const store = cookieStore();
     cookiesMock.mockResolvedValue(store);
-    connectMock.mockRejectedValue(
-      new JoinContinuationError("CONNECTION_NOT_CONFIRMED"),
-    );
+    connectMock.mockRejectedValue(new JoinContinuationError("CONNECTION_NOT_CONFIRMED"));
 
-    await expect(
-      resumeTrustedJoinIntent("northline-studio", "unlock"),
-    ).rejects.toThrow(
+    await expect(resumeTrustedJoinIntent("northline-studio", "unlock")).rejects.toThrow(
       "__REDIRECT__:/join/northline-studio/continue?action=unlock&problem=connection-pending",
     );
 

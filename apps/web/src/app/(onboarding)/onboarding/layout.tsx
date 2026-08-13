@@ -1,16 +1,11 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 import { AppI18nProvider } from "~/i18n/app-i18n-provider";
-import {
-  fetchUserAccountMemberships,
-} from "~/server/auth/role";
-import {
-  decideOnboardingMembershipRedirect,
-  stepFromPath,
-} from "./decide-redirect";
+import { fetchUserAccountMemberships } from "~/server/auth/role";
+import { decideOnboardingMembershipRedirect, stepFromPath } from "./decide-redirect";
 import { OnboardingRuntimeBoundary } from "./runtime-boundary";
 
 // Onboarding is a signed-in surface (the gate in (app)/layout.tsx
@@ -62,7 +57,7 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
     );
   }
 
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -74,10 +69,9 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
   if (redirectTo) redirect(redirectTo);
 
   const identity =
-    memberships.producer.status === "complete" ||
-    memberships.producer.status === "incomplete"
+    memberships.producer.status === "complete" || memberships.producer.status === "incomplete"
       ? {
-          userId: userId ?? "",
+          userId: providerUserId ?? "",
           role: "producer" as const,
           contextId: memberships.producer.profile.id,
         }

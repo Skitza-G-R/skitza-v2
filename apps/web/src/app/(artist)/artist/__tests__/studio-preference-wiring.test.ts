@@ -14,7 +14,7 @@ describe("artist studio preference server wiring", () => {
     ["Store", readArtistRoute("store", "page.tsx")],
     ["Book", readArtistRoute("book", "page.tsx")],
   ])("uses the saved studio for queryless %s requests", (_name, source) => {
-    expect(source).toContain("readArtistStudioPreference(userId)");
+    expect(source).toContain("readArtistStudioPreference(providerUserId)");
     expect(source).toMatch(
       /resolveArtistStudioId\([\s\S]{0,160}(?:savedStudioId|savedStudioId\);)/,
     );
@@ -22,7 +22,7 @@ describe("artist studio preference server wiring", () => {
 
   it("uses the same saved studio for the server-rendered shell", () => {
     const source = readArtistRoute("layout.tsx");
-    expect(source).toContain("readArtistStudioPreference(userId)");
+    expect(source).toContain("readArtistStudioPreference(providerUserId)");
     expect(source).toContain("initialStudioId={initialStudioId}");
   });
 });

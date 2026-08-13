@@ -48,7 +48,7 @@ describe("clients-projects/page.tsx — SK-202 root list", () => {
   });
 
   it("preserves the auth + caller scaffolding", () => {
-    expect(SRC).toContain("@clerk/nextjs/server");
+    expect(SRC).toContain("~/server/auth/clerk-identity");
     expect(SRC).toContain("appRouter.createCaller");
   });
 

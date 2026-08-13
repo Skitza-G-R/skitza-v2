@@ -34,10 +34,13 @@ const auditInput = {
   operationKey: "reconcile-page-1",
 };
 
-function repository(
-  applied = 0,
-  replayed = false,
-): RegisteredAccountReconciliationRepository {
+const identityResolver = {
+  resolveCanonicalUserId: vi.fn((identity: { providerClerkUserId: string }) =>
+    Promise.resolve(identity.providerClerkUserId),
+  ),
+};
+
+function repository(applied = 0, replayed = false): RegisteredAccountReconciliationRepository {
   return {
     applySnapshots: vi.fn().mockResolvedValue({
       applied,
@@ -57,6 +60,7 @@ describe("registered-account reconciliation", () => {
     const result = await reconcileRegisteredAccounts({
       ...auditInput,
       clerkInstanceId: "ins_test",
+      identityResolver,
       provider: { getInstanceId: vi.fn().mockResolvedValue("ins_test"), getPage },
       repository: store,
     });
@@ -98,6 +102,7 @@ describe("registered-account reconciliation", () => {
     const second = await reconcileRegisteredAccounts({
       ...auditInput,
       clerkInstanceId: "ins_test",
+      identityResolver,
       cursor: result.nextCursor,
       operationKey: "reconcile-page-2",
       provider: { getInstanceId: vi.fn().mockResolvedValue("ins_test"), getPage },
@@ -117,6 +122,7 @@ describe("registered-account reconciliation", () => {
     const result = await reconcileRegisteredAccounts({
       ...auditInput,
       clerkInstanceId: "ins_test",
+      identityResolver,
       provider: {
         getInstanceId: vi.fn().mockResolvedValue("ins_test"),
         getPage: vi.fn().mockResolvedValue({
@@ -144,6 +150,7 @@ describe("registered-account reconciliation", () => {
       reconcileRegisteredAccounts({
         ...auditInput,
         clerkInstanceId: "ins_test",
+        identityResolver,
         provider: {
           getInstanceId: vi.fn().mockResolvedValue("ins_test"),
           getPage: vi.fn().mockResolvedValue({ data: [], totalCount: 20 }),
@@ -170,6 +177,7 @@ describe("registered-account reconciliation", () => {
     await reconcileRegisteredAccounts({
       ...auditInput,
       clerkInstanceId: "ins_test",
+      identityResolver,
       provider: { getInstanceId: vi.fn().mockResolvedValue("ins_test"), getPage },
       repository: store,
     });
@@ -181,10 +189,47 @@ describe("registered-account reconciliation", () => {
     );
   });
 
+  it("upserts a relinked provider account under its historical canonical id", async () => {
+    const store = repository(1);
+    const relinkResolver = {
+      resolveCanonicalUserId: vi.fn(({ providerClerkUserId }: { providerClerkUserId: string }) =>
+        Promise.resolve(
+          providerClerkUserId === "user_production" ? "user_historical" : providerClerkUserId,
+        ),
+      ),
+    };
+
+    await reconcileRegisteredAccounts({
+      ...auditInput,
+      clerkInstanceId: "ins_production",
+      identityResolver: relinkResolver,
+      provider: {
+        getInstanceId: vi.fn().mockResolvedValue("ins_production"),
+        getPage: vi.fn().mockResolvedValue({
+          data: [user("user_production", 1_700_000_100_000)],
+          totalCount: 1,
+        }),
+      },
+      repository: store,
+    });
+
+    const snapshot = vi.mocked(store.applySnapshots).mock.calls[0]?.[0].snapshots[0];
+    expect(snapshot).toMatchObject({
+      clerkUserId: "user_historical",
+      providerClerkUserId: "user_production",
+      clerkInstanceId: "ins_production",
+    });
+    expect(relinkResolver.resolveCanonicalUserId).toHaveBeenCalledOnce();
+    expect(relinkResolver.resolveCanonicalUserId).not.toHaveBeenCalledWith(
+      expect.objectContaining({ providerClerkUserId: "user_founder" }),
+    );
+  });
+
   it("rejects a continuation from another Clerk instance before page access", async () => {
     const first = await reconcileRegisteredAccounts({
       ...auditInput,
       clerkInstanceId: "ins_one",
+      identityResolver,
       provider: {
         getInstanceId: vi.fn().mockResolvedValue("ins_one"),
         getPage: vi.fn().mockResolvedValue({
@@ -200,6 +245,7 @@ describe("registered-account reconciliation", () => {
       reconcileRegisteredAccounts({
         ...auditInput,
         clerkInstanceId: "ins_two",
+        identityResolver,
         cursor: first.nextCursor,
         provider: {
           getInstanceId: vi.fn().mockResolvedValue("ins_two"),
@@ -219,6 +265,7 @@ describe("registered-account reconciliation", () => {
       reconcileRegisteredAccounts({
         ...auditInput,
         clerkInstanceId: "ins_test",
+        identityResolver,
         provider: {
           getInstanceId: vi.fn().mockResolvedValue("ins_other"),
           getPage,
@@ -240,14 +287,15 @@ describe("registered-account reconciliation", () => {
     };
 
     await reconcileRegisteredAccounts({
-        ...auditInput,
-        clerkInstanceId: "ins_test",
-        provider: {
-          getInstanceId: vi.fn().mockResolvedValue("ins_test"),
-          getPage: vi.fn().mockResolvedValue({ data: [tooLong], totalCount: 1 }),
-        },
-        repository: store,
-      });
+      ...auditInput,
+      clerkInstanceId: "ins_test",
+      identityResolver,
+      provider: {
+        getInstanceId: vi.fn().mockResolvedValue("ins_test"),
+        getPage: vi.fn().mockResolvedValue({ data: [tooLong], totalCount: 1 }),
+      },
+      repository: store,
+    });
     const snapshots = vi.mocked(store.applySnapshots).mock.calls[0]?.[0].snapshots;
     expect(snapshots?.[0]?.displayName).toHaveLength(160);
   });

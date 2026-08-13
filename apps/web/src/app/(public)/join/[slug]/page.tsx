@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { TRPCError } from "@trpc/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { and, createDb, eq, producers } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -76,22 +76,14 @@ export default async function JoinPage({ params }: PageProps) {
         ? db
             .select({ id: producers.id })
             .from(producers)
-            .where(
-              and(
-                eq(producers.id, data.producer.id),
-                eq(producers.clerkUserId, userId),
-              ),
-            )
+            .where(and(eq(producers.id, data.producer.id), eq(producers.clerkUserId, userId)))
             .limit(1)
         : Promise.resolve([]),
     ]);
     publicTrackCount = trackCount;
     ownPreview = ownerRows[0] !== undefined;
   }
-  const lockedCount = Math.max(
-    0,
-    publicTrackCount - data.publicSamples.length,
-  );
+  const lockedCount = Math.max(0, publicTrackCount - data.publicSamples.length);
 
   return (
     <div className="relative flex min-h-dvh flex-col">

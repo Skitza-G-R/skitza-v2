@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb, producers, clientContacts, eq, and, isNull } from "@skitza/db";
 import { isAutoSlug } from "~/lib/slug";
+import { isAccountClosureStarted } from "./account-access";
 
 // Role resolution — the single source of truth for "what kind of user
 // is this person?" across every producer-only layout + server action.
@@ -36,6 +37,7 @@ export type ProducerProfileStatus = "none" | "incomplete" | "complete";
 
 export type UserAccountMemberships = Readonly<{
   isAuthenticated: boolean;
+  accountStatus?: "open" | "closure_started";
   producer: Readonly<
     | { status: "none"; profile: null }
     | { status: "incomplete"; profile: ProducerRow }
@@ -58,6 +60,7 @@ export function producerProfileStatus(memberships: UserAccountMemberships): Prod
  */
 export function legacyUserRoleFromMemberships(memberships: UserAccountMemberships): UserRole {
   if (!memberships.isAuthenticated) return { kind: "unauthenticated" };
+  if (memberships.accountStatus === "closure_started") return { kind: "orphan" };
   if (memberships.producer.status === "complete") {
     return { kind: "producer-complete", producer: memberships.producer.profile };
   }
@@ -104,6 +107,7 @@ export function resolveUserRole(input: {
 
 export function resolveUserAccountMemberships(input: {
   userId: string | null;
+  accountClosureStarted?: boolean;
   producerRow: ProducerRow | null;
   hasActiveClientContacts: boolean;
   hasAnyClientContacts: boolean;
@@ -119,6 +123,7 @@ export function resolveUserAccountMemberships(input: {
 
   return {
     isAuthenticated,
+    accountStatus: input.accountClosureStarted ? "closure_started" : "open",
     producer,
     artist: {
       hasAccess: isAuthenticated && (input.hasActiveClientContacts || input.hasAnyClientContacts),
@@ -144,6 +149,13 @@ export async function fetchUserRole(params: {
   if (!params.userId) return { kind: "unauthenticated" };
 
   const db = createDb(params.dbUrl);
+
+  if (await isAccountClosureStarted(db, params.userId)) {
+    // Legacy action callers already reject orphan accounts. The richer
+    // membership resolver below carries the explicit closed state used by
+    // layouts and cold-launch routing.
+    return { kind: "orphan" };
+  }
 
   const [producerRow] = await db
     .select({
@@ -196,6 +208,7 @@ export async function fetchUserAccountMemberships(params: {
   }
 
   const db = createDb(params.dbUrl);
+  const accountClosureStarted = await isAccountClosureStarted(db, params.userId);
   const [producerRows, activeContactRows] = await Promise.all([
     db
       .select({
@@ -227,6 +240,7 @@ export async function fetchUserAccountMemberships(params: {
 
   return resolveUserAccountMemberships({
     userId: params.userId,
+    accountClosureStarted,
     producerRow: producerRows[0] ?? null,
     hasActiveClientContacts,
     hasAnyClientContacts,
@@ -299,6 +313,7 @@ export function decideAccountMembershipRedirect(
   if (!memberships.isAuthenticated) {
     return decideRoleRedirect({ kind: "unauthenticated" }, expected);
   }
+  if (memberships.accountStatus === "closure_started") return "/account-closed";
 
   if (expected === "artist") {
     if (memberships.artist.hasAccess) return null;
@@ -321,11 +336,12 @@ export function decideAccountMembershipRedirect(
  */
 export async function requireRole(expected: ExpectedRole): Promise<{
   userId: string;
+  providerUserId: string;
   hasProducerProfile: boolean;
   producerProfileStatus: ProducerProfileStatus;
   producerProfileId: string | null;
 }> {
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
@@ -338,6 +354,7 @@ export async function requireRole(expected: ExpectedRole): Promise<{
   const profileStatus = producerProfileStatus(memberships);
   return {
     userId: userId as string,
+    providerUserId: providerUserId as string,
     hasProducerProfile: profileStatus !== "none",
     producerProfileStatus: profileStatus,
     producerProfileId:

@@ -166,7 +166,8 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
       `create table ${schema}."producers" (
         "id" uuid primary key,
         "clerk_user_id" text not null unique,
-        "display_name" text
+        "display_name" text,
+        "closed_at" timestamptz
       )`,
       `create table ${schema}."client_contacts" (
         "id" uuid primary key,
@@ -472,9 +473,7 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
       ...row,
       acceptedAt: storedTimestamp(row.acceptedAt, "purchase acceptedAt"),
       activatedAt:
-        row.activatedAt === null
-          ? null
-          : storedTimestamp(row.activatedAt, "purchase activatedAt"),
+        row.activatedAt === null ? null : storedTimestamp(row.activatedAt, "purchase activatedAt"),
     }));
   }
 
@@ -615,6 +614,52 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
     ]);
   }, 30_000);
 
+  it("stops a durable no-charge proposal after the Producer closes the account", async () => {
+    const { project, anchorPurchase, anchorTrack } = await createNoChargeTarget();
+    const repository = noChargeProposalRepository(activeTransactionDbA());
+    const created = await createNoChargeSongSpaceProposal(repository, {
+      producerId: project.producerId,
+      projectId: project.id,
+      operationKey: `no-charge-closed-producer-${randomUUID()}`,
+      songTitle: "Must not survive closure",
+      signingSecret: noChargeSigningSecret,
+    });
+    const preview = await previewNoChargeSongSpaceProposal(repository, {
+      proposalToken: created.proposalToken,
+      clerkUserId: project.artistClerkUserId,
+      signingSecret: noChargeSigningSecret,
+    });
+
+    await activeAdminDb().execute(sql`
+      update ${sql.raw(qualifiedTestTable("producers"))}
+      set "closed_at" = ${new Date("2036-07-19T09:20:00.000Z")}
+      where "id" = ${project.producerId}
+    `);
+
+    await expect(
+      previewNoChargeSongSpaceProposal(repository, {
+        proposalToken: created.proposalToken,
+        clerkUserId: project.artistClerkUserId,
+        signingSecret: noChargeSigningSecret,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      acceptNoChargeSongSpaceProposal(repository, {
+        proposalToken: created.proposalToken,
+        clerkUserId: project.artistClerkUserId,
+        signingSecret: noChargeSigningSecret,
+        expectedSnapshotDigest: preview.snapshotDigest,
+        agreementAccepted: true,
+        acceptedAt: new Date("2036-07-19T09:25:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await storedPurchases(project.id)).toHaveLength(1);
+    expect(await storedAcceptances(anchorPurchase.id)).toHaveLength(0);
+    expect(await storedTracks(project.id)).toEqual([
+      expect.objectContaining({ id: anchorTrack.id, purchaseId: anchorPurchase.id }),
+    ]);
+  }, 30_000);
+
   it("rechecks exhaustion under the project lock before creating the no-charge purchase", async () => {
     const { project, productId, anchorTrack } = await createNoChargeTarget();
     const repository = noChargeProposalRepository(activeTransactionDbA());
@@ -646,8 +691,9 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
         acceptedAt: new Date("2036-07-19T09:45:00.000Z"),
       }),
     ).rejects.toMatchObject({ code: "CAPACITY_EXCEEDED" });
-    expect((await storedPurchases(project.id)).filter((row) => row.sourceKind === "no_charge_add_on"))
-      .toHaveLength(0);
+    expect(
+      (await storedPurchases(project.id)).filter((row) => row.sourceKind === "no_charge_add_on"),
+    ).toHaveLength(0);
     expect(await storedTracks(project.id)).toEqual([
       expect.objectContaining({ id: anchorTrack.id, position: 0 }),
     ]);

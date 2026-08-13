@@ -7,6 +7,7 @@ import {
   isNull,
   or,
   privateOffers,
+  producers,
   sql,
   type Db,
 } from "@skitza/db";
@@ -125,6 +126,20 @@ export async function connectVerifiedArtistToProducer(
   const normalizedPrimaryEmail = input.primaryEmail.trim().toLowerCase();
 
   await db.transaction(async (tx) => {
+    // Serialize the join continuation with Producer closure. The public join
+    // page can become stale between its first lookup and this transaction, so
+    // the exact Producer must still be open before this flow may create,
+    // restore, or claim any contact.
+    const [producer] = await tx
+      .select({ id: producers.id })
+      .from(producers)
+      .where(and(eq(producers.id, input.producerId), isNull(producers.closedAt)))
+      .limit(1)
+      .for("share");
+    if (!producer) {
+      throw new ProjectOwnershipDomainError("NOT_FOUND", "This studio is unavailable");
+    }
+
     const matchingOffers = await tx
       .select({ clientContactId: privateOffers.clientContactId })
       .from(privateOffers)

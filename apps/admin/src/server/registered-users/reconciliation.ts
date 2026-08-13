@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { createClerkClient } from "@clerk/backend";
 import {
   canonicalFoundationDigest,
+  createClerkIdentityBindingRepository,
+  resolveCanonicalClerkUserId,
   type Db,
   type FoundationEnvironment,
   registeredAccounts,
@@ -53,6 +55,8 @@ export type ReconciliationProviderUser = Readonly<{
 export type ReconciliationSnapshot = Readonly<{
   audienceType: RegisteredAccountAudienceType;
   clerkUserId: string;
+  providerClerkUserId: string;
+  clerkInstanceId: string;
   displayName: string | null;
   emailVerified: boolean | null;
   lastSignInAt: Date | null;
@@ -74,20 +78,42 @@ export interface RegisteredAccountReconciliationProvider {
 }
 
 export interface RegisteredAccountReconciliationRepository {
-  readonly applySnapshots: (input: Readonly<{
-    audit: RecordAdminActionCommand;
-    snapshots: readonly ReconciliationSnapshot[];
-  }>) => Promise<Readonly<{ applied: number; replayed: boolean }>>;
+  readonly applySnapshots: (
+    input: Readonly<{
+      audit: RecordAdminActionCommand;
+      snapshots: readonly ReconciliationSnapshot[];
+    }>,
+  ) => Promise<Readonly<{ applied: number; replayed: boolean }>>;
 }
 
-export type RegisteredAccountReconciliationErrorCode =
-  | "INVALID_REQUEST"
-  | "UNAVAILABLE";
+export interface RegisteredAccountReconciliationIdentityResolver {
+  readonly resolveCanonicalUserId: (
+    input: Readonly<{
+      clerkInstanceId: string;
+      providerClerkUserId: string;
+    }>,
+  ) => Promise<string>;
+}
+
+export function createRegisteredAccountReconciliationIdentityResolver(
+  db: Pick<Db, "select">,
+): RegisteredAccountReconciliationIdentityResolver {
+  const repository = createClerkIdentityBindingRepository(db);
+  return {
+    async resolveCanonicalUserId(identity) {
+      try {
+        return await resolveCanonicalClerkUserId(repository, identity);
+      } catch {
+        throw new RegisteredAccountReconciliationError();
+      }
+    },
+  };
+}
+
+export type RegisteredAccountReconciliationErrorCode = "INVALID_REQUEST" | "UNAVAILABLE";
 
 export class RegisteredAccountReconciliationError extends Error {
-  constructor(
-    readonly code: RegisteredAccountReconciliationErrorCode = "UNAVAILABLE",
-  ) {
+  constructor(readonly code: RegisteredAccountReconciliationErrorCode = "UNAVAILABLE") {
     super("REGISTERED_ACCOUNT_RECONCILIATION_FAILED");
     this.name = "RegisteredAccountReconciliationError";
   }
@@ -97,10 +123,7 @@ function encodeReconciliationCursor(cursor: ReconciliationCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
-function decodeReconciliationCursor(
-  value: string,
-  clerkInstanceId: string,
-): ReconciliationCursor {
+function decodeReconciliationCursor(value: string, clerkInstanceId: string): ReconciliationCursor {
   if (value.length > 1000 || !/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new RegisteredAccountReconciliationError("INVALID_REQUEST");
   }
@@ -110,11 +133,7 @@ function decodeReconciliationCursor(
   } catch {
     throw new RegisteredAccountReconciliationError("INVALID_REQUEST");
   }
-  if (
-    typeof candidate !== "object" ||
-    candidate === null ||
-    Array.isArray(candidate)
-  ) {
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
     throw new RegisteredAccountReconciliationError("INVALID_REQUEST");
   }
   const cursor = candidate as Record<string, unknown>;
@@ -155,6 +174,7 @@ function cleanText(value: string | null, max: number): string | null {
 function snapshotFromProvider(
   user: ReconciliationProviderUser,
   clerkInstanceId: string,
+  canonicalClerkUserId: string,
 ): ReconciliationSnapshot {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(user.id)) {
     throw new RegisteredAccountReconciliationError();
@@ -162,12 +182,12 @@ function snapshotFromProvider(
   const primary = user.primaryEmailAddressId
     ? user.emailAddresses.find((email) => email.id === user.primaryEmailAddressId)
     : undefined;
-  const primaryEmail = primary ? cleanText(primary.emailAddress, 320)?.toLowerCase() ?? null : null;
+  const primaryEmail = primary
+    ? (cleanText(primary.emailAddress, 320)?.toLowerCase() ?? null)
+    : null;
   if (
     primaryEmail !== null &&
-    (!primaryEmail.includes("@") ||
-      primaryEmail.startsWith("@") ||
-      primaryEmail.endsWith("@"))
+    (!primaryEmail.includes("@") || primaryEmail.startsWith("@") || primaryEmail.endsWith("@"))
   ) {
     throw new RegisteredAccountReconciliationError();
   }
@@ -186,7 +206,9 @@ function snapshotFromProvider(
 
   return {
     audienceType: audience,
-    clerkUserId: user.id,
+    clerkUserId: canonicalClerkUserId,
+    providerClerkUserId: user.id,
+    clerkInstanceId,
     displayName: combinedName
       ? combinedName.slice(0, 160).trimEnd()
       : cleanText(user.username, 160),
@@ -251,11 +273,7 @@ export function createRegisteredAccountReconciliationRepository(
     async applySnapshots(input) {
       return db.transaction(async (transaction) => {
         await purgeAdminHistoryInTransaction(transaction, environment);
-        const audit = await recordAdminActionInTransaction(
-          transaction,
-          environment,
-          input.audit,
-        );
+        const audit = await recordAdminActionInTransaction(transaction, environment, input.audit);
         if (audit.replayed || input.snapshots.length === 0) {
           return { applied: 0, replayed: audit.replayed };
         }
@@ -266,6 +284,8 @@ export function createRegisteredAccountReconciliationRepository(
             input.snapshots.map((snapshot) => ({
               audienceType: snapshot.audienceType,
               clerkUserId: snapshot.clerkUserId,
+              providerClerkUserId: snapshot.providerClerkUserId,
+              clerkInstanceId: snapshot.clerkInstanceId,
               displayName: snapshot.displayName,
               emailVerified: snapshot.emailVerified,
               lastSignInAt: snapshot.lastSignInAt,
@@ -282,6 +302,8 @@ export function createRegisteredAccountReconciliationRepository(
             target: registeredAccounts.clerkUserId,
             set: {
               audienceType: sql`excluded."audience_type"`,
+              providerClerkUserId: sql`excluded."provider_clerk_user_id"`,
+              clerkInstanceId: sql`excluded."clerk_instance_id"`,
               displayName: sql`excluded."display_name"`,
               emailVerified: sql`excluded."email_verified"`,
               lastSignInAt: sql`excluded."last_sign_in_at"`,
@@ -294,14 +316,17 @@ export function createRegisteredAccountReconciliationRepository(
               updatedAt: sql`excluded."updated_at"`,
             },
             setWhere: sql`
-              ${registeredAccounts.providerState} <> 'deleted'
-              AND (
-                ${registeredAccounts.providerUpdatedAt} IS NULL
-                OR ${registeredAccounts.providerUpdatedAt} < excluded."provider_updated_at"
-                OR (
-                  ${registeredAccounts.providerUpdatedAt} = excluded."provider_updated_at"
-                  AND coalesce(${registeredAccounts.lastWebhookEventId}, '')
-                    < excluded."last_webhook_event_id"
+              ${registeredAccounts.clerkInstanceId} IS DISTINCT FROM excluded."clerk_instance_id"
+              OR (
+                ${registeredAccounts.providerState} <> 'deleted'
+                AND (
+                  ${registeredAccounts.providerUpdatedAt} IS NULL
+                  OR ${registeredAccounts.providerUpdatedAt} < excluded."provider_updated_at"
+                  OR (
+                    ${registeredAccounts.providerUpdatedAt} = excluded."provider_updated_at"
+                    AND coalesce(${registeredAccounts.lastWebhookEventId}, '')
+                      < excluded."last_webhook_event_id"
+                  )
                 )
               )
             `,
@@ -313,16 +338,19 @@ export function createRegisteredAccountReconciliationRepository(
   };
 }
 
-export async function reconcileRegisteredAccounts(input: Readonly<{
-  actorClerkUserId: string;
-  clerkInstanceId: string;
-  cursor?: string | null;
-  environment: FoundationEnvironment;
-  operationKey: string;
-  provider: RegisteredAccountReconciliationProvider;
-  repository: RegisteredAccountReconciliationRepository;
-  now?: () => Date;
-}>): Promise<
+export async function reconcileRegisteredAccounts(
+  input: Readonly<{
+    actorClerkUserId: string;
+    clerkInstanceId: string;
+    cursor?: string | null;
+    environment: FoundationEnvironment;
+    operationKey: string;
+    provider: RegisteredAccountReconciliationProvider;
+    repository: RegisteredAccountReconciliationRepository;
+    identityResolver: RegisteredAccountReconciliationIdentityResolver;
+    now?: () => Date;
+  }>,
+): Promise<
   Readonly<{
     applied: number;
     complete: boolean;
@@ -341,6 +369,10 @@ export async function reconcileRegisteredAccounts(input: Readonly<{
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(input.clerkInstanceId)) {
     throw new RegisteredAccountReconciliationError();
   }
+  // Admin authentication is provider-native and may belong to a different
+  // Clerk instance than the selected Test/Live data environment. Preserve the
+  // exact signed admin provider ID in this security audit; never resolve it
+  // against the selected target provider by assumption.
   const actualInstanceId = await input.provider.getInstanceId();
   if (actualInstanceId !== input.clerkInstanceId) {
     throw new RegisteredAccountReconciliationError();
@@ -361,7 +393,12 @@ export async function reconcileRegisteredAccounts(input: Readonly<{
   }
   const byId = new Map<string, ReconciliationSnapshot>();
   for (const user of page.data) {
-    const snapshot = snapshotFromProvider(user, input.clerkInstanceId);
+    const providerClerkUserId = user.id;
+    const canonicalClerkUserId = await input.identityResolver.resolveCanonicalUserId({
+      clerkInstanceId: input.clerkInstanceId,
+      providerClerkUserId,
+    });
+    const snapshot = snapshotFromProvider(user, input.clerkInstanceId, canonicalClerkUserId);
     const current = byId.get(snapshot.clerkUserId);
     if (!current || current.providerUpdatedAt < snapshot.providerUpdatedAt) {
       byId.set(snapshot.clerkUserId, snapshot);
@@ -375,19 +412,20 @@ export async function reconcileRegisteredAccounts(input: Readonly<{
         clerkUserId: snapshot.clerkUserId,
         sourceId: snapshot.sourceId,
       }))
-      .sort((left, right) =>
-        left.clerkUserId.localeCompare(right.clerkUserId),
-      ),
+      .sort((left, right) => left.clerkUserId.localeCompare(right.clerkUserId)),
   );
   const finishedAt = clock();
   const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
-  const audit = buildRegisteredAccountsReconciliationCommand({
-    actorClerkUserId: input.actorClerkUserId,
-    batchDigest,
-    environment: input.environment,
-    offset,
-    operationKey: input.operationKey,
-  }, finishedAt);
+  const audit = buildRegisteredAccountsReconciliationCommand(
+    {
+      actorClerkUserId: input.actorClerkUserId,
+      batchDigest,
+      environment: input.environment,
+      offset,
+      operationKey: input.operationKey,
+    },
+    finishedAt,
+  );
   const { applied, replayed } = await input.repository.applySnapshots({
     audit,
     snapshots,

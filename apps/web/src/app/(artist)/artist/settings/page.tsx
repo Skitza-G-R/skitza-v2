@@ -1,4 +1,5 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
 import { ArtistSettingsClient } from "~/components/artist/settings/artist-settings-client";

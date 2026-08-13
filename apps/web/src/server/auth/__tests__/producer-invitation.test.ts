@@ -28,6 +28,7 @@ function invitation(
     status: "accepted",
     createdAt: CUTOFF_MS,
     updatedAt: CUTOFF_MS + 1_000,
+    publicMetadata: { skitzaProducerInvitation: true },
     ...overrides,
   };
 }
@@ -122,6 +123,53 @@ describe("selectAcceptedProducerInvitation", () => {
         cutoff: CUTOFF,
       }),
     ).toEqual({ status: "no_match" });
+  });
+
+  it("rejects unrelated accepted app invitations without the exact trusted marker", () => {
+    for (const publicMetadata of [
+      undefined,
+      null,
+      {},
+      { anotherInvitationFlow: true },
+      { skitzaProducerInvitation: false },
+      { skitzaProducerInvitation: "true" },
+      ["skitzaProducerInvitation"],
+    ]) {
+      expect(
+        selectAcceptedProducerInvitation({
+          clerkUser: verifiedUser,
+          expectedClerkUserId: "user_artist",
+          invitations: [invitation({ publicMetadata })],
+          cutoff: CUTOFF,
+        }),
+      ).toEqual({ status: "no_match" });
+    }
+  });
+
+  it("ignores a newer unrelated invitation and uses the newest trusted invitation", () => {
+    const result = selectAcceptedProducerInvitation({
+      clerkUser: verifiedUser,
+      expectedClerkUserId: "user_artist",
+      invitations: [
+        invitation({
+          id: "inv_unrelated_newer",
+          createdAt: CUTOFF_MS + 20_000,
+          updatedAt: CUTOFF_MS + 21_000,
+          publicMetadata: { anotherInvitationFlow: true },
+        }),
+        invitation({
+          id: "inv_trusted",
+          createdAt: CUTOFF_MS + 10_000,
+          updatedAt: CUTOFF_MS + 11_000,
+        }),
+      ],
+      cutoff: CUTOFF,
+    });
+
+    expect(result.status).toBe("matched");
+    if (result.status === "matched") {
+      expect(result.invitation.invitationId).toBe("inv_trusted");
+    }
   });
 
   it("treats the cutoff as inclusive and chooses the newest valid invitation", () => {

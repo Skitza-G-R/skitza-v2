@@ -1,4 +1,5 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
 import { coerceTaxMode } from "~/lib/tax-mode";
@@ -67,8 +68,7 @@ export default async function SettingsPage({
   // If both params are present, `?section=` wins; otherwise we map the
   // branch and redirect with the new param so the URL is canonical.
   if (params.branch && !params.section) {
-    const mapped =
-      LEGACY_IN_BRANCH_TO_SECTION[params.branch] ?? "profile";
+    const mapped = LEGACY_IN_BRANCH_TO_SECTION[params.branch] ?? "profile";
     redirect(`/dashboard/settings?section=${mapped}`);
   }
 
@@ -117,11 +117,7 @@ export default async function SettingsPage({
       initialActive={active}
       initial={{
         displayName: profile.displayName ?? "",
-        defaultCurrency: profile.defaultCurrency as
-          | "USD"
-          | "EUR"
-          | "GBP"
-          | "ILS",
+        defaultCurrency: profile.defaultCurrency as "USD" | "EUR" | "GBP" | "ILS",
         taxMode: coerceTaxMode(profile.taxMode),
         taxRatePct: profile.taxRatePct,
         weekStart: profile.weekStart === "monday" ? "monday" : "sunday",

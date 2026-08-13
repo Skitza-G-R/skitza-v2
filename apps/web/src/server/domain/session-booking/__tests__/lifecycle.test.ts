@@ -52,6 +52,7 @@ const baseNow = new Date("2026-07-19T06:00:00.000Z");
 function createContext(
   overrides: {
     autoConfirmBookings?: boolean;
+    producerClosedAt?: Date | null;
     cancellationPolicyHours?: number;
     maxSessionsPerDay?: number | null;
     projectLifecycleStatus?: SessionBookingCreateContext["project"]["lifecycleStatus"];
@@ -70,6 +71,7 @@ function createContext(
       id: "producer-sk68",
       name: "SK-68 Producer",
       email: "producer@example.invalid",
+      closedAt: overrides.producerClosedAt ?? null,
       timeZone: "UTC",
       autoConfirmBookings: overrides.autoConfirmBookings ?? false,
       cancellationPolicyHours: overrides.cancellationPolicyHours ?? 24,
@@ -1214,6 +1216,28 @@ describe("session booking lifecycle commands", () => {
         createInput({ startsAt: new Date("2026-07-20T12:00:00.000Z") }),
       ),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("blocks new sessions after studio closure while preserving an exact committed replay", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const input = createInput({ operationKey: "before-studio-closure" });
+    const created = await createSessionBooking(repository, input);
+    repository.context = createContext({ producerClosedAt: new Date("2026-07-20T11:00:00.000Z") });
+
+    await expect(createSessionBooking(repository, input)).resolves.toMatchObject({
+      created: false,
+      booking: { id: created.booking.id },
+    });
+    await expect(
+      createSessionBooking(
+        repository,
+        createInput({
+          operationKey: "after-studio-closure",
+          startsAt: new Date("2026-07-20T12:00:00.000Z"),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(repository.bookings).toHaveLength(1);
   });
 
   it("hard-blocks a new artist command on Google busy but preserves an earlier replay", async () => {

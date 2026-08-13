@@ -9,7 +9,7 @@ const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
 
 describe("legacy songs/[songId] route", () => {
   it("authenticates before resolving the legacy URL", () => {
-    expect(SRC).toContain("@clerk/nextjs/server");
+    expect(SRC).toContain("~/server/auth/clerk-identity");
     expect(SRC).toMatch(/redirect\(\s*["']\/sign-in["']\s*\)/);
     expect(SRC).toContain("appRouter.createCaller");
   });

@@ -213,6 +213,22 @@ async function resolveTargetForShare(
   return target.id;
 }
 
+async function lockOpenProducer(tx: TransactionDb, producerId: string) {
+  const [producer] = await tx
+    .select({
+      id: producers.id,
+      slug: producers.slug,
+      displayName: producers.displayName,
+      closedAt: producers.closedAt,
+    })
+    .from(producers)
+    .where(eq(producers.id, producerId))
+    .limit(1)
+    .for("update");
+  if (!producer || producer.closedAt !== null) unavailable();
+  return producer;
+}
+
 export async function createPrivateOffer(
   db: Db,
   input: {
@@ -253,6 +269,11 @@ export async function createPrivateOffer(
       return { created: false as const, offer: existing };
     }
 
+    // An in-flight request may have passed producerProcedure before closure.
+    // Serialize all new recipient/offer writes with the authoritative closure
+    // row; the exact committed replay above remains available after closure.
+    const producer = await lockOpenProducer(tx, input.producerId);
+
     let sourceProductId: string | null = null;
     if (input.sourceProductId) {
       const [sourceProduct] = await tx
@@ -277,13 +298,6 @@ export async function createPrivateOffer(
       clientContactId: recipient.id,
       target: input.target,
     });
-    const [producer] = await tx
-      .select({ slug: producers.slug, displayName: producers.displayName })
-      .from(producers)
-      .where(eq(producers.id, input.producerId))
-      .limit(1);
-    if (!producer) notFound();
-
     const [offer] = await tx
       .insert(privateOffers)
       .values({
@@ -500,6 +514,7 @@ export async function updatePrivateOffer(
   });
   const outcome = await db.transaction(async (tx) => {
     const offer = await lockProducerOffer(tx, input);
+    await lockOpenProducer(tx, offer.producerId);
     if (isPrivateOfferExpired(offer.expiresAt, input.now) && offer.status === "sent") {
       await tx
         .update(privateOffers)
@@ -634,6 +649,7 @@ export async function listArtistPrivateOffers(
       and(
         eq(privateOffers.status, "sent"),
         gt(privateOffers.expiresAt, input.now),
+        isNull(producers.closedAt),
         input.producerId ? eq(privateOffers.producerId, input.producerId) : undefined,
       ),
     )
@@ -673,6 +689,7 @@ export async function getArtistPrivateOffer(
         eq(privateOffers.id, input.offerId),
         eq(privateOffers.status, "sent"),
         gt(privateOffers.expiresAt, input.now),
+        isNull(producers.closedAt),
       ),
     )
     .limit(1);
@@ -691,6 +708,7 @@ async function lockArtistOffer(
       recipientName: clientContacts.name,
       recipientEmail: privateOffers.recipientEmail,
       producerArchivedAt: clientContacts.producerArchivedAt,
+      producerClosedAt: producers.closedAt,
     })
     .from(privateOffers)
     .innerJoin(
@@ -703,6 +721,7 @@ async function lockArtistOffer(
         isNull(clientContacts.archivedAt),
       ),
     )
+    .innerJoin(producers, eq(producers.id, privateOffers.producerId))
     .where(eq(privateOffers.id, input.offerId))
     .limit(1)
     .for("update");
@@ -715,7 +734,8 @@ export async function rejectPrivateOffer(
   input: { clerkUserId: string; verifiedEmailHashes: string[]; offerId: string; now: Date },
 ) {
   const outcome = await db.transaction(async (tx) => {
-    const { offer } = await lockArtistOffer(tx, input);
+    const { offer, producerClosedAt } = await lockArtistOffer(tx, input);
+    if (producerClosedAt !== null) unavailable();
     if (offer.status === "declined") return { kind: "declined" as const, changed: false };
     if (isPrivateOfferExpired(offer.expiresAt, input.now) && offer.status === "sent") {
       await tx
@@ -783,10 +803,8 @@ export async function acceptPrivateOffer(
 ) {
   if (!input.agreementAccepted) unavailable();
   const outcome = await db.transaction(async (tx) => {
-    const { offer, recipientName, recipientEmail, producerArchivedAt } = await lockArtistOffer(
-      tx,
-      input,
-    );
+    const { offer, recipientName, recipientEmail, producerArchivedAt, producerClosedAt } =
+      await lockArtistOffer(tx, input);
 
     if (offer.status === "accepted") {
       const [existing] = await tx
@@ -816,6 +834,7 @@ export async function acceptPrivateOffer(
     // but it must not create new commercial work. The joined FOR UPDATE lock
     // serializes this check with archiveClient's update of the same contact.
     if (producerArchivedAt !== null) unavailable();
+    if (producerClosedAt !== null) unavailable();
 
     if (isPrivateOfferExpired(offer.expiresAt, input.now) && offer.status === "sent") {
       await tx

@@ -22,7 +22,7 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
   });
 
   it("preserves auth + caller scaffolding", () => {
-    expect(SRC).toContain("@clerk/nextjs/server");
+    expect(SRC).toContain("~/server/auth/clerk-identity");
     expect(SRC).toContain("appRouter.createCaller");
   });
 

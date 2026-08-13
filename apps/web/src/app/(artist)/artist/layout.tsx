@@ -4,25 +4,15 @@ import { resolveArtistStudioId } from "~/lib/artist-studio-context";
 import { readArtistStudioPreference } from "~/server/artist/studio-preference";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { requireRole } from "~/server/auth/role";
-import {
-  and,
-  createDb,
-  eq,
-  isNull,
-  notifications,
-  sql,
-} from "@skitza/db";
+import { and, createDb, eq, isNull, notifications, sql } from "@skitza/db";
 
 // Server component. Runs on every /artist/* navigation. Role gate +
 // orphan/producer/incomplete redirects live in requireRole — see
 // server/auth/role.ts. After the gate, this layout loads the chrome
 // state the shell needs: the studio list and the dual-role flag.
 export default async function ArtistLayout({ children }: { children: React.ReactNode }) {
-  const {
-    userId,
-    producerProfileStatus,
-    producerProfileId,
-  } = await requireRole("artist");
+  const { userId, providerUserId, producerProfileStatus, producerProfileId } =
+    await requireRole("artist");
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
@@ -51,20 +41,19 @@ export default async function ArtistLayout({ children }: { children: React.React
     notificationUnreadCount,
     notificationStudioDotIds,
     producerNotificationUnreadCount,
-  ] =
-    await Promise.all([
-      caller.artist.studios(),
-      readArtistStudioPreference(userId),
-      caller.artistPlatform.notifications.unreadCount(),
-      caller.artistPlatform.notifications.studioDots(),
-      producerUnreadPromise,
-    ]);
+  ] = await Promise.all([
+    caller.artist.studios(),
+    readArtistStudioPreference(providerUserId),
+    caller.artistPlatform.notifications.unreadCount(),
+    caller.artistPlatform.notifications.studioDots(),
+    producerUnreadPromise,
+  ]);
   const initialStudioId = resolveArtistStudioId(studios, null, savedStudioId);
 
   return (
     <AppI18nProvider>
       <ArtistAppShell
-        userId={userId}
+        userId={providerUserId}
         producerStatus={producerProfileStatus}
         producerNotificationUnreadCount={producerNotificationUnreadCount}
         studios={studios}

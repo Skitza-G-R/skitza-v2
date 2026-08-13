@@ -1,14 +1,12 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
-export type PaymentReminderRetryDisposition =
-  | "keep-operation-key"
-  | "replace-operation-key";
+export type PaymentReminderRetryDisposition = "keep-operation-key" | "replace-operation-key";
 
 export type SendPaymentReminderResult =
   | { ok: true; created: boolean }

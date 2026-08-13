@@ -12,6 +12,14 @@ import {
 
 import { lockProducerAudioStorageQuota } from "~/server/domain/audio-storage/quota";
 import {
+  lockProducerCapabilityState,
+  type LockedProducerCapabilityState,
+} from "~/server/domain/producer-capabilities/open-state";
+import {
+  resolveCapabilitySecret,
+  type CapabilityVerificationSecrets,
+} from "~/server/security/capability-secrets";
+import {
   assertSongArtworkUploadMetadata,
   normalizeSongArtworkFileName,
   SongArtworkPolicyError,
@@ -60,6 +68,12 @@ const defaultStorage: SongArtworkStoragePort = {
   finalizeUpload: finalizePrivateSongArtworkUpload,
   deleteObjectQuietly: deleteSongArtworkObjectQuietly,
 };
+
+function requireSongArtworkProducerOpen(producer: LockedProducerCapabilityState | null): void {
+  if (!producer || producer.closedAt !== null) {
+    throw new SongArtworkDomainError("NOT_FOUND", "Song was not found");
+  }
+}
 
 function mapBoundaryError(error: unknown): never {
   if (error instanceof SongArtworkDomainError) throw error;
@@ -177,6 +191,7 @@ export async function prepareProducerSongArtwork(
     });
     return await db.transaction(async (tx) => {
       await lockProducerAudioStorageQuota(tx, input.producerId);
+      requireSongArtworkProducerOpen(await lockProducerCapabilityState(tx, input.producerId));
       const song = await loadProducerOwnedSong(tx, input);
       await assertNoPendingSongDeletion(tx, input);
       const signed = createSongArtworkUploadToken(
@@ -209,20 +224,24 @@ export async function completeProducerSongArtwork(
     trackId: string;
     uploadToken: string;
     objectEtag: string;
-    serverSecret: string;
+    serverSecret: CapabilityVerificationSecrets;
     now?: Date | undefined;
   },
   storage: SongArtworkStoragePort = defaultStorage,
 ): Promise<{ artworkUrl: string }> {
   try {
-    const payload = verifyOwnedSongArtworkUploadToken(
-      input.serverSecret,
-      input.uploadToken,
-      { producerId: input.producerId, trackId: input.trackId },
-      input.now,
+    const verified = resolveCapabilitySecret(input.serverSecret, (secret) =>
+      verifyOwnedSongArtworkUploadToken(
+        secret,
+        input.uploadToken,
+        { producerId: input.producerId, trackId: input.trackId },
+        input.now,
+      ),
     );
+    const { secret: serverSecret, value: payload } = verified;
     const result = await db.transaction(async (tx) => {
       await lockProducerAudioStorageQuota(tx, input.producerId);
+      const producer = await lockProducerCapabilityState(tx, input.producerId);
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`song-artwork:${payload.trackId}`}, 0))`,
       );
@@ -249,7 +268,7 @@ export async function completeProducerSongArtwork(
         trackId: payload.trackId,
       });
       const current = currentArtworkIdentity(owned);
-      const { finalKey } = songArtworkObjectKeys(input.serverSecret, payload);
+      const { finalKey } = songArtworkObjectKeys(serverSecret, payload);
       if (
         current?.storageKey === finalKey &&
         current.contentType === payload.contentType &&
@@ -257,14 +276,15 @@ export async function completeProducerSongArtwork(
       ) {
         return { previousStorageKey: null, artwork: current };
       }
-      if (songArtworkRevisionFingerprint(input.serverSecret, current) !== payload.baseRevision) {
+      requireSongArtworkProducerOpen(producer);
+      if (songArtworkRevisionFingerprint(serverSecret, current) !== payload.baseRevision) {
         throw new SongArtworkDomainError(
           "CONFLICT",
           "The song cover changed. Choose the image again",
         );
       }
       const artwork: FinalizedSongArtworkObject = await storage.finalizeUpload(
-        input.serverSecret,
+        serverSecret,
         payload,
         input.objectEtag,
       );

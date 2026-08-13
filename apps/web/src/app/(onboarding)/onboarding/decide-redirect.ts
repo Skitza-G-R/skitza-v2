@@ -1,7 +1,4 @@
-import type {
-  UserAccountMemberships,
-  UserRole,
-} from "~/server/auth/role";
+import type { UserAccountMemberships, UserRole } from "~/server/auth/role";
 
 // Role wall for producer onboarding. Identity completion unlocks the
 // dashboard, but it does not lock the producer out of onboarding: every
@@ -11,6 +8,7 @@ export type OnboardingRedirect =
   | "/sign-in"
   | "/artist"
   | "/producer-access"
+  | "/account-closed"
   | "/onboarding/studio"
   | null; // null means "render the wizard"
 
@@ -91,6 +89,7 @@ export function decideOnboardingMembershipRedirect(
   currentStep: OnboardingGuardStep = "studio",
 ): OnboardingRedirect {
   if (!memberships.isAuthenticated) return "/sign-in";
+  if (memberships.accountStatus === "closure_started") return "/account-closed";
   if (memberships.producer.status === "complete") return null;
   if (memberships.producer.status === "incomplete") {
     return currentStep === "studio" ? null : "/onboarding/studio";

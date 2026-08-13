@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { withNeonSessionAdvisoryLock, type Db } from "@skitza/db";
+import { resolveActiveProviderClerkUserId, withNeonSessionAdvisoryLock, type Db } from "@skitza/db";
 import {
   AdminAccessError,
   requireActiveAdminAccess,
@@ -23,6 +23,8 @@ vi.mock("@skitza/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@skitza/db")>();
   return {
     ...actual,
+    createClerkIdentityBindingRepository: vi.fn(() => ({})),
+    resolveActiveProviderClerkUserId: vi.fn(),
     withNeonSessionAdvisoryLock: vi.fn(),
   };
 });
@@ -119,6 +121,7 @@ describe("Producer invitation admin route", () => {
     vi.mocked(withNeonSessionAdvisoryLock).mockImplementation(
       async (_databaseUrl, _lockKey, callback) => callback(db),
     );
+    vi.mocked(resolveActiveProviderClerkUserId).mockResolvedValue("user_artist");
     vi.mocked(createRegisteredUserRepository).mockReturnValue({
       findDirectory: vi.fn(),
       findProfileHeader,
@@ -195,11 +198,26 @@ describe("Producer invitation admin route", () => {
       provider,
       redirectUrl: "https://skitza-test.example/sign-up",
       targetClerkUserId: "user_artist",
+      targetProviderClerkUserId: "user_artist",
     });
     expect(JSON.stringify(vi.mocked(sendProducerInvitation).mock.calls)).not.toContain(
       "attacker@example.test",
     );
     expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("loads a relinked Artist from the active provider id while keeping the canonical target", async () => {
+    vi.mocked(resolveActiveProviderClerkUserId).mockResolvedValueOnce("user_artist_production");
+
+    const response = await POST(request({ idempotencyKey: "producer-invite:relinked-1" }), context);
+
+    expect(response.status).toBe(201);
+    expect(sendProducerInvitation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetClerkUserId: "user_artist",
+        targetProviderClerkUserId: "user_artist_production",
+      }),
+    );
   });
 
   it.each([

@@ -35,9 +35,13 @@ function requiredInstanceId(environment: NodeJS.ProcessEnv): string {
 export async function syncAcceptedProducerInvitation(input: {
   dbUrl: string;
   userId: string | null;
+  providerUserId: string | null;
   environment?: NodeJS.ProcessEnv;
 }): Promise<ProducerInvitationSyncResult> {
-  if (!input.userId) return { status: "not_authenticated" };
+  if (!input.userId && !input.providerUserId) return { status: "not_authenticated" };
+  if (!input.userId || !input.providerUserId) {
+    throw new Error("INCOMPLETE_CLERK_IDENTITY");
+  }
 
   const environment = input.environment ?? process.env;
   const cutoff = requiredCutoff(environment);
@@ -53,7 +57,7 @@ export async function syncAcceptedProducerInvitation(input: {
     throw new Error("CLERK_INSTANCE_MISMATCH");
   }
 
-  const user = await client.users.getUser(input.userId);
+  const user = await client.users.getUser(input.providerUserId);
   const verifiedEmails = [
     ...new Set(
       user.emailAddresses
@@ -77,11 +81,21 @@ export async function syncAcceptedProducerInvitation(input: {
         }),
       ),
     )
-  ).flatMap((response) => response.data);
+  ).flatMap((response) =>
+    response.data.map((invitation) => ({
+      id: invitation.id,
+      emailAddress: invitation.emailAddress,
+      status: invitation.status,
+      createdAt: invitation.createdAt,
+      updatedAt: invitation.updatedAt,
+      revoked: invitation.revoked,
+      publicMetadata: invitation.publicMetadata,
+    })),
+  );
 
   const selection = selectAcceptedProducerInvitation({
     clerkUser: user,
-    expectedClerkUserId: input.userId,
+    expectedClerkUserId: input.providerUserId,
     invitations,
     cutoff,
   });
@@ -89,6 +103,8 @@ export async function syncAcceptedProducerInvitation(input: {
 
   return claimProducerInvitationGrant(input.dbUrl, {
     ...selection.invitation,
+    providerClerkUserId: selection.invitation.clerkUserId,
+    clerkUserId: input.userId,
     clerkInstanceId,
   });
 }

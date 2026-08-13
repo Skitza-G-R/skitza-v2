@@ -26,6 +26,7 @@ import {
 import type { NewSongSpaceRecord, SongSpaceRecord } from "../service";
 
 const SIGNING_SECRET = "test-only-no-charge-signing-key-32-bytes-long";
+const ROTATED_SIGNING_SECRET = "rotated-no-charge-signing-key-is-32-bytes-long";
 const ACCEPTED_AT = new Date("2026-07-19T10:00:00.000Z");
 const ARTIST_CLERK_USER_ID = "artist-clerk-1";
 
@@ -315,6 +316,31 @@ describe("stateless no-charge song-space proposals", () => {
       projectTitle: context.projectTitle,
       sourceProductName: context.sourceProductName,
     });
+  });
+
+  it("keeps an existing durable proposal usable after the active key rotates", async () => {
+    const repository = new MemoryNoChargeProposalRepository();
+    const created = await proposal(repository);
+    const signingSecret = [ROTATED_SIGNING_SECRET, SIGNING_SECRET];
+
+    const exact = await previewNoChargeSongSpaceProposal(repository, {
+      proposalToken: created.proposalToken,
+      clerkUserId: ARTIST_CLERK_USER_ID,
+      signingSecret,
+    });
+    const accepted = await acceptNoChargeSongSpaceProposal(repository, {
+      proposalToken: created.proposalToken,
+      clerkUserId: ARTIST_CLERK_USER_ID,
+      signingSecret,
+      expectedSnapshotDigest: exact.snapshotDigest,
+      agreementAccepted: true,
+      acceptedAt: ACCEPTED_AT,
+    });
+
+    expect(accepted.created).toBe(true);
+    expect(repository.tracks.find((track) => track.id === accepted.trackId)?.title).toBe(
+      "Neon Signs",
+    );
   });
 
   it("fails closed before proposal creation for a producer identity or malformed artist contact", async () => {

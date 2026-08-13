@@ -4,6 +4,7 @@ import {
   clientContacts,
   eq,
   isNull,
+  producers,
   projectTracks,
   projects,
   purchases,
@@ -14,10 +15,7 @@ import {
   type Db,
 } from "@skitza/db";
 
-import {
-  selectPublicStoredVersions,
-  type PublicStoredVersionCandidate,
-} from "./read-model";
+import { selectPublicStoredVersions, type PublicStoredVersionCandidate } from "./read-model";
 import type {
   SongPublicAccessAuditEvent,
   SongPublicationAtomicScope,
@@ -41,14 +39,14 @@ type LockedSongScope = DiscoveredSongScope &
     producerId: string;
     projectUpdatedAt: Date;
     portfolioPublishedAt: Date | null;
+    writesAllowed: boolean;
   }>;
 
 type SongPublicationRepositoryAuthorization = Readonly<{
   artistClerkUserId: string;
 }>;
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function unavailableTransaction(): SongPublicationTransaction {
   return {
@@ -102,9 +100,7 @@ async function lockCoreSongScope(
   discovered: DiscoveredSongScope,
   authorization?: SongPublicationRepositoryAuthorization,
 ): Promise<LockedSongScope | null> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
-  );
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`);
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${discovered.purchaseId}, 0))`,
   );
@@ -170,6 +166,18 @@ async function lockCoreSongScope(
     return null;
   }
 
+  // Producer and Artist commands share this repository. Always serialize a
+  // new publication write with studio closure, while retaining the locked
+  // snapshot and immutable events needed for an exact committed replay.
+  const [producer] = await tx
+    .select({ id: producers.id, closedAt: producers.closedAt })
+    .from(producers)
+    .where(eq(producers.id, project.producerId))
+    .limit(1)
+    .for("share");
+  if (!producer) return null;
+  const writesAllowed = producer.closedAt === null;
+
   if (authorization) {
     if (project.lifecycleStatus === "waiting_for_payment") return null;
     const [contact] = await tx
@@ -195,6 +203,7 @@ async function lockCoreSongScope(
     trackId: track.id,
     projectUpdatedAt: project.updatedAt,
     portfolioPublishedAt: track.portfolioPublishedAt,
+    writesAllowed,
   };
 }
 
@@ -464,6 +473,25 @@ function transactionAdapter(
   };
 }
 
+/**
+ * A closed Producer may receive an exact retry of an operation that
+ * committed before closure. Keep only the snapshot and immutable audit lookup
+ * available so that replay succeeds without permitting any new publication
+ * state or audit event to be written.
+ */
+function replayOnlyTransaction(
+  transaction: SongPublicationTransaction,
+): SongPublicationTransaction {
+  return {
+    loadSnapshot: () => transaction.loadSnapshot(),
+    findEventByOperationKey: (operationKey) => transaction.findEventByOperationKey(operationKey),
+    insertLink: () => Promise.resolve(null),
+    updateLink: () => Promise.resolve(null),
+    setPortfolioPublishedAt: () => Promise.resolve(null),
+    appendAuditEvent: () => Promise.resolve(null),
+  };
+}
+
 export function songPublicationRepository(
   db: Db,
   authorization?: SongPublicationRepositoryAuthorization,
@@ -494,7 +522,8 @@ export function songPublicationRepository(
           lastEventSequence: events.at(-1)?.sequence ?? 0,
           lastEventCreatedAt: events.at(-1)?.createdAt ?? null,
         };
-        return work(transactionAdapter(tx, locked, snapshot, events));
+        const transaction = transactionAdapter(tx, locked, snapshot, events);
+        return work(locked.writesAllowed ? transaction : replayOnlyTransaction(transaction));
       }),
   };
 }

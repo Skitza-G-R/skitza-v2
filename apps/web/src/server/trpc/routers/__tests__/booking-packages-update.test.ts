@@ -58,6 +58,10 @@ function shift<T>(q: T[][]): T[] {
   return q.shift() ?? [];
 }
 
+function queueOpenProducerCapabilityLock(): void {
+  producerSelectQueue.push([{ id: PRODUCER_ID }], [{ id: PRODUCER_ID, closedAt: null }]);
+}
+
 const updateReturningSpy = vi.fn<() => Promise<Row[]>>(() =>
   Promise.resolve([{ id: PRODUCT_ID, name: "Renamed" }]),
 );
@@ -318,7 +322,7 @@ describe("booking.packages.update", () => {
         document: agreementPdfDocument,
       }),
     );
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    queueOpenProducerCapabilityLock();
     productSelectQueue.push([], [{ contractUrl: cleanupContract }]);
     const caller = await buildCaller();
 
@@ -336,7 +340,7 @@ describe("booking.packages.update", () => {
   });
 
   it("conditionally cleans an unreferenced final replacement after a database failure", async () => {
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    queueOpenProducerCapabilityLock();
     productSelectQueue.push([{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }], []);
     updateReturningSpy.mockRejectedValueOnce(new Error("database write failed"));
     const caller = await buildCaller();
@@ -353,7 +357,7 @@ describe("booking.packages.update", () => {
   });
 
   it("cleans a deterministic final candidate when copy succeeds but verification throws", async () => {
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    queueOpenProducerCapabilityLock();
     productSelectQueue.push([{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }], []);
     agreementPdfMocks.finalize.mockRejectedValueOnce(
       new Error("final verification was temporarily unavailable"),
@@ -378,7 +382,7 @@ describe("booking.packages.update", () => {
       effectiveAt: "2026-08-09T00:00:00.000Z",
       document: agreementPdfDocument,
     });
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    queueOpenProducerCapabilityLock();
     productSelectQueue.push(
       [{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }],
       [{ contractUrl: referencedContract }],
@@ -398,7 +402,7 @@ describe("booking.packages.update", () => {
   });
 
   it("fails closed before finalization when any producer product ledger is malformed", async () => {
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    queueOpenProducerCapabilityLock();
     productSelectQueue.push(
       [{ id: PRODUCT_ID, producerId: PRODUCER_ID, contractUrl: null }],
       [{ contractUrl: "skitza-private-agreement:v1:not-canonical" }],
@@ -417,7 +421,7 @@ describe("booking.packages.update", () => {
   });
 
   it("cleans an unreferenced final replacement when product creation fails after finalization", async () => {
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    queueOpenProducerCapabilityLock();
     productSelectQueue.push([], []);
     insertReturningSpy.mockRejectedValueOnce(new Error("insert failed"));
     const caller = await buildCaller();

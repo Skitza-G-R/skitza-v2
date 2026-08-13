@@ -159,6 +159,10 @@ export const producers = pgTable(
     // but the column stays populated so the value sticks if the producer
     // toggles modes back and forth.
     taxRatePct: integer("tax_rate_pct").notNull().default(18),
+    // Account closure is identity-preserving: the normal workspace and public
+    // profile hide when closure starts, while shared business/audit rows keep
+    // their stable Producer foreign key and Clerk attribution.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -2632,6 +2636,11 @@ export const registeredAccounts = pgTable(
   "registered_accounts",
   {
     clerkUserId: text("clerk_user_id").primaryKey(),
+    // Stable application identity. During a Clerk instance cutover this
+    // remains the historical id used by role and audit rows, while the two
+    // provider columns identify the currently synchronized Clerk account.
+    providerClerkUserId: text("provider_clerk_user_id"),
+    clerkInstanceId: text("clerk_instance_id"),
     primaryEmail: text("primary_email"),
     displayName: text("display_name"),
     emailVerified: boolean("email_verified"),
@@ -2646,6 +2655,9 @@ export const registeredAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
+    providerIdentityUnique: uniqueIndex("registered_accounts_provider_identity_unique")
+      .on(t.clerkInstanceId, t.providerClerkUserId)
+      .where(sql`${t.clerkInstanceId} IS NOT NULL AND ${t.providerClerkUserId} IS NOT NULL`),
     providerStateIdx: index("registered_accounts_provider_state_idx").on(
       t.providerState,
       t.clerkUserId,
@@ -2672,6 +2684,8 @@ export const registeredAccounts = pgTable(
     identityShape: check(
       "registered_accounts_identity_shape",
       sql`${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND (${t.providerClerkUserId} IS NULL OR ${t.providerClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$')
+        AND (${t.clerkInstanceId} IS NULL OR ${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$')
         AND (${t.primaryEmail} IS NULL OR (
           ${t.primaryEmail} = lower(btrim(${t.primaryEmail}))
           AND char_length(${t.primaryEmail}) BETWEEN 3 AND 320
@@ -2697,11 +2711,15 @@ export const registeredAccounts = pgTable(
       "registered_accounts_sync_shape",
       sql`(
         ${t.providerState} = 'needs_sync'
+        AND ${t.providerClerkUserId} IS NULL
+        AND ${t.clerkInstanceId} IS NULL
         AND ${t.providerUpdatedAt} IS NULL
         AND ${t.lastWebhookEventId} IS NULL
         AND ${t.syncedAt} IS NULL
       ) OR (
         ${t.providerState} <> 'needs_sync'
+        AND ${t.providerClerkUserId} IS NOT NULL
+        AND ${t.clerkInstanceId} IS NOT NULL
         AND ${t.providerUpdatedAt} IS NOT NULL
         AND ${t.lastWebhookEventId} IS NOT NULL
         AND ${t.syncedAt} IS NOT NULL
@@ -2736,7 +2754,10 @@ export const clerkUserSyncReceipts = pgTable(
     eventId: text("event_id").primaryKey(),
     eventDigest: text("event_digest").notNull(),
     eventType: text("event_type").notNull(),
+    // Raw id from the signed payload and the canonical application id are
+    // recorded separately so replay proof survives provider relinking.
     clerkUserId: text("clerk_user_id").notNull(),
+    canonicalClerkUserId: text("canonical_clerk_user_id").notNull(),
     clerkInstanceId: text("clerk_instance_id").notNull(),
     providerUpdatedAt: timestamp("provider_updated_at", {
       withTimezone: true,
@@ -2749,6 +2770,11 @@ export const clerkUserSyncReceipts = pgTable(
       t.providerUpdatedAt.desc(),
       t.eventId,
     ),
+    canonicalUserIdx: index("clerk_user_sync_receipts_canonical_user_idx").on(
+      t.canonicalClerkUserId,
+      t.providerUpdatedAt.desc(),
+      t.eventId,
+    ),
     shape: check(
       "clerk_user_sync_receipts_shape",
       sql`NULLIF(btrim(${t.eventId}), '') IS NOT NULL
@@ -2756,6 +2782,7 @@ export const clerkUserSyncReceipts = pgTable(
         AND ${t.eventDigest} ~ '^sha256:[0-9a-f]{64}$'
         AND ${t.eventType} IN ('user.created', 'user.updated', 'user.deleted')
         AND ${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.canonicalClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
         AND ${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
     ),
   }),
@@ -2772,7 +2799,10 @@ export const producerInvitationGrants = pgTable(
   "producer_invitation_grants",
   {
     clerkInvitationId: text("clerk_invitation_id").primaryKey(),
+    // clerk_user_id stays canonical; provider_clerk_user_id is the account
+    // Clerk proved accepted the invitation in the configured instance.
     clerkUserId: text("clerk_user_id").notNull(),
+    providerClerkUserId: text("provider_clerk_user_id").notNull(),
     clerkInstanceId: text("clerk_instance_id").notNull(),
     invitedEmailHash: text("invited_email_hash").notNull(),
     invitationCreatedAt: timestamp("invitation_created_at", {
@@ -2784,13 +2814,12 @@ export const producerInvitationGrants = pgTable(
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    clerkUserUnique: unique("producer_invitation_grants_clerk_user_unique").on(
-      t.clerkUserId,
-    ),
+    clerkUserUnique: unique("producer_invitation_grants_clerk_user_unique").on(t.clerkUserId),
     identityShape: check(
       "producer_invitation_grants_identity_shape",
       sql`${t.clerkInvitationId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
         AND ${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.providerClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
         AND ${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
         AND ${t.invitedEmailHash} ~ '^[0-9a-f]{64}$'`,
     ),
@@ -2803,6 +2832,373 @@ export const producerInvitationGrants = pgTable(
 
 export type ProducerInvitationGrant = typeof producerInvitationGrants.$inferSelect;
 export type NewProducerInvitationGrant = typeof producerInvitationGrants.$inferInsert;
+
+// ─── Clerk provider-to-application identity bindings (SK-229) ─────
+// Existing application rows keep their historical Clerk id. Each provider
+// instance can bind its raw Clerk id to that stable canonical id; native and
+// relink bindings may remain active together to make key rollback reversible.
+export const clerkIdentityBindingKind = pgEnum("clerk_identity_binding_kind", ["native", "relink"]);
+
+export const clerkIdentityBindingStatus = pgEnum("clerk_identity_binding_status", [
+  "staged",
+  "active",
+  "revoked",
+]);
+
+export const clerkIdentityBindings = pgTable(
+  "clerk_identity_bindings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clerkInstanceId: text("clerk_instance_id").notNull(),
+    providerClerkUserId: text("provider_clerk_user_id").notNull(),
+    canonicalClerkUserId: text("canonical_clerk_user_id").notNull(),
+    kind: clerkIdentityBindingKind("kind").notNull(),
+    status: clerkIdentityBindingStatus("status").notNull().default("staged"),
+    batchId: uuid("batch_id").notNull(),
+    verifiedEmailHash: text("verified_email_hash").notNull(),
+    sourceClerkInstanceId: text("source_clerk_instance_id"),
+    sourceProviderClerkUserId: text("source_provider_clerk_user_id"),
+    manifestDigest: text("manifest_digest").notNull(),
+    evidenceRef: text("evidence_ref").notNull(),
+    stagedAt: timestamp("staged_at", { withTimezone: true }).notNull().defaultNow(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => ({
+    providerLiveUnique: uniqueIndex("clerk_identity_bindings_provider_live_unique")
+      .on(t.clerkInstanceId, t.providerClerkUserId)
+      .where(sql`${t.status} IN ('staged', 'active')`),
+    canonicalActiveUnique: uniqueIndex("clerk_identity_bindings_canonical_active_unique")
+      .on(t.clerkInstanceId, t.canonicalClerkUserId)
+      .where(sql`${t.status} = 'active'`),
+    canonicalLookupIdx: index("clerk_identity_bindings_canonical_lookup_idx").on(
+      t.canonicalClerkUserId,
+      t.status,
+      t.clerkInstanceId,
+    ),
+    batchIdx: index("clerk_identity_bindings_batch_idx").on(t.batchId, t.status, t.id),
+    identityShape: check(
+      "clerk_identity_bindings_identity_shape",
+      sql`${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.providerClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.canonicalClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.verifiedEmailHash} ~ '^sha256:[0-9a-f]{64}$'
+        AND ${t.manifestDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND NULLIF(btrim(${t.evidenceRef}), '') IS NOT NULL
+        AND char_length(${t.evidenceRef}) <= 255`,
+    ),
+    sourceShape: check(
+      "clerk_identity_bindings_source_shape",
+      sql`(
+        ${t.kind} = 'native'
+        AND ${t.sourceClerkInstanceId} IS NULL
+        AND ${t.sourceProviderClerkUserId} IS NULL
+        AND ${t.canonicalClerkUserId} = ${t.providerClerkUserId}
+      ) OR (
+        ${t.kind} = 'relink'
+        AND ${t.sourceClerkInstanceId} IS NOT NULL
+        AND ${t.sourceProviderClerkUserId} IS NOT NULL
+        AND ${t.sourceClerkInstanceId} <> ${t.clerkInstanceId}
+        AND ${t.sourceProviderClerkUserId} = ${t.canonicalClerkUserId}
+      )`,
+    ),
+    lifecycleShape: check(
+      "clerk_identity_bindings_lifecycle_shape",
+      sql`(
+        ${t.status} = 'staged'
+        AND ${t.activatedAt} IS NULL
+        AND ${t.revokedAt} IS NULL
+      ) OR (
+        ${t.status} = 'active'
+        AND ${t.activatedAt} IS NOT NULL
+        AND ${t.activatedAt} >= ${t.stagedAt}
+        AND ${t.revokedAt} IS NULL
+      ) OR (
+        ${t.status} = 'revoked'
+        AND ${t.revokedAt} IS NOT NULL
+        AND ${t.revokedAt} >= coalesce(${t.activatedAt}, ${t.stagedAt})
+      ) IS TRUE`,
+    ),
+  }),
+);
+
+export type ClerkIdentityBinding = typeof clerkIdentityBindings.$inferSelect;
+export type NewClerkIdentityBinding = typeof clerkIdentityBindings.$inferInsert;
+
+// ─── Operator-managed account closure (SK-229) ───────────────────
+// Verification immediately hides Producer/public role surfaces without
+// rewriting Clerk identity. Full access revocation, provider deletion, and
+// object deletion require explicit, resumable task evidence.
+export const accountClosureStatus = pgEnum("account_closure_status", [
+  "requested",
+  "processing",
+  "blocked",
+  "completed",
+  "cancelled",
+]);
+
+export const accountClosureTaskKind = pgEnum("account_closure_task_kind", [
+  "google_calendar_disconnect",
+  "device_and_artist_preferences_cleanup",
+  "clerk_account_delete",
+  "public_and_capability_link_revoke",
+  "account_profile_deidentification",
+  "storage_review_and_cleanup",
+  "retained_record_review",
+  "diagnostic_provider_cleanup",
+  "backup_expiry_tracking",
+]);
+
+export const accountClosureTaskStatus = pgEnum("account_closure_task_status", [
+  "pending",
+  "running",
+  "blocked",
+  "succeeded",
+  "not_applicable",
+]);
+
+export const accountClosureEventType = pgEnum("account_closure_event_type", [
+  "requested",
+  "identity_verified",
+  "closure_started",
+  "access_revoked",
+  "task_started",
+  "task_blocked",
+  "task_succeeded",
+  "task_not_applicable",
+  "legal_hold_applied",
+  "legal_hold_released",
+  "completed",
+  "cancelled",
+]);
+
+export const accountClosureRequests = pgTable(
+  "account_closure_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clerkUserId: text("clerk_user_id").notNull(),
+    requesterEmailHash: text("requester_email_hash").notNull(),
+    status: accountClosureStatus("status").notNull().default("requested"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    identityVerifiedAt: timestamp("identity_verified_at", { withTimezone: true }),
+    closureStartedAt: timestamp("closure_started_at", { withTimezone: true }),
+    accessRevokedAt: timestamp("access_revoked_at", { withTimezone: true }),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    verifiedByClerkUserId: text("verified_by_clerk_user_id"),
+    legalHoldAt: timestamp("legal_hold_at", { withTimezone: true }),
+    legalHoldReasonCode: text("legal_hold_reason_code"),
+    legalHoldByClerkUserId: text("legal_hold_by_clerk_user_id"),
+    legalHoldReleasedAt: timestamp("legal_hold_released_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clerkUserUnique: unique("account_closure_requests_clerk_user_unique").on(t.clerkUserId),
+    statusDueIdx: index("account_closure_requests_status_due_idx").on(t.status, t.dueAt, t.id),
+    closureStartedIdx: index("account_closure_requests_started_idx")
+      .on(t.clerkUserId, t.closureStartedAt)
+      .where(sql`${t.closureStartedAt} IS NOT NULL`),
+    identityShape: check(
+      "account_closure_requests_identity_shape",
+      sql`${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.requesterEmailHash} ~ '^sha256:[0-9a-f]{64}$'
+        AND (${t.verifiedByClerkUserId} IS NULL OR ${t.verifiedByClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$')
+        AND (${t.legalHoldByClerkUserId} IS NULL OR ${t.legalHoldByClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$')`,
+    ),
+    lifecycleShape: check(
+      "account_closure_requests_lifecycle_shape",
+      sql`(
+        ${t.status} = 'requested'
+        AND ${t.identityVerifiedAt} IS NULL
+        AND ${t.closureStartedAt} IS NULL
+        AND ${t.accessRevokedAt} IS NULL
+        AND ${t.dueAt} IS NULL
+        AND ${t.verifiedByClerkUserId} IS NULL
+        AND ${t.completedAt} IS NULL
+        AND ${t.cancelledAt} IS NULL
+      ) OR (
+        ${t.status} IN ('processing', 'blocked')
+        AND ${t.identityVerifiedAt} IS NOT NULL
+        AND ${t.closureStartedAt} IS NOT NULL
+        AND ${t.dueAt} = ${t.identityVerifiedAt} + interval '30 days'
+        AND ${t.verifiedByClerkUserId} IS NOT NULL
+        AND ${t.completedAt} IS NULL
+        AND ${t.cancelledAt} IS NULL
+      ) OR (
+        ${t.status} = 'completed'
+        AND ${t.identityVerifiedAt} IS NOT NULL
+        AND ${t.closureStartedAt} IS NOT NULL
+        AND ${t.accessRevokedAt} IS NOT NULL
+        AND ${t.dueAt} = ${t.identityVerifiedAt} + interval '30 days'
+        AND ${t.verifiedByClerkUserId} IS NOT NULL
+        AND ${t.completedAt} >= ${t.identityVerifiedAt}
+        AND ${t.cancelledAt} IS NULL
+        AND (${t.legalHoldAt} IS NULL OR ${t.legalHoldReleasedAt} IS NOT NULL)
+      ) OR (
+        ${t.status} = 'cancelled'
+        AND ${t.identityVerifiedAt} IS NULL
+        AND ${t.closureStartedAt} IS NULL
+        AND ${t.accessRevokedAt} IS NULL
+        AND ${t.dueAt} IS NULL
+        AND ${t.verifiedByClerkUserId} IS NULL
+        AND ${t.completedAt} IS NULL
+        AND ${t.cancelledAt} IS NOT NULL
+      )`,
+    ),
+    legalHoldShape: check(
+      "account_closure_requests_legal_hold_shape",
+      sql`(
+        ${t.legalHoldAt} IS NULL
+        AND ${t.legalHoldReasonCode} IS NULL
+        AND ${t.legalHoldByClerkUserId} IS NULL
+        AND ${t.legalHoldReleasedAt} IS NULL
+      ) OR (
+        ${t.legalHoldAt} IS NOT NULL
+        AND NULLIF(btrim(${t.legalHoldReasonCode}), '') IS NOT NULL
+        AND char_length(${t.legalHoldReasonCode}) <= 100
+        AND ${t.legalHoldReasonCode} ~ '^[a-z][a-z0-9_.-]{0,99}$'
+        AND ${t.legalHoldByClerkUserId} IS NOT NULL
+        AND (${t.legalHoldReleasedAt} IS NULL OR ${t.legalHoldReleasedAt} >= ${t.legalHoldAt})
+      )`,
+    ),
+    timestampShape: check(
+      "account_closure_requests_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt}
+        AND ${t.receivedAt} >= ${t.createdAt}
+        AND (${t.identityVerifiedAt} IS NULL OR ${t.identityVerifiedAt} >= ${t.receivedAt})
+        AND (${t.closureStartedAt} IS NULL OR ${t.closureStartedAt} >= ${t.identityVerifiedAt})
+        AND (${t.accessRevokedAt} IS NULL OR ${t.accessRevokedAt} >= ${t.closureStartedAt})
+        AND (${t.cancelledAt} IS NULL OR ${t.cancelledAt} >= ${t.receivedAt})`,
+    ),
+  }),
+);
+
+export type AccountClosureRequest = typeof accountClosureRequests.$inferSelect;
+export type NewAccountClosureRequest = typeof accountClosureRequests.$inferInsert;
+
+export const accountClosureTasks = pgTable(
+  "account_closure_tasks",
+  {
+    requestId: uuid("request_id").notNull(),
+    kind: accountClosureTaskKind("kind").notNull(),
+    status: accountClosureTaskStatus("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    evidenceRef: text("evidence_ref"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ name: "account_closure_tasks_pk", columns: [t.requestId, t.kind] }),
+    requestFk: foreignKey({
+      name: "account_closure_tasks_request_fk",
+      columns: [t.requestId],
+      foreignColumns: [accountClosureRequests.id],
+    }).onDelete("restrict"),
+    statusUpdatedIdx: index("account_closure_tasks_status_updated_idx").on(
+      t.status,
+      t.updatedAt,
+      t.requestId,
+      t.kind,
+    ),
+    attemptShape: check("account_closure_tasks_attempt_shape", sql`${t.attemptCount} >= 0`),
+    resultShape: check(
+      "account_closure_tasks_result_shape",
+      sql`(
+        ${t.status} = 'pending'
+        AND ${t.startedAt} IS NULL
+        AND ${t.completedAt} IS NULL
+        AND ${t.lastErrorCode} IS NULL
+        AND ${t.evidenceRef} IS NULL
+      ) OR (
+        ${t.status} = 'running'
+        AND ${t.attemptCount} > 0
+        AND ${t.startedAt} IS NOT NULL
+        AND ${t.completedAt} IS NULL
+        AND ${t.lastErrorCode} IS NULL
+        AND ${t.evidenceRef} IS NULL
+      ) OR (
+        ${t.status} = 'blocked'
+        AND ${t.attemptCount} > 0
+        AND ${t.startedAt} IS NOT NULL
+        AND ${t.completedAt} IS NULL
+        AND NULLIF(btrim(${t.lastErrorCode}), '') IS NOT NULL
+        AND char_length(${t.lastErrorCode}) <= 100
+        AND ${t.evidenceRef} IS NULL
+      ) OR (
+        ${t.status} IN ('succeeded', 'not_applicable')
+        AND ${t.startedAt} IS NOT NULL
+        AND ${t.completedAt} >= ${t.startedAt}
+        AND ${t.lastErrorCode} IS NULL
+        AND NULLIF(btrim(${t.evidenceRef}), '') IS NOT NULL
+        AND char_length(${t.evidenceRef}) <= 255
+      )`,
+    ),
+  }),
+);
+
+export type AccountClosureTask = typeof accountClosureTasks.$inferSelect;
+export type NewAccountClosureTask = typeof accountClosureTasks.$inferInsert;
+
+export const accountClosureEvents = pgTable(
+  "account_closure_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id").notNull(),
+    eventType: accountClosureEventType("event_type").notNull(),
+    taskKind: accountClosureTaskKind("task_kind"),
+    actorClerkUserId: text("actor_clerk_user_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    evidenceRef: text("evidence_ref"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    requestFk: foreignKey({
+      name: "account_closure_events_request_fk",
+      columns: [t.requestId],
+      foreignColumns: [accountClosureRequests.id],
+    }).onDelete("restrict"),
+    operationUnique: unique("account_closure_events_operation_unique").on(
+      t.requestId,
+      t.operationKey,
+    ),
+    requestOccurredIdx: index("account_closure_events_request_occurred_idx").on(
+      t.requestId,
+      t.occurredAt,
+      t.id,
+    ),
+    identityShape: check(
+      "account_closure_events_identity_shape",
+      sql`${t.actorClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL
+        AND char_length(${t.operationKey}) <= 255
+        AND ${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND (${t.evidenceRef} IS NULL OR (NULLIF(btrim(${t.evidenceRef}), '') IS NOT NULL AND char_length(${t.evidenceRef}) <= 255))`,
+    ),
+    taskShape: check(
+      "account_closure_events_task_shape",
+      sql`(
+        ${t.eventType} IN ('task_started', 'task_blocked', 'task_succeeded', 'task_not_applicable')
+        AND ${t.taskKind} IS NOT NULL
+      ) OR (
+        ${t.eventType} NOT IN ('task_started', 'task_blocked', 'task_succeeded', 'task_not_applicable')
+        AND ${t.taskKind} IS NULL
+      )`,
+    ),
+    timestampShape: check(
+      "account_closure_events_timestamp_shape",
+      sql`${t.createdAt} >= ${t.occurredAt}`,
+    ),
+  }),
+);
+
+export type AccountClosureEvent = typeof accountClosureEvents.$inferSelect;
+export type NewAccountClosureEvent = typeof accountClosureEvents.$inferInsert;
 
 // ─── Artist platform account preferences (SK-153) ──────────────────
 // Clerk remains the source of truth for profile identity and photo. This

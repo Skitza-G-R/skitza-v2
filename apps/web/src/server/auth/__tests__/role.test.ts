@@ -179,6 +179,7 @@ describe("resolveUserAccountMemberships", () => {
 
     expect(memberships).toEqual({
       isAuthenticated: false,
+      accountStatus: "open",
       producer: { status: "none", profile: null },
       artist: { hasAccess: false, hasActiveConnections: false },
     });

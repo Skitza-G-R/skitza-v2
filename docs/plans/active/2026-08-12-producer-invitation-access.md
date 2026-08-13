@@ -5,9 +5,11 @@
 **Decider:** Gili Asraf
 **Linear:** SK-229
 
-**Local implementation state:** preserved in an isolated worktree and rebased
-onto exact production-stable `v3-clean` commit `2208049b`. Local code and
-PostgreSQL 17 migration verification are complete. Keep migration 0049,
+**Local implementation state:** preserved in an isolated worktree. The branch
+was based on `v3-clean` commit `1d303657` before the SK-236 release began; do
+not rebase, merge, deploy, or promote it until that release is confirmed and
+the base is refreshed. Local invitation, legal, account-closure, and Clerk
+identity work is still under final verification. Keep migrations 0049–0051,
 production settings, `ACCESS_TOKEN` removal, and Google verification behind
 their explicit release gates below.
 
@@ -161,7 +163,7 @@ their signed state, browser binding, and stored channel secrets.
 4. Replace placeholder Privacy and Terms content. Privacy must explain Calendar
    list access, free/busy checks, Skitza event create/update/cancel/reconcile,
    storage, sharing, disconnection, and deletion.
-5. SK-225 is preserved in current production-stable commit `2208049b`. Its external
+5. SK-225 is already preserved in the current `v3-clean` ancestry. Its external
    Clerk-development proof exception is documented separately; rollback cannot
    correct that external environment.
 6. Verify `skitza.app` in Search Console using the Google Cloud project owner,
@@ -243,25 +245,58 @@ Official references:
 - Privacy does not promise deletion of every record within seven days. Shared
   accepted agreements, purchases, external-payment records, proofs, sessions,
   approvals, and audit/security history may need to remain.
-- Terms do not invent a company entity, jurisdiction, age threshold, future
-  subscription price, refund policy, or retention deadline. Before public
-  release, Gili must confirm the legal operator identity and address, monitored
-  legal/privacy inboxes, jurisdiction and dispute rules, age/minor policy, and
-  any jurisdiction-specific retention or consumer terms. Final legal wording
-  should receive qualified legal review.
+- The legal pages use Gili's confirmed founder decisions: operator Gili Asraf,
+  Israeli registered business number 315016071, service address Ein Gedi 7,
+  Hadera, Israel; monitored `legal@skitza.app` and `privacy@skitza.app`; 18+
+  eligibility; Israel-only beta; Israeli law and Tel Aviv–Jaffa courts; no
+  arbitration; and the published retention limits. Gili approved the wording
+  without an outside-lawyer gate.
 
 ## Release coordination
 
 - SK-229 stays only in `/private/tmp/skitza-sk229` during local work.
-- Its only direct changed-path overlap is SK-225 in
-  `apps/web/src/middleware.ts` and `apps/web/src/middleware.test.ts`.
-- SK-225 and SK-219 are preserved in production-stable `v3-clean` commit
-  `2208049b`. SK-229 has been rebased onto that exact commit with no path
-  overlap against SK-219, SK-222, or SK-226.
+- SK-225 and SK-219 remain in the branch ancestry. SK-236 is being released,
+  so keep this worktree isolated and refresh `v3-clean` only after that release
+  is confirmed. SK-238 has separately agreed to defer its overlapping paths
+  and not touch this worktree.
 - Combined middleware and authorization behavior still requires independent
   review, full verification, exact previews, and the release gates below.
-- Migration 0049, production environment changes, and `ACCESS_TOKEN` removal
-  remain separately controlled even after the code PR is ready.
+- Migrations 0049–0051, production environment changes, and `ACCESS_TOKEN`
+  removal remain separately controlled even after the code PR is ready.
+
+### Clerk capability-secret cutover
+
+Complete this sequence before replacing the production Clerk keys. Secret
+values must stay in the environment manager and must never be printed, copied
+into source control, screenshots, tickets, or logs.
+
+1. Before deploying the commit that introduces this capability-secret code, set
+   `SKITZA_CAPABILITY_SECRET` in every matching Preview and Production
+   environment to the exact current pre-cutover `CLERK_SECRET_KEY` value.
+2. Leave `SKITZA_CAPABILITY_LEGACY_SECRETS` as `[]` for this first zero-break
+   cutover. Deploy and verify that private uploads, evidence reads, join intents,
+   and no-charge proposals still work.
+3. Replace the Clerk publishable and secret keys, but do not change
+   `SKITZA_CAPABILITY_SECRET`. Existing signed links and derived private object
+   paths therefore remain byte-for-byte compatible.
+4. A later independent capability-key rotation may set a brand-new
+   `SKITZA_CAPABILITY_SECRET` only if its exact former value is added to
+   `SKITZA_CAPABILITY_LEGACY_SECRETS` in the same rollout. Keep that former key
+   while any durable no-charge proposal or in-flight capability may still be
+   used.
+5. After the Clerk rollback window is explicitly closed, rotate or delete the
+   exact old Clerk API key at Clerk and prove that it can no longer call the
+   Backend API. Keep the same bytes only in `SKITZA_CAPABILITY_SECRET`; do not
+   change the application secret during this provider-key revocation. If the
+   old Development instance still needs a Backend API key, issue a different
+   Clerk key for that purpose.
+
+Setting a brand-new capability key without preserving the former signing key is
+not a safe Clerk cutover: it invalidates durable no-charge proposals and can
+strand in-flight private uploads whose object paths were derived from that key.
+Production and other deployed environments fail closed when
+`SKITZA_CAPABILITY_SECRET` is missing; they never silently reuse
+`CLERK_SECRET_KEY`.
 
 ## Required test matrix
 

@@ -5,7 +5,7 @@
 // shape used by the legacy /dashboard/profile?tab=store page so the
 // data layer stays untouched.
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
 import { coerceTaxMode } from "~/lib/tax-mode";

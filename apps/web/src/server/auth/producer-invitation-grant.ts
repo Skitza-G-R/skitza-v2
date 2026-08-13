@@ -1,11 +1,4 @@
-import {
-  type Db,
-  createDb,
-  eq,
-  producerInvitationGrants,
-  producers,
-  sql,
-} from "@skitza/db";
+import { type Db, createDb, eq, producerInvitationGrants, producers, sql } from "@skitza/db";
 
 import { invitationPlaceholderSlug } from "~/lib/slug";
 
@@ -14,7 +7,7 @@ import type { AcceptedProducerInvitation } from "./producer-invitation";
 type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 export type ProducerInvitationGrantInput = AcceptedProducerInvitation &
-  Readonly<{ clerkInstanceId: string }>;
+  Readonly<{ clerkInstanceId: string; providerClerkUserId: string }>;
 
 export type ProducerInvitationGrantResult =
   | Readonly<{ status: "created" }>
@@ -32,6 +25,7 @@ function receiptMatches(
   return (
     existing.clerkInvitationId === input.invitationId &&
     existing.clerkUserId === input.clerkUserId &&
+    existing.providerClerkUserId === input.providerClerkUserId &&
     existing.clerkInstanceId === input.clerkInstanceId &&
     existing.invitedEmailHash === input.emailHash &&
     sameInstant(existing.invitationCreatedAt, input.createdAt) &&
@@ -83,6 +77,7 @@ export async function claimProducerInvitationGrant(
       .values({
         clerkInvitationId: input.invitationId,
         clerkUserId: input.clerkUserId,
+        providerClerkUserId: input.providerClerkUserId,
         clerkInstanceId: input.clerkInstanceId,
         invitedEmailHash: input.emailHash,
         invitationCreatedAt: new Date(input.createdAt),
@@ -99,10 +94,7 @@ export async function claimProducerInvitationGrant(
         clerkUserId: input.clerkUserId,
         email: input.emailAddress,
         displayName: null,
-        slug: invitationPlaceholderSlug(
-          input.emailAddress,
-          input.invitationId,
-        ),
+        slug: invitationPlaceholderSlug(input.emailAddress, input.invitationId),
       })
       .onConflictDoNothing()
       .returning({ clerkUserId: producers.clerkUserId });

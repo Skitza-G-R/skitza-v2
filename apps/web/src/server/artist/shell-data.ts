@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb } from "@skitza/db";
 
 import { artistNotificationUnreadCount } from "~/server/artist/notifications";
@@ -19,21 +19,19 @@ export interface ArtistShellState {
 
 const DEFAULT_STATE: ArtistShellState = { unreadCount: 0 };
 
-export const getArtistShellState = cache(
-  async (): Promise<ArtistShellState> => {
-    const { userId } = await auth();
-    if (!userId) return DEFAULT_STATE;
+export const getArtistShellState = cache(async (): Promise<ArtistShellState> => {
+  const { userId } = await auth();
+  if (!userId) return DEFAULT_STATE;
 
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) return DEFAULT_STATE;
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return DEFAULT_STATE;
 
-    try {
-      return {
-        unreadCount: await artistNotificationUnreadCount(createDb(databaseUrl), userId),
-      };
-    } catch {
-      // Shell chrome stays available if the feed cannot be loaded.
-      return DEFAULT_STATE;
-    }
-  },
-);
+  try {
+    return {
+      unreadCount: await artistNotificationUnreadCount(createDb(databaseUrl), userId),
+    };
+  } catch {
+    // Shell chrome stays available if the feed cannot be loaded.
+    return DEFAULT_STATE;
+  }
+});

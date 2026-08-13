@@ -189,6 +189,7 @@ describe("clerk webhook", () => {
       "1",
       `sha256:${createHash("sha256").update(body).digest("hex")}`,
       "ins_test",
+      expect.any(Function),
     );
   });
 
