@@ -179,6 +179,7 @@ export function OverviewScreen({
           className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
         >
           <h1
+            data-gate1-meaningful-title
             id="offline-overview-heading"
             className="font-syne text-[28px] leading-tight font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]"
           >
@@ -203,7 +204,10 @@ export function OverviewScreen({
       <div className="flex flex-col gap-4 lg:gap-5">
         <header className="reveal-up flex min-w-0 items-end justify-between gap-6">
           <div className="min-w-0">
-            <h1 className="font-syne text-[32px] leading-[0.98] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] lg:text-[38px]">
+            <h1
+              data-gate1-meaningful-title
+              className="font-syne text-[32px] leading-[0.98] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] lg:text-[38px]"
+            >
               {greetingFor(now, timezone)}, {firstName}.
             </h1>
             <p className="mt-2 text-[15px] text-[rgb(var(--fg-muted))] lg:text-sm">
@@ -570,6 +574,7 @@ function PulseStat({
 }) {
   return (
     <div
+      data-gate1-meaningful-item={last ? "" : undefined}
       className={`${last ? "" : "border-r border-[rgb(var(--border-subtle))]"} ${className} min-w-0 px-4 py-5 lg:px-6`}
     >
       <p className="font-mono text-[9.5px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-default))] uppercase">

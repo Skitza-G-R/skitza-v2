@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   clearBrowserPushSubscription: vi.fn(),
   clearPlaybackForAccount: vi.fn(),
   releaseManagedUploadsForAccount: vi.fn(),
+  setUploadRuntimeAccountId: vi.fn(),
   startMultipartCancellationRecovery: vi.fn(),
   toast: vi.fn(),
   unsubscribePushAction: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock("~/lib/audio/upload-manager", () => ({
   managedUploadIsActive: vi.fn(() => false),
   releaseManagedUploadsForAccount: mocks.releaseManagedUploadsForAccount,
   retryManagedUpload: vi.fn(),
-  setUploadRuntimeAccountId: vi.fn(),
+  setUploadRuntimeAccountId: mocks.setUploadRuntimeAccountId,
   useManagedUploads: vi.fn(() => []),
 }));
 vi.mock("~/lib/audio/use-multipart-upload", () => ({
@@ -59,7 +60,11 @@ vi.mock("./playback-runtime", () => ({
   usePlaybackSnapshot: vi.fn(() => ({ track: null })),
 }));
 
-import { isClerkUserButtonSignOutTarget, useSafeSignOut } from "./app-media-runtime";
+import {
+  clearMediaForRevokedAccount,
+  isClerkUserButtonSignOutTarget,
+  useSafeSignOut,
+} from "./app-media-runtime";
 
 const LEGACY_SIGN_OUT_SELECTOR =
   '[data-localization-key="userButtonPopoverActionSignOut"]';
@@ -234,6 +239,30 @@ describe("safe explicit sign-out", () => {
       "user_failed_push_boundary",
     );
     expect(mocks.clerkSignOut).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmed desktop revocation", () => {
+  it("conceals upload metadata before reusing complete media cleanup", async () => {
+    const timeline: string[] = [];
+    mocks.setUploadRuntimeAccountId.mockImplementation(() => {
+      timeline.push("conceal");
+    });
+    mocks.cancelManagedUploadsForAccount.mockImplementation(() => {
+      timeline.push("managed");
+      return Promise.resolve(true);
+    });
+    mocks.cancelPersistedUploadsForAccount.mockResolvedValue(true);
+    mocks.clearPlaybackForAccount.mockResolvedValue(undefined);
+    mocks.releaseManagedUploadsForAccount.mockResolvedValue(undefined);
+
+    await clearMediaForRevokedAccount("revoked-account");
+
+    expect(timeline).toEqual(["conceal", "managed"]);
+    expect(mocks.setUploadRuntimeAccountId).toHaveBeenCalledWith(null);
+    expect(mocks.cancelPersistedUploadsForAccount).toHaveBeenCalledWith("revoked-account");
+    expect(mocks.clearPlaybackForAccount).toHaveBeenCalledWith("revoked-account");
+    expect(mocks.releaseManagedUploadsForAccount).toHaveBeenCalledWith("revoked-account");
   });
 });
 

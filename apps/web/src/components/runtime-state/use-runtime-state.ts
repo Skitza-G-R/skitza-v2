@@ -70,14 +70,10 @@ function emitRuntimeStateUpdated(scopeKey: string, slot: RuntimeSlot): void {
 }
 
 function useAccountPrivateRuntimeDraftWriter(userId: string) {
-  const writeGeneration = useMemo(
-    () => captureAccountPrivateWriteGeneration(userId),
-    [userId],
-  );
+  const writeGeneration = useMemo(() => captureAccountPrivateWriteGeneration(userId), [userId]);
 
   return useCallback(
-    (write: () => boolean) =>
-      isAccountPrivateRuntimeWriteAllowed(writeGeneration) && write(),
+    (write: () => boolean) => isAccountPrivateRuntimeWriteAllowed(writeGeneration) && write(),
     [writeGeneration],
   );
 }
@@ -143,7 +139,12 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
   );
 
   useLayoutEffect(() => {
-    if (!privateStateAccessAllowed || !storage || !scope) return;
+    if (!privateStateAccessAllowed || !storage || !scope) {
+      cacheReadBeforePaint.current = false;
+      setData(undefined);
+      setSource("unseen");
+      return;
+    }
     const cached = readRuntimeState(storage, scope, slot);
     if (cached) {
       cacheReadBeforePaint.current = true;

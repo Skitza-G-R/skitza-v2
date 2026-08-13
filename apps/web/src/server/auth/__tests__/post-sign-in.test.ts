@@ -131,6 +131,16 @@ describe("sanitizePostSignInTarget", () => {
       },
     ],
     [
+      `/api/desktop/auth/start?state=${"s".repeat(43)}` +
+        `&code_challenge=${"c".repeat(43)}&code_challenge_method=S256`,
+      {
+        href:
+          `/api/desktop/auth/start?state=${"s".repeat(43)}` +
+          `&code_challenge=${"c".repeat(43)}&code_challenge_method=S256`,
+        platform: "producer",
+      },
+    ],
+    [
       "/listen/guest_song-token_123.signature_456",
       {
         href: "/listen/guest_song-token_123.signature_456",
@@ -151,6 +161,10 @@ describe("sanitizePostSignInTarget", () => {
     "/choose-role",
     "/artist-lookalike",
     "/dashboard-lookalike",
+    `/api/desktop/auth/start?state=${"s".repeat(43)}` +
+      `&code_challenge=${"c".repeat(43)}&code_challenge_method=plain`,
+    `/api/desktop/auth/start?state=${"s".repeat(43)}` +
+      `&code_challenge=${"c".repeat(43)}&code_challenge_method=S256&extra=1`,
     "/",
     "",
   ])("rejects unsafe or non-platform target %s", (raw) => {

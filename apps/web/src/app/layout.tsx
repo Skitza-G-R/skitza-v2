@@ -6,6 +6,8 @@ import { ThemeProvider } from "next-themes";
 
 import { SkipToContent } from "~/components/a11y/skip-to-content";
 import { AppMediaRuntime } from "~/components/audio/app-media-runtime";
+import { DesktopAuthTicketBridge } from "~/components/auth/desktop-auth-ticket-bridge";
+import { DesktopRuntimeBridge } from "~/components/desktop/desktop-runtime-bridge";
 import { nativeThemeProviderProps } from "~/components/native/native-theme";
 import { NativeViewportSync } from "~/components/native/native-viewport";
 import { PostHogProvider } from "~/components/observability/posthog-provider";
@@ -209,6 +211,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             {/* Registers the install/update runtime. Only versioned static
                 assets and explicit public resources are cacheable; private
                 app data remains network-only. */}
+            <DesktopAuthTicketBridge />
+            <DesktopRuntimeBridge />
             <NativeAppRuntime />
             <AppMediaRuntime />
             {/* PostHog product analytics. Mounted INSIDE ClerkProvider

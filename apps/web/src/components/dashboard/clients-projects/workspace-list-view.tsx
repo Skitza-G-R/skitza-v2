@@ -213,7 +213,10 @@ export function WorkspaceListView({
           <p className="hidden text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase sm:block">
             Workspace
           </p>
-          <h1 className="font-syne truncate text-[30px] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:mt-1 sm:text-[42px]">
+          <h1
+            data-gate1-meaningful-title
+            className="font-syne truncate text-[30px] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:mt-1 sm:text-[42px]"
+          >
             {tab === "projects" ? "Projects" : "Clients"}
           </h1>
         </div>

@@ -11,6 +11,7 @@ export type SanitizedPostSignInTarget = Readonly<{
 const AUTH_TARGET_ORIGIN = "https://post-sign-in.skitza.invalid";
 const MAX_AUTH_TARGET_LENGTH = 2048;
 const JOIN_SLUG_PATTERN = /^[a-z0-9-]{3,48}$/;
+const DESKTOP_AUTH_VALUE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 function matchesRouteFamily(pathname: string, root: string): boolean {
   return pathname === root || pathname.startsWith(`${root}/`);
@@ -34,8 +35,23 @@ function isPublicSongUrl(url: URL): boolean {
   return /^\/listen\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.pathname) && url.search.length === 0;
 }
 
+function isDesktopAuthStartUrl(url: URL): boolean {
+  return (
+    url.pathname === "/api/desktop/auth/start" &&
+    !url.hash &&
+    Array.from(url.searchParams.keys()).length === 3 &&
+    url.searchParams.getAll("state").length === 1 &&
+    url.searchParams.getAll("code_challenge").length === 1 &&
+    url.searchParams.getAll("code_challenge_method").length === 1 &&
+    DESKTOP_AUTH_VALUE_PATTERN.test(url.searchParams.get("state") ?? "") &&
+    DESKTOP_AUTH_VALUE_PATTERN.test(url.searchParams.get("code_challenge") ?? "") &&
+    url.searchParams.get("code_challenge_method") === "S256"
+  );
+}
+
 function platformForUrl(url: URL): AuthPlatform | null {
   const { pathname } = url;
+  if (isDesktopAuthStartUrl(url)) return "producer";
   if (isPublicSongUrl(url)) return "artist";
   if (isJoinContinuationUrl(url)) return "artist";
   if (matchesRouteFamily(pathname, "/artist") || matchesRouteFamily(pathname, "/artist-welcome")) {

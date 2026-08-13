@@ -133,7 +133,7 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
   });
 
   return (
-    <div className="relative isolate">
+    <div className="relative isolate" data-gate1-meaningful-screen="today">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[260px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
