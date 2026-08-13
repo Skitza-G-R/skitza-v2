@@ -99,6 +99,13 @@ export async function prepareMediaAccountExit(accountId: string): Promise<boolea
   return activeCancelled && journalCancelled;
 }
 
+export async function clearMediaForRevokedAccount(accountId: string): Promise<void> {
+  // Conceal File names and upload metadata synchronously. Cancellation and
+  // release then reuse the established account-exit boundary in the background.
+  setUploadRuntimeAccountId(null);
+  await prepareMediaAccountExit(accountId);
+}
+
 async function prepareAppAccountExit(
   accountId: string,
   removeOwnedPush: OwnedPushRemoval | null,

@@ -11,6 +11,18 @@ import {
   readRecentAudio,
   type AudioCachePolicy,
 } from "~/lib/audio/recent-audio-cache";
+import {
+  recordGate1AudioNetworkRequest,
+  recordGate1AudioPlaying,
+  recordGate1AudioSource,
+  startGate1Journey,
+} from "~/lib/desktop/gate1-proof";
+import {
+  desktopSessionCacheAccess,
+  getBrowserOnlineSnapshot,
+  subscribeBrowserOnline,
+  subscribeDesktopSessionValidation,
+} from "~/lib/desktop/session-validation";
 
 export type PlayerTrack = {
   id: string;
@@ -58,6 +70,7 @@ type ResolvedAudioSource = {
   trackId: string;
   canonicalUrl: string;
   playbackUrl: string;
+  proofSource: "recent-cache" | "network";
 };
 
 const EMPTY_PLAYBACK: PlaybackSnapshot = {
@@ -134,6 +147,7 @@ export function publishNowPlaying(next: { trackId: string | null; playing: boole
 
 export function playerPlay(track: PlayerTrack): void {
   if (typeof window === "undefined") return;
+  startGate1Journey("cached-recent-audio");
   window.dispatchEvent(new CustomEvent(EVT_SET, { detail: track }));
 }
 
@@ -154,6 +168,7 @@ export function playerLoad(track: PlayerTrack, options: PlayerLoadOptions): void
 
 export function playerToggle(): void {
   if (typeof window === "undefined") return;
+  if (!playbackSnapshot.playing) startGate1Journey("cached-recent-audio");
   window.dispatchEvent(new CustomEvent(EVT_TOGGLE));
 }
 
@@ -436,8 +451,7 @@ export async function clearPlaybackForAccount(accountId: string): Promise<void> 
   }
 }
 
-export function resetPlaybackForPrivacy(): void {
-  emitPlayback(EMPTY_PLAYBACK);
+export function clearPlaybackMediaSessionForPrivacy(): void {
   if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
     try {
       navigator.mediaSession.metadata = null;
@@ -450,6 +464,11 @@ export function resetPlaybackForPrivacy(): void {
       // Partial Media Session implementations may reject state writes.
     }
   }
+}
+
+export function resetPlaybackForPrivacy(): void {
+  emitPlayback(EMPTY_PLAYBACK);
+  clearPlaybackMediaSessionForPrivacy();
 }
 
 export function reducePlaybackSnapshot(
@@ -502,7 +521,46 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
   const objectUrlRef = useRef<string | null>(null);
   const persistAtRef = useRef(0);
   const [resolvedSource, setResolvedSource] = useState<ResolvedAudioSource | null>(null);
+  const [, setDesktopValidationVersion] = useState(0);
   const snapshot = usePlaybackSnapshot();
+  const browserOnline = useSyncExternalStore(
+    subscribeBrowserOnline,
+    getBrowserOnlineSnapshot,
+    () => true,
+  );
+
+  useEffect(
+    () =>
+      subscribeDesktopSessionValidation(() => {
+        setDesktopValidationVersion((version) => version + 1);
+      }),
+    [],
+  );
+
+  const cacheAccountAccess =
+    typeof navigator === "undefined"
+      ? { kind: "web" as const }
+      : desktopSessionCacheAccess(accountId ?? null, browserOnline);
+  const desktopAudioAllowed = cacheAccountAccess.kind !== "desktop" || cacheAccountAccess.allowed;
+  const desktopAudioAllowedRef = useRef(desktopAudioAllowed);
+  desktopAudioAllowedRef.current = desktopAudioAllowed;
+
+  useEffect(() => {
+    if (desktopAudioAllowed) {
+      return;
+    }
+    const audio = audioRef.current;
+    audio?.pause();
+    audio?.removeAttribute("src");
+    audio?.load();
+    emitPlayback({ ...EMPTY_PLAYBACK, volume: playbackSnapshot.volume });
+    clearPlaybackMediaSessionForPrivacy();
+    setResolvedSource(null);
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }, [desktopAudioAllowed]);
 
   useEffect(() => {
     if (accountId === undefined) return;
@@ -515,25 +573,28 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
     accountInitializedRef.current = true;
     previousAccountRef.current = accountId;
     playbackAccountId = accountId;
-    if (accountId) {
+    if (accountId && desktopAudioAllowed) {
       emitPlayback(restorePlaybackForAccount(accountId, window.location.origin));
     } else {
       emitPlayback(EMPTY_PLAYBACK);
     }
-  }, [accountId]);
+  }, [accountId, desktopAudioAllowed]);
 
   useEffect(() => {
     const onSet = (event: Event) => {
+      if (!desktopAudioAllowedRef.current) return;
       const command = playbackSetCommandFromDetail((event as CustomEvent<unknown>).detail);
       if (!command) return;
       emitPlayback(reducePlaybackSnapshot(playbackSnapshot, command));
       persistPlayback(window.location.origin);
     };
     const onToggle = () => {
+      if (!desktopAudioAllowedRef.current) return;
       updatePlayback((current) => reducePlaybackSnapshot(current, { kind: "toggle" }));
       persistPlayback(window.location.origin);
     };
     const onSeek = (event: Event) => {
+      if (!desktopAudioAllowedRef.current) return;
       const detail = (event as CustomEvent<unknown>).detail;
       if (typeof detail !== "number" || !Number.isFinite(detail)) return;
       const nextMs = Math.max(0, detail);
@@ -544,6 +605,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       persistPlayback(window.location.origin);
     };
     const onVolume = (event: Event) => {
+      if (!desktopAudioAllowedRef.current) return;
       const detail = (event as CustomEvent<unknown>).detail;
       if (typeof detail !== "number") return;
       updatePlayback((current) =>
@@ -551,6 +613,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       );
     };
     const onClose = () => {
+      if (!desktopAudioAllowedRef.current) return;
       const currentAccount = playbackAccountId;
       emitPlayback(reducePlaybackSnapshot(playbackSnapshot, { kind: "close" }));
       if (currentAccount) {
@@ -579,6 +642,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
 
   useEffect(() => {
     const flushCurrentPosition = () => {
+      if (!desktopAudioAllowedRef.current) return;
       const currentTime = audioRef.current?.currentTime;
       const currentMs =
         typeof currentTime === "number" && Number.isFinite(currentTime)
@@ -613,12 +677,18 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
 
     const origin = window.location.origin;
     const cacheAccountId = playbackAccountId;
+    const desktopAccess = desktopSessionCacheAccess(cacheAccountId, browserOnline);
+    if (desktopAccess.kind === "desktop" && !desktopAccess.allowed) {
+      setResolvedSource(null);
+      return;
+    }
     if (!cacheAccountId || !isRecentAudioCacheEligible(canonicalUrl, track.cachePolicy, origin)) {
       setResolvedSource({
         accountId: cacheAccountId,
         trackId: track.id,
         canonicalUrl,
         playbackUrl: canonicalUrl,
+        proofSource: "network",
       });
       return;
     }
@@ -630,6 +700,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       async (cached) => {
         if (effectWasAborted()) return;
         if (cached) {
+          recordGate1AudioSource("recent-cache");
           const objectUrl = URL.createObjectURL(await cached.blob());
           if (effectWasAborted()) {
             URL.revokeObjectURL(objectUrl);
@@ -641,14 +712,18 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
             trackId: track.id,
             canonicalUrl,
             playbackUrl: objectUrl,
+            proofSource: "recent-cache",
           });
           return;
         }
+        recordGate1AudioSource("network");
+        recordGate1AudioNetworkRequest();
         setResolvedSource({
           accountId: cacheAccountId,
           trackId: track.id,
           canonicalUrl,
           playbackUrl: canonicalUrl,
+          proofSource: "network",
         });
         void cacheRecentAudio(
           cacheAccountId,
@@ -669,7 +744,14 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
         objectUrlRef.current = null;
       }
     };
-  }, [accountId, snapshot.track?.id, snapshot.track?.audioUrl, snapshot.track?.cachePolicy]);
+  }, [
+    accountId,
+    browserOnline,
+    desktopAudioAllowed,
+    snapshot.track?.id,
+    snapshot.track?.audioUrl,
+    snapshot.track?.cachePolicy,
+  ]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -695,6 +777,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       audio.currentTime = snapshot.currentMs / 1000;
     }
     if (snapshot.playing) {
+      recordGate1AudioSource(resolvedSource.proofSource);
       void audio.play().catch(() => {
         updatePlayback((current) => ({ ...current, playing: false }));
       });
@@ -738,6 +821,9 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
     const onPlay = () => {
       updatePlayback((current) => ({ ...current, playing: true }));
     };
+    const onPlaying = () => {
+      if (!audio.muted && audio.volume > 0) recordGate1AudioPlaying();
+    };
     const onPause = () => {
       updatePlayback((current) => ({ ...current, playing: false }));
       persistPlayback(window.location.origin);
@@ -749,12 +835,14 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("loadedmetadata", onMetadata);
     audio.addEventListener("play", onPlay);
+    audio.addEventListener("playing", onPlaying);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("ended", onEnded);
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", onMetadata);
       audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("ended", onEnded);
     };
@@ -762,6 +850,10 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
+    if (!desktopAudioAllowed) {
+      clearPlaybackMediaSessionForPrivacy();
+      return;
+    }
     const mediaSession = navigator.mediaSession;
     const track = snapshot.track;
     try {
@@ -833,7 +925,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
         }
       }
     };
-  }, [snapshot.playing, snapshot.track]);
+  }, [desktopAudioAllowed, snapshot.playing, snapshot.track]);
 
   return (
     <audio

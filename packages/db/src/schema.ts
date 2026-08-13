@@ -185,6 +185,61 @@ export const producers = pgTable(
 export type Producer = typeof producers.$inferSelect;
 export type NewProducer = typeof producers.$inferInsert;
 
+// Short-lived replay protection for the desktop system-browser sign-in
+// handoff. Raw authorization codes, PKCE verifiers, state values, and Clerk
+// tickets never enter the database. A matching row may make exactly one
+// NULL -> consumed_at transition before its sixty-second expiry.
+export const desktopAuthCodes = pgTable(
+  "desktop_auth_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    codeDigest: text("code_digest").notNull(),
+    stateDigest: text("state_digest").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    pkceChallenge: text("pkce_challenge").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    producerFk: foreignKey({
+      columns: [t.producerId],
+      foreignColumns: [producers.id],
+      name: "desktop_auth_codes_producer_fk",
+    }).onDelete("cascade"),
+    codeDigestUnique: unique("desktop_auth_codes_code_digest_unique").on(t.codeDigest),
+    expiresIdx: index("desktop_auth_codes_expires_idx").on(t.expiresAt, t.id),
+    codeDigestShape: check(
+      "desktop_auth_codes_code_digest_shape",
+      sql`${t.codeDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    stateDigestShape: check(
+      "desktop_auth_codes_state_digest_shape",
+      sql`${t.stateDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    pkceChallengeShape: check(
+      "desktop_auth_codes_pkce_challenge_shape",
+      sql`${t.pkceChallenge} ~ '^[A-Za-z0-9_-]{43}$'`,
+    ),
+    lifetimeShape: check(
+      "desktop_auth_codes_lifetime_shape",
+      sql`(
+        ${t.expiresAt} > ${t.createdAt}
+        AND ${t.expiresAt} <= ${t.createdAt} + interval '60 seconds'
+        AND (
+          ${t.consumedAt} IS NULL
+          OR (
+            ${t.consumedAt} >= ${t.createdAt}
+            AND ${t.consumedAt} < ${t.expiresAt}
+          )
+        )
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type DesktopAuthCode = typeof desktopAuthCodes.$inferSelect;
+export type NewDesktopAuthCode = typeof desktopAuthCodes.$inferInsert;
+
 export const portfolioTracks = pgTable(
   "portfolio_tracks",
   {
