@@ -10,7 +10,7 @@ use crate::origin::OriginPolicy;
 const BYPASS_ENV: &str = "SKITZA_DESKTOP_PROTECTION_BYPASS";
 const BYPASS_PARAMETER: &str = "x-vercel-protection-bypass";
 const SET_BYPASS_COOKIE_PARAMETER: &str = "x-vercel-set-bypass-cookie";
-const PRODUCTION_ORIGIN: &str = "https://skitza.app";
+const PRODUCTION_HOST: &str = "skitza.app";
 
 pub struct ProtectionBypass {
     value: String,
@@ -33,7 +33,7 @@ impl ProtectionBypass {
         let Some(value) = value.take() else {
             return Ok(None);
         };
-        if origin.as_str() == PRODUCTION_ORIGIN {
+        if is_production_origin(origin) {
             let mut value = value;
             value.zeroize();
             return Err("protection-bypass-production-forbidden");
@@ -72,6 +72,18 @@ impl ProtectionBypass {
             .append_pair(SET_BYPASS_COOKIE_PARAMETER, "true");
         url
     }
+}
+
+fn is_production_origin(origin: &OriginPolicy) -> bool {
+    let Ok(url) = Url::parse(origin.as_str()) else {
+        return false;
+    };
+    url.scheme().eq_ignore_ascii_case("https")
+        && url.host_str().is_some_and(|host| {
+            host.trim_end_matches('.')
+                .eq_ignore_ascii_case(PRODUCTION_HOST)
+        })
+        && url.port_or_known_default() == Some(443)
 }
 
 impl Drop for ProtectionBypass {
@@ -123,12 +135,27 @@ mod tests {
     }
 
     #[test]
-    fn production_origin_rejects_even_a_valid_value() {
-        let origin = OriginPolicy::parse(PRODUCTION_ORIGIN).unwrap();
-        match ProtectionBypass::for_origin(&origin, Some("A".repeat(32))) {
-            Err(error) => assert_eq!(error, "protection-bypass-production-forbidden"),
-            Ok(_) => panic!("production origin accepted a protection bypass"),
+    fn dns_equivalent_production_origins_reject_even_a_valid_value() {
+        for raw_origin in [
+            "https://skitza.app",
+            "https://skitza.app.",
+            "https://SKITZA.APP",
+            "https://skitza.app:443",
+        ] {
+            let origin = OriginPolicy::parse(raw_origin).unwrap();
+            match ProtectionBypass::for_origin(&origin, Some("A".repeat(32))) {
+                Err(error) => assert_eq!(error, "protection-bypass-production-forbidden"),
+                Ok(_) => panic!("production origin accepted a protection bypass: {raw_origin}"),
+            }
         }
+    }
+
+    #[test]
+    fn exact_vercel_proof_origin_still_accepts_a_valid_value() {
+        let origin = OriginPolicy::parse("https://skitza-desktop-gate1-proof.vercel.app").unwrap();
+        assert!(ProtectionBypass::for_origin(&origin, Some("A".repeat(32)))
+            .unwrap()
+            .is_some());
     }
 
     #[test]
