@@ -114,7 +114,7 @@ describe("ArtistBottomNav liquid-glass adapter", () => {
     ]);
     expect(tabs[0]?.getAttribute("aria-current")).toBe("page");
     expect(tabs.every((tab) => tab.classList.contains("min-w-0"))).toBe(true);
-    expect(tabs.every((tab) => tab.style.minHeight === "68px")).toBe(true);
+    expect(tabs.every((tab) => tab.style.minHeight === "60px")).toBe(true);
   });
 
   it.each([360, 390])(
@@ -132,11 +132,11 @@ describe("ArtistBottomNav liquid-glass adapter", () => {
         value: viewportWidth,
       });
       Object.defineProperty(nav, "getBoundingClientRect", {
-        value: () => makeRect(frameInset, 700, navWidth, 68),
+        value: () => makeRect(frameInset, 700, navWidth, 60),
       });
       tabs.forEach((tab, index) => {
         Object.defineProperty(tab, "getBoundingClientRect", {
-          value: () => makeRect(frameInset + index * tabWidth, 700, tabWidth, 68),
+          value: () => makeRect(frameInset + index * tabWidth, 700, tabWidth, 60),
         });
       });
 

@@ -35,11 +35,11 @@ const SETTINGS = readFileSync(
   "utf8",
 );
 
-describe("SK-117 mobile bottom-navigation sizing", () => {
-  it("preserves the larger shared icon, label, and tap-target sizes", () => {
+describe("SK-230 compact mobile bottom-navigation sizing", () => {
+  it("uses a compact resting row while preserving full-size icon and label sources", () => {
     expect(SHARED_NAV).toContain("gap-1");
     expect(SHARED_NAV).toContain("py-2.5");
-    expect(SHARED_NAV).toContain("minHeight: 68");
+    expect(SHARED_NAV).toContain("minHeight: 60");
     expect(SHARED_NAV).toContain("size={24}");
     expect(SHARED_NAV).toContain("fontSize: 11");
   });
@@ -55,24 +55,38 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
     expect(GLOBALS).not.toContain("calc(env(safe-area-inset-bottom, 0px) - 8px)");
   });
 
-  it("keeps each 68px tab row inside a true 68px bordered surface", () => {
+  it("grows each 60px resting row back to 68px on touch or keyboard focus", () => {
     const glassBlock = GLOBALS.match(/\.liquid-glass-bottom-nav__glass \{([\s\S]*?)\n\s{2}\}/)?.[1];
     const borderOverlayBlock = GLOBALS.match(
       /\.liquid-glass-bottom-nav__glass::after \{([\s\S]*?)\n\s{2}\}/,
     )?.[1];
 
-    expect(glassBlock).toContain("height: 68px;");
-    expect(glassBlock).toContain("min-height: 68px;");
+    expect(glassBlock).toContain("height: 60px;");
+    expect(glassBlock).toContain("min-height: 60px;");
+    expect(glassBlock).toContain("transform-origin: center bottom;");
+    expect(glassBlock).toContain("transition: transform 220ms var(--ease-out-strong);");
     expect(glassBlock).toContain("border: 0;");
     expect(borderOverlayBlock).toContain("border: 1px solid rgb(var(--fg-onsidebar) / 0.14);");
     expect(GLOBALS).toMatch(
-      /\.liquid-glass-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/,
+      /\.liquid-glass-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*60px;/,
+    );
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__glass\[data-interacting="true"\][\s\S]*?transform:\s*scaleY\(calc\(68 \/ 60\)\)/,
+    );
+    expect(GLOBALS).toContain(
+      ".liquid-glass-bottom-nav__glass:has(.liquid-glass-bottom-nav__tab:focus-visible)",
     );
     expect(GLOBALS).toContain(
       "grid-template-columns: repeat(var(--sk-nav-column-count), minmax(0, 1fr));",
     );
     expect(GLOBALS).toContain("--sk-nav-lens-width: calc(var(--sk-nav-column-width) - 2px);");
-    expect(SHARED_NAV.match(/minHeight:\s*68/g)).toHaveLength(2);
+    expect(SHARED_NAV.match(/minHeight:\s*60/g)).toHaveLength(2);
+  });
+
+  it("makes the expansion immediate when reduced motion is requested", () => {
+    expect(GLOBALS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.liquid-glass-bottom-nav__glass \{[\s\S]*?transition:\s*none !important;/,
+    );
   });
 
   it("keeps artist content above the in-flow nav without changing desktop spacing", () => {

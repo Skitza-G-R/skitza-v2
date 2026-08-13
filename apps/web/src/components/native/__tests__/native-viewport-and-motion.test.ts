@@ -47,6 +47,7 @@ describe("native viewport metrics", () => {
     ).toEqual({
       height: 520,
       offsetTop: 0,
+      viewportBottom: 520,
       keyboardInset: 324,
       keyboardOpen: true,
     });
@@ -62,6 +63,34 @@ describe("native viewport metrics", () => {
     ).toMatchObject({
       height: 800,
       keyboardInset: 0,
+      keyboardOpen: false,
+    });
+  });
+
+  it("keeps a top-anchored standalone shell on the physical bottom edge", () => {
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 844,
+        viewportHeight: 785,
+        viewportOffsetTop: 59,
+      }),
+    ).toMatchObject({
+      height: 785,
+      offsetTop: 59,
+      viewportBottom: 844,
+      keyboardOpen: false,
+    });
+
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 844,
+        viewportHeight: 751,
+        viewportOffsetTop: 59,
+      }),
+    ).toMatchObject({
+      height: 751,
+      offsetTop: 59,
+      viewportBottom: 844,
       keyboardOpen: false,
     });
   });
@@ -168,10 +197,10 @@ describe("native CSS contracts", () => {
     expect(productionCss.css).toContain("display-mode:standalone");
     expect(standaloneShellRule).toBeDefined();
     expect(standaloneShellRule).toContain(
-      "height:var(--sk-viewport-height,100dvh)",
+      "height:var(--sk-viewport-bottom,100dvh)",
     );
     expect(standaloneShellRule).toContain(
-      "max-height:var(--sk-viewport-height,100dvh)",
+      "max-height:var(--sk-viewport-bottom,100dvh)",
     );
     expect(standaloneShellRule).not.toContain("height:100vh");
     expect(productionCss.css).toContain(
