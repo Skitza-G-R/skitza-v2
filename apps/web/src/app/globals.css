@@ -186,6 +186,7 @@
        hydration and in browsers without that API. */
     --sk-viewport-height: 100dvh;
     --sk-viewport-offset-top: 0px;
+    --sk-viewport-bottom: 100dvh;
     --sk-keyboard-inset: 0px;
     --sk-viewport-growth: 0px;
   }
@@ -404,13 +405,15 @@
     --sk-nav-column-count: 5;
     --sk-nav-column-width: 20%;
     --sk-nav-lens-x: 50%;
-    --sk-nav-lens-y: 34px;
+    --sk-nav-lens-y: 30px;
     --sk-nav-lens-width: calc(var(--sk-nav-column-width) - 2px);
+    --sk-nav-content-scale-x: 0.92;
+    --sk-nav-content-scale-y: 0.92;
     position: relative;
     isolation: isolate;
     grid-template-columns: repeat(var(--sk-nav-column-count), minmax(0, 1fr));
-    height: 68px;
-    min-height: 68px;
+    height: 60px;
+    min-height: 60px;
     overflow: hidden;
     padding-bottom: 0;
     border: 0;
@@ -422,8 +425,20 @@
       0 16px 40px -20px rgb(var(--bg-sidebar) / 0.72),
       0 4px 12px -6px rgb(var(--bg-sidebar) / 0.52);
     touch-action: pan-y;
+    transform: scaleY(1);
+    transform-origin: center bottom;
+    transition: transform 220ms var(--ease-out-strong);
     user-select: none;
     -webkit-user-select: none;
+  }
+  .liquid-glass-bottom-nav__glass[data-interacting="true"],
+  .liquid-glass-bottom-nav__glass:has(.liquid-glass-bottom-nav__tab:focus-visible) {
+    --sk-nav-content-scale-x: 1;
+    --sk-nav-content-scale-y: calc(60 / 68);
+    transform: scaleY(calc(68 / 60));
+  }
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] {
+    will-change: transform;
   }
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .liquid-glass-bottom-nav__glass {
@@ -466,7 +481,7 @@
     left: 0;
     z-index: 3;
     width: var(--sk-nav-lens-width);
-    height: 60px;
+    height: 52px;
     opacity: 0;
     pointer-events: none;
     transform: translate3d(
@@ -486,7 +501,7 @@
     content: "";
     position: absolute;
     inset: 0;
-    border-radius: 21px;
+    border-radius: 19px;
     pointer-events: none;
   }
   .liquid-glass-bottom-nav__lens::before {
@@ -546,14 +561,14 @@
     background: rgb(var(--bg-sidebar) / 0.96);
     visibility: hidden;
     clip-path: ellipse(
-      calc(var(--sk-nav-lens-width) / 2) 30px at var(--sk-nav-lens-x) var(--sk-nav-lens-y)
+      calc(var(--sk-nav-lens-width) / 2) 26px at var(--sk-nav-lens-x) var(--sk-nav-lens-y)
     );
     transition: opacity 120ms var(--ease-out-strong);
   }
   .liquid-glass-bottom-nav__magnifier-grid {
     display: grid;
     width: 100%;
-    height: 68px;
+    height: 60px;
     grid-template-columns: repeat(var(--sk-nav-column-count), minmax(0, 1fr));
     filter: brightness(1.05) saturate(1.08);
     transform: scale(1.13);
@@ -571,7 +586,7 @@
   .liquid-glass-bottom-nav__magnified-tab {
     --sk-nav-proximity: 0;
     position: relative;
-    min-height: 68px;
+    min-height: 60px;
   }
   .liquid-glass-bottom-nav__tab {
     --sk-nav-proximity: 0;
@@ -607,6 +622,8 @@
         calc(var(--sk-nav-proximity, 0) * -2.5px),
         0
       )
+      scaleX(var(--sk-nav-content-scale-x))
+      scaleY(var(--sk-nav-content-scale-y))
       scale(calc(1 + var(--sk-nav-proximity, 0) * 0.045));
     transition: transform 220ms var(--ease-press);
   }
@@ -617,6 +634,8 @@
         calc(var(--sk-nav-proximity, 0) * -1px),
         0
       )
+      scaleX(var(--sk-nav-content-scale-x))
+      scaleY(var(--sk-nav-content-scale-y))
       scale(calc(1 + var(--sk-nav-proximity, 0) * 0.018));
     transition:
       transform 220ms var(--ease-press),
@@ -659,8 +678,9 @@
 
   /* PersistentPlayer dock — stacks above the producer bottom nav on
    * mobile (<1024px) so the audio dock + tab row never overlap.
-   * The glass nav is a 68px row above at least 8px of bottom breathing
-   * room. Its transparent frame owns the safe-area inset so no empty
+   * The glass nav rests at 60px, expands upward to 68px during interaction,
+   * and sits above at least 8px of bottom breathing room. Its transparent
+   * frame owns the safe-area inset so no empty
    * dark glass sits below the centered row; the dock keeps 80px +
    * safe-area clearance so the two interactive surfaces never overlap.
    * On lg+ the desktop sidebar replaces the bottom nav, so the dock
@@ -1914,6 +1934,9 @@
     .sk-press-row { transition-duration: 0ms !important; }
     .sk-press-pop:active,
     .sk-press-row:active { transform: none !important; filter: none !important; }
+    .liquid-glass-bottom-nav__glass {
+      transition: none !important;
+    }
     .liquid-glass-bottom-nav__glass::before {
       animation: none !important;
       transform: none !important;
@@ -2640,8 +2663,8 @@ html[data-theme="dark"] .sk-auth-shell {
 @media (display-mode: standalone) and (max-width: 1023px) {
   .sk-producer-app-shell {
     inset: 0 0 auto;
-    height: var(--sk-viewport-height, 100dvh);
-    max-height: var(--sk-viewport-height, 100dvh);
+    height: var(--sk-viewport-bottom, 100dvh);
+    max-height: var(--sk-viewport-bottom, 100dvh);
   }
 
   .sk-producer-app-shell .persistent-player-dock,

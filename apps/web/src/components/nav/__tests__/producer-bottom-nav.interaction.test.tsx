@@ -103,11 +103,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -117,7 +117,7 @@ describe("ProducerBottomNav finger-following glass", () => {
       clientY: 710,
     });
 
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
 
     dispatchPointer(nav, "pointermove", {
       pointerId: 3,
@@ -129,7 +129,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     });
 
     expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("245px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
   });
 
   it("starts destination navigation while the finger is still down after crossing tabs", () => {
@@ -139,11 +139,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -195,11 +195,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -251,11 +251,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -301,11 +301,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -351,11 +351,11 @@ describe("ProducerBottomNav finger-following glass", () => {
       value: capturePointer,
     });
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -403,11 +403,11 @@ describe("ProducerBottomNav finger-following glass", () => {
       value: vi.fn(),
     });
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -465,11 +465,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -517,11 +517,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -573,11 +573,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -632,11 +632,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -669,11 +669,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -717,11 +717,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     expect(tabs).toHaveLength(5);
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
     const calendarTab = tabs[3];
@@ -734,7 +734,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     });
     expect(nav.dataset.lensReady).toBe("true");
     expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("35px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
 
     dispatchPointer(nav, "pointerdown", {
       pointerId: 7,
@@ -775,7 +775,7 @@ describe("ProducerBottomNav finger-following glass", () => {
       flushAnimationFrames();
     });
     expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("245px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
   });
 
   it("keeps the crossed destination when a horizontal gesture is cancelled", () => {
@@ -785,11 +785,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(12, 700, 336, 68),
+      value: () => makeRect(12, 700, 336, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(12 + index * 67.2, 700, 67.2, 68),
+        value: () => makeRect(12 + index * 67.2, 700, 67.2, 60),
       });
     });
 
@@ -828,7 +828,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     });
 
     expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("302.4px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
   });
 
   it("responds to physical tab positions when the document is right-to-left", () => {
@@ -841,11 +841,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     ];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + (4 - index) * 70, 700, 70, 68),
+        value: () => makeRect(20 + (4 - index) * 70, 700, 70, 60),
       });
     });
 
@@ -867,11 +867,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -895,7 +895,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     });
 
     expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("315px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
   });
 
   it("does not treat a drag that returns to its start as a tap", () => {
@@ -905,11 +905,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 
@@ -942,7 +942,7 @@ describe("ProducerBottomNav finger-following glass", () => {
 
     expect(navigate).toHaveBeenCalledOnce();
     expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("35px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("30px");
   });
 
   it("keeps a rapid second touch from being overwritten by the previous settle frame", () => {
@@ -952,11 +952,11 @@ describe("ProducerBottomNav finger-following glass", () => {
     const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(20, 700, 350, 68),
+      value: () => makeRect(20, 700, 350, 60),
     });
     tabs.forEach((tab, index) => {
       Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(20 + index * 70, 700, 70, 68),
+        value: () => makeRect(20 + index * 70, 700, 70, 60),
       });
     });
 

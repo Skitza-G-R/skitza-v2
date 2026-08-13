@@ -120,7 +120,7 @@ describe("producer mobile nav viewport anchoring", () => {
       ") max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
     );
     expect(GLOBALS).toMatch(
-      /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?height:\s*68px;[\s\S]*?padding-bottom:\s*0;/,
+      /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?height:\s*60px;[\s\S]*?padding-bottom:\s*0;/,
     );
     expect(GLOBALS).not.toContain(
       "padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));",
@@ -131,11 +131,11 @@ describe("producer mobile nav viewport anchoring", () => {
   });
 
   it("centers the tab row, magnified copy, and lens in the same compact glass height", () => {
-    expect(SHARED_BOTTOM.match(/minHeight:\s*68/g)).toHaveLength(2);
-    expect(GLOBALS).toContain("--sk-nav-lens-y: 34px");
-    expect(GLOBALS).toContain("height: 60px");
+    expect(SHARED_BOTTOM.match(/minHeight:\s*60/g)).toHaveLength(2);
+    expect(GLOBALS).toContain("--sk-nav-lens-y: 30px");
+    expect(GLOBALS).toContain("height: 52px");
     expect(GLOBALS).toMatch(
-      /\.liquid-glass-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/,
+      /\.liquid-glass-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*60px;/,
     );
   });
 
@@ -172,7 +172,7 @@ describe("producer mobile nav viewport anchoring", () => {
 
     expect(GLOBALS).toContain(".liquid-glass-bottom-nav__lens");
     expect(GLOBALS).toContain(".liquid-glass-bottom-nav__magnifier");
-    expect(GLOBALS).toContain("calc(var(--sk-nav-lens-width) / 2) 30px");
+    expect(GLOBALS).toContain("calc(var(--sk-nav-lens-width) / 2) 26px");
     expect(GLOBALS).toContain("transform: scale(1.13)");
     expect(GLOBALS).toContain("touch-action: pan-y");
   });

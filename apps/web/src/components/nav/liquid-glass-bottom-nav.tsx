@@ -15,7 +15,7 @@ import { RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE } from "~/lib/run
 
 import { Icon, type IconName } from "./icons";
 
-const NAV_ROW_HEIGHT = 68;
+const NAV_ROW_HEIGHT = 60;
 const TAP_SLOP = 10;
 const INTENT_DOMINANCE = 1.15;
 const TAB_SWITCH_HYSTERESIS = 8;
@@ -523,7 +523,7 @@ export function LiquidGlassBottomNav<Id extends string>({
                 data-liquid-glass-nav-magnified-tab=""
                 className="liquid-glass-bottom-nav__magnified-tab flex min-w-0 flex-col items-center justify-center gap-1 py-2.5"
                 style={{
-                  minHeight: 68,
+                  minHeight: 60,
                   color: tab.active
                     ? "rgb(var(--brand-primary))"
                     : "rgb(var(--fg-onsidebar) / 0.68)",
@@ -590,7 +590,7 @@ export function LiquidGlassBottomNav<Id extends string>({
             data-liquid-glass-nav-tab=""
             className="liquid-glass-bottom-nav__tab sk-press relative flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
             style={{
-              minHeight: 68,
+              minHeight: 60,
               color: tab.active ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.68)",
             }}
           >
