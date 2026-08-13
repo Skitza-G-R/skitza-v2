@@ -9,7 +9,9 @@
     "build": "corepack pnpm -r build",
     "lint": "corepack pnpm -r lint",
     "typecheck": "corepack pnpm -r typecheck",
-    "test": "corepack pnpm -r test"
+    "test": "corepack pnpm -r test",
+    "desktop:dev": "corepack pnpm --filter @skitza/desktop dev",
+    "desktop:build": "corepack pnpm --filter @skitza/desktop build"
   },
   "engines": {
     "node": ">=20.11",

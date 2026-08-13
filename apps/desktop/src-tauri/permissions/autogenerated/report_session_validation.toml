@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-report-session-validation"
+description = "Enables the report_session_validation command without any pre-configured scope."
+commands.allow = ["report_session_validation"]
+
+[[permission]]
+identifier = "deny-report-session-validation"
+description = "Denies the report_session_validation command without any pre-configured scope."
+commands.deny = ["report_session_validation"]
