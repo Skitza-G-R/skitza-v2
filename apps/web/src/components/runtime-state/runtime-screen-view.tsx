@@ -656,12 +656,12 @@ export function RuntimeResumeBoundary({
 
   useLayoutEffect(() => {
     if (!isLoaded) {
-      setResume(initialOfflineResumeState());
+      setResume(online ? null : initialOfflineResumeState());
       return;
     }
     setResolvedIdentity(true);
     setResume(userId ? readResumeState(userId) : null);
-  }, [isLoaded, userId]);
+  }, [isLoaded, online, userId]);
 
   const fallbackRole = expectedRole ?? resume?.target.role ?? "producer";
   const fallbackHref =

@@ -530,6 +530,45 @@ describe("instant runtime screen transitions", () => {
 });
 
 describe("close and reopen runtime restore", () => {
+  it("restores the offline safe screen when connectivity drops before auth loads", () => {
+    mocked.auth = {
+      isLoaded: false,
+      userId: null,
+    };
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Connection-lost music library"),
+      ),
+    ).toBe(true);
+    expect(
+      writeRuntimeLaunchPointer(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+      ),
+    ).toBe(true);
+
+    render(<RuntimeResumeBoundary navigate />);
+    expect(document.querySelector("[data-runtime-launch-cover]")).toBeTruthy();
+    expect(screen.queryByText("Connection-lost music library")).toBeNull();
+
+    mocked.online = false;
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+
+    expect(document.querySelector("[data-runtime-launch-cover]")).toBeNull();
+    expect(document.querySelector("[data-runtime-resume-shell]")).toBeTruthy();
+    expect(screen.getByText("Connection-lost music library")).toBeTruthy();
+    expect(
+      document.querySelector('[data-runtime-screen-source="resume"]'),
+    ).toBeTruthy();
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
   it("shows only the neutral launch cover while an online resume resolves", () => {
     expect(
       writeRuntimeScreenSafeView(

@@ -7,6 +7,11 @@ import {
   nativeAppViewport,
 } from "~/lib/pwa/native-app-metadata";
 
+const layoutSource = readFileSync(
+  new URL("../layout.tsx", import.meta.url),
+  "utf8",
+);
+
 const ICON_DIMENSIONS = [
   ["skitza-16.png", 16],
   ["skitza-32.png", 32],
@@ -109,6 +114,7 @@ describe("native app manifest", () => {
   });
 
   it("exports the Apple standalone and light/dark browser metadata fragment", () => {
+    expect(layoutSource).toContain('viewportFit: "cover"');
     expect(nativeAppMetadata).toMatchObject({
       manifest: "/manifest.webmanifest",
       appleWebApp: {
