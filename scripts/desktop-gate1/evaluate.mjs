@@ -3,10 +3,36 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PLATFORM_IDS = ["macos-apple-silicon", "windows-11-x64"];
+const PLACEHOLDER_METADATA = new Set(["test", "unknown", "unconfigured"]);
+const PLATFORM_METADATA = {
+  "macos-apple-silicon": {
+    architecture: "arm64",
+    osPattern: /^macOS(?:\s|$)/i,
+  },
+  "windows-11-x64": {
+    architecture: "x64",
+    osPattern: /^Windows 11(?:\s|$)/i,
+  },
+};
 const JOURNEY_RULES = {
-  "reopen-today": { absoluteLimitMs: 1_000, requireNoMediaDownload: false },
-  "safe-clients-projects": { absoluteLimitMs: 500, requireNoMediaDownload: false },
-  "cached-recent-audio": { absoluteLimitMs: 500, requireNoMediaDownload: true },
+  "reopen-today": {
+    absoluteLimitMs: 1_000,
+    desktopSources: ["resume", "safe-view", "server"],
+    webSources: ["server"],
+    requireNoMediaDownload: false,
+  },
+  "safe-clients-projects": {
+    absoluteLimitMs: 500,
+    desktopSources: ["safe-view"],
+    webSources: ["server"],
+    requireNoMediaDownload: false,
+  },
+  "cached-recent-audio": {
+    absoluteLimitMs: 500,
+    desktopSources: ["recent-cache"],
+    webSources: ["recent-cache"],
+    requireNoMediaDownload: true,
+  },
 };
 
 function invariant(condition, message) {
@@ -18,7 +44,37 @@ function median(values) {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-function validateRun(run, label) {
+function samplePlatform(platformId) {
+  return platformId === "macos-apple-silicon" ? "macos" : "windows";
+}
+
+function exactHttpsOrigin(value) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      url.origin === value
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isRealMetadata(value) {
+  return (
+    typeof value === "string" &&
+    value.trim() === value &&
+    value.length > 0 &&
+    !PLACEHOLDER_METADATA.has(value.toLowerCase())
+  );
+}
+
+function validateRun(run, label, expected) {
   invariant(run && typeof run === "object", label + " must be an object");
   invariant(
     typeof run.durationMs === "number" && Number.isFinite(run.durationMs) && run.durationMs >= 0,
@@ -33,60 +89,91 @@ function validateRun(run, label) {
     Number.isInteger(run.mediaDownloadRequests) && run.mediaDownloadRequests >= 0,
     label + ".mediaDownloadRequests must be a non-negative integer",
   );
+  invariant(
+    ["network", "recent-cache", "resume", "safe-view", "server", null].includes(run.source),
+    label + ".source must be a known proof source or null",
+  );
+  for (const [field, value] of Object.entries(expected)) {
+    invariant(run[field] === value, label + "." + field + " must be " + JSON.stringify(value));
+  }
 }
 
-function validateFiveRuns(runs, label) {
+function validateFiveRuns(runs, label, expected) {
   invariant(Array.isArray(runs) && runs.length === 5, label + " must contain exactly five runs");
-  runs.forEach((run, index) => validateRun(run, label + "[" + index + "]"));
+  runs.forEach((run, index) =>
+    validateRun(run, label + "[" + index + "]", {
+      ...expected,
+      phase: "timed",
+      run: index + 1,
+    }),
+  );
 }
 
-function evaluateJourney(journey) {
+function evaluateJourney(journey, platform) {
   invariant(journey && typeof journey === "object", "journey must be an object");
   const rule = JOURNEY_RULES[journey.id];
   invariant(rule, "unknown journey " + String(journey.id));
   invariant(journey.warmup && typeof journey.warmup === "object", journey.id + " needs warmup");
-  validateRun(journey.warmup.desktop, journey.id + ".warmup.desktop");
-  validateRun(journey.warmup.web, journey.id + ".warmup.web");
-  validateFiveRuns(journey.desktopRuns, journey.id + ".desktopRuns");
-  validateFiveRuns(journey.webRuns, journey.id + ".webRuns");
+  const common = {
+    buildId: platform.webBuild,
+    journey: journey.id,
+    origin: platform.webOrigin,
+    platform: samplePlatform(platform.platform),
+  };
+  const desktop = { ...common, bridgeProtocolVersion: 1, runtime: "desktop" };
+  const web = { ...common, bridgeProtocolVersion: null, runtime: "chrome" };
+  validateRun(journey.warmup.desktop, journey.id + ".warmup.desktop", {
+    ...desktop,
+    phase: "warmup",
+    run: 0,
+  });
+  validateRun(journey.warmup.web, journey.id + ".warmup.web", {
+    ...web,
+    phase: "warmup",
+    run: 0,
+  });
+  validateFiveRuns(journey.desktopRuns, journey.id + ".desktopRuns", desktop);
+  validateFiveRuns(journey.webRuns, journey.id + ".webRuns", web);
 
   const qualifyingDesktopRuns = journey.desktopRuns.filter(
     (run) =>
       run.durationMs <= rule.absoluteLimitMs &&
       run.meaningful &&
       !run.blankOrFullscreenSpinner &&
+      rule.desktopSources.includes(run.source) &&
       (!rule.requireNoMediaDownload || run.mediaDownloadRequests === 0),
   ).length;
-  const noDesktopMediaDownload =
-    !rule.requireNoMediaDownload ||
-    journey.desktopRuns.every((run) => run.mediaDownloadRequests === 0);
   const desktopMedianMs = median(journey.desktopRuns.map((run) => run.durationMs));
   const webMedianMs = median(journey.webRuns.map((run) => run.durationMs));
   const savedMs = webMedianMs - desktopMedianMs;
   const improvementRatio = webMedianMs === 0 ? 0 : savedMs / webMedianMs;
-  const evidencePassed = [...journey.desktopRuns, ...journey.webRuns].every(
-    (run) =>
+  const comparisonEvidencePassed = journey.webRuns.every((run) => {
+    return (
       run.meaningful &&
       !run.blankOrFullscreenSpinner &&
-      (!rule.requireNoMediaDownload || run.mediaDownloadRequests === 0),
-  );
-  const comparisonPassed = evidencePassed && (improvementRatio >= 0.25 || savedMs >= 500);
+      rule.webSources.includes(run.source) &&
+      (!rule.requireNoMediaDownload || run.mediaDownloadRequests === 0)
+    );
+  });
+  const comparisonPassed = comparisonEvidencePassed && (improvementRatio >= 0.25 || savedMs >= 500);
   const regressed = desktopMedianMs > webMedianMs * 1.1 && desktopMedianMs - webMedianMs > 100;
 
   return {
     id: journey.id,
     absoluteLimitMs: rule.absoluteLimitMs,
     qualifyingDesktopRuns,
-    absolutePassed: qualifyingDesktopRuns >= 4 && noDesktopMediaDownload,
+    absolutePassed: qualifyingDesktopRuns >= 4,
     desktopRunsMs: journey.desktopRuns.map((run) => run.durationMs),
     webRunsMs: journey.webRuns.map((run) => run.durationMs),
     desktopMediaDownloadRequests: journey.desktopRuns.map((run) => run.mediaDownloadRequests),
     webMediaDownloadRequests: journey.webRuns.map((run) => run.mediaDownloadRequests),
+    desktopSources: journey.desktopRuns.map((run) => run.source),
+    webSources: journey.webRuns.map((run) => run.source),
     desktopMedianMs,
     webMedianMs,
     savedMs,
     improvementPercent: improvementRatio * 100,
-    evidencePassed,
+    comparisonEvidencePassed,
     comparisonPassed,
     regressed,
   };
@@ -105,11 +192,22 @@ function evaluatePlatform(platform) {
     "network",
   ];
   for (const field of requiredMetadata) {
-    invariant(
-      typeof platform[field] === "string" && platform[field].length > 0,
-      platform.platform + "." + field + " is required",
-    );
+    invariant(isRealMetadata(platform[field]), platform.platform + "." + field + " is required");
   }
+  const expectedMetadata = PLATFORM_METADATA[platform.platform];
+  invariant(expectedMetadata, "unknown target platform " + String(platform.platform));
+  invariant(
+    platform.architecture === expectedMetadata.architecture,
+    platform.platform + ".architecture must be " + expectedMetadata.architecture,
+  );
+  invariant(
+    expectedMetadata.osPattern.test(platform.os),
+    platform.platform + ".os must identify the exact target OS",
+  );
+  invariant(
+    exactHttpsOrigin(platform.webOrigin),
+    platform.platform + ".webOrigin must be an exact HTTPS origin",
+  );
   invariant(
     platform.clerk && typeof platform.clerk === "object",
     platform.platform + ".clerk is required",
@@ -127,7 +225,7 @@ function evaluatePlatform(platform) {
   const journeys = Object.keys(JOURNEY_RULES).map((id) => {
     const matches = platform.journeys.filter((journey) => journey.id === id);
     invariant(matches.length === 1, platform.platform + " needs exactly one " + id + " journey");
-    return evaluateJourney(matches[0]);
+    return evaluateJourney(matches[0], platform);
   });
   invariant(
     platform.journeys.length === Object.keys(JOURNEY_RULES).length,
@@ -141,7 +239,7 @@ function evaluatePlatform(platform) {
     platform.visualContinuity.liveMatchesWeb === true &&
     platform.visualContinuity.previewUsesSameShell === true;
   const comparisonWins = journeys.filter((journey) => journey.comparisonPassed).length;
-  const measurementEvidencePassed = journeys.every((journey) => journey.evidencePassed);
+  const measurementEvidencePassed = journeys.every((journey) => journey.comparisonEvidencePassed);
   const absolutePassed = journeys.every((journey) => journey.absolutePassed);
   const overallComparisonPassed =
     comparisonWins >= 2 && journeys.every((journey) => !journey.regressed);
@@ -168,6 +266,13 @@ export function evaluateGate1(record) {
   invariant(record && typeof record === "object", "record must be an object");
   invariant(record.schemaVersion === 1, "schemaVersion must be 1");
   invariant(Array.isArray(record.platforms), "platforms must be an array");
+  if (record.platforms.length === 2) {
+    invariant(
+      record.platforms[0].webBuild === record.platforms[1].webBuild &&
+        record.platforms[0].webOrigin === record.platforms[1].webOrigin,
+      "both platforms must use the same release-candidate web build and origin",
+    );
+  }
 
   const platforms = PLATFORM_IDS.map((id) => {
     const matches = record.platforms.filter((platform) => platform.platform === id);
@@ -178,13 +283,6 @@ export function evaluateGate1(record) {
     record.platforms.length === PLATFORM_IDS.length,
     "record contains an unexpected platform",
   );
-  invariant(
-    platforms.length === 2 &&
-      record.platforms[0].webBuild === record.platforms[1].webBuild &&
-      record.platforms[0].webOrigin === record.platforms[1].webOrigin,
-    "both platforms must use the same release-candidate web build and origin",
-  );
-
   return {
     schemaVersion: 1,
     passed: platforms.every((platform) => platform.passed),
