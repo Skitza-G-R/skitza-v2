@@ -4,11 +4,7 @@ import {
   decideOnboardingRedirect,
   stepFromPath,
 } from "../decide-redirect";
-import type {
-  ProducerRow,
-  UserAccountMemberships,
-  UserRole,
-} from "~/server/auth/role";
+import type { ProducerRow, UserAccountMemberships, UserRole } from "~/server/auth/role";
 
 // Routing policy for the /onboarding producer wizard — added as part
 // of audit Task 16 (strict role isolation).
@@ -146,15 +142,11 @@ describe("membership-aware onboarding wall", () => {
   };
 
   it("redirects a historical-only Artist before showing Producer onboarding", () => {
-    expect(
-      decideOnboardingMembershipRedirect(historicalArtist, "studio"),
-    ).toBe("/artist");
+    expect(decideOnboardingMembershipRedirect(historicalArtist, "studio")).toBe("/artist");
   });
 
   it("never turns Artist access into Producer access", () => {
-    expect(decideOnboardingMembershipRedirect(historicalArtist, "studio")).toBe(
-      "/artist",
-    );
+    expect(decideOnboardingMembershipRedirect(historicalArtist, "studio")).toBe("/artist");
   });
 
   it("redirects a signed-in account with no role to Producer invitation information", () => {
@@ -164,12 +156,8 @@ describe("membership-aware onboarding wall", () => {
       artist: { hasAccess: false, hasActiveConnections: false },
     };
 
-    expect(decideOnboardingMembershipRedirect(noRole, "studio")).toBe(
-      "/producer-access",
-    );
-    expect(decideOnboardingMembershipRedirect(noRole, "service")).toBe(
-      "/producer-access",
-    );
+    expect(decideOnboardingMembershipRedirect(noRole, "studio")).toBe("/producer-access");
+    expect(decideOnboardingMembershipRedirect(noRole, "service")).toBe("/producer-access");
   });
 
   it("preserves incomplete Producer setup even when Artist access is additive", () => {
@@ -178,12 +166,10 @@ describe("membership-aware onboarding wall", () => {
       producer: { status: "incomplete", profile: incompleteProducer },
       artist: { hasAccess: true, hasActiveConnections: false },
     };
-    expect(
-      decideOnboardingMembershipRedirect(incompleteDual, "studio"),
-    ).toBeNull();
-    expect(
-      decideOnboardingMembershipRedirect(incompleteDual, "service"),
-    ).toBe("/onboarding/studio");
+    expect(decideOnboardingMembershipRedirect(incompleteDual, "studio")).toBeNull();
+    expect(decideOnboardingMembershipRedirect(incompleteDual, "service")).toBe(
+      "/onboarding/studio",
+    );
   });
 });
 

@@ -31,20 +31,14 @@ function isJoinContinuationUrl(url: URL): boolean {
 }
 
 function isPublicSongUrl(url: URL): boolean {
-  return (
-    /^\/listen\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.pathname) &&
-    url.search.length === 0
-  );
+  return /^\/listen\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.pathname) && url.search.length === 0;
 }
 
 function platformForUrl(url: URL): AuthPlatform | null {
   const { pathname } = url;
   if (isPublicSongUrl(url)) return "artist";
   if (isJoinContinuationUrl(url)) return "artist";
-  if (
-    matchesRouteFamily(pathname, "/artist") ||
-    matchesRouteFamily(pathname, "/artist-welcome")
-  ) {
+  if (matchesRouteFamily(pathname, "/artist") || matchesRouteFamily(pathname, "/artist-welcome")) {
     return "artist";
   }
   if (
@@ -67,11 +61,7 @@ function platformForUrl(url: URL): AuthPlatform | null {
 export function sanitizePostSignInTarget(
   rawTarget: string | null | undefined,
 ): SanitizedPostSignInTarget | null {
-  if (
-    !rawTarget ||
-    rawTarget.length > MAX_AUTH_TARGET_LENGTH ||
-    !rawTarget.startsWith("/")
-  ) {
+  if (!rawTarget || rawTarget.length > MAX_AUTH_TARGET_LENGTH || !rawTarget.startsWith("/")) {
     return null;
   }
 
@@ -82,12 +72,7 @@ export function sanitizePostSignInTarget(
     return null;
   }
 
-  if (
-    url.origin !== AUTH_TARGET_ORIGIN ||
-    url.username ||
-    url.password ||
-    url.hash
-  ) {
+  if (url.origin !== AUTH_TARGET_ORIGIN || url.username || url.password || url.hash) {
     return null;
   }
 
@@ -107,10 +92,7 @@ export function joinContinuationHref(
   return `/join/${slug}/continue?action=${action}`;
 }
 
-export function joinSignInHref(
-  slug: string,
-  action: JoinContinuationAction = "book",
-): string {
+export function joinSignInHref(slug: string, action: JoinContinuationAction = "book"): string {
   const continuationHref = joinContinuationHref(slug, action);
   if (continuationHref === "/") return "/sign-in";
   return `/sign-in?${new URLSearchParams({
@@ -118,9 +100,7 @@ export function joinSignInHref(
   }).toString()}`;
 }
 
-export function joinSignUpHrefFromTarget(
-  rawTarget: string | null | undefined,
-): string | null {
+export function joinSignUpHrefFromTarget(rawTarget: string | null | undefined): string | null {
   const target = sanitizePostSignInTarget(rawTarget);
   if (!isJoinIntentTarget(target)) return null;
   const url = new URL(target?.href ?? "/", AUTH_TARGET_ORIGIN);
@@ -139,9 +119,7 @@ export function joinSignUpHrefFromTarget(
     : null;
 }
 
-export function isJoinIntentTarget(
-  target: SanitizedPostSignInTarget | null,
-): boolean {
+export function isJoinIntentTarget(target: SanitizedPostSignInTarget | null): boolean {
   if (!target) return false;
   return isJoinContinuationUrl(new URL(target.href, AUTH_TARGET_ORIGIN));
 }
@@ -155,9 +133,7 @@ export function joinSignUpMetadataFromTarget(
   const url = new URL(target?.href ?? "/", AUTH_TARGET_ORIGIN);
   const match = /^\/join\/([^/]+)\/continue$/.exec(url.pathname);
   const producerSlug = match?.[1];
-  return producerSlug
-    ? { signupOrigin: "join", producerSlug }
-    : null;
+  return producerSlug ? { signupOrigin: "join", producerSlug } : null;
 }
 
 export function trustedAuthRequestOrigin(input: {
@@ -193,12 +169,7 @@ export function normalizeSameOriginPostSignInTarget(
   if (!requestOrigin) return null;
   try {
     const target = new URL(rawTarget);
-    if (
-      target.origin !== requestOrigin ||
-      target.username ||
-      target.password ||
-      target.hash
-    ) {
+    if (target.origin !== requestOrigin || target.username || target.password || target.hash) {
       return null;
     }
     return `${target.pathname}${target.search}`;
@@ -207,9 +178,7 @@ export function normalizeSameOriginPostSignInTarget(
   }
 }
 
-function isGenericProducerSignUpTarget(
-  target: SanitizedPostSignInTarget | null,
-): boolean {
+function isGenericProducerSignUpTarget(target: SanitizedPostSignInTarget | null): boolean {
   return target?.href === "/onboarding";
 }
 
@@ -228,10 +197,7 @@ function normalizeLegacyStoreTarget(
 ): SanitizedPostSignInTarget | null {
   if (!target) return null;
   const url = new URL(target.href, AUTH_TARGET_ORIGIN);
-  if (
-    !isJoinContinuationUrl(url) ||
-    url.searchParams.get("action") !== "store"
-  ) {
+  if (!isJoinContinuationUrl(url) || url.searchParams.get("action") !== "store") {
     return target;
   }
   url.searchParams.set("action", "home");
@@ -241,12 +207,8 @@ function normalizeLegacyStoreTarget(
   };
 }
 
-export function postSignInResolverHref(
-  rawTarget?: string | null,
-): string {
-  const target = normalizeLegacyStoreTarget(
-    sanitizePostSignInTarget(rawTarget),
-  );
+export function postSignInResolverHref(rawTarget?: string | null): string {
+  const target = normalizeLegacyStoreTarget(sanitizePostSignInTarget(rawTarget));
   // `/onboarding` is the generic landing-page signup destination, not an
   // explicit request from a returning account. Dropping it here lets the
   // membership resolver choose the account's real platform and still sends
@@ -261,12 +223,8 @@ export function postSignInResolverHref(
  * Home whether the Artist signs in or creates their account. The continuation
  * route revalidates the Producer before any connection write.
  */
-export function postSignUpResolverHref(
-  rawTarget?: string | null,
-): string {
-  const target = normalizeLegacyStoreTarget(
-    sanitizePostSignInTarget(rawTarget),
-  );
+export function postSignUpResolverHref(rawTarget?: string | null): string {
+  const target = normalizeLegacyStoreTarget(sanitizePostSignInTarget(rawTarget));
   if (!target) return "/auth/resolve";
   return hrefWithNestedTarget("/auth/resolve", target.href);
 }
@@ -275,25 +233,18 @@ export function roleChooserHref(rawTarget?: string | null): string {
   return hrefWithNestedTarget("/choose-role", rawTarget);
 }
 
-export function roleSwitchHref(
-  role: AuthPlatform,
-  rawTarget?: string | null,
-): string {
+export function roleSwitchHref(role: AuthPlatform, rawTarget?: string | null): string {
   const target = sanitizePostSignInTarget(rawTarget);
   const query = new URLSearchParams({ role });
   if (target?.platform === role) query.set("next", target.href);
   return `/auth/switch?${query.toString()}`;
 }
 
-function isProducerAccount(
-  memberships: UserAccountMemberships,
-): boolean {
+function isProducerAccount(memberships: UserAccountMemberships): boolean {
   return memberships.producer.status !== "none";
 }
 
-export function isGenuineDualRoleAccount(
-  memberships: UserAccountMemberships,
-): boolean {
+export function isGenuineDualRoleAccount(memberships: UserAccountMemberships): boolean {
   return isProducerAccount(memberships) && memberships.artist.hasAccess;
 }
 
@@ -315,9 +266,7 @@ export function postSignInDestination(
   rawTarget?: string | null,
 ): string {
   const sanitizedTarget = sanitizePostSignInTarget(rawTarget);
-  const target = isGenericProducerSignUpTarget(sanitizedTarget)
-    ? null
-    : sanitizedTarget;
+  const target = isGenericProducerSignUpTarget(sanitizedTarget) ? null : sanitizedTarget;
 
   if (!memberships.isAuthenticated) {
     return signInHref(target?.href);
@@ -344,9 +293,7 @@ export function postSignInDestination(
     return target.href;
   }
   if (target?.platform === "producer" && isProducerAccount(memberships)) {
-    return memberships.producer.status === "incomplete"
-      ? "/onboarding"
-      : target.href;
+    return memberships.producer.status === "incomplete" ? "/onboarding" : target.href;
   }
 
   if (isGenuineDualRoleAccount(memberships)) {
@@ -379,11 +326,7 @@ export function chosenRoleDestination(
 ): string {
   const target = sanitizePostSignInTarget(rawTarget);
 
-  if (
-    chosenRole === "artist" &&
-    memberships.artist.hasAccess &&
-    memberships.isAuthenticated
-  ) {
+  if (chosenRole === "artist" && memberships.artist.hasAccess && memberships.isAuthenticated) {
     return target?.platform === "artist" ? target.href : "/artist";
   }
 

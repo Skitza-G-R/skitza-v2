@@ -14,9 +14,7 @@ const config = getTableConfig(producerInvitationGrants);
 
 describe("SK-229 Producer invitation grants", () => {
   it("stores one immutable Clerk invitation claim per Producer account", () => {
-    expect(producerInvitationGrants.clerkInvitationId.name).toBe(
-      "clerk_invitation_id",
-    );
+    expect(producerInvitationGrants.clerkInvitationId.name).toBe("clerk_invitation_id");
     expect(producerInvitationGrants.clerkInvitationId.notNull).toBe(true);
     expect(producerInvitationGrants.clerkUserId.notNull).toBe(true);
     expect(producerInvitationGrants.clerkInstanceId.notNull).toBe(true);
@@ -39,12 +37,8 @@ describe("SK-229 Producer invitation grants", () => {
         "producer_invitation_grants_timestamp_shape",
       ]),
     );
-    expect(migration).toContain(
-      '"invited_email_hash" ~ \'^[0-9a-f]{64}$\'',
-    );
-    expect(migration).toContain(
-      '"provider_updated_at" >= "invitation_created_at"',
-    );
+    expect(migration).toContain("\"invited_email_hash\" ~ '^[0-9a-f]{64}$'");
+    expect(migration).toContain('"provider_updated_at" >= "invitation_created_at"');
     expect(migration).not.toContain('"invited_email" text');
   });
 

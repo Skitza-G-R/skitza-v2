@@ -99,13 +99,12 @@ export function useAccountRoleMenuModel({
 
   useEffect(() => {
     const storage = getBrowserRuntimeStorage();
-    const target = storage
-      ? readRuntimeLaunchTargetForRole(storage, userId, otherRole)
-      : null;
+    const target = storage ? readRuntimeLaunchTargetForRole(storage, userId, otherRole) : null;
     setSwitchHref(roleSwitchHref(otherRole, target?.href ?? defaultRoleHref(otherRole)));
   }, [otherRole, userId]);
 
-  const currentLabel = currentRole === "artist" ? "Artist · Current role" : "Producer · Current role";
+  const currentLabel =
+    currentRole === "artist" ? "Artist · Current role" : "Producer · Current role";
   const roleAction =
     currentRole === "producer"
       ? hasArtistAccount
@@ -139,9 +138,7 @@ export function useAccountRoleMenuModel({
     const canLeave = canLeaveForRoleAction({
       root: document,
       confirmDiscard: () =>
-        window.confirm(
-          "You have unsaved changes. Leave this workspace and discard them?",
-        ),
+        window.confirm("You have unsaved changes. Leave this workspace and discard them?"),
     });
     if (canLeave) window.location.assign(roleActionHref);
   }, [roleActionHref]);
@@ -150,9 +147,7 @@ export function useAccountRoleMenuModel({
     currentRole,
     currentLabel,
     settingsHref,
-    roleAction: roleAction
-      ? { ...roleAction, onSelect: onRoleActionSelect }
-      : null,
+    roleAction: roleAction ? { ...roleAction, onSelect: onRoleActionSelect } : null,
   };
 }
 

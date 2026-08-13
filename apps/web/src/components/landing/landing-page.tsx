@@ -58,10 +58,7 @@ export function LandingPage() {
   }, [menuOpen]);
 
   return (
-    <div
-      id="landing-root"
-      className={`landing-v3-root scroll-host ${loaded ? "is-loaded" : ""}`}
-    >
+    <div id="landing-root" className={`landing-v3-root scroll-host ${loaded ? "is-loaded" : ""}`}>
       <PublicConnectivityNotice />
       <RevealOnScroll />
 
@@ -89,7 +86,7 @@ export function LandingPage() {
 function Wordmark({ size = 22, inverse = false }: { size?: number; inverse?: boolean }) {
   return (
     <span
-      className="font-syne inline-flex items-baseline gap-px font-extrabold leading-none"
+      className="font-syne inline-flex items-baseline gap-px leading-none font-extrabold"
       style={{
         fontSize: size,
         letterSpacing: "-0.03em",
@@ -98,7 +95,7 @@ function Wordmark({ size = 22, inverse = false }: { size?: number; inverse?: boo
     >
       skitza
       <span
-        className="inline-block transition-transform duration-300 group-hover:translate-y-[-2px] group-hover:rotate-12 group-hover:scale-125"
+        className="inline-block transition-transform duration-300 group-hover:translate-y-[-2px] group-hover:scale-125 group-hover:rotate-12"
         style={{ color: "rgb(var(--brand-primary))" }}
       >
         .
@@ -343,13 +340,7 @@ function Icon({
 // 1. Sticky nav
 // =============================================================================
 
-function Nav({
-  menuOpen,
-  setMenuOpen,
-}: {
-  menuOpen: boolean;
-  setMenuOpen: (v: boolean) => void;
-}) {
+function Nav({ menuOpen, setMenuOpen }: { menuOpen: boolean; setMenuOpen: (v: boolean) => void }) {
   return (
     <nav
       id="navbar"
@@ -361,7 +352,7 @@ function Nav({
       }}
     >
       <div
-        className="mx-auto flex max-w-7xl items-center justify-between px-5 pb-3.5 pt-3.5 sm:px-8"
+        className="mx-auto flex max-w-7xl items-center justify-between px-5 pt-3.5 pb-3.5 sm:px-8"
         style={{ paddingTop: "max(0.875rem, env(safe-area-inset-top))" }}
       >
         <div className="flex items-center gap-4 sm:gap-9">
@@ -373,7 +364,7 @@ function Nav({
             <LogoLockup markSize={30} wordmarkSize={22} />
           </Link>
           <span
-            className="font-mono hidden sm:inline text-[11px]"
+            className="hidden font-mono text-[11px] sm:inline"
             style={{ color: "rgb(255 255 255 / 0.55)" }}
           >
             v1.0 — early access
@@ -381,16 +372,32 @@ function Nav({
         </div>
         {/* Desktop links */}
         <div className="hidden items-center gap-7 text-[13px] font-medium lg:flex">
-          <a href="#features" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <a
+            href="#features"
+            style={{ color: "rgb(255 255 255 / 0.75)" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             Features
           </a>
-          <a href="#how" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <a
+            href="#how"
+            style={{ color: "rgb(255 255 255 / 0.75)" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             How it works
           </a>
-          <a href="#pricing" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <a
+            href="#pricing"
+            style={{ color: "rgb(255 255 255 / 0.75)" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             Pricing
           </a>
-          <a href="#faq" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <a
+            href="#faq"
+            style={{ color: "rgb(255 255 255 / 0.75)" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             FAQ
           </a>
           <Link
@@ -415,7 +422,9 @@ function Nav({
         {/* Mobile toggle */}
         <button
           type="button"
-          onClick={() => { setMenuOpen(!menuOpen); }}
+          onClick={() => {
+            setMenuOpen(!menuOpen);
+          }}
           className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] lg:hidden"
           style={{ color: "#F2EDE6", background: "rgb(255 255 255 / 0.06)" }}
           aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -428,13 +437,15 @@ function Nav({
       {menuOpen && (
         <div
           id="landing-mobile-menu"
-          className="lg:hidden border-t"
+          className="border-t lg:hidden"
           style={{ borderColor: "rgb(255 255 255 / 0.06)" }}
         >
           <div className="flex flex-col gap-1 px-5 py-3">
             <a
               href="#features"
-              onClick={() => { setMenuOpen(false); }}
+              onClick={() => {
+                setMenuOpen(false);
+              }}
               className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
@@ -442,7 +453,9 @@ function Nav({
             </a>
             <a
               href="#how"
-              onClick={() => { setMenuOpen(false); }}
+              onClick={() => {
+                setMenuOpen(false);
+              }}
               className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
@@ -450,7 +463,9 @@ function Nav({
             </a>
             <a
               href="#pricing"
-              onClick={() => { setMenuOpen(false); }}
+              onClick={() => {
+                setMenuOpen(false);
+              }}
               className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
@@ -458,7 +473,9 @@ function Nav({
             </a>
             <a
               href="#faq"
-              onClick={() => { setMenuOpen(false); }}
+              onClick={() => {
+                setMenuOpen(false);
+              }}
               className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
@@ -497,22 +514,25 @@ function Hero() {
   // `--w-i`. Words inherit the line-aware structure from the template
   // string below; the period at the tail of "studio." becomes the
   // accent character, the only colored glyph in the H1.
-  const heroLines = [["One", "app."], ["Your", "whole", "studio."]];
+  const heroLines = [
+    ["One", "app."],
+    ["Your", "whole", "studio."],
+  ];
   let wordIndex = 0;
 
   return (
     <section
-      className="relative overflow-hidden px-6 pb-16 pt-12 sm:px-5 sm:pb-20 sm:pt-16"
+      className="relative overflow-hidden px-6 pt-12 pb-16 sm:px-5 sm:pt-16 sm:pb-20"
       style={{ background: "#111009", color: "#F2EDE6" }}
     >
       <div className="animate-shine" />
-      <div className="hero-grid-bg is-dark absolute inset-0 pointer-events-none opacity-100" />
+      <div className="hero-grid-bg is-dark pointer-events-none absolute inset-0 opacity-100" />
 
       <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-10 sm:gap-12 lg:grid-cols-2 lg:gap-16">
         {/* Left — copy + CTAs */}
         <div className="sk-reveal-left min-w-0">
           <div
-            className="mb-5 inline-flex items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
+            className="mb-5 inline-flex items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[11px] font-bold tracking-[0.08em] uppercase"
             style={{
               background: "rgba(212,150,10,0.12)",
               borderColor: "rgba(212,150,10,0.3)",
@@ -580,8 +600,8 @@ function Hero() {
             }}
           >
             One Producer workspace for clients, projects, music, sessions, agreements,
-            external-payment records, and delivery. One link lets Artists hear public music,
-            join your studio, and keep the work in one shared place.
+            external-payment records, and delivery. One link lets Artists hear public music, join
+            your studio, and keep the work in one shared place.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -627,7 +647,9 @@ function Hero() {
               />
               <strong className="font-bold text-white">Invitation-only Producer beta</strong>
             </span>
-            <span className="hidden sm:inline" style={{ color: "rgb(242 237 230 / 0.35)" }}>·</span>
+            <span className="hidden sm:inline" style={{ color: "rgb(242 237 230 / 0.35)" }}>
+              ·
+            </span>
             <span className="inline-flex items-center gap-1.5">
               <Icon name="check" size={13} strokeWidth={3} />
               Producer invitation required
@@ -667,7 +689,7 @@ function HeroProductPeek() {
           <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#28c840" }} />
           <div className="flex flex-1 justify-center">
             <div
-              className="font-mono rounded-md border bg-white px-2.5 py-1 text-[10px]"
+              className="rounded-md border bg-white px-2.5 py-1 font-mono text-[10px]"
               style={{ borderColor: "#e3dac6", color: "#6b6359" }}
             >
               skitza.app / dashboard
@@ -686,7 +708,7 @@ function HeroProductPeek() {
               padding: "14px 10px",
             }}
           >
-            <div className="flex items-center px-1.5 pb-3 pt-1">
+            <div className="flex items-center px-1.5 pt-1 pb-3">
               <LogoLockup markSize={18} wordmarkSize={14} />
             </div>
             {(
@@ -728,7 +750,7 @@ function HeroProductPeek() {
                 className="text-[9.5px] font-semibold"
                 style={{ color: "rgb(255 255 255 / 0.75)" }}
               >
-                  Gili Studio
+                Gili Studio
               </div>
             </div>
           </div>
@@ -768,10 +790,7 @@ function HeroProductPeek() {
                 <div className="font-mono text-[10px]" style={{ color: "rgb(255 255 255 / 0.5)" }}>
                   your link
                 </div>
-                <div
-                  className="font-mono text-[11.5px] font-semibold"
-                  style={{ color: "#fff" }}
-                >
+                <div className="font-mono text-[11.5px] font-semibold" style={{ color: "#fff" }}>
                   skitza.app/join/your-name
                 </div>
               </div>
@@ -799,8 +818,20 @@ function HeroProductPeek() {
                 never wrap mid-word. */}
             <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {[
-                { label: "Recorded · Nov", value: "$8,420", note: "external payments", noteColor: "#15803d", dot: false },
-                { label: "Outstanding", value: "$1,200", note: "2 payments", noteColor: "#6b6359", dot: false },
+                {
+                  label: "Recorded · Nov",
+                  value: "$8,420",
+                  note: "external payments",
+                  noteColor: "#15803d",
+                  dot: false,
+                },
+                {
+                  label: "Outstanding",
+                  value: "$1,200",
+                  note: "2 payments",
+                  noteColor: "#6b6359",
+                  dot: false,
+                },
                 {
                   label: "Follow up",
                   value: "Marcus T.",
@@ -816,7 +847,7 @@ function HeroProductPeek() {
                 >
                   {c.dot && (
                     <div
-                      className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full"
+                      className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full"
                       style={{
                         background: "#dc2626",
                         boxShadow: "0 0 0 3px rgba(220,38,38,0.18)",
@@ -824,7 +855,7 @@ function HeroProductPeek() {
                     />
                   )}
                   <div
-                    className="font-mono mb-1 text-[9px] uppercase"
+                    className="mb-1 font-mono text-[9px] uppercase"
                     style={{ color: "#6b6359", letterSpacing: "0.05em" }}
                   >
                     {c.label}
@@ -843,7 +874,10 @@ function HeroProductPeek() {
             </div>
 
             {/* Urgent projects card */}
-            <div className="rounded-md p-2.5" style={{ background: "#fff", border: "1px solid #e8e1d4" }}>
+            <div
+              className="rounded-md p-2.5"
+              style={{ background: "#fff", border: "1px solid #e8e1d4" }}
+            >
               <div className="mb-2 flex items-center justify-between">
                 <div
                   className="font-syne text-[11.5px] font-bold"
@@ -856,7 +890,12 @@ function HeroProductPeek() {
                 </div>
               </div>
               {[
-                { c: "Yael N.", p: "Album · 4 tracks", s: "Mix v3 awaiting feedback", color: "#d4960a" },
+                {
+                  c: "Yael N.",
+                  p: "Album · 4 tracks",
+                  s: "Mix v3 awaiting feedback",
+                  color: "#d4960a",
+                },
                 { c: "Tom R.", p: "Single", s: "Final approval pending", color: "#15803d" },
                 { c: "Marcus T.", p: "EP · 3 tracks", s: "Payment 9d overdue", color: "#dc2626" },
               ].map((r, i) => (
@@ -871,7 +910,7 @@ function HeroProductPeek() {
                       {r.c}
                       <span style={{ color: "#6b6359", fontWeight: 500 }}> · {r.p}</span>
                     </div>
-                    <div className="font-mono mt-px text-[9px]" style={{ color: r.color }}>
+                    <div className="mt-px font-mono text-[9px]" style={{ color: r.color }}>
                       {r.s}
                     </div>
                   </div>
@@ -890,7 +929,7 @@ function HeroProductPeek() {
 
       {/* Floating "session booked" toast — desktop only */}
       <div
-        className="reveal-up absolute hidden lg:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px] shadow-2xl"
+        className="reveal-up absolute hidden items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px] shadow-2xl lg:flex"
         style={{
           top: "12%",
           right: "-32px",
@@ -916,7 +955,7 @@ function HeroProductPeek() {
 
       {/* Floating external-payment record toast — desktop only */}
       <div
-        className="reveal-up absolute hidden lg:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px]"
+        className="reveal-up absolute hidden items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px] lg:flex"
         style={{
           bottom: "8%",
           left: "-28px",
@@ -953,7 +992,7 @@ function StackReplace() {
   return (
     <section
       id="stack-replace"
-      className="border-b border-t px-6 py-16 sm:px-5 sm:py-20"
+      className="border-t border-b px-6 py-16 sm:px-5 sm:py-20"
       style={{
         background: "rgb(var(--bg-background))",
         borderColor: "rgb(var(--border-subtle))",
@@ -976,8 +1015,7 @@ function StackReplace() {
           One studio business.
           {/* Forced break is a desktop rhythm; on phones it fights the
               balanced wrapper and produces five thin lines. */}
-          <br className="hidden sm:inline" />{" "}
-          Too many separate records.
+          <br className="hidden sm:inline" /> Too many separate records.
         </h2>
 
         <div className="mx-auto mt-10 grid max-w-4xl gap-8 sm:mt-14 md:grid-cols-2 md:items-stretch">
@@ -990,7 +1028,7 @@ function StackReplace() {
             }}
           >
             <div
-              className="absolute left-6 -top-2.5 rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+              className="absolute -top-2.5 left-6 rounded-md border px-2.5 py-1 text-[10px] font-bold tracking-[0.1em] uppercase"
               style={{
                 background: "rgba(220,38,38,0.1)",
                 borderColor: "rgba(220,38,38,0.2)",
@@ -1021,7 +1059,7 @@ function StackReplace() {
                     {t}
                   </div>
                   <div
-                    className="absolute right-1 top-1 text-xs font-extrabold"
+                    className="absolute top-1 right-1 text-xs font-extrabold"
                     style={{ color: "#dc2626" }}
                   >
                     ×
@@ -1030,7 +1068,7 @@ function StackReplace() {
               ))}
             </div>
             <div
-              className="font-mono mt-3.5 text-center text-[11px]"
+              className="mt-3.5 text-center font-mono text-[11px]"
               style={{ color: "#6b6359", letterSpacing: "-0.01em" }}
             >
               Separate tools · scattered context · repeated admin
@@ -1047,7 +1085,7 @@ function StackReplace() {
               the bottom edge. */}
           <div className="sk-reveal-right sk-d-3 relative h-full">
             <div
-              className="absolute left-6 -top-2.5 z-10 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+              className="absolute -top-2.5 left-6 z-10 rounded-md px-2.5 py-1 text-[10px] font-bold tracking-[0.1em] uppercase"
               style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
             >
               With Skitza
@@ -1067,14 +1105,15 @@ function StackReplace() {
                   <LogoLockup markSize={60} wordmarkSize={56} />
                 </span>
                 <div
-                  className="font-mono text-center text-[12px]"
+                  className="text-center font-mono text-[12px]"
                   style={{ color: "rgb(255 255 255 / 0.6)" }}
                 >
-                  skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>your-name</span>
+                  skitza.app/join/
+                  <span style={{ color: "rgb(var(--brand-primary))" }}>your-name</span>
                 </div>
               </div>
               <div
-                className="font-mono mt-3.5 text-center text-[11px]"
+                className="mt-3.5 text-center font-mono text-[11px]"
                 style={{ color: "rgb(255 255 255 / 0.7)" }}
               >
                 1 link · 1 studio · 1 shared record
@@ -1170,7 +1209,7 @@ function FeatureHero({
         style={{ order: reverse ? 2 : 1 }}
       >
         <div
-          className="font-mono mb-4 text-[11px]"
+          className="mb-4 font-mono text-[11px]"
           style={{ color: "rgb(var(--brand-primary))", letterSpacing: "-0.01em" }}
         >
           {index} / {label}
@@ -1217,7 +1256,7 @@ function FeatureStorefrontMock() {
           skitza.app/artist/store
         </span>
         <span
-          className="rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+          className="rounded px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] uppercase"
           style={{
             background: "rgba(34,197,94,0.10)",
             color: "rgb(var(--fg-success))",
@@ -1282,7 +1321,7 @@ function FeatureStorefrontMock() {
               }}
             >
               <div>{d}</div>
-              <div className="font-mono mt-1 text-[13px]">{6 + i}</div>
+              <div className="mt-1 font-mono text-[13px]">{6 + i}</div>
             </div>
           ))}
         </div>
@@ -1306,23 +1345,18 @@ function FeatureLockedMock() {
         {["v3", "v2", "v1"].map((v, i) => (
           <span
             key={v}
-            className="font-mono rounded-md border px-2.5 py-1 text-[11px] font-bold"
+            className="rounded-md border px-2.5 py-1 font-mono text-[11px] font-bold"
             style={{
               background: i === 0 ? "rgba(212,150,10,0.18)" : "rgb(255 255 255 / 0.04)",
-              color:
-                i === 0 ? "rgb(var(--brand-primary))" : "rgb(255 255 255 / 0.5)",
-              borderColor:
-                i === 0 ? "rgba(212,150,10,0.3)" : "rgb(255 255 255 / 0.06)",
+              color: i === 0 ? "rgb(var(--brand-primary))" : "rgb(255 255 255 / 0.5)",
+              borderColor: i === 0 ? "rgba(212,150,10,0.3)" : "rgb(255 255 255 / 0.06)",
             }}
           >
             Mix · {v}
           </span>
         ))}
       </div>
-      <div
-        className="relative mb-4 flex items-center gap-0.5"
-        style={{ height: 72 }}
-      >
+      <div className="relative mb-4 flex items-center gap-0.5" style={{ height: 72 }}>
         {Array.from({ length: 48 }).map((_, i) => {
           const v = 0.3 + Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.3)) * 0.6;
           const played = i < 24;
@@ -1370,10 +1404,7 @@ function FeatureLockedMock() {
           </span>
           <span className="text-[11px] font-bold">Marcus T.</span>
         </div>
-        <div
-          className="text-[12px] leading-[1.4]"
-          style={{ color: "rgb(255 255 255 / 0.7)" }}
-        >
+        <div className="text-[12px] leading-[1.4]" style={{ color: "rgb(255 255 255 / 0.7)" }}>
           &ldquo;Snare&apos;s a touch loud here — can we drop 2dB?&rdquo;
         </div>
       </div>
@@ -1392,12 +1423,15 @@ function FeatureLockedMock() {
         </div>
         <div className="flex-1">
           <div className="text-[12.5px] font-bold">Final_Master.wav · 24/48</div>
-          <div className="font-mono mt-0.5 text-[10.5px]" style={{ color: "rgba(252,165,165,0.85)" }}>
+          <div
+            className="mt-0.5 font-mono text-[10.5px]"
+            style={{ color: "rgba(252,165,165,0.85)" }}
+          >
             Unlocks after $150 is confirmed
           </div>
         </div>
         <span
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.08em]"
+          className="font-mono text-[10px] font-bold tracking-[0.08em] uppercase"
           style={{ color: "#fca5a5" }}
         >
           Locked
@@ -1462,7 +1496,10 @@ function FeatureAutomationMock() {
               style={{ color: "#111009" }}
               aria-hidden
             >
-              {m.who.split(" ").map((s) => s[0]).join("")}
+              {m.who
+                .split(" ")
+                .map((s) => s[0])
+                .join("")}
             </div>
             <div className="min-w-0 flex-1">
               <div className="mb-0.5 flex items-baseline gap-2">
@@ -1475,12 +1512,7 @@ function FeatureAutomationMock() {
                 {m.msg}
               </div>
             </div>
-            <Icon
-              name="check-check"
-              size={14}
-              strokeWidth={2.4}
-              className="shrink-0"
-            />
+            <Icon name="check-check" size={14} strokeWidth={2.4} className="shrink-0" />
           </div>
         ))}
       </div>
@@ -1528,7 +1560,7 @@ function FeatureGrid() {
   return (
     <section
       id="feature-grid"
-      className="px-6 pb-16 pt-8 sm:px-5 sm:pb-[88px] sm:pt-10"
+      className="px-6 pt-8 pb-16 sm:px-5 sm:pt-10 sm:pb-[88px]"
       style={{ background: "rgb(var(--bg-background))" }}
     >
       <div className="mx-auto max-w-6xl">
@@ -1559,10 +1591,7 @@ function FeatureGrid() {
               >
                 {it.t}
               </div>
-              <div
-                className="text-[13px] leading-[1.5]"
-                style={{ color: "rgb(var(--fg-muted))" }}
-              >
+              <div className="text-[13px] leading-[1.5]" style={{ color: "rgb(var(--fg-muted))" }}>
                 {it.b}
               </div>
             </div>
@@ -1629,7 +1658,7 @@ function HowSection() {
               }}
             >
               <div
-                className="font-mono mb-4 text-[38px] font-extrabold"
+                className="mb-4 font-mono text-[38px] font-extrabold"
                 style={{
                   color: "rgb(var(--brand-primary))",
                   letterSpacing: "-0.02em",
@@ -1686,23 +1715,19 @@ function FounderNote() {
             className="m-0 text-[17px] leading-[1.6]"
             style={{ color: "rgb(var(--fg-default))", fontWeight: 500 }}
           >
-            I built Skitza after a mix went unpaid. No accepted agreement, no clear
-            delivery record — the artist disappeared, and I had nothing solid to point at.
-            The tools to prevent it existed; the record was just scattered across separate apps.
+            I built Skitza after a mix went unpaid. No accepted agreement, no clear delivery record
+            — the artist disappeared, and I had nothing solid to point at. The tools to prevent it
+            existed; the record was just scattered across separate apps.
           </p>
-          <p
-            className="mt-4 text-[15px] leading-[1.6]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            Calendly for booking. Samply for files. Notion for notes. DocuSign for the
-            contract. Stripe for the deposit. WhatsApp for everything else. The friction{" "}
-            <em>was</em> the product. Skitza is what I wish I&apos;d had that night —
-            one link, every client, every dollar tracked. Built so you can spend Friday
-            night mixing instead of resending a WAV for the third time.
+          <p className="mt-4 text-[15px] leading-[1.6]" style={{ color: "rgb(var(--fg-muted))" }}>
+            Calendly for booking. Samply for files. Notion for notes. DocuSign for the contract.
+            Stripe for the deposit. WhatsApp for everything else. The friction <em>was</em> the
+            product. Skitza is what I wish I&apos;d had that night — one link, every client, every
+            dollar tracked. Built so you can spend Friday night mixing instead of resending a WAV
+            for the third time.
           </p>
           <div className="mt-5 text-[13px]" style={{ color: "rgb(var(--fg-muted))" }}>
-            — <strong style={{ color: "rgb(var(--fg-default))" }}>Gili Asraf</strong>,
-            founder
+            — <strong style={{ color: "rgb(var(--fg-default))" }}>Gili Asraf</strong>, founder
           </div>
         </div>
       </div>
@@ -1745,13 +1770,13 @@ function Pricing() {
           }}
         >
           <div
-            className="absolute right-0 top-0 rounded-bl-xl px-4 py-2 text-[10.5px] font-bold uppercase tracking-[0.1em]"
+            className="absolute top-0 right-0 rounded-bl-xl px-4 py-2 text-[10.5px] font-bold tracking-[0.1em] uppercase"
             style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
           >
             Beta
           </div>
 
-          <div className="mb-2 mt-2.5 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
+          <div className="mt-2.5 mb-2 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
             <span
               className="font-syne text-[56px] font-extrabold sm:text-[64px]"
               style={{ letterSpacing: "-0.04em", lineHeight: 1 }}
@@ -1763,7 +1788,7 @@ function Pricing() {
             </span>
           </div>
           <div
-            className="font-mono mb-6 text-[11.5px]"
+            className="mb-6 font-mono text-[11.5px]"
             style={{ color: "rgb(var(--brand-primary))" }}
           >
             · Skitza does not collect a card for beta access ·
@@ -1781,12 +1806,7 @@ function Pricing() {
               "Controlled playback and downloads",
             ].map((f) => (
               <div key={f} className="flex items-center gap-2 text-[13.5px]">
-                <Icon
-                  name="check"
-                  size={14}
-                  strokeWidth={3}
-                  className="shrink-0"
-                />
+                <Icon name="check" size={14} strokeWidth={3} className="shrink-0" />
                 {f}
               </div>
             ))}
@@ -1800,7 +1820,7 @@ function Pricing() {
             Producer access →
           </Link>
           <div
-            className="font-mono mt-3 text-center text-[11.5px]"
+            className="mt-3 text-center font-mono text-[11.5px]"
             style={{ color: "rgb(var(--fg-muted))" }}
           >
             Invitation-only · Artist signup stays open through Producer links
@@ -1868,13 +1888,12 @@ function FAQ({
           {items.map((it, i) => {
             const open = activeFaq === i;
             return (
-              <div
-                key={it.q}
-                style={{ borderBottom: "1px solid rgb(var(--border-subtle))" }}
-              >
+              <div key={it.q} style={{ borderBottom: "1px solid rgb(var(--border-subtle))" }}>
                 <button
                   type="button"
-                  onClick={() => { setActiveFaq(open ? null : i); }}
+                  onClick={() => {
+                    setActiveFaq(open ? null : i);
+                  }}
                   className="sk-row sk-press flex min-h-11 w-full items-center justify-between px-1 py-5 text-left"
                   aria-expanded={open}
                   aria-controls={`faq-panel-${String(i)}`}
@@ -1934,10 +1953,7 @@ function FinalCTA() {
           One shared record for your studio
           <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
         </h2>
-        <p
-          className="mt-5 text-[16px] leading-[1.5]"
-          style={{ color: "rgb(255 255 255 / 0.6)" }}
-        >
+        <p className="mt-5 text-[16px] leading-[1.5]" style={{ color: "rgb(255 255 255 / 0.6)" }}>
           Keep clients, projects, sessions, agreements, external-payment records, and music work
           together.
         </p>
@@ -1954,7 +1970,7 @@ function FinalCTA() {
           <Icon name="arrow-right" size={16} strokeWidth={2.6} />
         </Link>
         <div
-          className="font-mono mt-3.5 text-[11.5px]"
+          className="mt-3.5 font-mono text-[11.5px]"
           style={{ color: "rgb(255 255 255 / 0.55)" }}
         >
           Invitation-only · sent by Skitza
@@ -1982,17 +1998,29 @@ function LandingFooter() {
     >
       <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 text-center sm:flex-row sm:flex-wrap sm:justify-between sm:text-left">
         <LogoLockup markSize={24} wordmarkSize={16} />
-        <span className="font-mono order-3 sm:order-none">
+        <span className="order-3 font-mono sm:order-none">
           © 2026 · Built for producers, by producers
         </span>
         <div className="flex gap-6 sm:gap-5">
-          <Link href="/privacy" style={{ color: "inherit" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <Link
+            href="/privacy"
+            style={{ color: "inherit" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             Privacy
           </Link>
-          <Link href="/terms" style={{ color: "inherit" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <Link
+            href="/terms"
+            style={{ color: "inherit" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             Terms
           </Link>
-          <Link href="/about" style={{ color: "inherit" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
+          <Link
+            href="/about"
+            style={{ color: "inherit" }}
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white"
+          >
             About
           </Link>
         </div>

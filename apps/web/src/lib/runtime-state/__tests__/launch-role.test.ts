@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  runtimeLaunchHrefForMemberships,
-  runtimeLaunchHrefForRole,
-} from "../launch-role";
+import { runtimeLaunchHrefForMemberships, runtimeLaunchHrefForRole } from "../launch-role";
 
 describe("runtime launch role resolver", () => {
   it.each([
@@ -50,27 +47,15 @@ describe("runtime launch role resolver", () => {
       },
     };
 
-    expect(
-      runtimeLaunchHrefForRole(
-        artist,
-        "/artist/music?studio=studio-a&mode=songs",
-      ),
-    ).toBe("/artist/music?mode=songs&studio=studio-a");
-    expect(runtimeLaunchHrefForRole(artist, "/dashboard/music")).toBe(
-      "/artist",
+    expect(runtimeLaunchHrefForRole(artist, "/artist/music?studio=studio-a&mode=songs")).toBe(
+      "/artist/music?mode=songs&studio=studio-a",
     );
-    expect(runtimeLaunchHrefForRole(artist, "/artist/payments")).toBe(
-      "/artist",
+    expect(runtimeLaunchHrefForRole(artist, "/dashboard/music")).toBe("/artist");
+    expect(runtimeLaunchHrefForRole(artist, "/artist/payments")).toBe("/artist");
+    expect(runtimeLaunchHrefForRole(producer, "/dashboard/clients-projects?tab=clients")).toBe(
+      "/dashboard/clients-projects?tab=clients",
     );
-    expect(
-      runtimeLaunchHrefForRole(
-        producer,
-        "/dashboard/clients-projects?tab=clients",
-      ),
-    ).toBe("/dashboard/clients-projects?tab=clients");
-    expect(runtimeLaunchHrefForRole(producer, "/artist/music")).toBe(
-      "/dashboard",
-    );
+    expect(runtimeLaunchHrefForRole(producer, "/artist/music")).toBe("/dashboard");
   });
 });
 
@@ -146,19 +131,11 @@ describe("membership-aware runtime launch resolver", () => {
     };
 
     expect(
-      runtimeLaunchHrefForMemberships(
-        unauthenticated,
-        "/dashboard/music?mode=songs&search=demo",
-      ),
-    ).toBe(
-      "/sign-up?redirect_url=%2Fdashboard%2Fmusic%3Fmode%3Dsongs%26search%3Ddemo",
+      runtimeLaunchHrefForMemberships(unauthenticated, "/dashboard/music?mode=songs&search=demo"),
+    ).toBe("/sign-up?redirect_url=%2Fdashboard%2Fmusic%3Fmode%3Dsongs%26search%3Ddemo");
+    expect(runtimeLaunchHrefForMemberships(unauthenticated, "/artist/payments/purchase-1")).toBe(
+      "/sign-up",
     );
-    expect(
-      runtimeLaunchHrefForMemberships(
-        unauthenticated,
-        "/artist/payments/purchase-1",
-      ),
-    ).toBe("/sign-up");
   });
 
   it("keeps a producer-only account on the producer platform", () => {

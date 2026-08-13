@@ -170,7 +170,7 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     const matches = html.match(new RegExp(escapeRegExp(producerAccessHref), "g")) ?? [];
     expect(matches.length).toBeGreaterThanOrEqual(4);
     expect(html).not.toContain("Start free trial");
-    expect(html).not.toContain('/sign-up?redirect_url=%2Fonboarding');
+    expect(html).not.toContain("/sign-up?redirect_url=%2Fonboarding");
   });
 
   it("serializes waveform heights deterministically for hydration", async () => {
@@ -178,8 +178,8 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     const { default: HomePage } = await import("../page");
     const html = renderToStaticMarkup(await HomePage());
 
-    expect(html).toContain('height:71.6473%');
-    expect(html).not.toContain('height:71.64733502929566%');
+    expect(html).toContain("height:71.6473%");
+    expect(html).not.toContain("height:71.64733502929566%");
   });
 
   it("'Sign in' link points at /sign-in (nav-only)", async () => {

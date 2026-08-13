@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  emailToSlug,
-  invitationPlaceholderSlug,
-  isAutoSlug,
-} from "./slug";
+import { emailToSlug, invitationPlaceholderSlug, isAutoSlug } from "./slug";
 
 describe("emailToSlug", () => {
   it("converts the local part to lowercase + appends a 4-char hash", () => {

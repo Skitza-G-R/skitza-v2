@@ -147,8 +147,7 @@ const config: NextConfig = {
   // https://us.i.posthog.com (US) or https://eu.i.posthog.com (EU).
   // If unset, rewrites degrade to passthroughs (won't break anything).
   async rewrites() {
-    const host =
-      process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+    const host = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
     return [
       { source: "/ingest/static/:path*", destination: `${host}/static/:path*` },
       { source: "/ingest/:path*", destination: `${host}/:path*` },
@@ -177,12 +176,8 @@ const config: NextConfig = {
 // Only include each field when it's actually set.
 const sentryBuildOptions = {
   ...(process.env.SENTRY_ORG ? { org: process.env.SENTRY_ORG } : {}),
-  ...(process.env.SENTRY_PROJECT
-    ? { project: process.env.SENTRY_PROJECT }
-    : {}),
-  ...(process.env.SENTRY_AUTH_TOKEN
-    ? { authToken: process.env.SENTRY_AUTH_TOKEN }
-    : {}),
+  ...(process.env.SENTRY_PROJECT ? { project: process.env.SENTRY_PROJECT } : {}),
+  ...(process.env.SENTRY_AUTH_TOKEN ? { authToken: process.env.SENTRY_AUTH_TOKEN } : {}),
   // Keeps bundle small by stripping Sentry's internal debug logging.
   disableLogger: true,
   // Don't fail the build if source-map upload errors. Sentry

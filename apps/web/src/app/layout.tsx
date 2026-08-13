@@ -11,10 +11,7 @@ import { NativeViewportSync } from "~/components/native/native-viewport";
 import { PostHogProvider } from "~/components/observability/posthog-provider";
 import { NativeAppRuntime } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
-import {
-  nativeAppMetadata,
-  nativeAppViewport,
-} from "~/lib/pwa/native-app-metadata";
+import { nativeAppMetadata, nativeAppViewport } from "~/lib/pwa/native-app-metadata";
 import "./globals.css";
 
 // Locked typography stack (v3-ui-design, 2026-05-05).

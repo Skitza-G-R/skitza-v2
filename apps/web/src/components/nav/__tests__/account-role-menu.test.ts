@@ -1,28 +1,14 @@
 import { readFileSync } from "node:fs";
 
 import { UserButton } from "@clerk/nextjs";
-import {
-  Children,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import {
-  renderAccountRoleMenuItems,
-  type AccountRoleMenuModel,
-} from "../account-role-menu-items";
-import {
-  canLeaveForRoleAction,
-  hasUnsavedRoleChanges,
-} from "../role-navigation-guard";
+import { renderAccountRoleMenuItems, type AccountRoleMenuModel } from "../account-role-menu-items";
+import { canLeaveForRoleAction, hasUnsavedRoleChanges } from "../role-navigation-guard";
 
 const source = readFileSync(new URL("../account-role-menu-items.tsx", import.meta.url), "utf8");
-const globalCss = readFileSync(
-  new URL("../../../app/globals.css", import.meta.url),
-  "utf8",
-);
+const globalCss = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8");
 const dirtySurfaceSources = [
   "../../../app/(producer)/dashboard/settings/settings-client.tsx",
   "../../../components/artist/settings/artist-settings-client.tsx",
@@ -98,8 +84,7 @@ describe("SK-161 account role menu", () => {
     ]);
     expect(
       mobileChildren.some(
-        (child) =>
-          (child as ReactElement<{ label?: string }>).props.label === "Settings",
+        (child) => (child as ReactElement<{ label?: string }>).props.label === "Settings",
       ),
     ).toBe(false);
   });
@@ -113,9 +98,7 @@ describe("role-action unsaved changes guard", () => {
   it("navigates immediately when the current screen is clean", () => {
     const confirmDiscard = () => false;
     expect(hasUnsavedRoleChanges(root(false))).toBe(false);
-    expect(
-      canLeaveForRoleAction({ root: root(false), confirmDiscard }),
-    ).toBe(true);
+    expect(canLeaveForRoleAction({ root: root(false), confirmDiscard })).toBe(true);
   });
 
   it("blocks a dirty screen until the user explicitly confirms", () => {
