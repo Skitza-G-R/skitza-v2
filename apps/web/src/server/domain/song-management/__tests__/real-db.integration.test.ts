@@ -12,10 +12,7 @@ import {
   tombstoneStoredAudioVersion,
   updateSongMetadata,
 } from "../db";
-import {
-  privateVersionStreamPath,
-  publicPortfolioStreamPath,
-} from "../../audio-delivery/urls";
+import { privateVersionStreamPath, publicPortfolioStreamPath } from "../../audio-delivery/urls";
 import { songPublicationRepository } from "../../song-publication/db";
 import { listPublicPortfolioSongs } from "../../song-publication/public-read";
 import { setPortfolioPublic } from "../../song-publication/service";
@@ -156,7 +153,8 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     const statements = [
       `create table ${schema}."producers" (
-        "id" uuid primary key
+        "id" uuid primary key,
+        "closed_at" timestamptz
       )`,
       `create table ${schema}."client_contacts" (
         "id" uuid primary key,
