@@ -339,6 +339,24 @@ export function RuntimeDestinationScaffold({
   );
 }
 
+export function RuntimeLaunchCover() {
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-[rgb(var(--bg-background))] px-6 text-[rgb(var(--fg-default))]"
+      data-runtime-launch-cover=""
+    >
+      <div className="text-center" role="status" aria-live="polite">
+        <p className="font-syne text-2xl font-extrabold tracking-[-0.035em] text-[rgb(var(--brand-primary))]">
+          Skitza
+        </p>
+        <p className="mt-2 text-sm font-semibold text-[rgb(var(--fg-muted))]">
+          Opening Skitza…
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function RuntimeScreenTransitionBoundary({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -638,12 +656,12 @@ export function RuntimeResumeBoundary({
 
   useLayoutEffect(() => {
     if (!isLoaded) {
-      setResume(initialOfflineResumeState());
+      setResume(online ? null : initialOfflineResumeState());
       return;
     }
     setResolvedIdentity(true);
     setResume(userId ? readResumeState(userId) : null);
-  }, [isLoaded, userId]);
+  }, [isLoaded, online, userId]);
 
   const fallbackRole = expectedRole ?? resume?.target.role ?? "producer";
   const fallbackHref =
@@ -667,16 +685,7 @@ export function RuntimeResumeBoundary({
   useEffect(() => {
     if (!navigate || !resolvedIdentity || !navigator.onLine) return;
     const href = runtimeRoleResolverHref(activeResume?.target.href ?? null);
-    let secondFrame = 0;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        router.replace(href);
-      });
-    });
-    return () => {
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
-    };
+    router.replace(href);
   }, [activeResume?.target.href, navigate, resolvedIdentity, router, userId]);
 
   useEffect(() => {
@@ -691,6 +700,8 @@ export function RuntimeResumeBoundary({
       window.removeEventListener("online", onOnline);
     };
   }, [activeResume?.target.href, navigate, router]);
+
+  if (navigate && online) return <RuntimeLaunchCover />;
 
   return (
     <RuntimeResumeShell

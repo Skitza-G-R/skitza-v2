@@ -6,7 +6,9 @@
  * signed URLs, uploads, and audio are always network-only.
  *
  * A replacement worker never calls skipWaiting during install. Normal updates
- * require a safe reopen after this exact version was observed before boot.
+ * require a safe reopen after this exact version was observed before boot. A
+ * waiting worker may also take over when its version probe proves every open
+ * window is still the exact public /launch bootstrap.
  * An already-started account exit may request a bounded handoff only after the
  * durable push fence is nonce-bound. That takeover does not reload clients,
  * and service-worker activation waits for the old worker's pending events.
@@ -15,7 +17,7 @@
 importScripts("/pwa/cache-policy.js");
 importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-27-sk128-1";
+const SW_VERSION = "2026-08-13-sk236-1";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
@@ -311,6 +313,28 @@ async function allOpenClientsAreSafe() {
   return safety.every(Boolean);
 }
 
+async function allOpenClientsAreExactPublicLaunch() {
+  try {
+    const clients = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true,
+    });
+    if (clients.length === 0) return false;
+
+    const launchUrl = new URL("/launch", self.location.origin).href;
+    return clients.every((client) => {
+      try {
+        return new URL(client.url).href === launchUrl;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    // Client enumeration failures preserve the normal waiting-worker path.
+    return false;
+  }
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
@@ -444,6 +468,21 @@ self.addEventListener("message", (event) => {
         version: SW_VERSION,
       });
     }
+    event.waitUntil(
+      (async () => {
+        // The previous SK-128 launch presenter marks its read-only online
+        // preview aria-busy, so it stops before requesting the normal safe
+        // activation. It always asks the waiting worker for its version first.
+        // Exact public /launch windows have no forms or protected actions, so
+        // the replacement may narrowly take over before new client JS runs.
+        if (!(await allOpenClientsAreExactPublicLaunch())) return;
+        try {
+          await self.skipWaiting();
+        } catch {
+          // Preserve the normal waiting-worker/all-clients-closed fallback.
+        }
+      })(),
+    );
     return;
   }
 

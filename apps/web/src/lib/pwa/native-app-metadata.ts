@@ -10,7 +10,10 @@ export const nativeAppMetadata = {
   appleWebApp: {
     capable: true,
     title: NATIVE_APP_NAME,
-    statusBarStyle: "black-translucent",
+    // Current iOS can expose an unpaintable fullscreen band to Home Screen
+    // apps using `black-translucent`. The opaque dark status bar keeps the
+    // web viewport below system chrome and the bottom navigation reachable.
+    statusBarStyle: "black",
   },
   formatDetection: {
     telephone: false,

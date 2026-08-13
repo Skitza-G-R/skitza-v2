@@ -10,7 +10,8 @@ describe("public launch bootstrap route contract", () => {
     );
     expect(launchPageSource).toContain("<Suspense");
     expect(launchPageSource).toMatch(/<RuntimeResumeBoundary\s+navigate\s*\/>/);
-    expect(launchPageSource).toContain("<RuntimeDestinationScaffold");
+    expect(launchPageSource).toContain("fallback={<RuntimeLaunchCover />}");
+    expect(launchPageSource).not.toContain("<RuntimeDestinationScaffold");
   });
 
   it("contains no server authentication, request state, redirect, or data call", () => {

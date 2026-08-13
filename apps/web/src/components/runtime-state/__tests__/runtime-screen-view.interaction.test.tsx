@@ -530,6 +530,79 @@ describe("instant runtime screen transitions", () => {
 });
 
 describe("close and reopen runtime restore", () => {
+  it("restores the offline safe screen when connectivity drops before auth loads", () => {
+    mocked.auth = {
+      isLoaded: false,
+      userId: null,
+    };
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Connection-lost music library"),
+      ),
+    ).toBe(true);
+    expect(
+      writeRuntimeLaunchPointer(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+      ),
+    ).toBe(true);
+
+    render(<RuntimeResumeBoundary navigate />);
+    expect(document.querySelector("[data-runtime-launch-cover]")).toBeTruthy();
+    expect(screen.queryByText("Connection-lost music library")).toBeNull();
+
+    mocked.online = false;
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+
+    expect(document.querySelector("[data-runtime-launch-cover]")).toBeNull();
+    expect(document.querySelector("[data-runtime-resume-shell]")).toBeTruthy();
+    expect(screen.getByText("Connection-lost music library")).toBeTruthy();
+    expect(
+      document.querySelector('[data-runtime-screen-source="resume"]'),
+    ).toBeTruthy();
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("shows only the neutral launch cover while an online resume resolves", () => {
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard",
+        overviewView(),
+      ),
+    ).toBe(true);
+    expect(
+      writeRuntimeLaunchPointer(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard",
+      ),
+    ).toBe(true);
+
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(document.querySelector("[data-runtime-launch-cover]")).toBeTruthy();
+    expect(document.querySelector("[data-runtime-resume-shell]")).toBeNull();
+    expect(
+      document.querySelector('[data-runtime-screen-source="resume"]'),
+    ).toBeNull();
+    expect(screen.queryByText("Saved studio overview")).toBeNull();
+    expect(screen.queryByText("Saved studio activity")).toBeNull();
+    expect(
+      screen.queryByRole("navigation", { name: "Producer saved tabs" }),
+    ).toBeNull();
+    expect(mocked.router.replace).toHaveBeenCalledWith(
+      "/launch/resolve?next=%2Fdashboard",
+    );
+  });
+
   it("restores the last safe screen from persistent storage before auth or network", () => {
     mocked.online = false;
     mocked.auth = {
@@ -720,17 +793,7 @@ describe("close and reopen runtime restore", () => {
         "/dashboard/music",
       ),
     ).toBe(true);
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-
     render(<RuntimeResumeBoundary navigate />);
-    act(() => {
-      frames.shift()?.(0);
-      frames.shift()?.(16);
-    });
 
     expect(mocked.router.replace).toHaveBeenCalledWith(
       "/launch/resolve?next=%2Fdashboard%2Fmusic",
@@ -745,17 +808,7 @@ describe("close and reopen runtime restore", () => {
       isLoaded: true,
       userId: "artist-without-cache",
     };
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-
     render(<RuntimeResumeBoundary navigate />);
-    act(() => {
-      frames.shift()?.(0);
-      frames.shift()?.(16);
-    });
 
     expect(mocked.router.replace).toHaveBeenCalledWith("/launch/resolve");
     expect(mocked.router.replace).not.toHaveBeenCalledWith("/dashboard");
