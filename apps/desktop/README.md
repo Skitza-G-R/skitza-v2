@@ -22,6 +22,13 @@ configuration overlay containing only that origin, and passes the same origin
 to Rust at compile time. Wildcards, paths, credentials, query strings,
 fragments, and non-HTTPS origins are rejected.
 
+When that private proof origin uses Vercel Deployment Protection, the
+`gate1-proof` build may read a temporary bypass value at runtime from
+`SKITZA_DESKTOP_PROTECTION_BYPASS`. It must be exactly 32 ASCII letters,
+numbers, underscores, or hyphens. Keep the value in the private test secret
+store; never add it to this repository or a build setting. The app does not
+read this environment variable when the proof feature is disabled.
+
 ## Gate 1 bridge
 
 Trusted pages feature-detect `window.__SKITZA_DESKTOP__`. The frozen bridge has

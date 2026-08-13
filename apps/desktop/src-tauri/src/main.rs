@@ -2,6 +2,8 @@
 
 mod auth;
 mod origin;
+#[cfg(feature = "gate1-proof")]
+mod protection_bypass;
 mod session;
 mod timing;
 
@@ -9,6 +11,8 @@ use std::time::Duration;
 
 use auth::{begin_social_sign_in, handle_deep_link, AuthState};
 use origin::OriginPolicy;
+#[cfg(feature = "gate1-proof")]
+use protection_bypass::{launch_navigation_url, ProtectionBypass};
 use session::{report_session_validation, start_validation_loop, SessionValidationState};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -26,6 +30,8 @@ struct DesktopState {
     auth: AuthState,
     client: reqwest::Client,
     origin: OriginPolicy,
+    #[cfg(feature = "gate1-proof")]
+    protection_bypass: Option<ProtectionBypass>,
     session: SessionValidationState,
     timing: TimingState,
 }
@@ -42,8 +48,12 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
     if !response.status().is_success() || response.url() != &launch_url {
         return Err("connection-unavailable".into());
     }
+    #[cfg(feature = "gate1-proof")]
+    let navigation_url = launch_navigation_url(launch_url, state.protection_bypass.as_ref());
+    #[cfg(not(feature = "gate1-proof"))]
+    let navigation_url = launch_url;
     window
-        .navigate(launch_url)
+        .navigate(navigation_url)
         .map_err(|_| "navigation-failed".to_string())
 }
 
@@ -172,10 +182,19 @@ fn handle_callback_argument(app: AppHandle, value: &str) {
 
 fn main() {
     let origin = OriginPolicy::compile_time();
-    let client = reqwest::Client::builder()
+    #[cfg(feature = "gate1-proof")]
+    let protection_bypass =
+        ProtectionBypass::from_env().expect("invalid Gate 1 protection bypass configuration");
+    let client_builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(12))
-        .user_agent("Skitza-Gate1-Desktop/0.1")
+        .user_agent("Skitza-Gate1-Desktop/0.1");
+    #[cfg(feature = "gate1-proof")]
+    let client_builder = match protection_bypass.as_ref() {
+        Some(bypass) => bypass.configure_client(client_builder),
+        None => client_builder,
+    };
+    let client = client_builder
         .build()
         .expect("failed to build the HTTPS client");
 
@@ -190,6 +209,8 @@ fn main() {
             auth: AuthState::default(),
             client,
             origin: origin.clone(),
+            #[cfg(feature = "gate1-proof")]
+            protection_bypass,
             session: SessionValidationState::default(),
             timing: TimingState::default(),
         })
