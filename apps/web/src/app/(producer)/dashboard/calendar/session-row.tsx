@@ -27,6 +27,7 @@ export type SessionListItem = {
   artistEmail: string;
   startsAt: string; // ISO
   durationMin: number;
+  title?: string | null;
   packageName: string | null;
   kindSource?: string | null;
   status: RawBookingStatus;

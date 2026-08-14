@@ -254,6 +254,7 @@ export type SessionBookingGoogleCalendarSyncStatus =
   | "disconnected";
 
 export const GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT = 200;
+const SESSION_BOOKING_TITLE_MAX_LENGTH = 200;
 
 export type SessionBookingGoogleCalendarSyncStatusEntry = Readonly<{
   bookingId: string;
@@ -618,10 +619,7 @@ function confirmedGoogleCalendarSummary(
   context: SessionBookingCreateContext,
   booking: SessionBookingRecord,
 ): string {
-  const projectName = context.project.title.trim() || "Session";
-  const producerName = context.producer.name.trim() || "Skitza producer";
-  const artistName = booking.artistName.trim() || context.artist.name.trim() || "Artist";
-  return `${projectName} · ${producerName} & ${artistName}`;
+  return booking.title?.trim() || context.purchase.defaultSessionTitle;
 }
 
 function googleCalendarSyncPayload(input: {
@@ -989,8 +987,12 @@ export async function applyGoogleCalendarSessionReconciliation(
       }
 
       const rsvp = rsvpProjection(booking, event.artistRsvp, event.updatedAt);
-      const titleNeedsCorrection =
-        event.summary !== confirmedGoogleCalendarSummary(context, booking);
+      const canonicalTitle = confirmedGoogleCalendarSummary(context, booking);
+      const providerTitle = event.summary?.trim() || null;
+      const providerTitleValid =
+        providerTitle !== null && providerTitle.length <= SESSION_BOOKING_TITLE_MAX_LENGTH;
+      const providerTitleChanged = providerTitleValid && providerTitle !== canonicalTitle;
+      const providerTitleInvalid = !providerTitleValid;
 
       const correctBooking = async (
         correction: Readonly<{
@@ -1035,6 +1037,7 @@ export async function applyGoogleCalendarSessionReconciliation(
         await correctBooking({
           syncState: "not_synced",
           errorCode: "invalid_provider_event",
+          ...(providerTitleChanged ? { title: providerTitle } : {}),
         });
         return { outcome: "corrected" };
       }
@@ -1062,11 +1065,12 @@ export async function applyGoogleCalendarSessionReconciliation(
           return { outcome: "conflict" };
         }
 
+        const replacementTitle = providerTitleChanged ? providerTitle : booking.title;
         const operationKey = `google-reconcile:${prepared.job.id}`;
         const digest = operationDigest("google-calendar-move", {
           bookingId: booking.id,
           startsAt: event.timing.startsAt.toISOString(),
-          title: booking.title,
+          title: replacementTitle,
           providerUpdatedAt: event.updatedAt.toISOString(),
         });
         const replacement = await transaction.insertBooking({
@@ -1074,7 +1078,7 @@ export async function applyGoogleCalendarSessionReconciliation(
           projectId: booking.projectId,
           purchaseId: booking.purchaseId,
           sessionAllowanceId: booking.sessionAllowanceId,
-          title: booking.title,
+          title: replacementTitle,
           origin: booking.origin,
           billingTreatment: booking.billingTreatment,
           artistName: booking.artistName,
@@ -1155,10 +1159,11 @@ export async function applyGoogleCalendarSessionReconciliation(
         return { outcome: "corrected" };
       }
 
-      if (resized || titleNeedsCorrection) {
+      if (resized || providerTitleChanged || providerTitleInvalid) {
         await correctBooking({
           syncState: "pending",
           errorCode: null,
+          ...(providerTitleChanged ? { title: providerTitle } : {}),
         });
         return { outcome: "corrected" };
       }
@@ -1203,6 +1208,73 @@ export async function getSessionBookingGoogleCalendarSyncStatuses(
     bookingIds,
     producerId: input.producerId,
   });
+}
+
+export type SetProducerSessionTitleResult = Readonly<{
+  booking: SessionBookingRecord;
+  changed: boolean;
+  calendarSyncJobId: string | null;
+}>;
+
+export async function setProducerSessionTitle(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    title: string;
+    now?: Date;
+  }>,
+): Promise<SetProducerSessionTitleResult> {
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      if (context.booking.status !== "confirmed") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Only a confirmed session title can be changed",
+        );
+      }
+      const now = commandNow(input.now);
+      assertProducerSessionHasNotEnded(context.booking, now, "renamed");
+      const title = normalizeSessionBookingTitle(
+        input.title,
+        context.purchase.defaultSessionTitle,
+        false,
+      );
+      if (title === null || title.length > SESSION_BOOKING_TITLE_MAX_LENGTH) {
+        throw new SessionBookingDomainError("INVALID_SLOT", "The session title is invalid");
+      }
+      if (confirmedGoogleCalendarSummary(context, context.booking) === title) {
+        return { booking: context.booking, changed: false, calendarSyncJobId: null };
+      }
+
+      const booking = await transaction.updateBookingCalendarProjection({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedCalendarRevision: context.booking.calendarRevision,
+        nextCalendarRevision: context.booking.calendarRevision + 1,
+        title,
+        occurredAt: now,
+      });
+      const calendarSyncJob = await enqueueBookingCalendarJob(
+        transaction,
+        context,
+        booking,
+        "confirmed",
+        now,
+      );
+      return {
+        booking,
+        changed: true,
+        calendarSyncJobId: calendarSyncJob?.id ?? null,
+      };
+    },
+  );
 }
 
 export type RecoverSessionBookingGoogleCalendarSyncResult = Readonly<{
@@ -1387,7 +1459,7 @@ function assertActiveStatus(
 function assertProducerSessionHasNotEnded(
   booking: Pick<SessionBookingRecord, "startsAt" | "durationMin">,
   now: Date,
-  action: "cancelled" | "rescheduled",
+  action: "cancelled" | "renamed" | "rescheduled",
 ): void {
   const endsAt = booking.startsAt.getTime() + booking.durationMin * 60 * 1000;
   if (now.getTime() >= endsAt) {

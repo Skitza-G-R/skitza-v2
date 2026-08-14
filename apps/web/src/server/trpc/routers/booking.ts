@@ -64,6 +64,7 @@ import {
   restoreMissingSessionBookingGoogleCalendarEvent,
   rescheduleProducerSessionBooking,
   retrySessionBookingGoogleCalendarSync,
+  setProducerSessionTitle,
   SessionBookingDomainError,
 } from "~/server/domain/session-booking/service";
 import {
@@ -2608,6 +2609,32 @@ export const bookingRouter = router({
             }
           : null,
       }));
+    }),
+
+  setTitle: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        title: z.string().trim().min(1).max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      let result;
+      try {
+        result = await setProducerSessionTitle(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          title: input.title,
+        });
+      } catch (error) {
+        mapSessionBookingDomainError(error);
+      }
+      deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
+      return {
+        id: result.booking.id,
+        title: result.booking.title ?? input.title,
+        changed: result.changed,
+      };
     }),
 
   confirm: producerProcedure

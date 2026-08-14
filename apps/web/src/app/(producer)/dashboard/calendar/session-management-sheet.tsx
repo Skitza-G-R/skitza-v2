@@ -19,6 +19,7 @@ import {
   getSessionRescheduleAvailability,
   previewSessionReschedule,
   rescheduleSession,
+  setSessionTitle,
   type ManualWarningCode,
   type ProducerExactSessionAvailability,
 } from "./calendar-actions";
@@ -34,7 +35,7 @@ type Preview = Extract<
   { ok: true }
 >["preview"];
 
-type Step = SessionManagementStep | "reschedule_warnings";
+type Step = SessionManagementStep | "reschedule_warnings" | "title";
 type Reason = "schedule_conflict" | "studio_unavailable" | "equipment_issue" | "other";
 type RescheduleInput = Readonly<{
   id: string;
@@ -75,6 +76,10 @@ function canCancel(session: SessionListItem, ended: boolean): boolean {
     (session.status === "confirmed" || session.status === "pending_approval") &&
     !session.changeRequest
   );
+}
+
+function canEditTitle(session: SessionListItem, ended: boolean): boolean {
+  return !ended && session.status === "confirmed";
 }
 
 function sessionHasEnded(session: SessionListItem, nowMs: number): boolean {
@@ -120,6 +125,7 @@ export function SessionManagementSheet({
   const router = useRouter();
   const online = useOnlineStatus();
   const { toast } = useToast();
+  const originalTitle = session.title?.trim() || session.packageName?.trim() || "Session";
   const openedAt = useRef(Date.now());
   const [step, setStep] = useState<Step>(() =>
     sessionHasEnded(session, openedAt.current) ? "summary" : initialStep,
@@ -134,6 +140,7 @@ export function SessionManagementSheet({
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState<Reason | null>(null);
   const [note, setNote] = useState("");
+  const [sessionTitle, setSessionTitleValue] = useState(originalTitle);
   const isDesktopSheet = useSyncExternalStore(
     subscribeToDesktopSheet,
     readDesktopSheet,
@@ -160,12 +167,13 @@ export function SessionManagementSheet({
     setError(null);
     setReason(null);
     setNote("");
+    setSessionTitleValue(originalTitle);
     operationKey.current = newCalendarOperationKey(`producer-reschedule:${session.id}`);
     if (!ended && initialStep === "reschedule") loadRescheduleAvailability();
     return () => {
       availabilityRequest.current += 1;
     };
-  }, [initialStep, open, session.durationMin, session.id, session.startsAt]);
+  }, [initialStep, open, originalTitle, session.durationMin, session.id, session.startsAt]);
 
   useEffect(() => {
     if (!open) return;
@@ -371,6 +379,33 @@ export function SessionManagementSheet({
     });
   }
 
+  function saveTitle(): void {
+    const nextTitle = sessionTitle.trim();
+    if (!nextTitle) {
+      setError("Enter a session title.");
+      return;
+    }
+    if (!online) {
+      setError("Reconnect to change this session title.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await setSessionTitle({ id: session.id, title: nextTitle });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        toast("Session title updated.", "success");
+        onOpenChange(false);
+        router.refresh();
+      } catch {
+        setError("Could not change this session title. Please try again.");
+      }
+    });
+  }
+
   function handleOpenChange(next: boolean): void {
     if (!next && isPending) return;
     onOpenChange(next);
@@ -388,14 +423,16 @@ export function SessionManagementSheet({
       disabled: day.slots.length === 0,
     })) ?? [];
   const rescheduleTimeOptions = exactTimeOptions(rescheduleDay?.slots ?? []);
-  const title =
+  const sheetTitle =
     step === "summary"
       ? "Session details"
       : step === "cancel"
         ? "Cancel session"
-        : step === "reschedule_warnings"
-          ? "Review new time"
-          : "Reschedule session";
+        : step === "title"
+          ? "Edit session title"
+          : step === "reschedule_warnings"
+            ? "Review new time"
+            : "Reschedule session";
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -437,10 +474,10 @@ export function SessionManagementSheet({
                   : "text-[25px] outline-none sm:text-[24px]"
               }
             >
-              {title}
+              {sheetTitle}
             </SheetTitle>
             <SheetDescription className="sr-only">
-              View this session, reschedule it, or cancel it.
+              View this session, edit its title, reschedule it, or cancel it.
             </SheetDescription>
           </div>
           <SheetClose asChild>
@@ -472,7 +509,7 @@ export function SessionManagementSheet({
                     <CalendarClock className="h-5 w-5" aria-hidden />
                   </span>
                   <h2 className="mt-3 text-xl font-bold text-[rgb(var(--fg-default))]">
-                    {session.packageName ?? "Session"}
+                    {originalTitle}
                   </h2>
                   <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
                     {session.artistName}
@@ -487,7 +524,7 @@ export function SessionManagementSheet({
 
                 <dl className="grid gap-3 text-sm">
                   <Detail label="Client" value={session.artistName} />
-                  <Detail label="Session" value={session.packageName ?? "Session"} />
+                  <Detail label="Session" value={originalTitle} />
                   <Detail label="Billing" value={billingLabel(session.billingTreatment)} />
                   {session.artistRsvpStatus ? (
                     <Detail
@@ -573,6 +610,27 @@ export function SessionManagementSheet({
                   ))}
                 </ul>
               </div>
+            ) : step === "title" ? (
+              <div>
+                <p className="text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
+                  This title syncs to the linked Google Calendar when Google Calendar is connected.
+                </p>
+                <label className="mt-5 flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold">Session title</span>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    disabled={isPending}
+                    value={sessionTitle}
+                    onChange={(event) => {
+                      setSessionTitleValue(event.target.value);
+                      setError(null);
+                    }}
+                    autoComplete="off"
+                    className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
+                  />
+                </label>
+              </div>
             ) : (
               <div>
                 <p className="text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
@@ -643,6 +701,17 @@ export function SessionManagementSheet({
                   Reschedule
                 </button>
               ) : null}
+              {canEditTitle(session, ended) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    goTo("title");
+                  }}
+                  className={secondaryButtonClass}
+                >
+                  Edit title
+                </button>
+              ) : null}
               {canCancel(session, ended) ? (
                 <button
                   type="button"
@@ -654,7 +723,9 @@ export function SessionManagementSheet({
                   Cancel session
                 </button>
               ) : null}
-              {!canReschedule(session, ended) && !canCancel(session, ended) ? (
+              {!canReschedule(session, ended) &&
+              !canEditTitle(session, ended) &&
+              !canCancel(session, ended) ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -666,6 +737,20 @@ export function SessionManagementSheet({
                 </button>
               ) : null}
             </div>
+          ) : step === "title" ? (
+            <button
+              type="button"
+              disabled={
+                isPending ||
+                !online ||
+                !sessionTitle.trim() ||
+                sessionTitle.trim() === originalTitle
+              }
+              onClick={saveTitle}
+              className={`${primaryButtonClass} w-full`}
+            >
+              {isPending ? "Saving…" : online ? "Save title" : "Reconnect to save"}
+            </button>
           ) : step === "reschedule" ? (
             <button
               type="button"

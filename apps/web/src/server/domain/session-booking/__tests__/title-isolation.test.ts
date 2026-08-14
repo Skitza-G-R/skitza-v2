@@ -40,7 +40,7 @@ describe("session title isolation", () => {
     expect(manualSource).not.toContain("const title = (input.title ?? project.title).trim()");
   });
 
-  it("keeps ICS purchase-derived while Google uses the project and participant names", () => {
+  it("uses the stored session title for both ICS and Google delivery", () => {
     const icsPayload = between(
       serviceSource,
       "function icsCalendarSyncPayload(",
@@ -56,9 +56,12 @@ describe("session title isolation", () => {
       "summary: input.booking.title?.trim() || input.context.purchase.defaultSessionTitle",
     );
     expect(icsPayload).not.toContain("confirmedGoogleCalendarSummary");
-    expect(googlePayload).toContain("const projectName = context.project.title.trim()");
+    expect(googlePayload).toContain(
+      "return booking.title?.trim() || context.purchase.defaultSessionTitle",
+    );
     expect(googlePayload).toContain(
       'summary: confirmed ? confirmedGoogleCalendarSummary(input.context, input.booking) : "Reserved"',
     );
+    expect(googlePayload).not.toContain("context.project.title.trim()");
   });
 });
