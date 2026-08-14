@@ -45,6 +45,10 @@ describe("AppShell + DashboardTopBar wiring", () => {
     );
   });
 
+  it("mounts pull-to-refresh only for Producer Home", () => {
+    expect(SRC).toContain('<HomePullToRefresh homePath="/dashboard" />');
+  });
+
   it("threads unreadCount into the topbar (matches the bell dot guard)", () => {
     expect(SRC).toMatch(/<DashboardTopBar[\s\S]{0,80}unreadCount=\{unreadCount\}/);
   });

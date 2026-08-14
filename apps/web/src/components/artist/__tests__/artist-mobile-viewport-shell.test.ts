@@ -25,17 +25,14 @@ const globalsCss = readFileSync(
 );
 
 describe("artist mobile viewport shell", () => {
-  it("anchors the standing shell instead of replaying transient visual-viewport scroll offsets", () => {
+  it("uses the stable mobile viewport contract shared with the producer shell", () => {
     expect(shellSource).toContain(
-      "fixed inset-x-0 top-0 flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden",
+      "sk-artist-app-shell fixed inset-0 flex overflow-hidden",
     );
-    expect(shellSource).not.toContain(
-      "top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)]",
-    );
+    expect(shellSource).not.toContain("h-[var(--sk-viewport-height,100dvh)]");
+    expect(shellSource).not.toContain("max-h-[var(--sk-viewport-height,100dvh)]");
     for (const desktopClass of [
       "lg:static",
-      "lg:h-auto",
-      "lg:max-h-none",
       "lg:min-h-dvh",
       "lg:overflow-visible",
     ]) {
@@ -43,21 +40,31 @@ describe("artist mobile viewport shell", () => {
     }
   });
 
-  it("makes the routed main surface the only elastic mobile scroller", () => {
-    // Both standing pages and the non-overlay loading states used by focused
-    // routes must remain scrollable now that the viewport shell clips document
-    // scrolling. Focused screens that own a fixed native viewport are
-    // unaffected by this fallback scroller.
-    expect(mainSource.match(/sk-native-scroll/g)).toHaveLength(2);
+  it("gives focused flows one mobile scroller instead of nesting two", () => {
+    // Standing pages scroll in the shell main. Focused pages render their own
+    // measured inner scroller, so the shell main must only clip that surface.
+    expect(mainSource.match(/sk-native-scroll/g)).toHaveLength(1);
+    expect(mainSource).toContain("overflow-hidden lg:overflow-visible");
     expect(mainSource).toContain("min-h-0");
     expect(mainSource).toContain("flex-1");
     expect(mainSource).toContain("lg:overflow-visible");
   });
 
-  it("absorbs browser-chrome viewport growth without shrinking the scroll range", () => {
-    expect(globalsCss).toContain("--sk-viewport-growth: 0px");
+  it("mounts pull-to-refresh only for Artist Home", () => {
+    expect(mainSource).toContain('<HomePullToRefresh homePath="/artist" />');
+  });
+
+  it("anchors focused screens during ordinary overscroll while preserving keyboard offsets", () => {
     expect(globalsCss).toMatch(
-      /main#main-content\[data-artist-shell-mode="standing"\][\s\S]*padding-bottom:[\s\S]*var\(--sk-viewport-growth/,
+      /body:not\(\[data-sk-keyboard="open"\]\)[\s\S]*main#main-content\[data-artist-shell-mode="focused"\][\s\S]*\.sk-native-screen[\s\S]*top:\s*0/,
+    );
+    expect(cancelSessionSource).toContain("top-[var(--sk-viewport-offset-top,0px)]");
+  });
+
+  it("does not mutate the standing scroll range while a touch gesture is active", () => {
+    expect(globalsCss).not.toContain("--sk-viewport-growth");
+    expect(globalsCss).not.toMatch(
+      /main#main-content\[data-artist-shell-mode="standing"\][\s\S]*var\(--sk-viewport-growth/,
     );
   });
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import tailwindPostcss from "@tailwindcss/postcss";
 import { describe, expect, it } from "vitest";
 
-import { calculateNativeViewportGrowth, calculateNativeViewportMetrics } from "../native-viewport";
+import { calculateNativeViewportMetrics } from "../native-viewport";
 import { isCompletedBackSwipe } from "../use-native-navigation";
 
 const globalsCss = readFileSync(
@@ -21,6 +21,10 @@ const flowSource = readFileSync(
 );
 const appShellSource = readFileSync(
   fileURLToPath(new URL("../../shell/app-shell.tsx", import.meta.url)),
+  "utf8",
+);
+const artistAppShellSource = readFileSync(
+  fileURLToPath(new URL("../../artist/artist-app-shell.tsx", import.meta.url)),
   "utf8",
 );
 const nativeViewportSource = readFileSync(
@@ -123,26 +127,9 @@ describe("native viewport metrics", () => {
     });
   });
 
-  it("exposes the non-keyboard viewport growth that a nested scroller must absorb", () => {
-    expect(
-      calculateNativeViewportGrowth({
-        viewportHeight: 800,
-        previousViewportFloor: null,
-      }),
-    ).toEqual({
-      viewportFloor: 800,
-      viewportGrowth: 0,
-    });
-
-    expect(
-      calculateNativeViewportGrowth({
-        viewportHeight: 844,
-        previousViewportFloor: 800,
-      }),
-    ).toEqual({
-      viewportFloor: 800,
-      viewportGrowth: 44,
-    });
+  it("does not rewrite page scroll range during visual-viewport movement", () => {
+    expect(nativeViewportSource).not.toContain("calculateNativeViewportGrowth");
+    expect(nativeViewportSource).not.toContain("--sk-viewport-growth");
   });
 });
 
@@ -210,21 +197,24 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain(".sk-native-action-dock");
   });
 
-  it("keeps the producer footer inside the paintable installed-iPhone viewport", async () => {
+  it("keeps both app footers inside the paintable installed-iPhone viewport", async () => {
     expect(appShellSource).toContain("sk-producer-app-shell");
+    expect(artistAppShellSource).toContain("sk-artist-app-shell");
 
     const productionCss = await postcss([
       tailwindPostcss({ base: webRoot, optimize: true }),
     ]).process(globalsCss, { from: productionCssPath });
     const producerShellRules: ParsedCssRule[] = [];
+    const artistShellRules: ParsedCssRule[] = [];
     postcss.parse(productionCss.css).walkRules((rule) => {
-      if (
-        rule.selector
-          .split(",")
-          .map((selector) => selector.trim())
-          .includes(".sk-producer-app-shell")
-      ) {
+      const selectors = rule.selector
+        .split(",")
+        .map((selector) => selector.trim());
+      if (selectors.includes(".sk-producer-app-shell")) {
         producerShellRules.push(rule);
+      }
+      if (selectors.includes(".sk-artist-app-shell")) {
+        artistShellRules.push(rule);
       }
     });
     const standaloneShellRule = producerShellRules[0];
@@ -241,6 +231,8 @@ describe("native CSS contracts", () => {
     )?.[1];
 
     expect(producerShellRules).toHaveLength(1);
+    expect(artistShellRules).toHaveLength(1);
+    expect(artistShellRules[0]).toBe(standaloneShellRule);
     expect(standaloneShellRule).toBeDefined();
     expect(standaloneShellRule?.parent).toMatchObject({
       type: "atrule",
@@ -263,6 +255,12 @@ describe("native CSS contracts", () => {
     );
     expect(productionCss.css).toContain(".sk-producer-app-shell .persistent-player-dock");
     expect(productionCss.css).not.toContain(".sk-producer-app-shell .mobile-full-player-sheet");
+    expect(productionCss.css).toContain(
+      ".sk-artist-app-shell .persistent-player-dock",
+    );
+    expect(productionCss.css).not.toContain(
+      ".sk-artist-app-shell .mobile-full-player-sheet",
+    );
     expect(productionCss.css).toContain("position:absolute");
     expect(playerSource).toContain('top: "var(--sk-layout-viewport-top, 0px)"');
     expect(playerSource).toContain('height: "var(--sk-layout-viewport-height, 100dvh)"');
