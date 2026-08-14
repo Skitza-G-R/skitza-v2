@@ -22,7 +22,14 @@ import {
   assertProducerAudioStorageAvailable,
   lockProducerAudioStorageQuota,
 } from "~/server/domain/audio-storage/quota";
-import { assertActiveVersionUploadLifecycle } from "~/server/domain/version-uploads/service";
+import {
+  lockProducerCapabilityState,
+  type LockedProducerCapabilityState,
+} from "~/server/domain/producer-capabilities/open-state";
+import {
+  assertActiveVersionUploadLifecycle,
+  VersionUploadDomainError,
+} from "~/server/domain/version-uploads/service";
 import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import {
   BUCKETS,
@@ -32,6 +39,12 @@ import {
 } from "~/server/storage/r2";
 
 const AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA = "skitza-upload-token";
+
+function requireMultipartProducerOpen(producer: LockedProducerCapabilityState | null): void {
+  if (!producer || producer.closedAt !== null) {
+    throw new VersionUploadDomainError("INACTIVE", "This studio is closed");
+  }
+}
 
 type PendingInitiation = Readonly<{
   projectId: string;
@@ -122,6 +135,7 @@ export async function createOrResumePendingMultipartUpload(
 
   const staged = await ctx.db.transaction(async (tx): Promise<PendingInitiation> => {
     await lockProducerAudioStorageQuota(tx, ctx.producerId);
+    requireMultipartProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
     );
@@ -291,17 +305,20 @@ export async function createOrResumePendingMultipartUpload(
   const prepared = await reconcilePendingInitiation(ctx, input, discovered, staged, undefined);
   if (prepared.kind === "bound") return prepared.result;
 
-  const created = await getR2SingleAttempt().send(
-    new CreateMultipartUploadCommand({
-      Bucket: BUCKETS.audio,
-      Key: staged.key,
-      ContentType: input.contentType,
-      // Audio can be permanently deleted later. Prevent a custom-domain CDN
-      // from retaining playable bytes after the authoritative R2 object is gone.
-      CacheControl: "no-store",
-      Metadata: { [AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA]: staged.completionToken },
-    }),
-  );
+  const created = await ctx.db.transaction(async (tx) => {
+    requireMultipartProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
+    return getR2SingleAttempt().send(
+      new CreateMultipartUploadCommand({
+        Bucket: BUCKETS.audio,
+        Key: staged.key,
+        ContentType: input.contentType,
+        // Audio can be permanently deleted later. Prevent a custom-domain CDN
+        // from retaining playable bytes after the authoritative R2 object is gone.
+        CacheControl: "no-store",
+        Metadata: { [AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA]: staged.completionToken },
+      }),
+    );
+  });
   const createdUploadId = created.UploadId;
   if (typeof createdUploadId !== "string" || createdUploadId.trim().length === 0) {
     throw new PendingMultipartCancellationError(
@@ -343,6 +360,7 @@ async function reconcilePendingInitiation(
   expectedCreatedUploadId: string | undefined,
 ): Promise<PendingInitiationReconciliation> {
   return ctx.db.transaction(async (tx): Promise<PendingInitiationReconciliation> => {
+    requireMultipartProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${staged.projectId}, 0))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${staged.purchaseId}, 0))`);
     const [version] = await tx
@@ -567,7 +585,7 @@ export function latestPendingAudioPartCapabilityExpiry(current: Date | null, iss
  * leave the server. The row lock and exact CAS make cancellation, cleanup,
  * completion, and signing mutually exclusive at this boundary.
  */
-export async function authorizePendingMultipartPart(
+export async function authorizePendingMultipartPart<T>(
   ctx: Readonly<{ db: Db; producerId: string }>,
   input: Readonly<{
     trackVersionId: string;
@@ -576,9 +594,11 @@ export async function authorizePendingMultipartPart(
     partNumber: number;
     issuedAt: Date;
   }>,
-): Promise<Readonly<{ expiresAt: Date; contentLength: number }>> {
+  issue: (authorization: Readonly<{ expiresAt: Date; contentLength: number }>) => Promise<T>,
+): Promise<T> {
   const discovered = await discoverOwnedVersion(ctx, input.trackVersionId);
   return ctx.db.transaction(async (tx) => {
+    requireMultipartProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
     );
@@ -718,7 +738,7 @@ export async function authorizePendingMultipartPart(
         "The multipart upload changed before the part capability was saved",
       );
     }
-    return { expiresAt, contentLength };
+    return issue({ expiresAt, contentLength });
   });
 }
 

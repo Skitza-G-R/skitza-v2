@@ -234,6 +234,13 @@ describe("purchase-owned allowance links", () => {
       allowanceUnavailableMessage({
         ...fixedAllowance,
         canBook: false,
+        bookingBlockedReason: "studio_closed",
+      }),
+    ).toContain("studio is closed");
+    expect(
+      allowanceUnavailableMessage({
+        ...fixedAllowance,
+        canBook: false,
         bookingBlockedReason: "project_paused",
       }),
     ).toContain("Listening and comments stay available");

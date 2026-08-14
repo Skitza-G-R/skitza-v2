@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import type { AllowanceSummary, SessionListItem } from "~/components/artist/sessions/book-data";
 import { isArtistSessionsTabKey } from "~/components/artist/sessions/artist-sessions-tabs";
@@ -10,14 +10,14 @@ import { appRouter } from "~/server/trpc/routers/_app";
 type PageProps = { searchParams: Promise<{ studio?: string; tab?: string }> };
 
 export default async function MySessionsPage({ searchParams }: PageProps) {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, providerUserId } = await auth();
+  if (!userId || !providerUserId) return null;
 
   const caller = appRouter.createCaller({ userId });
   const [sp, { studios }, savedStudioId] = await Promise.all([
     searchParams,
     caller.artist.studios(),
-    readArtistStudioPreference(userId),
+    readArtistStudioPreference(providerUserId),
   ]);
   const producerId = resolveArtistStudioId(studios, sp.studio, savedStudioId);
   const initialTab = isArtistSessionsTabKey(sp.tab) ? sp.tab : "upcoming";

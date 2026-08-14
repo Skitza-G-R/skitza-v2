@@ -1,16 +1,11 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 import { AppI18nProvider } from "~/i18n/app-i18n-provider";
-import {
-  fetchUserAccountMemberships,
-} from "~/server/auth/role";
-import {
-  decideOnboardingMembershipRedirect,
-  stepFromPath,
-} from "./decide-redirect";
+import { fetchUserAccountMemberships } from "~/server/auth/role";
+import { decideOnboardingMembershipRedirect, stepFromPath } from "./decide-redirect";
 import { OnboardingRuntimeBoundary } from "./runtime-boundary";
 
 // Onboarding is a signed-in surface (the gate in (app)/layout.tsx
@@ -42,8 +37,9 @@ import { OnboardingRuntimeBoundary } from "./runtime-boundary";
 //   - artist → /artist (the hard wall — Task 16 primary fix)
 //   - producer-complete on /onboarding/studio → /dashboard
 //   - producer-complete on /onboarding/{2,3,4} → render (mid-flow)
-//   - producer-incomplete OR orphan on /onboarding/studio → render
-//   - producer-incomplete OR orphan on /onboarding/{2,3,4} → /onboarding/studio
+//   - producer-incomplete on /onboarding/studio → render
+//   - producer-incomplete on /onboarding/{2,3,4} → /onboarding/studio
+//   - authenticated account without Producer access → /producer-access
 export default async function OnboardingLayout({ children }: { children: ReactNode }) {
   const reqHeaders = await headers();
 
@@ -61,7 +57,7 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
     );
   }
 
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -69,17 +65,13 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
   const pathname = reqHeaders.get("x-pathname");
   const currentStep = stepFromPath(pathname);
-  const redirectTo = decideOnboardingMembershipRedirect(memberships, currentStep, {
-    allowArtistCreateStudio:
-      reqHeaders.get("x-onboarding-intent") === "create-studio",
-  });
+  const redirectTo = decideOnboardingMembershipRedirect(memberships, currentStep);
   if (redirectTo) redirect(redirectTo);
 
   const identity =
-    memberships.producer.status === "complete" ||
-    memberships.producer.status === "incomplete"
+    memberships.producer.status === "complete" || memberships.producer.status === "incomplete"
       ? {
-          userId: userId ?? "",
+          userId: providerUserId ?? "",
           role: "producer" as const,
           contextId: memberships.producer.profile.id,
         }

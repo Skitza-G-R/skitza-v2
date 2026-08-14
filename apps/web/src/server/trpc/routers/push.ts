@@ -39,11 +39,15 @@ const pushProcedure = publicProcedure.use(async ({ ctx, next }) => {
       message: "missing DATABASE_URL",
     });
   }
+  const db = createDb(dbUrl);
+  if (ctx.accountClosureStarted) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "account closure started" });
+  }
   return next({
     ctx: {
       ...ctx,
       clerkUserId: ctx.userId,
-      db: createDb(dbUrl),
+      db,
     },
   });
 });

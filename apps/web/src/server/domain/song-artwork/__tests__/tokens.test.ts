@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveCapabilitySecret } from "~/server/security/capability-secrets";
 import {
   createSongArtworkUploadToken,
   songArtworkObjectKeys,
@@ -68,6 +69,20 @@ describe("song artwork upload tokens", () => {
     expect(firstKeys.finalKey).not.toBe(secondKeys.finalKey);
     expect(firstKeys.stagingKey).not.toContain(trackId);
     expect(firstKeys.finalKey).not.toContain(first.uploadId);
+  });
+
+  it("keeps an in-flight upload on its original derived storage path after rotation", () => {
+    const created = signed();
+    const verified = resolveCapabilitySecret(
+      ["rotated-song-artwork-test-secret-at-least-20", SECRET],
+      (secret) =>
+        verifyOwnedSongArtworkUploadToken(secret, created.token, { producerId, trackId }, NOW),
+    );
+
+    expect(verified.secret).toBe(SECRET);
+    expect(songArtworkObjectKeys(verified.secret, verified.value)).toEqual(
+      songArtworkObjectKeys(SECRET, created.payload),
+    );
   });
 
   it("canonicalizes UUID casing before token and object-key derivation", () => {

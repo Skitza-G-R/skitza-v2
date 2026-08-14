@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import type {
-  UserAccountMemberships,
-  UserRole,
-} from "~/server/auth/role";
+import type { UserAccountMemberships, UserRole } from "~/server/auth/role";
 
 // Story 03 — completeStudio server action.
 //
@@ -16,29 +13,33 @@ import type {
 // The pre-Story-03 actions.test.ts had 11 tests pinning the old-shape
 // contract (caller-supplied slug + currency, ZodError on uppercase
 // slug, etc.). Those caller-shape tests no longer apply — but the
-// invariants they protected (auth guard, DB-URL guard, artist guard,
-// orphan/complete proceed) MUST carry over to completeStudio. This
+// invariants they protected (auth guard, DB-URL guard, producer-membership
+// guard, and complete-producer re-entry) MUST carry over to completeStudio. This
 // file rewrites the suite around the new shape while preserving every
 // invariant the old suite enforced.
 
-// Chain mock for db.insert().values().onConflictDoUpdate()
-const onConflictDoUpdateMock = vi
-  .fn<(arg: { target: unknown; set: Record<string, unknown> }) => Promise<void>>()
-  .mockResolvedValue(undefined);
-const valuesMock = vi.fn<
-  (values: Record<string, unknown>) => {
-    onConflictDoUpdate: typeof onConflictDoUpdateMock;
-  }
->(() => ({ onConflictDoUpdate: onConflictDoUpdateMock }));
-const insertMock = vi.fn(() => ({ values: valuesMock }));
-const dbMock = { insert: insertMock };
+// Chain mock for db.update().set().where().returning().
+const returningMock = vi
+  .fn<() => Promise<Array<{ id: string }>>>()
+  .mockResolvedValue([{ id: "producer-incomplete-1" }]);
+const whereMock = vi.fn((condition: unknown) => {
+  void condition;
+  return { returning: returningMock };
+});
+const setMock = vi.fn((values: Record<string, unknown>) => {
+  void values;
+  return { where: whereMock };
+});
+const updateMock = vi.fn((table: unknown) => {
+  void table;
+  return { set: setMock };
+});
+const dbMock = { update: updateMock };
 
 let mockUserId: string | null = "user_test_1";
-let mockEmail: string | undefined = "ada@example.com";
 // Stateful role mock — Task 16 added a role check to the action.
 // Default: "producer-incomplete" so the happy-path tests pass. Specific
-// tests override to simulate the artist-POSTing-the-form attack and
-// the orphan webhook-race.
+// tests override to simulate cross-role and no-membership attacks.
 let mockRole: UserRole = {
   kind: "producer-incomplete",
   producer: {
@@ -49,6 +50,7 @@ let mockRole: UserRole = {
   },
 };
 let mockHistoricalArtistAccess = false;
+let mockClosureStarted = false;
 
 function membershipsForMockRole(): UserAccountMemberships {
   const producer =
@@ -60,6 +62,7 @@ function membershipsForMockRole(): UserAccountMemberships {
   const activeArtist = mockRole.kind === "artist";
   return {
     isAuthenticated: mockRole.kind !== "unauthenticated",
+    accountStatus: mockClosureStarted ? "closure_started" : "open",
     producer,
     artist: {
       hasAccess: activeArtist || mockHistoricalArtistAccess,
@@ -77,23 +80,22 @@ let mockOnboardingIntentHeader: string | null = null;
 // Stateful crypto hash queue. Each call to randomBytes(2).toString("hex")
 // pops the front of this queue. Tests override to:
 //   - assert deterministic slug shape ("aaaa" → slug ends "-aaaa")
-//   - simulate retry-on-conflict (queue ["aaaa", "bbbb"] → 1st upsert
+//   - simulate retry-on-conflict (queue ["aaaa", "bbbb"] → 1st update
 //     uses "-aaaa", 2nd uses "-bbbb", asserting they differ)
 let mockHashQueue: string[] = ["abcd"];
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: mockUserId }),
-  currentUser: () =>
-    Promise.resolve(mockEmail ? { emailAddresses: [{ emailAddress: mockEmail }] } : null),
 }));
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
-  producers: { clerkUserId: "clerk_user_id" },
+  producers: { id: "producer_id", clerkUserId: "clerk_user_id", closedAt: "closed_at" },
   eq: (a: unknown, b: unknown) => ({ a, b }),
+  isNull: (column: unknown) => ({ column, operator: "is-null" }),
+  and: (...conditions: unknown[]) => ({ conditions }),
 }));
 vi.mock("~/server/auth/role", () => ({
-  fetchUserAccountMemberships: () =>
-    Promise.resolve(membershipsForMockRole()),
+  fetchUserAccountMemberships: () => Promise.resolve(membershipsForMockRole()),
 }));
 vi.mock("next/headers", () => ({
   headers: () =>
@@ -129,11 +131,11 @@ const validInput = {
 };
 
 beforeEach(() => {
-  insertMock.mockClear();
-  valuesMock.mockClear();
-  onConflictDoUpdateMock.mockReset().mockResolvedValue(undefined);
+  updateMock.mockClear();
+  setMock.mockClear();
+  whereMock.mockClear();
+  returningMock.mockReset().mockResolvedValue([{ id: "producer-incomplete-1" }]);
   mockUserId = "user_test_1";
-  mockEmail = "ada@example.com";
   mockRole = {
     kind: "producer-incomplete",
     producer: {
@@ -146,19 +148,18 @@ beforeEach(() => {
   mockCountryHeader = null;
   mockOnboardingIntentHeader = null;
   mockHistoricalArtistAccess = false;
+  mockClosureStarted = false;
   mockHashQueue = ["abcd"];
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
 describe("completeStudio — happy path + invariant carryover", () => {
-  it("upserts insert values that include parsed displayName + session email + server-derived slug", async () => {
+  it("updates the invitation-provisioned Producer with the server-derived slug", async () => {
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    expect(insertMock).toHaveBeenCalledOnce();
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    expect(valuesArg).toMatchObject({
-      clerkUserId: "user_test_1",
-      email: "ada@example.com",
+    expect(updateMock).toHaveBeenCalledOnce();
+    const setArg = setMock.mock.calls[0]?.[0];
+    expect(setArg).toMatchObject({
       displayName: "Ada Studios",
       timezone: "Europe/Berlin",
     });
@@ -167,19 +168,21 @@ describe("completeStudio — happy path + invariant carryover", () => {
     // → "ada-studios-abcd". Pin the shape so a future refactor that
     // accidentally drops the hash suffix or stops calling the helper
     // is caught.
-    expect(valuesArg?.slug).toBe("ada-studios-abcd");
+    expect(setArg?.slug).toBe("ada-studios-abcd");
   });
 
-  it("passes update set + bumped updatedAt on conflict (webhook already seeded row)", async () => {
+  it("matches both the resolved Producer id and authenticated Clerk user", async () => {
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    const arg = onConflictDoUpdateMock.mock.calls[0]?.[0];
-    expect(arg?.set).toMatchObject({
-      displayName: "Ada Studios",
-      timezone: "Europe/Berlin",
-      slug: "ada-studios-abcd",
+    expect(whereMock).toHaveBeenCalledWith({
+      conditions: [
+        { a: "producer_id", b: "producer-incomplete-1" },
+        { a: "clerk_user_id", b: "user_test_1" },
+        { column: "closed_at", operator: "is-null" },
+      ],
     });
-    expect(arg?.set.updatedAt).toBeInstanceOf(Date);
+    expect(returningMock).toHaveBeenCalledOnce();
+    expect(setMock.mock.calls[0]?.[0]?.updatedAt).toBeInstanceOf(Date);
   });
 });
 
@@ -188,40 +191,35 @@ describe("completeStudio — currency derivation from x-vercel-ip-country", () =
     mockCountryHeader = "GB";
     const { completeStudio } = await import("../actions");
     await completeStudio({ ...validInput, currency: "ILS" });
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    expect(valuesArg?.defaultCurrency).toBe("ILS");
+    expect(setMock.mock.calls[0]?.[0]?.defaultCurrency).toBe("ILS");
   });
 
   it("uses GBP when header is GB", async () => {
     mockCountryHeader = "GB";
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    expect(valuesArg?.defaultCurrency).toBe("GBP");
+    expect(setMock.mock.calls[0]?.[0]?.defaultCurrency).toBe("GBP");
   });
 
   it("uses EUR for any EU member (DE)", async () => {
     mockCountryHeader = "DE";
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    expect(valuesArg?.defaultCurrency).toBe("EUR");
+    expect(setMock.mock.calls[0]?.[0]?.defaultCurrency).toBe("EUR");
   });
 
   it("uses ILS when header is IL", async () => {
     mockCountryHeader = "IL";
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    expect(valuesArg?.defaultCurrency).toBe("ILS");
+    expect(setMock.mock.calls[0]?.[0]?.defaultCurrency).toBe("ILS");
   });
 
   it("falls back to USD when x-vercel-ip-country is absent (local dev)", async () => {
     mockCountryHeader = null;
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    expect(valuesArg?.defaultCurrency).toBe("USD");
+    expect(setMock.mock.calls[0]?.[0]?.defaultCurrency).toBe("USD");
   });
 });
 
@@ -240,10 +238,14 @@ describe("completeStudio — safe re-entry", () => {
     const { completeStudio } = await import("../actions");
     await completeStudio({ ...validInput, displayName: "Ada Studio" });
 
-    const valuesArg = valuesMock.mock.calls[0]?.[0];
-    const updateArg = onConflictDoUpdateMock.mock.calls[0]?.[0];
-    expect(valuesArg?.slug).toBe("ada-produces");
-    expect(updateArg?.set.slug).toBe("ada-produces");
+    expect(setMock.mock.calls[0]?.[0]?.slug).toBe("ada-produces");
+    expect(whereMock).toHaveBeenCalledWith({
+      conditions: [
+        { a: "producer_id", b: "producer-complete-1" },
+        { a: "clerk_user_id", b: "user_test_1" },
+        { column: "closed_at", operator: "is-null" },
+      ],
+    });
   });
 });
 
@@ -253,21 +255,21 @@ describe("completeStudio — slug retry loop on uniqueness conflict", () => {
     // wins. Without the retry loop this test fails: a single attempt
     // would surface the duplicate-key error to the caller.
     mockHashQueue = ["1111", "2222"];
-    onConflictDoUpdateMock
+    returningMock
       .mockRejectedValueOnce(
         new Error(
           'duplicate key value violates unique constraint "producers_slug_unique" on column "slug"',
         ),
       )
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce([{ id: "producer-incomplete-1" }]);
 
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
 
-    // Two upsert attempts fired, with two distinct slugs.
-    expect(insertMock).toHaveBeenCalledTimes(2);
-    const firstSlug = (valuesMock.mock.calls[0]?.[0] as { slug?: string } | undefined)?.slug;
-    const secondSlug = (valuesMock.mock.calls[1]?.[0] as { slug?: string } | undefined)?.slug;
+    // Two update attempts fired, with two distinct slugs.
+    expect(updateMock).toHaveBeenCalledTimes(2);
+    const firstSlug = (setMock.mock.calls[0]?.[0] as { slug?: string } | undefined)?.slug;
+    const secondSlug = (setMock.mock.calls[1]?.[0] as { slug?: string } | undefined)?.slug;
     expect(firstSlug).toBe("ada-studios-1111");
     expect(secondSlug).toBe("ada-studios-2222");
     expect(firstSlug).not.toBe(secondSlug);
@@ -278,7 +280,7 @@ describe("completeStudio — slug retry loop on uniqueness conflict", () => {
     const conflict = new Error(
       'duplicate key value violates unique constraint "producers_slug_unique" on column "slug"',
     );
-    onConflictDoUpdateMock
+    returningMock
       .mockRejectedValueOnce(conflict)
       .mockRejectedValueOnce(conflict)
       .mockRejectedValueOnce(conflict);
@@ -286,15 +288,15 @@ describe("completeStudio — slug retry loop on uniqueness conflict", () => {
     const { completeStudio } = await import("../actions");
     await expect(completeStudio(validInput)).rejects.toThrow(/could not allocate slug/);
     // Action attempted exactly 3 times before giving up.
-    expect(insertMock).toHaveBeenCalledTimes(3);
+    expect(updateMock).toHaveBeenCalledTimes(3);
   });
 
   it("rethrows non-slug DB errors without retrying", async () => {
-    onConflictDoUpdateMock.mockRejectedValueOnce(new Error("connection lost"));
+    returningMock.mockRejectedValueOnce(new Error("connection lost"));
     const { completeStudio } = await import("../actions");
     await expect(completeStudio(validInput)).rejects.toThrow("connection lost");
     // Must NOT retry on unrelated errors — only slug-uniqueness.
-    expect(insertMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -303,84 +305,104 @@ describe("completeStudio — auth + role invariants (carried over from completeO
     mockUserId = null;
     const { completeStudio } = await import("../actions");
     await expect(completeStudio(validInput)).rejects.toThrow("unauthorized");
-    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it("throws missing DATABASE_URL when env var absent", async () => {
     delete process.env.DATABASE_URL;
     const { completeStudio } = await import("../actions");
     await expect(completeStudio(validInput)).rejects.toThrow("missing DATABASE_URL");
-    expect(insertMock).not.toHaveBeenCalled();
-  });
-
-  it("throws when Clerk session lacks an email address", async () => {
-    mockEmail = undefined;
-    const { completeStudio } = await import("../actions");
-    await expect(completeStudio(validInput)).rejects.toThrow(/unable to resolve email/);
-    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   // ─────────────────────────────────────────────────────────────────
   // Task 16 carryover — the layout gate already redirects artists at
   // the render path, but a signed-in artist crafting a raw HTTP POST
   // (devtools / curl / a script) bypasses the layout. Without this
-  // guard they'd silently upsert a producers row and "become" a
+  // guard they'd silently create a producers row and "become" a
   // producer. The new completeStudio MUST preserve this invariant.
   // ─────────────────────────────────────────────────────────────────
   it("rejects when caller role is 'artist' (closes raw-POST hole)", async () => {
     mockRole = { kind: "artist" };
     const { completeStudio } = await import("../actions");
-    await expect(completeStudio(validInput)).rejects.toThrow(/artist|forbidden/i);
-    expect(insertMock).not.toHaveBeenCalled();
+    await expect(completeStudio(validInput)).rejects.toThrow(
+      "forbidden: producer access is invitation-only",
+    );
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it("rejects an Artist raw POST that only claims the create-studio input intent", async () => {
+  it("rejects a closing Producer before any studio profile write", async () => {
+    mockClosureStarted = true;
+    const { completeStudio } = await import("../actions");
+    await expect(completeStudio(validInput)).rejects.toThrow("forbidden: account closure started");
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an Artist raw POST that claims the retired create-studio input intent", async () => {
     mockRole = { kind: "artist" };
     const { completeStudio } = await import("../actions");
     await expect(
-      completeStudio({ ...validInput, intent: "create-studio" }),
-    ).rejects.toThrow(/artist|forbidden/i);
-    expect(insertMock).not.toHaveBeenCalled();
+      completeStudio({
+        ...validInput,
+        intent: "create-studio",
+      } as Parameters<typeof completeStudio>[0]),
+    ).rejects.toThrow("forbidden: producer access is invitation-only");
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it("rejects an Artist raw POST that only carries a create-studio header", async () => {
+  it("rejects an Artist raw POST that carries the retired create-studio header", async () => {
     mockRole = { kind: "artist" };
     mockOnboardingIntentHeader = "create-studio";
     const { completeStudio } = await import("../actions");
-    await expect(completeStudio(validInput)).rejects.toThrow(/artist|forbidden/i);
-    expect(insertMock).not.toHaveBeenCalled();
-  });
-
-  it("allows an Artist through the explicit server-authorized create-studio flow", async () => {
-    mockRole = { kind: "artist" };
-    mockOnboardingIntentHeader = "create-studio";
-    const { completeStudio } = await import("../actions");
-    await completeStudio({ ...validInput, intent: "create-studio" });
-    expect(insertMock).toHaveBeenCalledOnce();
+    await expect(completeStudio(validInput)).rejects.toThrow(
+      "forbidden: producer access is invitation-only",
+    );
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it("rejects a disconnected historical Artist without explicit create-studio intent", async () => {
     mockRole = { kind: "orphan" };
     mockHistoricalArtistAccess = true;
     const { completeStudio } = await import("../actions");
-    await expect(completeStudio(validInput)).rejects.toThrow(/artist|forbidden/i);
-    expect(insertMock).not.toHaveBeenCalled();
+    await expect(completeStudio(validInput)).rejects.toThrow(
+      "forbidden: producer access is invitation-only",
+    );
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it("allows a disconnected historical Artist through the explicit create-studio flow", async () => {
+  it("rejects a disconnected historical Artist even with retired create-studio signals", async () => {
     mockRole = { kind: "orphan" };
     mockHistoricalArtistAccess = true;
     mockOnboardingIntentHeader = "create-studio";
     const { completeStudio } = await import("../actions");
-    await completeStudio({ ...validInput, intent: "create-studio" });
-    expect(insertMock).toHaveBeenCalledOnce();
+    await expect(
+      completeStudio({
+        ...validInput,
+        intent: "create-studio",
+      } as Parameters<typeof completeStudio>[0]),
+    ).rejects.toThrow("forbidden: producer access is invitation-only");
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it("proceeds when caller role is 'orphan' (Clerk webhook race — action's upsert handles it)", async () => {
+  it("rejects an authenticated account without a provisioned Producer membership", async () => {
     mockRole = { kind: "orphan" };
     const { completeStudio } = await import("../actions");
-    await completeStudio(validInput);
-    expect(insertMock).toHaveBeenCalledOnce();
+    await expect(completeStudio(validInput)).rejects.toThrow(
+      "forbidden: producer access is invitation-only",
+    );
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed if the Producer disappears after the membership lookup", async () => {
+    returningMock.mockResolvedValueOnce([]);
+    const { completeStudio } = await import("../actions");
+
+    await expect(completeStudio(validInput)).rejects.toThrow(
+      "forbidden: producer access is invitation-only",
+    );
+
+    expect(updateMock).toHaveBeenCalledOnce();
+    expect(returningMock).toHaveBeenCalledOnce();
   });
 
   it("proceeds when caller role is 'producer-complete' (idempotent re-save — no harm)", async () => {
@@ -395,7 +417,7 @@ describe("completeStudio — auth + role invariants (carried over from completeO
     };
     const { completeStudio } = await import("../actions");
     await completeStudio(validInput);
-    expect(insertMock).toHaveBeenCalledOnce();
+    expect(updateMock).toHaveBeenCalledOnce();
   });
 });
 
@@ -405,7 +427,7 @@ describe("completeStudio — input validation", () => {
     await expect(
       completeStudio({ displayName: "   ", timezone: "Europe/Berlin" }),
     ).rejects.toBeInstanceOf(ZodError);
-    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it("throws ZodError when displayName exceeds 80 chars", async () => {

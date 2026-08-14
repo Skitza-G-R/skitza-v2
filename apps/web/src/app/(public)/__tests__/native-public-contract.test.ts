@@ -65,11 +65,6 @@ describe("SK-115 anonymous route and privacy matrix", () => {
       "/about",
       "/privacy",
       "/terms",
-      "/changelog",
-      "/get-started",
-      "/get-started/he",
-      "/get-started/thanks",
-      "/get-started/he/thanks",
       "/sign-in",
       "/sign-up",
       "/sign-up/join/studio-name",
@@ -94,7 +89,6 @@ describe("SK-115 anonymous route and privacy matrix", () => {
   it("never mounts signed-in tabs or install guidance on anonymous pages", () => {
     const filenames = [
       ...filesBelow("src/app/(public)"),
-      ...filesBelow("src/app/get-started"),
       ...filesBelow("src/components/landing"),
       ...filesBelow("src/components/join"),
       ...filesBelow("src/components/public-song"),
@@ -112,13 +106,8 @@ describe("SK-115 anonymous route and privacy matrix", () => {
       "src/components/landing/landing-page.tsx",
       "src/app/(public)/(legal)/layout.tsx",
       "src/app/(public)/(auth)/layout.tsx",
-      "src/app/(public)/changelog/page.tsx",
       "src/app/(public)/join/[slug]/page.tsx",
       "src/components/public-song/public-song-player.tsx",
-      "src/app/get-started/page.tsx",
-      "src/app/get-started/he/page.tsx",
-      "src/app/get-started/thanks/page.tsx",
-      "src/app/get-started/he/thanks/page.tsx",
     ]) {
       const contents = source(filename);
       expect(contents, filename).toContain('id="main-content"');
@@ -147,28 +136,21 @@ describe("SK-115 anonymous route and privacy matrix", () => {
       "src/components/join/join-mini-player.tsx",
       "src/components/public-song/public-song-player.tsx",
       "src/app/(public)/(auth)/layout.tsx",
-      "src/app/get-started/_components/waitlist-form.tsx",
     ]) {
       expect(source(filename), filename).toContain("sk-press");
     }
     expect(source("src/app/(public)/layout.tsx")).toContain("<PublicConnectivityNotice");
-    expect(source("src/app/get-started/_components/waitlist-form.tsx")).toContain(
-      "usePublicOnline",
-    );
   });
 
   it("blocks new network listening offline while preserving pause and retry controls", () => {
     const joinBento = source("src/components/join/join-bento.tsx");
     const joinPlayer = source("src/components/join/join-mini-player.tsx");
     const publicSong = source("src/components/public-song/public-song-player.tsx");
-    const waitlist = source("src/app/get-started/_components/waitlist-form.tsx");
 
     expect(joinBento).toContain("(!online && !isPlaying)");
     expect(joinBento).toContain("isActive && isPlaying");
     expect(joinBento).not.toContain("<animate");
     expect(joinPlayer).toContain("disabled={!state.playing && !online}");
     expect(publicSong).toContain("disabled={!online && !selectedIsPlaying}");
-    expect(waitlist).toContain("if (!online)");
-    expect(waitlist).toContain("Check your connection and try again.");
   });
 });

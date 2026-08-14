@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -17,9 +17,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // producer row + gates out artists. Artists + unauthenticated users
 // get a generic error (no enumeration).
 
-export type SaveNoteResult =
-  | { ok: true; id: string }
-  | { ok: false; error: string };
+export type SaveNoteResult = { ok: true; id: string } | { ok: false; error: string };
 
 export async function saveQuickNote(body: string): Promise<SaveNoteResult> {
   const { userId } = await auth();

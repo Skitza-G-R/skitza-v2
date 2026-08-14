@@ -2,7 +2,6 @@ import * as Sentry from "@sentry/nextjs";
 
 import {
   filterCurrentBrowserPublicSongTelemetry,
-  isBrowserPublicSongListenPage,
   redactPublicSongTelemetry,
 } from "./src/lib/observability/public-song-telemetry";
 
@@ -18,7 +17,6 @@ import {
 // bugs have diagnosable signal.
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-const allowReplay = !isBrowserPublicSongListenPage();
 
 if (dsn) {
   Sentry.init({
@@ -41,25 +39,21 @@ if (dsn) {
     // is ~5k events/mo.
     tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
 
-    // Session Replay — record 10% of sessions + 100% of sessions
-    // that hit an error. Most valuable signal-to-noise ratio for
-    // "why did this user get stuck" investigations like the
-    // artist-welcome bug we burned on today.
-    integrations: allowReplay
-      ? [
-          Sentry.replayIntegration({
-            beforeAddRecordingEvent: filterCurrentBrowserPublicSongTelemetry,
-            beforeErrorSampling: () => !isBrowserPublicSongListenPage(),
-            networkDetailDenyUrls: [/\/api\/audio\/public\/song\//],
-          }),
-        ]
-      : [],
-    replaysSessionSampleRate: allowReplay ? 0.1 : 0,
-    replaysOnErrorSampleRate: allowReplay ? 1.0 : 0,
+    // Replay is disabled for the public-launch release. SDK 10.49 can retain a
+    // raw client-navigation URL in Replay metadata before page code can stop
+    // recording. Keep the event processor above as defense in depth, but do
+    // not initialize or sample Replay until a no-flush transition is proven.
+    replaysSessionSampleRate: 0,
+    replaysOnErrorSampleRate: 0,
 
     // Environment tag lets us filter production vs preview in the
     // Sentry dashboard. Preview deployments get `preview`, prod gets
     // `production`.
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV,
   });
+
+  // Replay keeps its own navigation URL list, outside the ordinary beforeSend
+  // hooks. Sentry's documented event processor is the last-mile scrubber for
+  // replay_event.urls and any non-plain URL/Error values normalized afterward.
+  Sentry.addEventProcessor(redactPublicSongTelemetry);
 }

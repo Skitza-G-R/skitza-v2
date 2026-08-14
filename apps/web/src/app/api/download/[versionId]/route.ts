@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb } from "@skitza/db";
 
 import { audioDeliveryRepository } from "~/server/domain/audio-delivery/db";

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb, eq, producers } from "@skitza/db";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -34,7 +34,6 @@ export default async function StudioStepPage({
 }) {
   const params = await searchParams;
   const isPreview = isDevPreviewBypass(params);
-  const isCreateStudioIntent = params.intent === "create-studio";
   const requestHeaders = await headers();
   const inferredCurrency = inferCurrency(
     requestHeaders.get("x-vercel-ip-country"),
@@ -58,9 +57,7 @@ export default async function StudioStepPage({
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
   const role = await fetchUserRole({ dbUrl, userId });
-  const redirectTo = decideOnboardingRedirect(role, "studio", {
-    allowArtistCreateStudio: isCreateStudioIntent,
-  });
+  const redirectTo = decideOnboardingRedirect(role, "studio");
   if (redirectTo) redirect(redirectTo);
 
   if (role.kind !== "producer-complete" && role.kind !== "producer-incomplete") {
@@ -70,7 +67,6 @@ export default async function StudioStepPage({
         initialSlug=""
         initialCurrency={inferredCurrency}
         initialTimezone="UTC"
-        createStudioIntent={isCreateStudioIntent}
       />
     );
   }
@@ -102,7 +98,6 @@ export default async function StudioStepPage({
       initialCurrency={supportedCurrency}
       initialTimezone={producer?.timezone ?? "UTC"}
       canExit={role.kind === "producer-complete"}
-      createStudioIntent={isCreateStudioIntent}
     />
   );
 }

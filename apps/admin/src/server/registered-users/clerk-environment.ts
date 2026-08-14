@@ -15,6 +15,11 @@ const DASHBOARD_NAMES = {
   test: "ADMIN_TEST_CLERK_DASHBOARD_URL",
 } as const;
 
+const WEB_APP_NAMES = {
+  live: "ADMIN_LIVE_WEB_APP_URL",
+  test: "ADMIN_TEST_WEB_APP_URL",
+} as const;
+
 export class AdminClerkEnvironmentError extends Error {
   constructor() {
     super("ADMIN_CLERK_ENVIRONMENT_INVALID");
@@ -85,4 +90,34 @@ export function resolveAdminClerkDashboardUrl(
     throw new AdminClerkEnvironmentError();
   }
   return dashboards[selected];
+}
+
+export function resolveAdminWebAppUrl(
+  environment: AdminEnvironmentMap,
+  selected: AdminEnvironmentId,
+): string {
+  const urls = {} as Record<AdminEnvironmentId, string>;
+  for (const environmentId of ["live", "test"] as const) {
+    const raw = required(environment, WEB_APP_NAMES[environmentId]);
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new AdminClerkEnvironmentError();
+    }
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new AdminClerkEnvironmentError();
+    }
+    urls[environmentId] = parsed.origin;
+  }
+  if (urls.live === urls.test) throw new AdminClerkEnvironmentError();
+  if (urls.live !== "https://skitza.app") throw new AdminClerkEnvironmentError();
+  return urls[selected];
 }

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import {
   ArrowLeft,
@@ -40,9 +40,7 @@ export default async function ArtistPastStudioPage({ params }: PageProps) {
 
   const { producerId } = await params;
   if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-      producerId,
-    )
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(producerId)
   ) {
     notFound();
   }
@@ -97,8 +95,8 @@ export default async function ArtistPastStudioPage({ params }: PageProps) {
           className="mt-0.5 shrink-0 text-[rgb(var(--fg-muted))]"
         />
         <p className="text-[12px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-          This is a read-only record. New messages, purchases, uploads, and
-          session changes are unavailable after disconnecting.
+          This is a read-only record. New messages, purchases, uploads, and session changes are
+          unavailable after disconnecting.
         </p>
       </div>
 
@@ -172,9 +170,7 @@ export default async function ArtistPastStudioPage({ params }: PageProps) {
             <HistoryRow
               key={session.id}
               title={session.productName}
-              meta={`${dateLabel(session.startsAt)} · ${String(
-                session.durationMin,
-              )} min`}
+              meta={`${dateLabel(session.startsAt)} · ${String(session.durationMin)} min`}
               detail={statusLabel(session.status)}
               href={`/artist/settings/studios/${encodeURIComponent(
                 producerId,
@@ -237,23 +233,13 @@ function HistoryRow({
   const content = (
     <>
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-          {title}
-        </p>
-        <p className="mt-0.5 text-[11px] capitalize text-[rgb(var(--fg-muted))]">
-          {meta}
-        </p>
+        <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">{title}</p>
+        <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))] capitalize">{meta}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <p className="font-mono text-[10px] capitalize text-[rgb(var(--fg-muted))]">
-          {detail}
-        </p>
+        <p className="font-mono text-[10px] text-[rgb(var(--fg-muted))] capitalize">{detail}</p>
         {href ? (
-          <ChevronRight
-            size={14}
-            aria-hidden
-            className="text-[rgb(var(--fg-muted))]"
-          />
+          <ChevronRight size={14} aria-hidden className="text-[rgb(var(--fg-muted))]" />
         ) : null}
       </div>
     </>
@@ -266,8 +252,6 @@ function HistoryRow({
       {content}
     </Link>
   ) : (
-    <div className="flex min-h-14 items-start justify-between gap-4 px-5 py-3.5">
-      {content}
-    </div>
+    <div className="flex min-h-14 items-start justify-between gap-4 px-5 py-3.5">{content}</div>
   );
 }

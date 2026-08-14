@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -17,8 +17,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 // stall on one without redoing the rest).
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };

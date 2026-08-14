@@ -24,9 +24,7 @@ describe("SK-152 auth presentation contract", () => {
     expect(signInSource).toContain("normalizeSameOriginPostSignInTarget(");
     expect(signInSource).toContain("signUpSwitchHref(requestedHref)");
     expect(signInSource).toContain("joinSignUpMetadataFromTarget(requestedHref)");
-    expect(signInSource).toContain(
-      "{...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}",
-    );
+    expect(signInSource).toContain("{...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}");
     expect(signInSource).toContain("signUpUrl={signUpHref}");
     expect(signInSource).toContain("fallbackRedirectUrl={resolverHref}");
     expect(signInSource).toContain("forceRedirectUrl={resolverHref}");
@@ -40,8 +38,10 @@ describe("SK-152 auth presentation contract", () => {
     );
   });
 
-  it("marks producer sign-up for the intentional desktop marketing layout", () => {
+  it("marks the invitation entry for the intentional desktop marketing layout", () => {
     expect(signUpSource).toContain('data-auth-page="sign-up"');
+    expect(signUpSource).toContain("Producer access is invitation-only");
+    expect(signUpSource).toContain("query.__clerk_ticket");
     expect(signUpSource).toContain("shouldRedirectReturningDeviceToSignIn");
     expect(signUpSource).toContain("signInSwitchHref(requestedHref)");
     expect(signUpSource).toContain("signInUrl={signInHref}");
@@ -52,7 +52,7 @@ describe("SK-152 auth presentation contract", () => {
   it("uses honest product workflow proof instead of unsupported vanity copy", () => {
     expect(authLayoutSource).toContain("Session booked");
     expect(authLayoutSource).toContain("New mix uploaded");
-    expect(authLayoutSource).toContain("Payment cleared");
+    expect(authLayoutSource).toContain("External payment recorded");
     expect(authLayoutSource).toContain("Built for independent producers");
     expect(authLayoutSource).not.toMatch(/2,400|Tel-Aviv|Berlin|Lagos|Atlanta|Seoul/);
   });

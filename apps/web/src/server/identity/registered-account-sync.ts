@@ -1,15 +1,9 @@
-import {
-  type Db,
-  clerkUserSyncReceipts,
-  eq,
-  registeredAccounts,
-  sql,
-} from "@skitza/db";
+import { type Db, clerkUserSyncReceipts, eq, registeredAccounts, sql } from "@skitza/db";
 
 export type RegisteredAccountProviderState = "active" | "banned" | "locked";
 export type RegisteredAccountAudienceType = "external" | "internal" | "unknown";
 
-export type RegisteredAccountSnapshot = Readonly<{
+export type RegisteredAccountProviderSnapshot = Readonly<{
   audienceType: RegisteredAccountAudienceType;
   clerkUserId: string;
   displayName: string | null;
@@ -22,28 +16,41 @@ export type RegisteredAccountSnapshot = Readonly<{
   providerUpdatedAt: Date;
 }>;
 
-export type RegisteredAccountTombstone = Readonly<{
+export type RegisteredAccountSnapshot = RegisteredAccountProviderSnapshot &
+  Readonly<{
+    clerkInstanceId: string;
+    providerClerkUserId: string;
+  }>;
+
+export type RegisteredAccountProviderTombstone = Readonly<{
   clerkUserId: string;
   eventId: string;
   providerUpdatedAt: Date;
 }>;
+
+export type RegisteredAccountTombstone = RegisteredAccountProviderTombstone &
+  Readonly<{
+    clerkInstanceId: string;
+    providerClerkUserId: string;
+  }>;
 
 export type ParsedRegisteredAccountLifecycle =
   | Readonly<{
       eventType: "user.created" | "user.updated";
       instanceId: string;
       kind: "snapshot";
-      snapshot: RegisteredAccountSnapshot;
+      snapshot: RegisteredAccountProviderSnapshot;
     }>
   | Readonly<{
       eventType: "user.deleted";
       instanceId: string;
       kind: "tombstone";
-      tombstone: RegisteredAccountTombstone;
+      tombstone: RegisteredAccountProviderTombstone;
     }>;
 
 export type ClerkUserSyncReceiptInput = Readonly<{
   clerkInstanceId: string;
+  canonicalClerkUserId: string;
   clerkUserId: string;
   eventDigest: string;
   eventId: string;
@@ -80,8 +87,7 @@ export function shouldReplaceRegisteredAccountSnapshot(
 ): boolean {
   if (current.providerState === "deleted") return false;
   if (current.providerUpdatedAt === null) return true;
-  const timeDifference =
-    incoming.providerUpdatedAt.getTime() - current.providerUpdatedAt.getTime();
+  const timeDifference = incoming.providerUpdatedAt.getTime() - current.providerUpdatedAt.getTime();
   if (timeDifference !== 0) return timeDifference > 0;
   return (current.eventId ?? "") < incoming.eventId;
 }
@@ -95,10 +101,7 @@ function record(value: unknown): UnknownRecord | null {
 }
 
 function requiredIdentifier(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(value)
-  ) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(value)) {
     throw new RegisteredAccountSyncError();
   }
   return value;
@@ -150,9 +153,7 @@ function displayName(data: UnknownRecord): string | null {
   const first = optionalText(data.first_name, 80);
   const last = optionalText(data.last_name, 80);
   const combined = [first, last].filter(Boolean).join(" ").trim();
-  return combined
-    ? combined.slice(0, 160).trimEnd()
-    : optionalText(data.username, 160);
+  return combined ? combined.slice(0, 160).trimEnd() : optionalText(data.username, 160);
 }
 
 function primaryEmail(data: UnknownRecord): Readonly<{
@@ -172,11 +173,7 @@ function primaryEmail(data: UnknownRecord): Readonly<{
   const rawAddress = optionalText(selected.email_address, 320);
   if (!rawAddress) return { address: null, verified: null };
   const address = rawAddress.toLowerCase();
-  if (
-    !address.includes("@") ||
-    address.startsWith("@") ||
-    address.endsWith("@")
-  ) {
+  if (!address.includes("@") || address.startsWith("@") || address.endsWith("@")) {
     throw new RegisteredAccountSyncError();
   }
   const verification = record(selected.verification);
@@ -293,6 +290,7 @@ export function createRegisteredAccountSyncRepository(
         existing.eventDigest !== receipt.eventDigest ||
         existing.eventType !== receipt.eventType ||
         existing.clerkUserId !== receipt.clerkUserId ||
+        existing.canonicalClerkUserId !== receipt.canonicalClerkUserId ||
         existing.clerkInstanceId !== receipt.clerkInstanceId ||
         existing.providerUpdatedAt.getTime() !== receipt.providerUpdatedAt.getTime()
       ) {
@@ -308,6 +306,8 @@ export function createRegisteredAccountSyncRepository(
         .values({
           audienceType: snapshot.audienceType,
           clerkUserId: snapshot.clerkUserId,
+          providerClerkUserId: snapshot.providerClerkUserId,
+          clerkInstanceId: snapshot.clerkInstanceId,
           displayName: snapshot.displayName,
           emailVerified: snapshot.emailVerified,
           lastSignInAt: snapshot.lastSignInAt,
@@ -323,6 +323,8 @@ export function createRegisteredAccountSyncRepository(
           target: registeredAccounts.clerkUserId,
           set: {
             audienceType: snapshot.audienceType,
+            providerClerkUserId: snapshot.providerClerkUserId,
+            clerkInstanceId: snapshot.clerkInstanceId,
             displayName: snapshot.displayName,
             emailVerified: snapshot.emailVerified,
             lastSignInAt: snapshot.lastSignInAt,
@@ -335,14 +337,17 @@ export function createRegisteredAccountSyncRepository(
             updatedAt: syncedAt,
           },
           setWhere: sql`
-            ${registeredAccounts.providerState} <> 'deleted'
-            AND (
-              ${registeredAccounts.providerUpdatedAt} IS NULL
-              OR ${registeredAccounts.providerUpdatedAt} < ${snapshot.providerUpdatedAt}
-              OR (
-                ${registeredAccounts.providerUpdatedAt} = ${snapshot.providerUpdatedAt}
-                AND coalesce(${registeredAccounts.lastWebhookEventId}, '')
-                  < ${snapshot.eventId}
+            ${registeredAccounts.clerkInstanceId} IS DISTINCT FROM ${snapshot.clerkInstanceId}
+            OR (
+              ${registeredAccounts.providerState} <> 'deleted'
+              AND (
+                ${registeredAccounts.providerUpdatedAt} IS NULL
+                OR ${registeredAccounts.providerUpdatedAt} < ${snapshot.providerUpdatedAt}
+                OR (
+                  ${registeredAccounts.providerUpdatedAt} = ${snapshot.providerUpdatedAt}
+                  AND coalesce(${registeredAccounts.lastWebhookEventId}, '')
+                    < ${snapshot.eventId}
+                )
               )
             )
           `,
@@ -367,6 +372,8 @@ export function createRegisteredAccountSyncRepository(
         .values({
           audienceType: "unknown",
           clerkUserId: tombstone.clerkUserId,
+          providerClerkUserId: tombstone.providerClerkUserId,
+          clerkInstanceId: tombstone.clerkInstanceId,
           displayName: null,
           emailVerified: null,
           lastSignInAt: null,
@@ -381,6 +388,8 @@ export function createRegisteredAccountSyncRepository(
           target: registeredAccounts.clerkUserId,
           set: {
             audienceType: "unknown",
+            providerClerkUserId: tombstone.providerClerkUserId,
+            clerkInstanceId: tombstone.clerkInstanceId,
             displayName: null,
             emailVerified: null,
             lastSignInAt: null,
@@ -392,7 +401,8 @@ export function createRegisteredAccountSyncRepository(
             updatedAt: syncedAt,
           },
           setWhere: sql`
-            ${registeredAccounts.providerUpdatedAt} IS NULL
+            ${registeredAccounts.clerkInstanceId} IS DISTINCT FROM ${tombstone.clerkInstanceId}
+            OR ${registeredAccounts.providerUpdatedAt} IS NULL
             OR ${registeredAccounts.providerUpdatedAt} <= ${tombstone.providerUpdatedAt}
           `,
         })
@@ -408,6 +418,12 @@ export async function synchronizeRegisteredAccount(
   webhookEventId: string,
   eventDigest: string,
   expectedClerkInstanceId: string,
+  resolveCanonicalUserId: (
+    input: Readonly<{
+      clerkInstanceId: string;
+      providerClerkUserId: string;
+    }>,
+  ) => Promise<string>,
 ): Promise<
   Readonly<{
     lifecycle: ParsedRegisteredAccountLifecycle | null;
@@ -428,12 +444,16 @@ export async function synchronizeRegisteredAccount(
     parsed.kind === "snapshot"
       ? parsed.snapshot.providerUpdatedAt
       : parsed.tombstone.providerUpdatedAt;
+  const providerClerkUserId =
+    parsed.kind === "snapshot" ? parsed.snapshot.clerkUserId : parsed.tombstone.clerkUserId;
+  const canonicalClerkUserId = await resolveCanonicalUserId({
+    clerkInstanceId: parsed.instanceId,
+    providerClerkUserId,
+  });
   const claimed = await repository.claimEvent({
     clerkInstanceId: parsed.instanceId,
-    clerkUserId:
-      parsed.kind === "snapshot"
-        ? parsed.snapshot.clerkUserId
-        : parsed.tombstone.clerkUserId,
+    canonicalClerkUserId,
+    clerkUserId: providerClerkUserId,
     eventDigest: requiredDigest(eventDigest),
     eventId: webhookEventId,
     eventType: parsed.eventType,
@@ -444,14 +464,24 @@ export async function synchronizeRegisteredAccount(
   }
 
   if (parsed.kind === "snapshot") {
-    const result = await repository.upsertSnapshot(parsed.snapshot);
+    const result = await repository.upsertSnapshot({
+      ...parsed.snapshot,
+      clerkInstanceId: parsed.instanceId,
+      clerkUserId: canonicalClerkUserId,
+      providerClerkUserId,
+    });
     return {
       lifecycle: parsed,
       replayed: false,
       terminalDeleted: result.terminalDeleted,
     };
   } else {
-    await repository.tombstone(parsed.tombstone);
+    await repository.tombstone({
+      ...parsed.tombstone,
+      clerkInstanceId: parsed.instanceId,
+      clerkUserId: canonicalClerkUserId,
+      providerClerkUserId,
+    });
   }
   return { lifecycle: parsed, replayed: false, terminalDeleted: false };
 }

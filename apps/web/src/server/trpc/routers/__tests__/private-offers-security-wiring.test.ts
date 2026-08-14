@@ -94,6 +94,24 @@ describe("private-offer router security wiring", () => {
     expect(joinContinuationSource).toContain("verifiedEmailHashes,");
   });
 
+  it("locks the exact open Producer before the join transaction can write contacts", () => {
+    const connection = compact(connectionSource);
+    const producerLock = connection.indexOf(
+      "where(and(eq(producers.id, input.producerId), isNull(producers.closedAt)))",
+    );
+    const offerRead = connection.indexOf("const matchingOffers = await tx");
+    const contactInsert = connection.indexOf(".insert(clientContacts)", producerLock);
+    const contactUpdate = connection.indexOf(".update(clientContacts)", producerLock);
+    const producerRowLock = connection.indexOf('.for("share")', producerLock);
+
+    expect(producerLock).toBeGreaterThanOrEqual(0);
+    expect(producerRowLock).toBeGreaterThan(producerLock);
+    expect(producerRowLock).toBeLessThan(offerRead);
+    expect(offerRead).toBeGreaterThan(producerLock);
+    expect(contactInsert).toBeGreaterThan(producerLock);
+    expect(contactUpdate).toBeGreaterThan(producerLock);
+  });
+
   it("keeps list pages available without a verified email while actions fail closed", () => {
     expect(
       compact(routerSource).split("requireVerifiedArtistEmailHashes(ctx.clerkUserId)").length - 1,
@@ -124,6 +142,8 @@ describe("private-offer router security wiring", () => {
     expect(detail).toContain("gt(privateOffers.expiresAt, input.now)");
     expect(detail).toContain("isPrivateOfferExpired(row.expiresAt, input.now)");
     expect(detail).toContain("notFound()");
+    expect(list).toContain("isNull(producers.closedAt)");
+    expect(detail).toContain("isNull(producers.closedAt)");
   });
 });
 
@@ -145,6 +165,22 @@ describe("private-offer transition concurrency wiring", () => {
     expect(create.match(/assertExactPrivateOfferReplay\(/g)).toHaveLength(2);
     expect(router).toContain("if (result.created)");
     expect(router).toContain("await sendPrivateOfferNotificationEmail");
+  });
+
+  it("keeps new and edited offers serialized with studio closure", () => {
+    const create = compact(implementationOf("createPrivateOffer"));
+    const update = compact(implementationOf("updatePrivateOffer"));
+    const lock = compact(implementationOf("lockOpenProducer"));
+    expect(lock).toContain("closedAt: producers.closedAt");
+    expect(lock).toContain('.for("update")');
+    expect(lock).toContain("producer.closedAt !== null");
+    expect(create.indexOf("if (existing)")).toBeLessThan(
+      create.indexOf("lockOpenProducer(tx, input.producerId)"),
+    );
+    expect(create.indexOf("lockOpenProducer(tx, input.producerId)")).toBeLessThan(
+      create.indexOf("resolveRecipientForUpdate"),
+    );
+    expect(update).toContain("lockOpenProducer(tx, offer.producerId)");
   });
 
   it("locks producer and artist offer rows before mutable transitions", () => {
@@ -200,6 +236,36 @@ describe("private-offer transition concurrency wiring", () => {
     expect(archivedGuard).toBeGreaterThan(replay);
     expect(projectInsert).toBeGreaterThan(archivedGuard);
     expect(purchaseAcceptance).toBeGreaterThan(archivedGuard);
+  });
+
+  it("locks studio closure state and blocks only new private-offer acceptance", () => {
+    const lockArtist = compact(implementationOf("lockArtistOffer"));
+    const accept = compact(implementationOf("acceptPrivateOffer"));
+    expect(lockArtist).toContain("producerClosedAt: producers.closedAt");
+    expect(lockArtist).toContain(
+      "innerJoin(producers, eq(producers.id, privateOffers.producerId))",
+    );
+    expect(lockArtist).toContain('.for("update")');
+
+    const replay = accept.indexOf('if (offer.status === "accepted")');
+    const closureGuard = accept.indexOf("producerClosedAt !== null", replay);
+    const projectInsert = accept.indexOf(".insert(projects)", closureGuard);
+    const purchaseAcceptance = accept.indexOf("acceptPurchase(", closureGuard);
+    expect(closureGuard).toBeGreaterThan(replay);
+    expect(projectInsert).toBeGreaterThan(closureGuard);
+    expect(purchaseAcceptance).toBeGreaterThan(closureGuard);
+  });
+
+  it("fails closed before an Artist can reject an offer from a closed studio", () => {
+    const reject = compact(implementationOf("rejectPrivateOffer"));
+    const lock = reject.indexOf("lockArtistOffer(tx, input)");
+    const closureGuard = reject.indexOf("producerClosedAt !== null", lock);
+    const declinedReplay = reject.indexOf('offer.status === "declined"', lock);
+    const declineWrite = reject.indexOf('.set({ status: "declined"', lock);
+
+    expect(closureGuard).toBeGreaterThan(lock);
+    expect(declinedReplay).toBeGreaterThan(closureGuard);
+    expect(declineWrite).toBeGreaterThan(closureGuard);
   });
 
   it("serializes and enforces the studio-wide active-purchase guard before acceptance", () => {

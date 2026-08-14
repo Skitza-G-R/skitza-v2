@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
   asc,
+  and,
   createDb,
   eq,
+  isNull,
   producerExternalLinks,
   producers,
   type Db,
@@ -86,7 +88,7 @@ export const publicProfileRouter = router({
           responseHours: producers.responseHours,
         })
         .from(producers)
-        .where(eq(producers.slug, input.slug))
+        .where(and(eq(producers.slug, input.slug), isNull(producers.closedAt)))
         .limit(1);
 
       if (!producerRow) {
@@ -119,10 +121,7 @@ export const publicProfileRouter = router({
       // user. See docs/audit-report.md Tasks 1 + 2 for the production
       // incident that motivated this wrapper (2026-04-22).
       let externalLinkRows: Array<
-        Pick<
-          ProducerExternalLink,
-          "id" | "platform" | "url" | "title" | "position"
-        >
+        Pick<ProducerExternalLink, "id" | "platform" | "url" | "title" | "position">
       > = [];
       try {
         externalLinkRows = await db

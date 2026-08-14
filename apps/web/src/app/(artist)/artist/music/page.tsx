@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -26,14 +26,14 @@ type MusicPageProps = {
 };
 
 export default async function MusicPage({ searchParams }: MusicPageProps) {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, providerUserId } = await auth();
+  if (!userId || !providerUserId) return null;
 
   const caller = appRouter.createCaller({ userId });
   const [studiosResponse, sp, savedStudioId] = await Promise.all([
     caller.artist.studios(),
     searchParams,
-    readArtistStudioPreference(userId),
+    readArtistStudioPreference(providerUserId),
   ]);
   const activeStudioId = resolveArtistStudioId(studiosResponse.studios, sp.studio, savedStudioId);
   const allMusic = sp.view === "all";

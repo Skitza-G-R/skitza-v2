@@ -17,8 +17,8 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 // * Strict-Transport-Security — enforce HTTPS via browser pinning.
 // * X-Content-Type-Options: nosniff — stop MIME confusion attacks.
 // * X-Frame-Options: DENY — never render inside an iframe (clickjacking).
-// * Referrer-Policy — don't leak magic-link URLs via Referer to third
-//   parties; same-origin lets the dwell beacon still work.
+// * Referrer-Policy — never leak bearer, invitation, or magic-link URLs via
+//   Referer, including after a client-side navigation keeps the old document.
 // * Permissions-Policy — explicit off-switches for APIs we never use;
 //   keep the surface small if any third-party script loads later.
 // * X-DNS-Prefetch-Control — opt in, small perf win, no privacy cost
@@ -29,7 +29,7 @@ const SECURITY_HEADERS = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
-  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Referrer-Policy", value: "no-referrer" },
   {
     key: "Permissions-Policy",
     value: [
@@ -147,8 +147,7 @@ const config: NextConfig = {
   // https://us.i.posthog.com (US) or https://eu.i.posthog.com (EU).
   // If unset, rewrites degrade to passthroughs (won't break anything).
   async rewrites() {
-    const host =
-      process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+    const host = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
     return [
       { source: "/ingest/static/:path*", destination: `${host}/static/:path*` },
       { source: "/ingest/:path*", destination: `${host}/:path*` },
@@ -177,12 +176,8 @@ const config: NextConfig = {
 // Only include each field when it's actually set.
 const sentryBuildOptions = {
   ...(process.env.SENTRY_ORG ? { org: process.env.SENTRY_ORG } : {}),
-  ...(process.env.SENTRY_PROJECT
-    ? { project: process.env.SENTRY_PROJECT }
-    : {}),
-  ...(process.env.SENTRY_AUTH_TOKEN
-    ? { authToken: process.env.SENTRY_AUTH_TOKEN }
-    : {}),
+  ...(process.env.SENTRY_PROJECT ? { project: process.env.SENTRY_PROJECT } : {}),
+  ...(process.env.SENTRY_AUTH_TOKEN ? { authToken: process.env.SENTRY_AUTH_TOKEN } : {}),
   // Keeps bundle small by stripping Sentry's internal debug logging.
   disableLogger: true,
   // Don't fail the build if source-map upload errors. Sentry

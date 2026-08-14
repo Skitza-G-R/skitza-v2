@@ -1,7 +1,7 @@
 # Skitza — Product Requirements Document
 
-**Version:** 5.1
-**Date:** 8 August 2026
+**Version:** 5.2
+**Date:** 12 August 2026
 **Status:** Durable product source of truth
 
 ## 1. Authority and scope
@@ -18,6 +18,11 @@ When sources conflict, use this order:
 6. Older plans and backlog behavior.
 
 The approved plans replace older behavior for Clients, Projects, Music, Store, sessions, sharing, agreements, Payments, payment proofs, and downloads. For Calendar scope, the August contract supersedes older manual-session rules and artist Google Calendar connection plans.
+
+For account access, Gili's 12 August 2026 decision supersedes every older
+open-Producer-signup or self-service Create-a-studio rule. The implementation
+contract is Linear SK-229 and
+`docs/plans/active/2026-08-12-producer-invitation-access.md`.
 
 It does not authorize a production reset, migration, merge, deployment, or promotion. Those actions require separate exact approval from Gili.
 
@@ -49,6 +54,32 @@ For a true ₪0 private offer, acceptance makes the purchase fully paid and acti
 - No AI dependency.
 - No custom domains; the producer's permanent acquisition link remains under Skitza.
 - Mobile layouts must be complete at true 390px and 360px, with desktop behavior preserved.
+
+### Account access and roles
+
+- Clerk remains in Public mode so Artists can create accounts through a
+  Producer's join link.
+- Producer access is invitation-only. Gili sends a Clerk application
+  invitation, and Skitza grants Producer membership only after the server
+  verifies that the invitation was accepted by the matching Clerk user.
+- Ordinary signup, a button click, a URL/query value, and client-writeable
+  metadata never grant Producer access.
+- Artist signup remains available only through a valid Producer join flow and
+  creates Artist access, never a fallback Producer.
+- Artist and Producer memberships are additive. An existing Artist who accepts
+  a Producer invitation keeps all Artist relationships and can switch roles on
+  the same Clerk account.
+- An accepted invitation is a one-time authorization. Revoking that Clerk
+  invitation later does not revoke an existing Producer membership; removing
+  Producer access is a separate founder action.
+- Clicking **Become a Producer** while uninvited only explains that an
+  invitation is required; it makes no account change.
+- A signed-in Clerk user with neither a valid Artist membership nor a verified
+  Producer invitation has no Skitza application role.
+- Production marketing and legal pages may become public only after these
+  server-side gates are implemented and verified. Dashboard, onboarding,
+  settings, projects, and Google Calendar connection remain membership
+  protected.
 
 ## 3. Core product model
 
@@ -534,11 +565,11 @@ A session is a real booking tied to one client, one project, and that project's 
 - Skitza remains the booking source of truth. Only the producer connects Google; the artist receives an attendee invitation or `.ics` fallback and does not connect a Google account.
 - The producer chooses one writable destination calendar for Skitza events and one or more calendars whose busy intervals block artist availability. Recurring and all-day busy intervals block; events marked free do not. Skitza never stores or displays unrelated event details.
 - Healthy Google busy intervals appear in the producer Calendar only as privacy-safe blocked time bands. Days with no free working-time quarter are visibly unavailable; no title, attendee, location, calendar name, or other provider event data is displayed or stored.
-- Confirmed sessions create linked events containing only the approved title, time, artist attendee, artist-safe Skitza link, and private linkage metadata. Pending approval or payment creates a private opaque hold without an artist attendee; confirmation promotes the same event, while rejection or expiry removes it. First connection creates events only for future confirmed sessions.
+- Confirmed sessions create linked events containing only the approved title, time, Producer and Artist attendees, artist-safe Skitza link, and private linkage metadata. Pending approval or payment creates a private opaque hold without attendees; confirmation promotes the same event, while rejection or expiry removes it. First connection creates events only for future confirmed sessions.
 - Linked title, date, and start time sync both ways. Duration remains product-derived: resizing is corrected, a deliberate Google move outside normal availability or over unrelated busy time is accepted, and a move that overlaps another active Skitza session is rejected and restored.
 - Cancelling in Skitza cancels or removes the linked Google event and notifies the artist.
 - Deleting a linked Google event never cancels Skitza. It creates a missing-event state with Restore event and Cancel session choices.
-- The booked artist's RSVP is shown in producer and artist session views without changing booking status. Google-only guests remain only in Google.
+- The booked artist's RSVP is shown in producer and artist session views without changing booking status. Existing Google-only guests on a linked event may be read temporarily so an update can preserve them, but they remain only in Google and are never imported into Skitza.
 - Google failure, disconnection, stale data, or renewed-permission needs never roll back or close Skitza booking. Skitza marks the session Not synced, retries, and uses one idempotent `.ics` invitation fallback when needed.
 - Disconnecting leaves existing Google events in place. Same-account reconnect reuses links without duplicates; connecting a different Google account is an explicit switch and never reuses the old account's event IDs. Concurrent Skitza and Google edits resolve in favor of Skitza, and healthy sync normally converges within one minute.
 - Connection controls remain hidden until connect, calendar selection, delivery, failure recovery, reconnect, and disconnect work end to end.

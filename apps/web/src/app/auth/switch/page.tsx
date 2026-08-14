@@ -1,10 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
-import {
-  chosenRoleDestination,
-  type AuthPlatform,
-} from "~/server/auth/post-sign-in";
+import { chosenRoleDestination, type AuthPlatform } from "~/server/auth/post-sign-in";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
 
 export const dynamic = "force-dynamic";

@@ -22,10 +22,7 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { emailHashFor } from "~/server/artist/identity";
-import {
-  connectVerifiedArtistToProducer,
-  stampUnownedArtistContactsForCreatedUser,
-} from "~/server/contacts/connect-artist";
+import { connectVerifiedArtistToProducer } from "~/server/contacts/connect-artist";
 import { clientManagementRepository } from "~/server/domain/client-management/db";
 import { archiveClient } from "~/server/domain/client-management/service";
 import { projectLifecycleRepository } from "~/server/domain/project-lifecycle/db";
@@ -569,9 +566,7 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     expect(state.client?.producerArchivedAt).not.toBeNull();
     expect(state.offer?.status).toBe("accepted");
     expect(state.purchaseRows).toHaveLength(1);
-    expect(state.projectRows).toEqual([
-      { id: accepted.projectId, lifecycleStatus: "completed" },
-    ]);
+    expect(state.projectRows).toEqual([{ id: accepted.projectId, lifecycleStatus: "completed" }]);
   });
 
   it("accepts live and hidden product provenance but rejects archived and foreign products", async () => {
@@ -824,19 +819,14 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
         .set({ email: editedEmail, emailHash: editedHash })
         .where(eq(clientContacts.id, contact.id)),
     );
-    await stampUnownedArtistContactsForCreatedUser(activeDb(), {
-      email: editedEmail,
-      clerkUserId: wrongClerkUserId,
-      now,
-    });
-    const [afterWebhook] = await safely(() =>
+    const [beforeJoin] = await safely(() =>
       activeDb()
         .select({ clerkUserId: clientContacts.clerkUserId })
         .from(clientContacts)
         .where(eq(clientContacts.id, contact.id))
         .limit(1),
     );
-    expect(afterWebhook?.clerkUserId).toBeNull();
+    expect(beforeJoin?.clerkUserId).toBeNull();
     await expect(
       connectVerifiedArtistToProducer(activeDb(), {
         producerId,

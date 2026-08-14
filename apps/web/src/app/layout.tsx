@@ -11,10 +11,7 @@ import { NativeViewportSync } from "~/components/native/native-viewport";
 import { PostHogProvider } from "~/components/observability/posthog-provider";
 import { NativeAppRuntime } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
-import {
-  nativeAppMetadata,
-  nativeAppViewport,
-} from "~/lib/pwa/native-app-metadata";
+import { nativeAppMetadata, nativeAppViewport } from "~/lib/pwa/native-app-metadata";
 import "./globals.css";
 
 // Locked typography stack (v3-ui-design, 2026-05-05).
@@ -58,7 +55,7 @@ export const metadata: Metadata = {
     template: "%s — Skitza",
   },
   description:
-    "Stop chasing payments. Just make music. Skitza is the only link you need — clients book sessions, sign contracts, and pay automatically, and your final mixes stay locked until the invoice is cleared.",
+    "Clients, projects, audio review, bookings, agreements, external-payment records, and optional Google Calendar sync for solo music producers.",
   applicationName: "Skitza",
   authors: [{ name: "Skitza" }],
   keywords: [
@@ -66,8 +63,8 @@ export const metadata: Metadata = {
     "studio business",
     "booking automation",
     "session management",
-    "invoice automation",
-    "contract e-sign",
+    "external payment records",
+    "music agreements",
     "studio CRM",
     "producer storefront",
   ],

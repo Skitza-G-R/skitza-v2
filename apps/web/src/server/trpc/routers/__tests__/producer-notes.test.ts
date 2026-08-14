@@ -26,8 +26,7 @@ let lastListWhereArgs: unknown = null;
 let lastDeleteWhereArgs: unknown = null;
 
 // Separate mocks per chain terminal.
-const producerSelectByClerkMock =
-  vi.fn<() => Promise<Array<{ id: string }>>>();
+const producerSelectByClerkMock = vi.fn<() => Promise<Array<{ id: string }>>>();
 const notesListMock = vi.fn<() => Promise<Row[]>>();
 const notesInsertReturningMock = vi.fn<() => Promise<Row[]>>();
 const notesDeleteMock = vi.fn<() => Promise<void>>();
@@ -73,13 +72,12 @@ vi.mock("@skitza/db", () => ({
   producerNotes: producerNotesMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...args: unknown[]) => ({ and: args }),
+  isNull: (col: unknown) => ({ isNull: col }),
   desc: (col: unknown) => ({ desc: col }),
 }));
 
 beforeEach(() => {
-  producerSelectByClerkMock
-    .mockReset()
-    .mockResolvedValue([{ id: PRODUCER_ID }]);
+  producerSelectByClerkMock.mockReset().mockResolvedValue([{ id: PRODUCER_ID }]);
   notesListMock.mockReset().mockResolvedValue([]);
   notesInsertReturningMock.mockReset().mockResolvedValue([]);
   notesDeleteMock.mockReset().mockResolvedValue();
@@ -131,9 +129,7 @@ describe("producerNotesRouter.list", () => {
     expect(result.notes[0]?.body).toBe("newest");
 
     // Scoping invariant: the WHERE includes eq(producerId, PRODUCER_ID).
-    expect(
-      containsEq(lastListWhereArgs, producerNotesMarker.producerId, PRODUCER_ID),
-    ).toBe(true);
+    expect(containsEq(lastListWhereArgs, producerNotesMarker.producerId, PRODUCER_ID)).toBe(true);
   });
 
   it("returns empty notes array when producer has none", async () => {
@@ -165,26 +161,26 @@ describe("producerNotesRouter.save", () => {
 
   it("throws on empty body (zod validation)", async () => {
     const caller = await buildCaller();
-    await expect(
-      caller.producerNotes.save({ body: "   " }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.producerNotes.save({ body: "   " })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
     // No DB write.
     expect(notesInsertReturningMock).not.toHaveBeenCalled();
   });
 
   it("throws on body over the 4000-char cap", async () => {
     const caller = await buildCaller();
-    await expect(
-      caller.producerNotes.save({ body: "a".repeat(4001) }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.producerNotes.save({ body: "a".repeat(4001) })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
   });
 
   it("throws INTERNAL_SERVER_ERROR when INSERT returns no row", async () => {
     notesInsertReturningMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
-    await expect(
-      caller.producerNotes.save({ body: "note" }),
-    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    await expect(caller.producerNotes.save({ body: "note" })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+    });
   });
 });
 
@@ -197,23 +193,15 @@ describe("producerNotesRouter.delete", () => {
     // Scoping invariant: WHERE includes BOTH eq(id, NOTE_ID) AND
     // eq(producerId, PRODUCER_ID). If only one were present, a caller
     // could delete another producer's note by guessing the uuid.
-    expect(containsEq(lastDeleteWhereArgs, producerNotesMarker.id, NOTE_ID)).toBe(
-      true,
-    );
-    expect(
-      containsEq(
-        lastDeleteWhereArgs,
-        producerNotesMarker.producerId,
-        PRODUCER_ID,
-      ),
-    ).toBe(true);
+    expect(containsEq(lastDeleteWhereArgs, producerNotesMarker.id, NOTE_ID)).toBe(true);
+    expect(containsEq(lastDeleteWhereArgs, producerNotesMarker.producerId, PRODUCER_ID)).toBe(true);
   });
 
   it("rejects malformed uuid input via zod", async () => {
     const caller = await buildCaller();
-    await expect(
-      caller.producerNotes.delete({ id: "not-a-uuid" }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.producerNotes.delete({ id: "not-a-uuid" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
     expect(notesDeleteMock).not.toHaveBeenCalled();
   });
 });

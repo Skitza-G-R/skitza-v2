@@ -754,6 +754,25 @@ describe("Google Calendar service lifecycle", () => {
     ).resolves.toMatchObject({ status: "needs_selection" });
   });
 
+  it("revokes exchanged credentials when the atomic commit finds a closed Producer", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const start = await service.beginOAuth({ producerId: PRODUCER_ID, intent: "connect" });
+    const commit = vi
+      .spyOn(repository, "commitAuthorization")
+      .mockResolvedValueOnce({ outcome: "stale" });
+
+    await expect(
+      service.completeOAuth({ stateToken: stateFrom(start), code: "authorization-code" }),
+    ).rejects.toSatisfy((error: unknown) => expectServiceError(error, "stale_connection"));
+
+    expect(commit).toHaveBeenCalledOnce();
+    expect(repository.connection).toBeNull();
+    expect(provider.revokeToken).toHaveBeenCalledWith("refresh-token-a");
+    expect(provider.revokeToken).toHaveBeenCalledWith("access-google-subject-a");
+  });
+
   it("rejects an expired sessionless callback before provider exchange", async () => {
     let clock = new Date("2026-08-09T10:00:00.000Z");
     const repository = new MemoryGoogleCalendarRepository();

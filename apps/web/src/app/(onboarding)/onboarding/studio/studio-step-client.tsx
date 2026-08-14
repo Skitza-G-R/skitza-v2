@@ -52,7 +52,6 @@ export function StudioStepClient({
   initialTimezone,
   previewMode = false,
   canExit = false,
-  createStudioIntent = false,
 }: {
   initialDisplayName: string;
   initialSlug: string;
@@ -60,7 +59,6 @@ export function StudioStepClient({
   initialTimezone: string;
   previewMode?: boolean;
   canExit?: boolean;
-  createStudioIntent?: boolean;
 }) {
   const router = useRouter();
   const online = useOnlineStatus();
@@ -95,7 +93,6 @@ export function StudioStepClient({
           displayName: displayName.trim(),
           timezone,
           currency,
-          ...(createStudioIntent ? { intent: "create-studio" as const } : {}),
         });
         router.push(nextRouteAfterStudio());
       } catch (caught) {

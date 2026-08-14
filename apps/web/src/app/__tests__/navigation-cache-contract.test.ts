@@ -48,9 +48,7 @@ const RUNTIME_NAVIGATION_BRIDGE = readFileSync(
   "utf8",
 );
 const NATIVE_APP_RUNTIME = readFileSync(
-  fileURLToPath(
-    new URL("../../components/shell/sw-register.tsx", import.meta.url),
-  ),
+  fileURLToPath(new URL("../../components/shell/sw-register.tsx", import.meta.url)),
   "utf8",
 );
 
@@ -163,22 +161,16 @@ describe("SK-122 Router Cache invalidation contract", () => {
   });
 
   it("keeps the artist studio recorder behind the account-exit write fence", () => {
-    expect(ARTIST_RUNTIME_PROVIDER).toContain(
-      "captureAccountPrivateWriteGeneration",
-    );
+    expect(ARTIST_RUNTIME_PROVIDER).toContain("captureAccountPrivateWriteGeneration");
     expect(ARTIST_RUNTIME_PROVIDER).toContain(
       "isAccountPrivateRuntimeWriteAllowed(writeGeneration)",
     );
   });
 
   it("keeps a queryless artist shell on the user-bound saved studio and safe roster fallback", () => {
-    expect(ARTIST_LAYOUT).toContain("readArtistStudioPreference(userId)");
-    expect(ARTIST_LAYOUT).toContain(
-      "resolveArtistStudioId(studios, null, savedStudioId)",
-    );
-    expect(ARTIST_STUDIO_PREFERENCE).toContain(
-      "artistStudioPreferenceForUser(",
-    );
+    expect(ARTIST_LAYOUT).toContain("readArtistStudioPreference(providerUserId)");
+    expect(ARTIST_LAYOUT).toContain("resolveArtistStudioId(studios, null, savedStudioId)");
+    expect(ARTIST_STUDIO_PREFERENCE).toContain("artistStudioPreferenceForUser(");
     expect(ARTIST_STUDIO_PREFERENCE).toMatch(
       /artistStudioPreferenceForUser\([\s\S]*?,\s*userId,\s*\)/,
     );

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { FocalProductCard } from "~/components/artist/store/focal-product-card";
 import { ProducerHero } from "~/components/artist/store/producer-hero";
@@ -26,15 +26,15 @@ type PageProps = { searchParams: Promise<{ studio?: string; notice?: string }> }
 // The artist layout already gates sign-in; the auth() call here is
 // defense-in-depth, matching the other tabs.
 export default async function StorePage({ searchParams }: PageProps) {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, providerUserId } = await auth();
+  if (!userId || !providerUserId) return null;
 
   const caller = appRouter.createCaller({ userId });
   const sp = await searchParams;
 
   const [{ studios }, savedStudioId] = await Promise.all([
     caller.artist.studios(),
-    readArtistStudioPreference(userId),
+    readArtistStudioPreference(providerUserId),
   ]);
   if (studios.length === 0) {
     return (

@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { Download, FileMusic } from "lucide-react";
 import type { Metadata } from "next";
@@ -33,10 +33,7 @@ function durationLabel(durationMs: number | null): string {
 
 function timestampLabel(timestampMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(timestampMs / 1_000));
-  return `${String(Math.floor(totalSeconds / 60))}:${String(totalSeconds % 60).padStart(
-    2,
-    "0",
-  )}`;
+  return `${String(Math.floor(totalSeconds / 60))}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 export default async function ArtistPastStudioVersionPage({ params }: PageProps) {
@@ -75,8 +72,7 @@ export default async function ArtistPastStudioVersionPage({ params }: PageProps)
               {data.version.label}
             </h2>
             <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
-              {dateLabel(data.version.uploadedAt)} ·{" "}
-              {durationLabel(data.version.durationMs)}
+              {dateLabel(data.version.uploadedAt)} · {durationLabel(data.version.durationMs)}
             </p>
           </div>
           <span className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--brand-primary-text))]">

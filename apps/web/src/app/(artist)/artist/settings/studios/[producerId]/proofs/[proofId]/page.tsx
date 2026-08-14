@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { ExternalLink } from "lucide-react";
 import type { Metadata } from "next";
@@ -75,9 +75,7 @@ export default async function ArtistPastStudioProofPage({ params }: PageProps) {
 
         {proof.rejectionNote?.trim() ? (
           <div className="mt-5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.08)] p-4">
-            <p className="text-[11px] font-bold text-[rgb(var(--fg-danger-text))]">
-              Producer note
-            </p>
+            <p className="text-[11px] font-bold text-[rgb(var(--fg-danger-text))]">Producer note</p>
             <p className="mt-1 text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
               {proof.rejectionNote}
             </p>
@@ -96,8 +94,7 @@ export default async function ArtistPastStudioProofPage({ params }: PageProps) {
       </section>
 
       <p className="mt-4 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-        This record shows the producer’s review. Skitza did not process or verify the
-        transfer.
+        This record shows the producer’s review. Skitza did not process or verify the transfer.
       </p>
     </PastStudioRecordShell>
   );
@@ -109,9 +106,7 @@ function RecordField({ label, value }: { label: string; value: string }) {
       <dt className="font-mono text-[9px] font-semibold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
         {label}
       </dt>
-      <dd className="mt-1 text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-        {value}
-      </dd>
+      <dd className="mt-1 text-[13px] font-semibold text-[rgb(var(--fg-default))]">{value}</dd>
     </div>
   );
 }

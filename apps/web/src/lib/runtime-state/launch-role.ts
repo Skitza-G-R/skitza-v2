@@ -1,7 +1,4 @@
-import type {
-  UserAccountMemberships,
-  UserRole,
-} from "~/server/auth/role";
+import type { UserAccountMemberships, UserRole } from "~/server/auth/role";
 import { legacyUserRoleFromMemberships } from "~/server/auth/role";
 
 import { normalizeRuntimeHref } from "./runtime-state";
@@ -14,18 +11,16 @@ function requestedRuntimeHref(
   return normalizeRuntimeHref(requestedHref, role);
 }
 
-export function runtimeLaunchHrefForRole(
-  role: UserRole,
-  requestedHref?: string | null,
-): string {
+export function runtimeLaunchHrefForRole(role: UserRole, requestedHref?: string | null): string {
   switch (role.kind) {
     case "artist":
       return requestedRuntimeHref("artist", requestedHref) ?? "/artist";
     case "producer-complete":
       return requestedRuntimeHref("producer", requestedHref) ?? "/dashboard";
     case "producer-incomplete":
-    case "orphan":
       return "/onboarding";
+    case "orphan":
+      return "/producer-access";
     case "unauthenticated":
       return "/sign-up";
   }
@@ -60,12 +55,14 @@ export function runtimeLaunchHrefForMemberships(
     return signUpRuntimeHref(safeTarget);
   }
 
+  if (memberships.accountStatus === "closure_started") {
+    return "/account-closed";
+  }
+
   if (hasProducerAccount && memberships.artist.hasAccess) {
     if (artistTarget) return artistTarget;
     if (producerTarget) {
-      return memberships.producer.status === "incomplete"
-        ? "/onboarding"
-        : producerTarget;
+      return memberships.producer.status === "incomplete" ? "/onboarding" : producerTarget;
     }
     return "/auth/resume";
   }

@@ -12,6 +12,7 @@ describe("artist payment-proof upload availability", () => {
   it("opens only a currently payable installment with a positive server-owned amount", () => {
     expect(
       resolveArtistProofUploadAvailability({
+        studioClosed: false,
         purchaseCanceled: false,
         hasPendingProof: false,
         paidInFull: false,
@@ -24,6 +25,7 @@ describe("artist payment-proof upload availability", () => {
 
   it("keeps pending, paid, and canceled states closed", () => {
     const base = {
+      studioClosed: false,
       purchaseCanceled: false,
       hasPendingProof: false,
       paidInFull: false,
@@ -41,11 +43,15 @@ describe("artist payment-proof upload availability", () => {
     expect(resolveArtistProofUploadAvailability({ ...base, purchaseCanceled: true })).toEqual({
       status: "purchase_canceled",
     });
+    expect(resolveArtistProofUploadAvailability({ ...base, studioClosed: true })).toEqual({
+      status: "studio_closed",
+    });
   });
 
   it("preserves the exact next trigger when the remaining installment is not payable yet", () => {
     expect(
       resolveArtistProofUploadAvailability({
+        studioClosed: false,
         purchaseCanceled: false,
         hasPendingProof: false,
         paidInFull: false,

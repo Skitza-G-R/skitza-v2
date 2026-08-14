@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { CalendarClock, Check, Package, UserRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";

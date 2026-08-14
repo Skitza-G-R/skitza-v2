@@ -30,6 +30,7 @@ import {
   saveArtistNotificationPreferences,
   saveArtistTimezone,
 } from "~/server/artist/profile";
+import { configuredCapabilitySecrets } from "~/server/security/capability-secrets";
 
 import { artistProcedure } from "../artist-procedure";
 import { router } from "../init";
@@ -50,14 +51,14 @@ const notificationPreferences = z.object({
 });
 
 function proofServerSecret(): string {
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret) {
+  try {
+    return configuredCapabilitySecrets().active;
+  } catch {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "Private proof delivery is not configured",
     });
   }
-  return secret;
 }
 
 function mapDisconnectError(error: unknown): never {

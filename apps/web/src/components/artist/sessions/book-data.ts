@@ -263,6 +263,7 @@ export type AllowanceSummary = {
   closedAtISO: string | null;
   canBook: boolean;
   bookingBlockedReason:
+    | "studio_closed"
     | "purchase_waiting_for_payment"
     | "purchase_canceled"
     | "project_waiting_for_payment"
@@ -291,6 +292,8 @@ export function allowanceCanBook(allowance: AllowanceSummary): boolean {
 export function allowanceUnavailableMessage(allowance: AllowanceSummary): string | null {
   if (allowanceCanBook(allowance)) return null;
   switch (allowance.bookingBlockedReason) {
+    case "studio_closed":
+      return "This studio is closed. New sessions are not available.";
     case "purchase_waiting_for_payment":
       return "Booking opens after the complete required first installment is paid.";
     case "purchase_canceled":

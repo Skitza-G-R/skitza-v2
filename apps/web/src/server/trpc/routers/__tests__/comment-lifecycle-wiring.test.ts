@@ -45,6 +45,11 @@ function expectLockedCommentBoundary(source: string) {
 describe("comment lifecycle wiring", () => {
   it("serializes artist comments with project, track, and version lifecycle rows", () => {
     expectLockedCommentBoundary(artistComment);
+    const studioGuard = artistComment.indexOf("isNull(producers.closedAt)");
+    const commentInsert = artistComment.indexOf(".insert(trackComments)");
+    expect(artistComment).toMatch(/\.innerJoin\(\s*producers/);
+    expect(studioGuard).toBeGreaterThanOrEqual(0);
+    expect(commentInsert).toBeGreaterThan(studioGuard);
   });
 
   it("serializes producer comments with project, track, and version lifecycle rows", () => {

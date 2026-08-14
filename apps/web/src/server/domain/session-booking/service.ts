@@ -131,6 +131,7 @@ export type SessionBookingCreateContext = Readonly<{
     id: string;
     name: string;
     email: string;
+    closedAt: Date | null;
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
@@ -1632,6 +1633,10 @@ async function createSessionBookingInTransaction(
           )
         : null,
     };
+  }
+
+  if (context.producer.closedAt !== null) {
+    throw new SessionBookingDomainError("NOT_FOUND", "The studio is unavailable");
   }
 
   // The repository enters this helper only after taking the shared schedule,

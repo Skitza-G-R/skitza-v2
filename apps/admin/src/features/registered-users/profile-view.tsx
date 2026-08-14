@@ -9,7 +9,7 @@ import {
   type RegisteredUserProfileTab,
   type RegisteredUserProfileTabData,
 } from "~/server/registered-users/service";
-import { CopyUserId, RevealSupportNote } from "./client-controls";
+import { CopyUserId, ProducerInvitationControl, RevealSupportNote } from "./client-controls";
 import styles from "./registered-users.module.css";
 import {
   buildUserProfileHref,
@@ -45,13 +45,7 @@ function statusTone(
   return "warning";
 }
 
-function Fact({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className={styles.fact}>
       <dt>{label}</dt>
@@ -69,11 +63,7 @@ function SummaryTab({ header }: { header: RegisteredUserProfileHeader }) {
           <p className={styles.panelEyebrow}>Account facts</p>
           <h2 id="summary-heading">Summary</h2>
         </div>
-        <span>
-          {deleted
-            ? "Minimal provider tombstone"
-            : "Provider + Skitza relationships"}
-        </span>
+        <span>{deleted ? "Minimal provider tombstone" : "Provider + Skitza relationships"}</span>
       </header>
       <dl className={styles.factGrid}>
         {!deleted ? (
@@ -89,26 +79,14 @@ function SummaryTab({ header }: { header: RegisteredUserProfileHeader }) {
                     : "Not verified"
               }
             />
-            <Fact
-              label="Audience"
-              value={humanizeAdminCode(header.audienceType)}
-            />
+            <Fact label="Audience" value={humanizeAdminCode(header.audienceType)} />
           </>
         ) : null}
-        <Fact
-          label="Provider state"
-          value={humanizeAdminCode(header.providerState)}
-        />
-        <Fact
-          label="Signed up"
-          value={formatAdminDate(header.providerCreatedAt)}
-        />
+        <Fact label="Provider state" value={humanizeAdminCode(header.providerState)} />
+        <Fact label="Signed up" value={formatAdminDate(header.providerCreatedAt)} />
         {!deleted ? (
           <>
-            <Fact
-              label="Last sign-in"
-              value={formatAdminDate(header.lastSignInAt)}
-            />
+            <Fact label="Last sign-in" value={formatAdminDate(header.lastSignInAt)} />
             <Fact label="Onboarding" value={header.onboarding} />
             <Fact label="Activation" value={header.activation} />
             <Fact
@@ -117,10 +95,7 @@ function SummaryTab({ header }: { header: RegisteredUserProfileHeader }) {
             />
           </>
         ) : null}
-        <Fact
-          label="Provider updated"
-          value={formatAdminDate(header.providerUpdatedAt)}
-        />
+        <Fact label="Provider updated" value={formatAdminDate(header.providerUpdatedAt)} />
       </dl>
     </section>
   );
@@ -139,11 +114,7 @@ function ActivityTab({
   header: RegisteredUserProfileHeader;
   userId: string;
 }) {
-  const newestHref = buildUserProfileHref(
-    environment,
-    userId,
-    "activity",
-  );
+  const newestHref = buildUserProfileHref(environment, userId, "activity");
   return (
     <section aria-labelledby="activity-heading" className={styles.panel}>
       <header className={styles.panelHeader}>
@@ -173,8 +144,7 @@ function ActivityTab({
                     </time>
                   </div>
                   <p>
-                    {humanizeAdminCode(item.targetType)} ·{" "}
-                    <code>{item.targetId}</code>
+                    {humanizeAdminCode(item.targetType)} · <code>{item.targetId}</code>
                   </p>
                   {metadata.length ? (
                     <dl className={styles.metadata}>
@@ -195,20 +165,15 @@ function ActivityTab({
         <div className={styles.emptyInline}>
           <strong>No meaningful activity recorded.</strong>
           <p>
-            Sign-ins are not counted here. This list shows safe business events
-            for {header.displayName}.
+            Sign-ins are not counted here. This list shows safe business events for{" "}
+            {header.displayName}.
           </p>
         </div>
       )}
       <div className={styles.panelFooter}>
         {data.nextCursor ? (
           <Link
-            href={buildUserProfileHref(
-              environment,
-              userId,
-              "activity",
-              data.nextCursor,
-            )}
+            href={buildUserProfileHref(environment, userId, "activity", data.nextCursor)}
             prefetch={false}
           >
             Older activity →
@@ -298,17 +263,11 @@ function BusinessTab({
             </div>
           </header>
           <dl className={styles.stackFacts}>
-            <Fact
-              label="Name"
-              value={data.producer.displayName ?? "Not recorded"}
-            />
+            <Fact label="Name" value={data.producer.displayName ?? "Not recorded"} />
             <Fact label="Email" value={data.producer.email} />
             <Fact label="Slug" value={data.producer.slug} />
             <Fact label="Onboarding" value={data.producer.onboarding} />
-            <Fact
-              label="Created"
-              value={formatAdminDate(data.producer.createdAt)}
-            />
+            <Fact label="Created" value={formatAdminDate(data.producer.createdAt)} />
           </dl>
         </section>
       ) : null}
@@ -333,9 +292,7 @@ function BusinessTab({
             {data.studios.map((studio) => (
               <article key={studio.id}>
                 <div>
-                  <strong>
-                    {studio.producerDisplayName ?? "Unnamed producer"}
-                  </strong>
+                  <strong>{studio.producerDisplayName ?? "Unnamed producer"}</strong>
                   <code>{studio.producerId}</code>
                 </div>
                 <span className={styles.badgeRow}>
@@ -344,9 +301,7 @@ function BusinessTab({
                   ) : (
                     <Badge tone="success">Active artist link</Badge>
                   )}
-                  {studio.producerArchivedAt ? (
-                    <Badge>Archived in studio</Badge>
-                  ) : null}
+                  {studio.producerArchivedAt ? <Badge>Archived in studio</Badge> : null}
                 </span>
                 <time dateTime={studio.lastSeenAt.toISOString()}>
                   Seen {formatAdminDate(studio.lastSeenAt)}
@@ -384,18 +339,13 @@ function SupportTab({
             <p className={styles.panelEyebrow}>Selected environment</p>
             <h2 id="provider-heading">Clerk sync</h2>
           </div>
-          <Badge
-            tone={data.provider.state === "active" ? "success" : "warning"}
-          >
+          <Badge tone={data.provider.state === "active" ? "success" : "warning"}>
             {humanizeAdminCode(data.provider.state)}
           </Badge>
         </header>
         <dl className={styles.stackFacts}>
           <Fact label="Last sync" value={formatAdminDate(data.provider.syncedAt)} />
-          <Fact
-            label="Provider updated"
-            value={formatAdminDate(data.provider.updatedAt)}
-          />
+          <Fact label="Provider updated" value={formatAdminDate(data.provider.updatedAt)} />
           <Fact
             label="Last event"
             value={
@@ -448,16 +398,10 @@ function SupportTab({
                 </div>
                 <p>
                   By <code>{item.actorClerkUserId}</code>
-                  {item.outcome
-                    ? ` · ${humanizeAdminCode(item.outcome)}`
-                    : ""}
+                  {item.outcome ? ` · ${humanizeAdminCode(item.outcome)}` : ""}
                 </p>
                 {item.kind === "note" ? (
-                  <RevealSupportNote
-                    environment={environment}
-                    noteId={item.id}
-                    userId={userId}
-                  />
+                  <RevealSupportNote environment={environment} noteId={item.id} userId={userId} />
                 ) : null}
               </li>
             ))}
@@ -493,6 +437,11 @@ export function RegisteredUserProfile({
   userId: string;
 }) {
   const deleted = header.status === "Deleted";
+  const canInviteAsProducer =
+    !deleted &&
+    header.status !== "Restricted" &&
+    header.roles.includes("Artist") &&
+    !header.roles.includes("Producer");
   const visibleTabs: readonly RegisteredUserProfileTab[] = deleted
     ? ["summary"]
     : REGISTERED_USER_PROFILE_TABS;
@@ -518,32 +467,33 @@ export function RegisteredUserProfile({
           <div>
             <span className={styles.badgeRow}>
               <Badge tone={statusTone(header.status)}>{header.status}</Badge>
-              {!deleted
-                ? header.roles.map((role) => <Badge key={role}>{role}</Badge>)
-                : null}
+              {!deleted ? header.roles.map((role) => <Badge key={role}>{role}</Badge>) : null}
             </span>
             <h1>{header.displayName}</h1>
-            <p>
-              {deleted
-                ? "Minimal provider tombstone"
-                : (header.email ?? "Email not recorded")}
-            </p>
+            <p>{deleted ? "Minimal provider tombstone" : (header.email ?? "Email not recorded")}</p>
           </div>
         </div>
         <div className={styles.profileMeta}>
           <span className={styles.realData}>
             <span aria-hidden="true" />
-            Real data · Read only
+            Real data · Founder only
           </span>
           <code>{userId}</code>
           <CopyUserId userId={userId} />
+          {canInviteAsProducer ? (
+            <ProducerInvitationControl
+              displayEmail={header.email}
+              environment={environment}
+              userId={userId}
+            />
+          ) : null}
         </div>
       </header>
 
       {deleted ? (
         <div className={styles.notice} role="status">
-          This is a deleted-account tombstone. Copied identity and private
-          support content stay unavailable; only the minimal Summary is shown.
+          This is a deleted-account tombstone. Copied identity and private support content stay
+          unavailable; only the minimal Summary is shown.
         </div>
       ) : null}
       {!deleted && requestedTab !== tab ? (
@@ -554,21 +504,21 @@ export function RegisteredUserProfile({
 
       <nav aria-label="User profile sections" className={styles.tabs}>
         {visibleTabs.map((profileTab) => (
-            <Link
-              aria-current={tab === profileTab ? "page" : undefined}
-              data-active={tab === profileTab}
-              href={buildUserProfileHref(
-                environment,
-                userId,
-                profileTab,
-                profileTab === "activity" ? activityCursor : null,
-              )}
-              key={profileTab}
-              prefetch={false}
-            >
-              {humanizeAdminCode(profileTab)}
-            </Link>
-          ))}
+          <Link
+            aria-current={tab === profileTab ? "page" : undefined}
+            data-active={tab === profileTab}
+            href={buildUserProfileHref(
+              environment,
+              userId,
+              profileTab,
+              profileTab === "activity" ? activityCursor : null,
+            )}
+            key={profileTab}
+            prefetch={false}
+          >
+            {humanizeAdminCode(profileTab)}
+          </Link>
+        ))}
       </nav>
 
       {tabData.tab === "summary" ? <SummaryTab header={header} /> : null}
@@ -581,9 +531,7 @@ export function RegisteredUserProfile({
           userId={userId}
         />
       ) : null}
-      {tabData.tab === "business" ? (
-        <BusinessTab data={tabData.data} header={header} />
-      ) : null}
+      {tabData.tab === "business" ? <BusinessTab data={tabData.data} header={header} /> : null}
       {tabData.tab === "support" ? (
         <SupportTab
           data={tabData.data}

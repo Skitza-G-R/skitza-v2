@@ -64,8 +64,7 @@ const {
             !("producerId" in (cols as Record<string, unknown>));
           return {
             where: () => ({
-              limit: () =>
-                wantsTagsOnly ? Promise.resolve([]) : selectMock(),
+              limit: () => (wantsTagsOnly ? Promise.resolve([]) : selectMock()),
               get then() {
                 const p = listTagsMock();
                 return p.then.bind(p);
@@ -115,6 +114,7 @@ vi.mock("@skitza/db", () => ({
   trackVersions: { __table: "track_versions" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   or: (...conds: unknown[]) => ({ or: conds }),
   desc: (col: unknown) => ({ desc: col }),
   asc: (col: unknown) => ({ asc: col }),
@@ -150,18 +150,10 @@ describe("clientContacts.setTags", () => {
     });
 
     expect(res.ok).toBe(true);
-    expect(res.tags).toEqual([
-      "warm-vocals",
-      "VIP",
-      "budget-conscious",
-    ]);
+    expect(res.tags).toEqual(["warm-vocals", "VIP", "budget-conscious"]);
     expect(updateMock).toHaveBeenCalledTimes(1);
     const payload = setSpy.mock.calls[0]?.[0] ?? {};
-    expect(payload.tags).toEqual([
-      "warm-vocals",
-      "VIP",
-      "budget-conscious",
-    ]);
+    expect(payload.tags).toEqual(["warm-vocals", "VIP", "budget-conscious"]);
   });
 
   it("refuses to write when the row belongs to another producer", async () => {

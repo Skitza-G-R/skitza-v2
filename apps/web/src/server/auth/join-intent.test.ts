@@ -40,6 +40,25 @@ describe("trusted join intent", () => {
     ).toBe(false);
   });
 
+  it("accepts an in-flight intent with its legacy key after rotation", () => {
+    const token = issueJoinIntentToken({
+      slug: "northline-studio",
+      action: "book",
+      secret: SECRET,
+      nowMs: NOW,
+    });
+
+    expect(
+      verifyJoinIntentToken({
+        token,
+        expectedSlug: "northline-studio",
+        expectedAction: "book",
+        secret: ["rotated-test-only-join-intent-secret", SECRET],
+        nowMs: NOW + 60_000,
+      }),
+    ).toBe(true);
+  });
+
   it("rejects missing, expired, and forged intent", () => {
     const token = issueJoinIntentToken({
       slug: "northline-studio",

@@ -1,7 +1,7 @@
 import "~/styles/get-started.css";
 
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
 
@@ -40,10 +40,7 @@ export default async function ThanksPageHe({
       className="get-started-root focus:outline-none"
     >
       <PublicConnectivityNotice locale="he" />
-      <header
-        className="gs-header"
-        style={{ paddingTop: "max(28px, env(safe-area-inset-top))" }}
-      >
+      <header className="gs-header" style={{ paddingTop: "max(28px, env(safe-area-inset-top))" }}>
         <div className="container">
           <StaticLogo />
         </div>

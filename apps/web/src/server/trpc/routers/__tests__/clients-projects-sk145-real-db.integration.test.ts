@@ -98,7 +98,8 @@ describeWithTestDatabase("SK-145 route reads — isolated disposable Postgres", 
         const statements = [
           `create table "producers" (
             "id" uuid primary key,
-            "clerk_user_id" text not null unique
+            "clerk_user_id" text not null unique,
+            "closed_at" timestamptz
           )`,
           `create table "client_contacts" (
             "id" uuid primary key,

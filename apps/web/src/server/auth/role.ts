@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb, producers, clientContacts, eq, and, isNull } from "@skitza/db";
 import { isAutoSlug } from "~/lib/slug";
+import { isAccountClosureStarted } from "./account-access";
 
 // Role resolution — the single source of truth for "what kind of user
 // is this person?" across every producer-only layout + server action.
@@ -36,6 +37,7 @@ export type ProducerProfileStatus = "none" | "incomplete" | "complete";
 
 export type UserAccountMemberships = Readonly<{
   isAuthenticated: boolean;
+  accountStatus?: "open" | "closure_started";
   producer: Readonly<
     | { status: "none"; profile: null }
     | { status: "incomplete"; profile: ProducerRow }
@@ -47,9 +49,7 @@ export type UserAccountMemberships = Readonly<{
   }>;
 }>;
 
-export function producerProfileStatus(
-  memberships: UserAccountMemberships,
-): ProducerProfileStatus {
+export function producerProfileStatus(memberships: UserAccountMemberships): ProducerProfileStatus {
   return memberships.producer.status;
 }
 
@@ -58,10 +58,9 @@ export function producerProfileStatus(
  * this projection for cross-platform routing: it necessarily collapses two
  * additive memberships into one legacy discriminator.
  */
-export function legacyUserRoleFromMemberships(
-  memberships: UserAccountMemberships,
-): UserRole {
+export function legacyUserRoleFromMemberships(memberships: UserAccountMemberships): UserRole {
   if (!memberships.isAuthenticated) return { kind: "unauthenticated" };
+  if (memberships.accountStatus === "closure_started") return { kind: "orphan" };
   if (memberships.producer.status === "complete") {
     return { kind: "producer-complete", producer: memberships.producer.profile };
   }
@@ -83,7 +82,7 @@ export function legacyUserRoleFromMemberships(
  *      memberships exist. Cross-platform routing must instead use
  *      resolveUserAccountMemberships so neither role is discarded.
  *   3. No producer row, has client_contacts → "artist".
- *   4. Neither → "orphan" (Clerk webhook race, sub-second window).
+ *   4. Neither → "orphan" (an authenticated account with no application role).
  */
 export function resolveUserRole(input: {
   userId: string | null;
@@ -108,27 +107,27 @@ export function resolveUserRole(input: {
 
 export function resolveUserAccountMemberships(input: {
   userId: string | null;
+  accountClosureStarted?: boolean;
   producerRow: ProducerRow | null;
   hasActiveClientContacts: boolean;
   hasAnyClientContacts: boolean;
 }): UserAccountMemberships {
   const isAuthenticated = input.userId !== null;
-  const producer = !isAuthenticated || !input.producerRow
-    ? ({ status: "none", profile: null } as const)
-    : input.producerRow.displayName === null ||
-        isAutoSlug(input.producerRow.slug, input.producerRow.email)
-      ? ({ status: "incomplete", profile: input.producerRow } as const)
-      : ({ status: "complete", profile: input.producerRow } as const);
+  const producer =
+    !isAuthenticated || !input.producerRow
+      ? ({ status: "none", profile: null } as const)
+      : input.producerRow.displayName === null ||
+          isAutoSlug(input.producerRow.slug, input.producerRow.email)
+        ? ({ status: "incomplete", profile: input.producerRow } as const)
+        : ({ status: "complete", profile: input.producerRow } as const);
 
   return {
     isAuthenticated,
+    accountStatus: input.accountClosureStarted ? "closure_started" : "open",
     producer,
     artist: {
-      hasAccess:
-        isAuthenticated &&
-        (input.hasActiveClientContacts || input.hasAnyClientContacts),
-      hasActiveConnections:
-        isAuthenticated && input.hasActiveClientContacts,
+      hasAccess: isAuthenticated && (input.hasActiveClientContacts || input.hasAnyClientContacts),
+      hasActiveConnections: isAuthenticated && input.hasActiveClientContacts,
     },
   };
 }
@@ -150,6 +149,13 @@ export async function fetchUserRole(params: {
   if (!params.userId) return { kind: "unauthenticated" };
 
   const db = createDb(params.dbUrl);
+
+  if (await isAccountClosureStarted(db, params.userId)) {
+    // Legacy action callers already reject orphan accounts. The richer
+    // membership resolver below carries the explicit closed state used by
+    // layouts and cold-launch routing.
+    return { kind: "orphan" };
+  }
 
   const [producerRow] = await db
     .select({
@@ -202,6 +208,7 @@ export async function fetchUserAccountMemberships(params: {
   }
 
   const db = createDb(params.dbUrl);
+  const accountClosureStarted = await isAccountClosureStarted(db, params.userId);
   const [producerRows, activeContactRows] = await Promise.all([
     db
       .select({
@@ -233,6 +240,7 @@ export async function fetchUserAccountMemberships(params: {
 
   return resolveUserAccountMemberships({
     userId: params.userId,
+    accountClosureStarted,
     producerRow: producerRows[0] ?? null,
     hasActiveClientContacts,
     hasAnyClientContacts,
@@ -253,14 +261,14 @@ export type ExpectedRole = "producer" | "artist";
  *     unauthenticated      → /sign-in
  *     artist               → /artist
  *     producer-incomplete  → /onboarding
- *     orphan               → /onboarding   (webhook race; wizard waits)
+ *     orphan               → /producer-access
  *     producer-complete    → null (render)
  *
  *   artist:
  *     unauthenticated      → /sign-in?redirect_url=/artist
  *     producer-complete    → /dashboard    (CLAUDE.md role isolation)
  *     producer-incomplete  → /onboarding   (finish producer wizard)
- *     orphan               → /sign-in      (no DB identity → re-resolve)
+ *     orphan               → /producer-access (no Artist membership)
  *     artist               → null (render)
  */
 export function decideRoleRedirect(role: UserRole, expected: ExpectedRole): string | null {
@@ -271,8 +279,9 @@ export function decideRoleRedirect(role: UserRole, expected: ExpectedRole): stri
       case "artist":
         return "/artist";
       case "producer-incomplete":
-      case "orphan":
         return "/onboarding";
+      case "orphan":
+        return "/producer-access";
       case "producer-complete":
         return null;
     }
@@ -286,7 +295,7 @@ export function decideRoleRedirect(role: UserRole, expected: ExpectedRole): stri
     case "producer-incomplete":
       return "/onboarding";
     case "orphan":
-      return "/sign-in";
+      return "/producer-access";
     case "artist":
       return null;
   }
@@ -304,18 +313,19 @@ export function decideAccountMembershipRedirect(
   if (!memberships.isAuthenticated) {
     return decideRoleRedirect({ kind: "unauthenticated" }, expected);
   }
+  if (memberships.accountStatus === "closure_started") return "/account-closed";
 
   if (expected === "artist") {
     if (memberships.artist.hasAccess) return null;
     if (memberships.producer.status === "complete") return "/dashboard";
     if (memberships.producer.status === "incomplete") return "/onboarding";
-    return "/sign-in";
+    return "/producer-access";
   }
 
   if (memberships.producer.status === "complete") return null;
   if (memberships.producer.status === "incomplete") return "/onboarding";
   if (memberships.artist.hasAccess) return "/artist";
-  return "/onboarding";
+  return "/producer-access";
 }
 
 /**
@@ -324,15 +334,14 @@ export function decideAccountMembershipRedirect(
  * then redirects on mismatch. Returns the resolved userId on allow so
  * callers don't need to re-call auth() before their own data loading.
  */
-export async function requireRole(
-  expected: ExpectedRole,
-): Promise<{
+export async function requireRole(expected: ExpectedRole): Promise<{
   userId: string;
+  providerUserId: string;
   hasProducerProfile: boolean;
   producerProfileStatus: ProducerProfileStatus;
   producerProfileId: string | null;
 }> {
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
@@ -345,11 +354,11 @@ export async function requireRole(
   const profileStatus = producerProfileStatus(memberships);
   return {
     userId: userId as string,
+    providerUserId: providerUserId as string,
     hasProducerProfile: profileStatus !== "none",
     producerProfileStatus: profileStatus,
     producerProfileId:
-      memberships.producer.status === "complete" ||
-      memberships.producer.status === "incomplete"
+      memberships.producer.status === "complete" || memberships.producer.status === "incomplete"
         ? memberships.producer.profile.id
         : null,
   };

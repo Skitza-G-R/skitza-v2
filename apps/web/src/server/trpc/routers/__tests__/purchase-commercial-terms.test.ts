@@ -13,6 +13,10 @@ const storeCommercialSource = readFileSync(
   join(__dirname, "../../../domain/store-products/service.ts"),
   "utf8",
 );
+const storeAcceptanceSource = readFileSync(
+  join(__dirname, "../../../domain/purchases/store-acceptance.ts"),
+  "utf8",
+);
 
 describe("purchase commercial-term ownership", () => {
   it("keeps requests pre-acceptance and free of commercial snapshots", () => {
@@ -24,6 +28,44 @@ describe("purchase commercial-term ownership", () => {
     expect(requestMutation).not.toMatch(/agreementAcceptances/);
     expect(requestMutation).not.toMatch(/paymentPlanSnapshot|commercialSnapshot/);
     expect(requestMutation).not.toMatch(/priceCents/);
+  });
+
+  it("locks open-studio state for new requests while preserving exact request replays", () => {
+    const requestMutation = purchaseSource.slice(
+      purchaseSource.indexOf("request: artistProcedure"),
+      purchaseSource.indexOf("get: artistProcedure"),
+    );
+    const replay = requestMutation.indexOf("assertPurchaseRequestOperationReplay");
+    const replayReturn = requestMutation.indexOf(
+      "return { request: existing, created: false }",
+      replay,
+    );
+    const closureGuard = requestMutation.indexOf("isNull(producers.closedAt)", replayReturn);
+    const rowLock = requestMutation.indexOf('.for("share")', closureGuard);
+    const insert = requestMutation.indexOf(".insert(purchaseRequests)", rowLock);
+
+    expect(replay).toBeGreaterThanOrEqual(0);
+    expect(replayReturn).toBeGreaterThan(replay);
+    expect(closureGuard).toBeGreaterThan(replayReturn);
+    expect(rowLock).toBeGreaterThan(closureGuard);
+    expect(insert).toBeGreaterThan(rowLock);
+  });
+
+  it("blocks new Store acceptance after closure without breaking an accepted replay", () => {
+    const accept = storeAcceptanceSource.slice(
+      storeAcceptanceSource.indexOf("export async function acceptStorePurchase"),
+      storeAcceptanceSource.indexOf("export function storeAcceptancePlanKey"),
+    );
+    const replay = accept.indexOf('context.request.status === "converted"');
+    const closureGuard = accept.indexOf("context.producerClosedAt !== null", replay);
+    const purchaseAcceptance = accept.indexOf("acceptPurchase(", closureGuard);
+
+    expect(storeAcceptanceSource).toMatch(
+      /loadArtistAcceptanceContext[\s\S]*isNull\(producers\.closedAt\)/,
+    );
+    expect(replay).toBeGreaterThanOrEqual(0);
+    expect(closureGuard).toBeGreaterThan(replay);
+    expect(purchaseAcceptance).toBeGreaterThan(closureGuard);
   });
 
   it("retains the legacy encoded agreement compatibility read", () => {

@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "db.ts"), "utf8");
+const routerSource = readFileSync(
+  join(here, "..", "..", "..", "trpc", "routers", "song-publication.ts"),
+  "utf8",
+);
 
 function sourceBlock(startToken: string, endToken?: string): string {
   const start = source.indexOf(startToken);
@@ -17,7 +21,10 @@ function sourceBlock(startToken: string, endToken?: string): string {
 
 describe("song publication Postgres repository contract", () => {
   it("discovers ownership before loading publication state and hides missing or foreign ids", () => {
-    const discovery = sourceBlock("async function discoverSongScope", "/**\n * Keep this lock order");
+    const discovery = sourceBlock(
+      "async function discoverSongScope",
+      "/**\n * Keep this lock order",
+    );
     const repository = sourceBlock("export function songPublicationRepository");
 
     expect(discovery).toContain("eq(projectTracks.id, scope.trackId)");
@@ -74,8 +81,38 @@ describe("song publication Postgres repository contract", () => {
     expect(repository).toContain("lockCoreSongScope(tx, scope, discovered, authorization)");
   });
 
+  it("always locks the Producer and makes every closed-studio command replay-only", () => {
+    const core = sourceBlock("async function lockCoreSongScope", "function versionSelection");
+    const replayOnly = sourceBlock(
+      "function replayOnlyTransaction",
+      "export function songPublicationRepository",
+    );
+    const repository = sourceBlock("export function songPublicationRepository");
+
+    expect(core).toContain("closedAt: producers.closedAt");
+    expect(core).toContain("writesAllowed = producer.closedAt === null");
+    expect(core).toContain('.for("share")');
+    expect(core.indexOf("closedAt: producers.closedAt")).toBeLessThan(
+      core.indexOf("if (authorization)"),
+    );
+
+    expect(replayOnly).toContain("transaction.loadSnapshot()");
+    expect(replayOnly).toContain("transaction.findEventByOperationKey(operationKey)");
+    expect(replayOnly).toContain("insertLink: () => Promise.resolve(null)");
+    expect(replayOnly).toContain("updateLink: () => Promise.resolve(null)");
+    expect(replayOnly).toContain("setPortfolioPublishedAt: () => Promise.resolve(null)");
+    expect(replayOnly).toContain("appendAuditEvent: () => Promise.resolve(null)");
+    expect(repository).toContain(
+      "locked.writesAllowed ? transaction : replayOnlyTransaction(transaction)",
+    );
+    expect(routerSource).not.toContain("requireOpenProducerForNewWrites");
+  });
+
   it("uses exact optimistic predicates and touches the project with portfolio changes", () => {
-    const adapter = sourceBlock("function transactionAdapter", "export function songPublicationRepository");
+    const adapter = sourceBlock(
+      "function transactionAdapter",
+      "export function songPublicationRepository",
+    );
     const updateLink = adapter.slice(
       adapter.indexOf("updateLink: async"),
       adapter.indexOf("setPortfolioPublishedAt: async"),
@@ -101,7 +138,10 @@ describe("song publication Postgres repository contract", () => {
   });
 
   it("persists every immutable audit snapshot field and turns unique races into null", () => {
-    const append = sourceBlock("appendAuditEvent: async", "export function songPublicationRepository");
+    const append = sourceBlock(
+      "appendAuditEvent: async",
+      "export function songPublicationRepository",
+    );
     for (const field of [
       "trackId",
       "purchaseId",

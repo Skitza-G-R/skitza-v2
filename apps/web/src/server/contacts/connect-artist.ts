@@ -5,10 +5,9 @@ import {
   gt,
   inArray,
   isNull,
-  ne,
-  notExists,
   or,
   privateOffers,
+  producers,
   sql,
   type Db,
 } from "@skitza/db";
@@ -102,41 +101,6 @@ export async function connectArtistToProducer(
 }
 
 /**
- * Claims pre-existing contacts during Clerk's user.created webhook without
- * letting a mutable email edit bypass a pending offer's frozen recipient.
- */
-export async function stampUnownedArtistContactsForCreatedUser(
-  db: Db,
-  input: { email: string; clerkUserId: string; now?: Date },
-): Promise<void> {
-  const emailHash = emailHashFor(input.email);
-  const now = input.now ?? new Date();
-  await db
-    .update(clientContacts)
-    .set({ clerkUserId: input.clerkUserId })
-    .where(
-      and(
-        eq(clientContacts.emailHash, emailHash),
-        isNull(clientContacts.clerkUserId),
-        notExists(
-          db
-            .select({ id: privateOffers.id })
-            .from(privateOffers)
-            .where(
-              and(
-                eq(privateOffers.clientContactId, clientContacts.id),
-                eq(privateOffers.producerId, clientContacts.producerId),
-                eq(privateOffers.status, "sent"),
-                gt(privateOffers.expiresAt, now),
-                ne(privateOffers.recipientEmailHash, emailHash),
-              ),
-            ),
-        ),
-      ),
-    );
-}
-
-/**
  * Connects every producer contact that the signed-in Clerk account can prove
  * it owns. A pending private offer uses its frozen recipient hash, so editing
  * mutable contact email cannot transfer that offer or its target project.
@@ -162,6 +126,20 @@ export async function connectVerifiedArtistToProducer(
   const normalizedPrimaryEmail = input.primaryEmail.trim().toLowerCase();
 
   await db.transaction(async (tx) => {
+    // Serialize the join continuation with Producer closure. The public join
+    // page can become stale between its first lookup and this transaction, so
+    // the exact Producer must still be open before this flow may create,
+    // restore, or claim any contact.
+    const [producer] = await tx
+      .select({ id: producers.id })
+      .from(producers)
+      .where(and(eq(producers.id, input.producerId), isNull(producers.closedAt)))
+      .limit(1)
+      .for("share");
+    if (!producer) {
+      throw new ProjectOwnershipDomainError("NOT_FOUND", "This studio is unavailable");
+    }
+
     const matchingOffers = await tx
       .select({ clientContactId: privateOffers.clientContactId })
       .from(privateOffers)

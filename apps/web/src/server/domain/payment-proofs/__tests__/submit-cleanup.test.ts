@@ -1,4 +1,4 @@
-import type { Db } from "@skitza/db";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storageMocks = vi.hoisted(() => ({
@@ -17,10 +17,11 @@ vi.mock("../storage", async (importOriginal) => {
   };
 });
 
-import { submitArtistPaymentProof } from "../service";
-import { createProofUploadToken, proofObjectKeys } from "../tokens";
+import { cancelArtistProofUpload } from "../service";
+import { createProofUploadToken } from "../tokens";
 
 const SERVER_SECRET = "unit-test-private-proof-signing-material";
+const ROTATED_SERVER_SECRET = "rotated-private-proof-signing-material";
 const NOW = new Date("2026-07-24T12:00:00.000Z");
 
 describe("payment proof submit staging cleanup", () => {
@@ -28,7 +29,26 @@ describe("payment proof submit staging cleanup", () => {
     vi.resetAllMocks();
   });
 
-  it("deletes only staging after finalization rejects and preserves possible final evidence", async () => {
+  it("holds the closure lock through finalization and preserves ambiguous final evidence", () => {
+    const service = readFileSync(new URL("../service.ts", import.meta.url), "utf8");
+    const submit = service.slice(
+      service.indexOf("export async function submitArtistPaymentProof"),
+      service.indexOf("function producerProofSelection"),
+    );
+    const lock = submit.indexOf("lockProducerClosureState(tx, context.producerId)");
+    const closedGuard = submit.indexOf("lockedProducerClosedAt !== null", lock);
+    const finalize = submit.indexOf("finalizePrivateProofUpload(serverSecret, token)", closedGuard);
+    const insert = submit.indexOf(".insert(paymentProofs)", finalize);
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(closedGuard).toBeGreaterThan(lock);
+    expect(finalize).toBeGreaterThan(closedGuard);
+    expect(insert).toBeGreaterThan(finalize);
+    expect(submit).toContain("await deletePrivateProofStagingUpload");
+    expect(submit).toContain("if (finalizationState.storageKey)");
+    expect(submit).toContain("if (!persisted) await deletePrivateProofObjectQuietly");
+  });
+
+  it("uses the matching legacy key to cancel an in-flight upload after rotation", async () => {
     const signed = createProofUploadToken(
       SERVER_SECRET,
       {
@@ -41,37 +61,21 @@ describe("payment proof submit staging cleanup", () => {
       },
       NOW,
     );
-    const keys = proofObjectKeys(SERVER_SECRET, signed.payload.uploadId);
-    const objects = new Set([keys.stagingKey]);
-    storageMocks.finalizePrivateProofUpload.mockImplementation(() => {
-      objects.add(keys.finalKey);
-      return Promise.reject(new Error("finalization rejected"));
-    });
-    storageMocks.deletePrivateProofStagingUpload.mockImplementation(
-      (serverSecret: string, payload: typeof signed.payload) => {
-        objects.delete(proofObjectKeys(serverSecret, payload.uploadId).stagingKey);
-        return Promise.resolve();
-      },
-    );
+    storageMocks.deletePrivateProofStagingUpload.mockResolvedValue(undefined);
 
     await expect(
-      submitArtistPaymentProof({} as Db, {
+      cancelArtistProofUpload({
         clerkUserId: "artist-1",
         purchaseId: "purchase-1",
         installmentId: "installment-1",
         uploadToken: signed.token,
-        amountCents: 12_000,
-        serverSecret: SERVER_SECRET,
+        serverSecret: [ROTATED_SERVER_SECRET, SERVER_SECRET],
         now: NOW,
       }),
-    ).rejects.toThrow("finalization rejected");
-
+    ).resolves.toEqual({ cancelled: true });
     expect(storageMocks.deletePrivateProofStagingUpload).toHaveBeenCalledWith(
       SERVER_SECRET,
       signed.payload,
     );
-    expect(objects.has(keys.stagingKey)).toBe(false);
-    expect(objects.has(keys.finalKey)).toBe(true);
-    expect(storageMocks.deletePrivateProofObjectQuietly).not.toHaveBeenCalled();
   });
 });
