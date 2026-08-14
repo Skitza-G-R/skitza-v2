@@ -25,17 +25,14 @@ const globalsCss = readFileSync(
 );
 
 describe("artist mobile viewport shell", () => {
-  it("anchors the standing shell instead of replaying transient visual-viewport scroll offsets", () => {
+  it("uses the stable mobile viewport contract shared with the producer shell", () => {
     expect(shellSource).toContain(
-      "fixed inset-x-0 top-0 flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden",
+      "sk-artist-app-shell fixed inset-0 flex overflow-hidden",
     );
-    expect(shellSource).not.toContain(
-      "top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)]",
-    );
+    expect(shellSource).not.toContain("h-[var(--sk-viewport-height,100dvh)]");
+    expect(shellSource).not.toContain("max-h-[var(--sk-viewport-height,100dvh)]");
     for (const desktopClass of [
       "lg:static",
-      "lg:h-auto",
-      "lg:max-h-none",
       "lg:min-h-dvh",
       "lg:overflow-visible",
     ]) {
@@ -64,10 +61,10 @@ describe("artist mobile viewport shell", () => {
     expect(cancelSessionSource).toContain("top-[var(--sk-viewport-offset-top,0px)]");
   });
 
-  it("absorbs browser-chrome viewport growth without shrinking the scroll range", () => {
-    expect(globalsCss).toContain("--sk-viewport-growth: 0px");
-    expect(globalsCss).toMatch(
-      /main#main-content\[data-artist-shell-mode="standing"\][\s\S]*padding-bottom:[\s\S]*var\(--sk-viewport-growth/,
+  it("does not mutate the standing scroll range while a touch gesture is active", () => {
+    expect(globalsCss).not.toContain("--sk-viewport-growth");
+    expect(globalsCss).not.toMatch(
+      /main#main-content\[data-artist-shell-mode="standing"\][\s\S]*var\(--sk-viewport-growth/,
     );
   });
 

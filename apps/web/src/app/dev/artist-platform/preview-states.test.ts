@@ -116,12 +116,20 @@ describe("artist platform preview handoff", () => {
 
   it("renders the approved responsive chrome without production auth", () => {
     expect(shellSource).toContain('data-artist-platform-preview-chrome="standing"');
+    expect(shellSource).toContain(
+      "sk-artist-app-shell fixed inset-0 flex overflow-hidden",
+    );
+    expect(shellSource).toContain('data-artist-shell-mode="standing"');
+    expect(shellSource).toContain("sk-native-scroll");
     expect(shellSource).toContain("lg:hidden");
     expect(shellSource).toContain("hidden h-dvh shrink-0 flex-col border-e lg:flex");
     expect(shellSource).toContain("<PreviewTopBar");
     expect(shellSource).toContain("<LiquidGlassBottomNav");
     expect(shellSource).toContain('ariaLabel="Artist preview tabs"');
-    expect(shellSource).toContain('position="fixed"');
+    expect(shellSource).toContain('position="in-flow"');
+    expect(shellSource).not.toContain('position="fixed"');
+    expect(standingSource).not.toContain("<main");
+    expect(standingSource).not.toContain('id="main-content"');
     expect(shellSource).toContain("<ArtistNotificationBell");
     expect(shellSource).toContain('initialOpen: activeDestination === "notifications"');
     expect(shellSource).toContain("previewOnly");
