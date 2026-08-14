@@ -3,9 +3,54 @@ import {
   bypassesClerkSession,
   isAccessGated,
   isRetiredPublicPath,
+  resolveClerkAuthorizedParties,
   resolveLegacyRedirect,
   trustedOnboardingRequestHeaders,
 } from "./middleware";
+
+describe("Clerk authorized parties", () => {
+  it("allows only the public production origin in a non-Vercel production runtime", () => {
+    expect(resolveClerkAuthorizedParties({ NODE_ENV: "production" })).toEqual([
+      "https://skitza.app",
+    ]);
+  });
+
+  it("preserves exact deployment, branch-preview, and project origins on Vercel", () => {
+    expect(
+      resolveClerkAuthorizedParties({
+        NODE_ENV: "production",
+        VERCEL_URL: "skitza-v2-web-deploy-abc-gili-asrafs-projects.vercel.app",
+        VERCEL_BRANCH_URL:
+          "https://skitza-v2-web-git-giasraf-sk-229-gili-asrafs-projects.vercel.app/",
+        VERCEL_PROJECT_PRODUCTION_URL: "skitza-v2-web.vercel.app",
+      }),
+    ).toEqual([
+      "https://skitza.app",
+      "https://skitza-v2-web-deploy-abc-gili-asrafs-projects.vercel.app",
+      "https://skitza-v2-web-git-giasraf-sk-229-gili-asrafs-projects.vercel.app",
+      "https://skitza-v2-web.vercel.app",
+    ]);
+  });
+
+  it("keeps local Test development working without widening deployed origins", () => {
+    expect(resolveClerkAuthorizedParties({ NODE_ENV: "test" })).toEqual([
+      "https://skitza.app",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    ]);
+  });
+
+  it("ignores malformed, insecure, and non-Vercel deployment values", () => {
+    expect(
+      resolveClerkAuthorizedParties({
+        NODE_ENV: "production",
+        VERCEL_URL: "http://preview.vercel.app",
+        VERCEL_BRANCH_URL: "https://skitza.app.attacker.example",
+        VERCEL_PROJECT_PRODUCTION_URL: "not a URL",
+      }),
+    ).toEqual(["https://skitza.app"]);
+  });
+});
 
 describe("Clerk session bypass", () => {
   it("bypasses Clerk only for the signed Google Calendar OAuth callback", () => {

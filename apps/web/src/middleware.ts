@@ -1,5 +1,9 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import {
+  clerkMiddleware,
+  createRouteMatcher,
+  type ClerkMiddlewareAuth,
+} from "@clerk/nextjs/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import {
@@ -101,6 +105,47 @@ export function resolveLegacyRedirect(pathname: string): string | null {
 const ACCESS_COOKIE = "skitza-access";
 const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/integrations/google-calendar/callback";
 const RETIRED_PUBLIC_PATHS = ["/changelog", "/get-started"] as const;
+const PRODUCTION_ORIGIN = "https://skitza.app";
+const LOCAL_DEVELOPMENT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"] as const;
+const VERCEL_ORIGIN_ENV_KEYS = [
+  "VERCEL_URL",
+  "VERCEL_BRANCH_URL",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+] as const;
+
+type ClerkAuthorizedPartiesEnvironment = {
+  NODE_ENV?: string;
+} & Partial<Record<(typeof VERCEL_ORIGIN_ENV_KEYS)[number], string>>;
+
+function exactVercelOrigin(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".vercel.app")) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveClerkAuthorizedParties(
+  environment: ClerkAuthorizedPartiesEnvironment = process.env,
+): string[] {
+  const parties = new Set<string>([PRODUCTION_ORIGIN]);
+
+  if (environment.NODE_ENV !== "production") {
+    for (const origin of LOCAL_DEVELOPMENT_ORIGINS) parties.add(origin);
+  }
+
+  for (const key of VERCEL_ORIGIN_ENV_KEYS) {
+    const origin = exactVercelOrigin(environment[key]);
+    if (origin) parties.add(origin);
+  }
+
+  return [...parties];
+}
 
 export function bypassesClerkSession(pathname: string): boolean {
   return pathname === GOOGLE_CALENDAR_CALLBACK_PATH;
@@ -147,7 +192,7 @@ export function trustedOnboardingRequestHeaders(input: {
   return requestHeaders;
 }
 
-const clerk = clerkMiddleware(async (auth, req) => {
+const clerkHandler = async (auth: ClerkMiddlewareAuth, req: NextRequest) => {
   const { userId } = await auth();
   const returningDeviceCookie = req.cookies.get(RETURNING_DEVICE_COOKIE)?.value;
   const finalizeResponse = (response: NextResponse) => {
@@ -230,6 +275,10 @@ const clerk = clerkMiddleware(async (auth, req) => {
   }
 
   return finalizeResponse(NextResponse.next());
+};
+
+const clerk = clerkMiddleware(clerkHandler, {
+  authorizedParties: resolveClerkAuthorizedParties(),
 });
 
 export default async function middleware(
