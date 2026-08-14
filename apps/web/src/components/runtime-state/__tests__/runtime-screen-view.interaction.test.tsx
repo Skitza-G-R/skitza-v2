@@ -874,6 +874,87 @@ describe("close and reopen runtime restore", () => {
     );
   });
 
+  it("routes a signed-out desktop launch to sign-in without revealing cache", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 1,
+      capabilities: [
+        DESKTOP_CAPABILITIES.savedScreenPreview,
+        DESKTOP_CAPABILITIES.sessionValidation,
+        DESKTOP_CAPABILITIES.socialAuth,
+      ],
+      listen: () => () => undefined,
+    };
+    mocked.auth = {
+      isLoaded: true,
+      userId: null,
+    };
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Private desktop music"),
+      ),
+    ).toBe(true);
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(screen.getByLabelText("Secure launch")).toBeTruthy();
+    expect(screen.queryByText("Private desktop music")).toBeNull();
+    expect(mocked.router.replace).toHaveBeenCalledWith("/sign-in");
+    expect(mocked.router.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a signed-out desktop launch locked while offline", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 1,
+      capabilities: [
+        DESKTOP_CAPABILITIES.savedScreenPreview,
+        DESKTOP_CAPABILITIES.sessionValidation,
+        DESKTOP_CAPABILITIES.socialAuth,
+      ],
+      listen: () => () => undefined,
+    };
+    mocked.auth = {
+      isLoaded: true,
+      userId: null,
+    };
+    mocked.online = false;
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Offline private desktop music"),
+      ),
+    ).toBe(true);
+
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(screen.getByText("Reconnect to open your studio.")).toBeTruthy();
+    expect(screen.queryByText("Offline private desktop music")).toBeNull();
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps a signed-out desktop launch locked for an unsupported bridge", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 2,
+      capabilities: [
+        DESKTOP_CAPABILITIES.sessionValidation,
+        DESKTOP_CAPABILITIES.socialAuth,
+      ],
+      listen: () => () => undefined,
+    };
+    mocked.auth = {
+      isLoaded: true,
+      userId: null,
+    };
+
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(screen.getByText("Checking your secure session…")).toBeTruthy();
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
   it("restores the last safe screen from persistent storage before auth or network", () => {
     mocked.online = false;
     mocked.auth = {
