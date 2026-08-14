@@ -3,11 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import {
-  formatGreetingDate,
-  formatGreetingSummary,
-} from "../page-helpers";
-
 // Today / Overview page.
 //
 // History:
@@ -21,11 +16,10 @@ import {
 //     state inline.
 //
 // What this test pins:
-//   1. Pure helpers from page-helpers.ts (greeting formatters).
-//   2. Source-grep on page.tsx — retired Story 06 components are NOT
+//   1. Source-grep on page.tsx — retired Story 06 components are NOT
 //      imported, <OverviewScreen> replaces them, the day-1 takeover
 //      is gone, and the auth + skipper paths stay intact.
-//   3. Filesystem — the retired Story 06 files are still deleted; the
+//   2. Filesystem — the retired Story 06 files are still deleted; the
 //      OverviewScreen file exists; the deleted empty-onboarding file
 //      stays gone.
 
@@ -38,44 +32,6 @@ const REVENUE_DIR = join(here, "..", "..", "..", "..", "components", "dashboard"
 const OVERVIEW_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", "overview");
 const pageSource = readFileSync(PAGE_PATH, "utf8");
 const overviewSource = readFileSync(join(OVERVIEW_DIR, "overview-screen.tsx"), "utf8");
-
-// ─── Pure helpers ──────────────────────────────────────────────────
-
-describe("formatGreetingDate", () => {
-  it("formats a known date as Weekday, Month Day", () => {
-    // Friday 2026-04-25 — a stable known anchor.
-    const fri = new Date(Date.UTC(2026, 3, 25, 12, 0, 0));
-    const out = formatGreetingDate(fri);
-    expect(out).toMatch(/Saturday|Friday/); // depending on TZ — both ok
-    expect(out).toContain("April");
-    expect(out).toContain("25");
-  });
-
-  it("includes the weekday name", () => {
-    const day = new Date(Date.UTC(2026, 0, 5, 12, 0, 0)); // 2026-01-05
-    const out = formatGreetingDate(day);
-    // Monday Jan 5 2026 — depending on TZ we get Sunday/Monday.
-    expect(out).toMatch(/Sunday|Monday/);
-  });
-});
-
-describe("formatGreetingSummary", () => {
-  it("returns 'All quiet today.' when zero items need attention", () => {
-    expect(formatGreetingSummary(0)).toBe("All quiet today.");
-  });
-
-  it("uses singular 'thing needs you' when exactly one item is unresolved", () => {
-    expect(formatGreetingSummary(1)).toBe("1 thing needs you.");
-  });
-
-  it("uses plural 'things need you' when more than one item is unresolved", () => {
-    expect(formatGreetingSummary(5)).toBe("5 things need you.");
-  });
-
-  it("handles 2 (smallest plural)", () => {
-    expect(formatGreetingSummary(2)).toBe("2 things need you.");
-  });
-});
 
 // ─── Source-grep — Phase 4 populated layout ────────────────────────
 
@@ -224,6 +180,14 @@ describe("Today page — day-1 takeover removed", () => {
 
 describe("retired Story 06 files stay deleted from disk", () => {
   it.each([
+    "dashboard-greeting.tsx",
+    "inbox-section.tsx",
+    "pulse-card.tsx",
+    "pulse-sparkline.tsx",
+    "recent-upload-card.tsx",
+    "recent-uploads-shelf.tsx",
+    "today-detail.tsx",
+    "today-list.tsx",
     "share-link-card.tsx",
     "quick-actions.tsx",
     "kpi-strip.tsx",
@@ -234,13 +198,13 @@ describe("retired Story 06 files stay deleted from disk", () => {
   });
 });
 
-describe("revenue-trend.tsx still in revenue/ directory", () => {
+describe("retired revenue-trend.tsx stays deleted", () => {
   it("no longer exists in dashboard/today/", () => {
     expect(existsSync(join(TODAY_DIR, "revenue-trend.tsx"))).toBe(false);
   });
 
-  it("still exists in dashboard/revenue/", () => {
-    expect(existsSync(join(REVENUE_DIR, "revenue-trend.tsx"))).toBe(true);
+  it("no longer exists in dashboard/revenue/", () => {
+    expect(existsSync(join(REVENUE_DIR, "revenue-trend.tsx"))).toBe(false);
   });
 });
 

@@ -170,8 +170,10 @@ describe("SK-99 retained real controls", () => {
     expect(albumSpace).toContain('mode="new-song"');
     expect(albumSpace).toContain("projectId={project.id}");
     expect(albumSpace).not.toContain("lockProject=1");
-    const policiesEditor = read("../../../app/(producer)/dashboard/booking/policies-editor.tsx");
-    expect(policiesEditor).toContain("autoConfirmBookings");
-    expect(policiesEditor).toContain("updateAvailabilitySettings");
+    const availabilityPanel = read(
+      "../../../app/(producer)/dashboard/calendar/availability-panel.tsx",
+    );
+    expect(availabilityPanel).toContain("autoConfirmBookings");
+    expect(availabilityPanel).toContain("updateAvailabilitySettings");
   });
 });

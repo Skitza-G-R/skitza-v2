@@ -96,12 +96,14 @@ describe("SK-90 removed card-processing paths", () => {
   });
 
   it("does not expose removed card or invoice actions in Today", () => {
-    const detail = source("src/components/dashboard/today/today-detail.tsx");
-    const list = source("src/components/dashboard/today/today-list.tsx");
     const producer = source("src/server/trpc/routers/producer.ts");
 
-    expect(detail).not.toMatch(/Open Stripe|kind === "invoice"|invoice:\s*"Invoice"/);
-    expect(list).not.toMatch(/\| "invoice"|invoice:\s*"\$"/);
+    expect(
+      existsSync(join(webRoot, "src/components/dashboard/today/today-detail.tsx")),
+    ).toBe(false);
+    expect(
+      existsSync(join(webRoot, "src/components/dashboard/today/today-list.tsx")),
+    ).toBe(false);
     expect(producer).not.toMatch(/invoiceItems|unpaidInvoiceRows|kind:\s*"invoice"/);
   });
 
