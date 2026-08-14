@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { desktopAuthCodes } from "../schema";
 
 const migrationPath = fileURLToPath(
-  new URL("../../drizzle/0049_desktop_auth_codes.sql", import.meta.url),
+  new URL("../../drizzle/0050_desktop_auth_codes.sql", import.meta.url),
 );
 
 function config(table: PgTable) {
