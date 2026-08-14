@@ -2074,6 +2074,16 @@
 }
 
 @media (max-width: 1023px) {
+  /* Focused Artist flows own a fixed inner screen. During ordinary iOS
+   * rubber-band gestures, visualViewport.offsetTop is transient and must not
+   * move that screen with the finger. Keyboard-open flows keep the measured
+   * offset so focused fields remain inside the visual viewport. */
+  body:not([data-sk-keyboard="open"])
+    main#main-content[data-artist-shell-mode="focused"]
+    .sk-native-screen {
+    top: 0;
+  }
+
   main#main-content[data-artist-shell-mode="standing"] {
     padding-bottom: calc(1rem + var(--sk-viewport-growth, 0px));
   }
