@@ -15,6 +15,7 @@ import {
   type ArtistHomeSafeView,
   type ProducerDisplayNameDraft,
   type ProducerOverviewSafeView,
+  type ProducerPrivateOfferDraft,
   type ProducerStoreProductDraft,
   type RuntimePayloadBySlot,
   type RuntimeSlot,
@@ -300,6 +301,71 @@ export function useProducerStoreProductDraft() {
     removeRuntimeState(storage, scope, "producer.store.product-draft");
     setRecord(null);
     emitRuntimeStateUpdated(scopeKey, "producer.store.product-draft");
+  }, [privateStateAccessAllowed, scope, scopeKey, storage]);
+
+  return { record, loaded, save, clear };
+}
+
+export function useProducerPrivateOfferDraft({ route }: { route: string }) {
+  const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+  const writeRuntimeDraft = useAccountPrivateRuntimeDraftWriter(identity.userId);
+  const [record, setRecord] = useState<ProducerPrivateOfferDraft | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const scope = useMemo(
+    () =>
+      identity.role === "producer"
+        ? runtimeScope(identity.userId, "producer", identity.contextId, route)
+        : null,
+    [identity.contextId, identity.role, identity.userId, route],
+  );
+  const scopeKey = scope
+    ? `${scope.userId}:${scope.role}:${scope.contextId}:${scope.route}:producer.private-offer.draft`
+    : "invalid";
+
+  const readRecord = useCallback(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    setRecord(readRuntimeState(storage, scope, "producer.private-offer.draft"));
+    setLoaded(true);
+  }, [privateStateAccessAllowed, scope, storage]);
+
+  useLayoutEffect(() => {
+    readRecord();
+  }, [readRecord, scopeKey]);
+
+  useEffect(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    const onRuntimeStateUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<RuntimeStateUpdatedDetail>).detail;
+      if (detail.scopeKey === scopeKey && detail.slot === "producer.private-offer.draft") {
+        readRecord();
+      }
+    };
+    window.addEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated);
+    return () => {
+      window.removeEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated);
+    };
+  }, [privateStateAccessAllowed, readRecord, scope, scopeKey, storage]);
+
+  const save = useCallback(
+    (next: ProducerPrivateOfferDraft) => {
+      if (!privateStateAccessAllowed || !storage || !scope) return false;
+      const written = writeRuntimeDraft(() =>
+        writeRuntimeState(storage, scope, "producer.private-offer.draft", next),
+      );
+      if (written) {
+        setRecord(next);
+        emitRuntimeStateUpdated(scopeKey, "producer.private-offer.draft");
+      }
+      return written;
+    },
+    [privateStateAccessAllowed, scope, scopeKey, storage, writeRuntimeDraft],
+  );
+
+  const clear = useCallback(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    removeRuntimeState(storage, scope, "producer.private-offer.draft");
+    setRecord(null);
+    emitRuntimeStateUpdated(scopeKey, "producer.private-offer.draft");
   }, [privateStateAccessAllowed, scope, scopeKey, storage]);
 
   return { record, loaded, save, clear };

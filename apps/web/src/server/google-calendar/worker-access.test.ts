@@ -109,6 +109,7 @@ function link(): GoogleCalendarPreparedLink {
     providerEventId: "sk00000000000040008000000000000004",
     providerEventEtag: null,
     providerState: "uncreated",
+    syncState: "pending",
     desiredRevision: 1,
     lastGoogleRevision: 0,
     invitationRevision: 0,
@@ -123,6 +124,7 @@ function repositoryWith(current: GoogleCalendarConnectionRecord) {
   return {
     getConnection: vi.fn<GoogleCalendarRepository["getConnection"]>().mockResolvedValue(current),
     createOAuthState: vi.fn<GoogleCalendarRepository["createOAuthState"]>(),
+    getOAuthState: vi.fn<GoogleCalendarRepository["getOAuthState"]>(),
     consumeOAuthState: vi.fn<GoogleCalendarRepository["consumeOAuthState"]>(),
     commitAuthorization: vi.fn<GoogleCalendarRepository["commitAuthorization"]>(),
     storeRefreshedAccessToken: vi

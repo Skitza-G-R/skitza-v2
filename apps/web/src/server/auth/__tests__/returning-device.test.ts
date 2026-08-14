@@ -60,7 +60,7 @@ describe("auth page switch URLs", () => {
       signUpSwitchHref(
         "/join/northline-studio/continue?action=book",
       ),
-    ).toBe("/sign-up/join/northline-studio?intent=signup");
+    ).toBe("/sign-up/join/northline-studio/book?intent=signup");
     expect(
       signUpSwitchHref(
         "/join/northline-studio/continue?action=unlock",

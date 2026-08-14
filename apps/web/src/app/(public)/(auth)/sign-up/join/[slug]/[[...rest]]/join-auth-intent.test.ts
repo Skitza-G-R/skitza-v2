@@ -24,15 +24,20 @@ describe("join-aware Clerk authentication", () => {
 
   it("forces every Clerk verification and OAuth completion back to the join continuation", () => {
     expect(source).toContain("joinContinuationHref(slug, action)");
-    expect(source).toContain('action === "home" ? "store" : action');
+    expect(source).not.toContain('action === "home" ? "store" : action');
     expect(source).toContain("forceRedirectUrl={postSignUpContinuationHref}");
   });
 
-  it("keeps Home and Unlock signup distinct from the default Book continuation", () => {
+  it("keeps explicit Book, Home, and Unlock distinct from the legacy Home continuation", () => {
+    expect(source).toContain('rest?.[0] === "book"');
     expect(source).toContain('rest?.[0] === "unlock"');
     expect(source).toContain('rest?.[0] === "home"');
-    expect(source).toContain('action === "unlock" ? "/unlock"');
-    expect(source).toContain('action === "home" ? "/home" : ""');
+    expect(source).toContain('explicitAction === "book"');
+    expect(source).toContain('? "/book"');
+    expect(source).toContain('explicitAction === "unlock"');
+    expect(source).toContain('? "/unlock"');
+    expect(source).toContain('explicitAction === "home"');
+    expect(source).toContain('? "/home"');
   });
 
   it("preserves the Artist slug through Sign up → Sign in → Sign up", () => {
@@ -46,7 +51,7 @@ describe("join-aware Clerk authentication", () => {
       "/join/northline-studio/continue?action=book",
     );
     expect(signUpSwitchHref(continuation)).toBe(
-      "/sign-up/join/northline-studio?intent=signup",
+      "/sign-up/join/northline-studio/book?intent=signup",
     );
     expect(source).toContain(
       'unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}',
@@ -87,7 +92,7 @@ describe("join-aware Clerk authentication", () => {
     );
 
     expect(signUpSwitchHref(normalized)).toBe(
-      "/sign-up/join/northline-studio?intent=signup",
+      "/sign-up/join/northline-studio/book?intent=signup",
     );
     expect(joinSignUpMetadataFromTarget(normalized)).toEqual({
       signupOrigin: "join",

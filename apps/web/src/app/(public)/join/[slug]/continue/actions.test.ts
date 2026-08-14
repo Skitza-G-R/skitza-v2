@@ -162,13 +162,13 @@ describe("join continuation actions", () => {
     },
   );
 
-  it("sends a successful first-time Store continuation to the validated Producer Store", async () => {
+  it("keeps a legacy Store continuation valid but sends it to Artist Home", async () => {
     const store = cookieStore();
     cookiesMock.mockResolvedValue(store);
     connectMock.mockResolvedValue("/artist/book?studio=studio-1");
 
     await expect(continueAsArtist("northline-studio", "store")).rejects.toThrow(
-      "__REDIRECT__:/artist/store?studio=studio-1",
+      "__REDIRECT__:/artist?studio=studio-1",
     );
 
     expect(findTargetMock).toHaveBeenCalledWith(

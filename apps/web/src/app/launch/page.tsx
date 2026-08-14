@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import {
-  RuntimeDestinationScaffold,
+  RuntimeLaunchCover,
   RuntimeResumeBoundary,
 } from "~/components/runtime-state/runtime-screen-view";
 
@@ -18,11 +18,7 @@ export const metadata: Metadata = {
 
 export default function LaunchPage() {
   return (
-    <Suspense
-      fallback={
-        <RuntimeDestinationScaffold href="/dashboard" role="producer" />
-      }
-    >
+    <Suspense fallback={<RuntimeLaunchCover />}>
       <RuntimeResumeBoundary navigate />
     </Suspense>
   );

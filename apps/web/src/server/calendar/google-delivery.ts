@@ -45,6 +45,7 @@ export type GoogleCalendarPreparedLink = Readonly<
     | "providerEventId"
     | "providerEventEtag"
     | "providerState"
+    | "syncState"
     | "desiredRevision"
     | "lastGoogleRevision"
     | "invitationRevision"
@@ -73,6 +74,8 @@ export interface GoogleCalendarDeliveryRepository {
     now: Date;
     limit: number;
     jobId?: string;
+    producerId?: string;
+    forcePending?: boolean;
     leaseToken: string;
     leaseDurationMs: number;
   }): Promise<readonly GoogleCalendarDeliveryJob[]>;
@@ -483,6 +486,8 @@ export async function processGoogleCalendarSyncJobs(
     clock?: () => Date;
     limit?: number;
     jobId?: string;
+    producerId?: string;
+    forcePending?: boolean;
     leaseToken?: string;
   }> = {},
 ): Promise<ProcessGoogleCalendarSyncJobsResult> {
@@ -498,6 +503,8 @@ export async function processGoogleCalendarSyncJobs(
     now: claimAt,
     limit,
     ...(options.jobId ? { jobId: options.jobId } : {}),
+    ...(options.producerId ? { producerId: options.producerId } : {}),
+    ...(options.forcePending ? { forcePending: true } : {}),
     leaseToken,
     leaseDurationMs: GOOGLE_CALENDAR_DELIVERY_LEASE_MS,
   });
@@ -581,6 +588,51 @@ export async function processGoogleCalendarSyncJobs(
         if (fallback.outcome === "enqueued") result.fallbackEnqueued += 1;
         result.fallbackJobIds.push(fallback.jobId);
       }
+    }
+
+    if (
+      prepared.value.job.payloadSnapshot.action === "delete" &&
+      prepared.value.link.syncState === "missing"
+    ) {
+      const sendUpdates = requestedSendUpdates(prepared.value);
+      const needsFallback =
+        sendUpdates === "all" && prepared.value.link.invitationAttemptedAt === null;
+      if (needsFallback) {
+        const fallback = await dependencies.repository.enqueueIcsFallback({
+          ...leased,
+          failedAt: currentTime(),
+        });
+        if (fallback.outcome === "lease_lost") {
+          result.leaseLost += 1;
+          continue;
+        }
+        if (fallback.outcome === "not_safe") {
+          const terminal = await dependencies.repository.terminalGoogleJob({
+            ...leased,
+            terminalAt: currentTime(),
+            error: "Google Calendar cancellation fallback unavailable",
+          });
+          if (terminal) result.terminal += 1;
+          else result.leaseLost += 1;
+          continue;
+        }
+        if (fallback.outcome === "enqueued") result.fallbackEnqueued += 1;
+        if ("jobId" in fallback) result.fallbackJobIds.push(fallback.jobId);
+      }
+      const completed = await finishProviderSuccess(
+        dependencies.repository,
+        prepared.value,
+        leaseToken,
+        {
+          providerState: "deleted",
+          providerEventEtag: null,
+          notificationDelivered: sendUpdates === "all" && !needsFallback,
+          completedAt: currentTime(),
+        },
+      );
+      if (completed) result.completed += 1;
+      else result.leaseLost += 1;
+      continue;
     }
 
     let safeForFallback = false;

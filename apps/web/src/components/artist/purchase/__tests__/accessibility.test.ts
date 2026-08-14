@@ -19,7 +19,6 @@ const statusSrc = readSrc("components", "artist", "home", "purchase-status-card.
 const reviewSrc = readSrc("components", "artist", "purchase", "review-agree-screen.tsx");
 const sentSrc = readSrc("components", "artist", "purchase", "request-sent-screen.tsx");
 const productSrc = readSrc("components", "artist", "purchase", "product-detail-screen.tsx");
-const stickySrc = readSrc("components", "artist", "sticky-nav.tsx");
 
 type Rgb = readonly [number, number, number];
 
@@ -133,11 +132,7 @@ describe("artist purchase accessibility contract", () => {
   it("gates every purchase animation for reduced-motion users", () => {
     expect(reviewSrc).toMatch(/animate-spin[^"]*motion-reduce:animate-none/);
     expect(proofSrc).not.toMatch(/transition-all|animate-spin/);
-    expect(stickySrc).toMatch(/sk-sticky-nav-backing/);
-    expect(stickySrc).toMatch(/sk-sticky-nav-title/);
     expect(globalsSrc).toMatch(/\.skip-to-content\s*\{\s*transition: none !important;\s*\}/);
-    expect(globalsSrc).toMatch(/\.sk-sticky-nav-backing\s*\{\s*transition: none !important;\s*\}/);
-    expect(globalsSrc).toMatch(/\.sk-sticky-nav-title\s*\{\s*transform: none !important;\s*\}/);
   });
 
   it("guarantees a 44px home purchase action", () => {

@@ -1522,6 +1522,7 @@ const bookSubrouter = router({
         durationMin,
         bufferMinutes,
         minLeadHours,
+        availabilityWindowDays: 30,
         maxSessionsPerDay: producer.maxSessionsPerDay,
         availabilityBlocks: blockRows,
         blackouts: blackoutRows,

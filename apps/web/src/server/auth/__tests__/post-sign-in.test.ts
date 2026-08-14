@@ -195,6 +195,14 @@ describe("postSignInResolverHref", () => {
     );
   });
 
+  it("normalizes a legacy Store continuation to Home during sign-in", () => {
+    expect(
+      postSignInResolverHref("/join/studio-slug/continue?action=store"),
+    ).toBe(
+      "/auth/resolve?next=%2Fjoin%2Fstudio-slug%2Fcontinue%3Faction%3Dhome",
+    );
+  });
+
   it.each(["---", "-studio", "studio-", "s".repeat(48)])(
     "accepts persisted public-slug boundary %s",
     (slug) => {
@@ -215,13 +223,13 @@ describe("postSignInResolverHref", () => {
 });
 
 describe("postSignUpResolverHref", () => {
-  it("sends only a successful normal-invite signup to the validated Store continuation", () => {
+  it("keeps a successful normal-invite signup on the validated Home continuation", () => {
     expect(
       postSignUpResolverHref(
         "/join/northline-studio/continue?action=home",
       ),
     ).toBe(
-      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dstore",
+      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
     );
 
     expect(
@@ -234,7 +242,7 @@ describe("postSignUpResolverHref", () => {
   });
 
   it.each(["book", "unlock"])(
-    "keeps the explicit %s signup route unchanged",
+    "keeps the existing %s signup continuation unchanged",
     (action) => {
       const target = `/join/northline-studio/continue?action=${action}`;
       expect(postSignUpResolverHref(target)).toBe(
@@ -242,6 +250,16 @@ describe("postSignUpResolverHref", () => {
       );
     },
   );
+
+  it("keeps a legacy Store signup URL valid but sends it to Home", () => {
+    expect(
+      postSignUpResolverHref(
+        "/join/northline-studio/continue?action=store",
+      ),
+    ).toBe(
+      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
+    );
+  });
 
   it("drops an invalid Producer context instead of constructing a destination", () => {
     expect(
@@ -298,7 +316,7 @@ describe("joinSignUpHrefFromTarget", () => {
       joinSignUpHrefFromTarget(
         "/join/northline-studio/continue?action=book",
       ),
-    ).toBe("/sign-up/join/northline-studio?intent=signup");
+    ).toBe("/sign-up/join/northline-studio/book?intent=signup");
     expect(
       joinSignUpHrefFromTarget(
         "/join/northline-studio/continue?action=unlock",

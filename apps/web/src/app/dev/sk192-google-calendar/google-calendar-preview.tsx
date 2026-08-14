@@ -58,6 +58,7 @@ const PREVIEW_SYNC_SUMMARY = {
   notSynced: 0,
   missing: 0,
   conflicts: 0,
+  issues: [],
 } as const;
 const PREVIEW_ACTIONS: GoogleCalendarControlActions = {
   connect: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
@@ -66,6 +67,7 @@ const PREVIEW_ACTIONS: GoogleCalendarControlActions = {
   reconnect: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
   confirmAccountSwitch: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
   disconnect: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
+  repairSync: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
 };
 
 const MANUAL_OPTIONS = { studioTimeZone: "Asia/Jerusalem", clients: [] } as const;
@@ -120,6 +122,7 @@ export function GoogleCalendarPreview({
                     key={state}
                     model={model}
                     actions={PREVIEW_ACTIONS}
+                    timeZone={MANUAL_OPTIONS.studioTimeZone}
                     defaultOpen={googleControlOpen}
                     defaultView={defaultView}
                   />

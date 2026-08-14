@@ -81,6 +81,7 @@ function prepared(
       providerEventId: EVENT_ID,
       providerEventEtag: null,
       providerState: "uncreated",
+      syncState: "pending",
       desiredRevision: claimed.desiredRevision,
       lastGoogleRevision: 0,
       invitationRevision:
@@ -549,6 +550,55 @@ describe("Google Calendar outbox delivery", () => {
       expect.objectContaining({ providerState: "deleted", notificationDelivered: false }),
     );
     expect(repository.retryGoogleJob).not.toHaveBeenCalled();
+  });
+
+  it("finishes a delete already known to be missing without requiring Google access", async () => {
+    const deleteJob = job({
+      operation: "delete_google_event",
+      payloadSnapshot: {
+        schemaVersion: 2,
+        action: "delete",
+        notificationMode: "all",
+        sequence: 2,
+        privateProperties: {
+          skitzaLink: LINK_ID,
+          skitzaRevision: "2",
+          skitzaSchema: "1",
+        },
+      },
+    });
+    const repository = repositoryFor(deleteJob, {
+      outcome: "ready",
+      value: prepared(deleteJob, {
+        providerState: "active",
+        syncState: "missing",
+        providerEventEtag: '"etag-1"',
+        lastGoogleRevision: 1,
+      }),
+    });
+    const google = provider();
+    const access = readyAccess();
+
+    const result = await processGoogleCalendarSyncJobs(
+      { repository, provider: google, access },
+      {
+        now: NOW,
+        leaseToken: "lease",
+        producerId: PRODUCER_ID,
+        forcePending: true,
+      },
+    );
+
+    expect(result).toMatchObject({ completed: 1, fallbackEnqueued: 1, retried: 0 });
+    expect(repository.claimDueGoogleJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ producerId: PRODUCER_ID, forcePending: true }),
+    );
+    expect(access).not.toHaveBeenCalled();
+    expect(google.getEvent).not.toHaveBeenCalled();
+    expect(google.deleteEvent).not.toHaveBeenCalled();
+    expect(repository.completeGoogleJob).toHaveBeenCalledWith(
+      expect.objectContaining({ providerState: "deleted", notificationDelivered: false }),
+    );
   });
 
   it("reconciles an absent delete after a marked attempt without a duplicate CANCEL", async () => {

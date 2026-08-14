@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 const WEB_SRC = join(__dirname, "../../..");
 
 const mountedProducerActions = [
-  "app/(producer)/dashboard/onboarding/onboarding-wizard.tsx",
   "app/(producer)/dashboard/portfolio/portfolio-panel.tsx",
   "app/(producer)/dashboard/settings/settings-client.tsx",
   "components/dashboard/clients/client-archive-confirm-modal.tsx",

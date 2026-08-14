@@ -10,6 +10,7 @@ import {
   notifications,
   privateOffers,
   producers,
+  products,
   projectTracks,
   projects,
   purchaseAcceptances,
@@ -75,6 +76,41 @@ function notFound(): never {
 
 function normalizeRecipientEmail(raw: string): string {
   return raw.trim().toLowerCase();
+}
+
+type PrivateOfferRow = typeof privateOffers.$inferSelect;
+
+function assertExactPrivateOfferReplay(
+  existing: PrivateOfferRow,
+  input: {
+    producerId: string;
+    sourceProductId?: string;
+    recipient: PrivateOfferRecipient;
+    target: PrivateOfferTarget;
+    snapshot: PurchaseCommercialSnapshot;
+    expiresAt: Date;
+  },
+): void {
+  if (existing.producerId !== input.producerId) unavailable();
+  const recipientMatches =
+    input.recipient.kind === "existing"
+      ? existing.clientContactId === input.recipient.clientContactId
+      : existing.recipientEmailHash ===
+        emailHashFor(normalizeRecipientEmail(input.recipient.email));
+  const targetMatches =
+    input.target.kind === "new"
+      ? existing.targetProjectId === null
+      : existing.targetProjectId === input.target.projectId;
+  const sourceMatches = existing.productId === (input.sourceProductId ?? null);
+  const termsMatch =
+    digestCommercialSnapshot(existing.commercialDraft) === digestCommercialSnapshot(input.snapshot);
+  const expiryMatches = existing.expiresAt.getTime() === input.expiresAt.getTime();
+  if (!recipientMatches || !targetMatches || !sourceMatches || !termsMatch || !expiryMatches) {
+    throw new PrivateOfferPersistenceError(
+      "STALE",
+      "This send was already used for a different private offer. Review the current draft and try again.",
+    );
+  }
 }
 
 async function resolveRecipientForUpdate(
@@ -180,6 +216,8 @@ async function resolveTargetForShare(
 export async function createPrivateOffer(
   db: Db,
   input: {
+    offerId: string;
+    sourceProductId?: string;
     producerId: string;
     recipient: PrivateOfferRecipient;
     target: PrivateOfferTarget;
@@ -198,6 +236,41 @@ export async function createPrivateOffer(
   });
 
   return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(privateOffers)
+      .where(eq(privateOffers.id, input.offerId))
+      .limit(1);
+    if (existing) {
+      assertExactPrivateOfferReplay(existing, {
+        producerId: input.producerId,
+        ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
+        recipient: input.recipient,
+        target: input.target,
+        snapshot,
+        expiresAt,
+      });
+      return { created: false as const, offer: existing };
+    }
+
+    let sourceProductId: string | null = null;
+    if (input.sourceProductId) {
+      const [sourceProduct] = await tx
+        .select({ id: products.id })
+        .from(products)
+        .where(
+          and(
+            eq(products.id, input.sourceProductId),
+            eq(products.producerId, input.producerId),
+            isNull(products.archivedAt),
+          ),
+        )
+        .limit(1)
+        .for("share");
+      if (!sourceProduct) notFound();
+      sourceProductId = sourceProduct.id;
+    }
+
     const recipient = await resolveRecipientForUpdate(tx, input);
     const targetProjectId = await resolveTargetForShare(tx, {
       producerId: input.producerId,
@@ -214,20 +287,42 @@ export async function createPrivateOffer(
     const [offer] = await tx
       .insert(privateOffers)
       .values({
+        id: input.offerId,
         producerId: input.producerId,
         clientContactId: recipient.id,
         recipientEmail: recipient.email,
         recipientEmailHash: emailHashFor(recipient.email),
         targetProjectId,
+        productId: sourceProductId,
         status: "sent",
         commercialDraft: snapshot,
         expiresAt,
         createdAt: input.now,
         updatedAt: input.now,
       })
+      .onConflictDoNothing({ target: privateOffers.id })
       .returning();
-    if (!offer) throw new PrivateOfferPersistenceError("INTEGRITY");
-    return { offer, recipient, producer };
+    if (offer) return { created: true as const, offer, recipient, producer };
+
+    // A concurrent retry can win the primary-key insert after the initial
+    // lookup. PostgreSQL waits for that transaction at ON CONFLICT, so this
+    // statement observes the committed winner. Never return another
+    // producer's row even if they supplied the same client-generated UUID.
+    const [replayed] = await tx
+      .select()
+      .from(privateOffers)
+      .where(eq(privateOffers.id, input.offerId))
+      .limit(1);
+    if (!replayed) throw new PrivateOfferPersistenceError("INTEGRITY");
+    assertExactPrivateOfferReplay(replayed, {
+      producerId: input.producerId,
+      ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
+      recipient: input.recipient,
+      target: input.target,
+      snapshot,
+      expiresAt,
+    });
+    return { created: false as const, offer: replayed };
   });
 }
 
@@ -595,6 +690,7 @@ async function lockArtistOffer(
       offer: privateOffers,
       recipientName: clientContacts.name,
       recipientEmail: privateOffers.recipientEmail,
+      producerArchivedAt: clientContacts.producerArchivedAt,
     })
     .from(privateOffers)
     .innerJoin(
@@ -687,7 +783,10 @@ export async function acceptPrivateOffer(
 ) {
   if (!input.agreementAccepted) unavailable();
   const outcome = await db.transaction(async (tx) => {
-    const { offer, recipientName, recipientEmail } = await lockArtistOffer(tx, input);
+    const { offer, recipientName, recipientEmail, producerArchivedAt } = await lockArtistOffer(
+      tx,
+      input,
+    );
 
     if (offer.status === "accepted") {
       const [existing] = await tx
@@ -712,6 +811,11 @@ export async function acceptPrivateOffer(
         created: false,
       };
     }
+
+    // Producer archive retains offer history and an already-accepted replay,
+    // but it must not create new commercial work. The joined FOR UPDATE lock
+    // serializes this check with archiveClient's update of the same contact.
+    if (producerArchivedAt !== null) unavailable();
 
     if (isPrivateOfferExpired(offer.expiresAt, input.now) && offer.status === "sent") {
       await tx

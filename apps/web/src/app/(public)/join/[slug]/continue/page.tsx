@@ -7,7 +7,6 @@ import { AuthHero } from "~/components/auth/auth-hero";
 import { Button } from "~/components/ui/button";
 import {
   JOIN_INTENT_COOKIE,
-  type JoinContinuationAction,
   type JoinIntentAction,
   joinIntentSecret,
   verifyJoinIntentToken,
@@ -50,7 +49,8 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
   ) {
     notFound();
   }
-  const requestedAction: JoinContinuationAction = query.action;
+  const requestedAction: JoinIntentAction =
+    query.action === "store" ? "home" : query.action;
   if (!session.userId) redirect(joinSignInHref(slug, requestedAction));
 
   const dbUrl = process.env.DATABASE_URL;
@@ -67,11 +67,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
 
   const producerConfirmation = hasProducerProfile(memberships);
   const cookieStore = await cookies();
-  const trustedAction: JoinIntentAction | null =
-    requestedAction === "store" ? null : requestedAction;
+  const trustedAction = requestedAction;
   const trustedIntent =
     !producerConfirmation &&
-    trustedAction !== null &&
     verifyJoinIntentToken({
       token: cookieStore.get(JOIN_INTENT_COOKIE)?.value,
       expectedSlug: slug,
@@ -199,31 +197,29 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
           eyebrow={
             producerConfirmation
               ? "Artist mode"
-              : requestedAction === "store"
-                ? "Artist Store"
-                : "Booking"
+              : requestedAction === "book"
+                ? "Booking"
+                : requestedAction === "unlock"
+                  ? "Your music"
+                  : "Artist Home"
           }
           title={
             producerConfirmation
               ? `Join ${studioName} as an Artist?`
               : requestedAction === "book"
                 ? "Continue to booking"
-                : requestedAction === "store"
-                  ? "Continue to Artist Store"
-                  : requestedAction === "unlock"
-                    ? `Continue to ${studioName}`
-                    : "Continue to Artist Home"
+                : requestedAction === "unlock"
+                  ? `Continue to ${studioName}`
+                  : "Continue to Artist Home"
           }
           blurb={
             producerConfirmation
               ? "Your Producer workspace will stay exactly as it is. You can switch back anytime."
               : requestedAction === "book"
                 ? "Your original booking intent expired. Continue to reconnect and open booking."
-                : requestedAction === "store"
-                  ? `Continue to connect with ${studioName} and open this studio's Artist Store.`
-                  : requestedAction === "unlock"
-                    ? "Your unlock request expired. Continue to open this studio in your Artist workspace."
-                    : `Continue to connect with ${studioName} and open your Artist Home.`
+                : requestedAction === "unlock"
+                  ? "Your unlock request expired. Continue to open this studio in your Artist workspace."
+                  : `Continue to connect with ${studioName} and open your Artist Home.`
           }
           showAccentPeriod={!producerConfirmation}
         />
@@ -238,11 +234,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
                 ? "Continue as Artist"
                 : requestedAction === "book"
                   ? "Continue to booking"
-                  : requestedAction === "store"
-                    ? "Continue to Artist Store"
-                    : requestedAction === "unlock"
-                      ? "Continue to your studio"
-                      : "Continue to Artist Home"}
+                  : requestedAction === "unlock"
+                    ? "Continue to your studio"
+                    : "Continue to Artist Home"}
             </Button>
           </form>
           {producerConfirmation ? (

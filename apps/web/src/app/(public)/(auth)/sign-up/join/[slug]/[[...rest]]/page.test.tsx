@@ -94,6 +94,10 @@ describe("dedicated join signup route", () => {
     expect(mocks.signUp).toHaveBeenCalledWith(
       expect.objectContaining({
         path: "/sign-up/join/northline-studio",
+        signInUrl:
+          "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
+        fallbackRedirectUrl: "/join/northline-studio/continue?action=home",
+        forceRedirectUrl: "/join/northline-studio/continue?action=home",
         unsafeMetadata: {
           signupOrigin: "join",
           producerSlug: "northline-studio",
@@ -142,7 +146,17 @@ describe("dedicated join signup route", () => {
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
-  it("sends a new normal-invite Artist to Store only after Clerk signup completes", async () => {
+  it("sends an authenticated legacy invite through the validated Home continuation", async () => {
+    mocks.auth.mockResolvedValue({ userId: "existing-artist" });
+
+    await expect(page()).rejects.toThrow(
+      "__REDIRECT__:/join/northline-studio/continue?action=home",
+    );
+
+    expect(mocks.signUp).not.toHaveBeenCalled();
+  });
+
+  it("sends a new normal-invite Artist to Home after Clerk signup completes", async () => {
     const html = await render({ rest: ["home"] });
 
     expect(html).toContain("data-clerk-sign-up");
@@ -151,16 +165,36 @@ describe("dedicated join signup route", () => {
         path: "/sign-up/join/northline-studio/home",
         signInUrl:
           "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
-        fallbackRedirectUrl: "/join/northline-studio/continue?action=store",
-        forceRedirectUrl: "/join/northline-studio/continue?action=store",
+        fallbackRedirectUrl: "/join/northline-studio/continue?action=home",
+        forceRedirectUrl: "/join/northline-studio/continue?action=home",
+      }),
+    );
+  });
+
+  it("keeps an explicit Book entry on Book with a distinct route marker", async () => {
+    const html = await render({ rest: ["book"] });
+
+    expect(html).toContain("data-clerk-sign-up");
+    expect(mocks.signUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/sign-up/join/northline-studio/book",
+        signInUrl:
+          "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dbook",
+        fallbackRedirectUrl: "/join/northline-studio/continue?action=book",
+        forceRedirectUrl: "/join/northline-studio/continue?action=book",
       }),
     );
   });
 
   it.each([
     {
-      label: "Book",
+      label: "legacy Home",
       rest: undefined,
+      expected: "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
+    },
+    {
+      label: "Book",
+      rest: ["book"],
       expected: "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dbook",
     },
     {
@@ -194,7 +228,8 @@ describe("dedicated join signup route", () => {
   });
 
   it.each([
-    ["Book", ["verify-email-address"]],
+    ["Legacy Home", ["verify-email-address"]],
+    ["Book", ["book", "verify-email-address"]],
     ["Unlock", ["unlock", "verify-email-address"]],
     ["Home", ["home", "verify-email-address"]],
   ])("does not interrupt Clerk's nested %s route", async (_label, rest) => {

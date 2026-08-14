@@ -26,14 +26,40 @@ const appShellSource = readFileSync(
   fileURLToPath(new URL("../../shell/app-shell.tsx", import.meta.url)),
   "utf8",
 );
+const nativeViewportSource = readFileSync(
+  fileURLToPath(new URL("../native-viewport.tsx", import.meta.url)),
+  "utf8",
+);
 const tailwindRequire = createRequire(
   createRequire(import.meta.url).resolve("@tailwindcss/postcss"),
 );
-const postcss = tailwindRequire("postcss") as (plugins: unknown[]) => {
-  process: (
-    css: string,
-    options: { from: string },
-  ) => Promise<{ css: string }>;
+interface ParsedCssNode {
+  type: string;
+  name?: string;
+  params?: string;
+  parent?: ParsedCssNode;
+}
+
+interface ParsedCssDeclaration extends ParsedCssNode {
+  prop?: string;
+  value?: string;
+}
+
+interface ParsedCssRule extends ParsedCssNode {
+  selector: string;
+  nodes?: ParsedCssDeclaration[];
+}
+
+const postcss = tailwindRequire("postcss") as {
+  (plugins: unknown[]): {
+    process: (
+      css: string,
+      options: { from: string },
+    ) => Promise<{ css: string }>;
+  };
+  parse: (css: string) => {
+    walkRules: (callback: (rule: ParsedCssRule) => void) => void;
+  };
 };
 
 describe("native viewport metrics", () => {
@@ -48,6 +74,19 @@ describe("native viewport metrics", () => {
       height: 520,
       offsetTop: 0,
       keyboardInset: 324,
+      keyboardOpen: true,
+    });
+
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 844,
+        viewportHeight: 520,
+        viewportOffsetTop: 59,
+      }),
+    ).toEqual({
+      height: 520,
+      offsetTop: 59,
+      keyboardInset: 265,
       keyboardOpen: true,
     });
   });
@@ -155,25 +194,55 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain(".sk-native-action-dock");
   });
 
-  it("anchors standalone producer chrome to the measured visual viewport", async () => {
+  it("keeps the producer footer inside the paintable installed-iPhone viewport", async () => {
     expect(appShellSource).toContain("sk-producer-app-shell");
 
     const productionCss = await postcss([
       tailwindPostcss({ base: webRoot, optimize: true }),
     ]).process(globalsCss, { from: productionCssPath });
-    const standaloneShellRule = productionCss.css.match(
-      /\.sk-producer-app-shell\{([^}]*)\}/,
+    const producerShellRules: ParsedCssRule[] = [];
+    postcss.parse(productionCss.css).walkRules((rule) => {
+      if (
+        rule.selector
+          .split(",")
+          .map((selector) => selector.trim())
+          .includes(".sk-producer-app-shell")
+      ) {
+        producerShellRules.push(rule);
+      }
+    });
+    const standaloneShellRule = producerShellRules[0];
+    const shellDeclarations = Object.fromEntries(
+      (standaloneShellRule?.nodes ?? [])
+        .filter(
+          (
+            node,
+          ): node is ParsedCssDeclaration & { prop: string; value: string } =>
+            node.type === "decl" &&
+            typeof node.prop === "string" &&
+            typeof node.value === "string",
+        )
+        .map((node) => [node.prop, node.value]),
+    );
+    const keyboardShellRule = productionCss.css.match(
+      /body\[data-sk-keyboard=open\] \.sk-producer-app-shell\{([^}]*)\}/,
     )?.[1];
 
-    expect(productionCss.css).toContain("display-mode:standalone");
+    expect(producerShellRules).toHaveLength(1);
     expect(standaloneShellRule).toBeDefined();
-    expect(standaloneShellRule).toContain(
-      "height:var(--sk-viewport-height,100dvh)",
-    );
-    expect(standaloneShellRule).toContain(
-      "max-height:var(--sk-viewport-height,100dvh)",
-    );
-    expect(standaloneShellRule).not.toContain("height:100vh");
+    expect(standaloneShellRule?.parent).toMatchObject({
+      type: "atrule",
+      name: "media",
+      params: "(display-mode:standalone) and (max-width:1023px)",
+    });
+    expect(shellDeclarations).toMatchObject({
+      inset: "0 0 auto",
+      height: "var(--sk-viewport-height,100dvh)",
+      "max-height": "var(--sk-viewport-height,100dvh)",
+    });
+    expect(Object.values(shellDeclarations).join(" ")).not.toContain("100vh");
+    expect(keyboardShellRule).toBeUndefined();
+    expect(nativeViewportSource).not.toContain("--sk-viewport-bottom");
     expect(productionCss.css).toContain(
       ".sk-producer-app-shell .persistent-player-dock",
     );
@@ -181,6 +250,21 @@ describe("native CSS contracts", () => {
       ".sk-producer-app-shell .mobile-full-player-sheet",
     );
     expect(productionCss.css).toContain("position:absolute");
+
+    // Current iOS standalone can expose a 402 x 874 physical screen while
+    // only 812 CSS pixels are paintable. The shell must end at 812 rather
+    // than selecting classic 100vh (874) and clipping the 68px nav row.
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 812,
+        viewportHeight: 812,
+        viewportOffsetTop: 0,
+      }),
+    ).toMatchObject({
+      height: 812,
+      offsetTop: 0,
+      keyboardOpen: false,
+    });
   });
 
   it("gates directional flow and progress motion for reduced-motion users", () => {
@@ -192,6 +276,28 @@ describe("native CSS contracts", () => {
 
     expect(reduceBlocks).toContain(".sk-native-flow-motion");
     expect(reduceBlocks).toContain(".sk-native-spinner");
+  });
+
+  it("animates the PWA startup mark with CSS and keeps reduced motion still", () => {
+    const motionBlocks = [
+      ...globalsCss.matchAll(
+        /@media \(prefers-reduced-motion: no-preference\) \{([\s\S]*?)\n {2}\}/g,
+      ),
+    ]
+      .map((match) => match[1] ?? "")
+      .join("\n");
+    const reduceBlocks = [
+      ...globalsCss.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n {2}\}/g),
+    ]
+      .map((match) => match[1] ?? "")
+      .join("\n");
+
+    expect(globalsCss).toContain("@keyframes skitza-pwa-startup-float");
+    expect(globalsCss).toContain("@keyframes skitza-pwa-startup-pulse");
+    expect(motionBlocks).toContain(".sk-pwa-startup__mark");
+    expect(motionBlocks).toContain("animation: skitza-pwa-startup-float");
+    expect(reduceBlocks).toContain(".sk-pwa-startup__mark");
+    expect(reduceBlocks).toContain("animation: none");
   });
 
   it("provides immediate coarse-pointer feedback and comfortable targets", () => {

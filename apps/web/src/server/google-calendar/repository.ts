@@ -70,11 +70,27 @@ export type GoogleCalendarInitialSyncEnqueueResult = Readonly<{
   jobIds: readonly string[];
 }>;
 
+export type GoogleCalendarConnectionSyncIssue = Readonly<{
+  bookingId: string;
+  syncState: "not_synced" | "missing" | "conflict";
+  bookingStatus:
+    | "pending_approval"
+    | "confirmed"
+    | "rejected"
+    | "cancelled"
+    | "completed"
+    | "no_show";
+  artistName: string;
+  startsAt: Date;
+  durationMin: number;
+}>;
+
 export type GoogleCalendarConnectionSyncSummary = Readonly<{
   syncing: number;
   notSynced: number;
   missing: number;
   conflicts: number;
+  issues: readonly GoogleCalendarConnectionSyncIssue[];
 }>;
 
 export type GoogleCalendarStoredWatchRecord = Readonly<{
@@ -114,6 +130,13 @@ export interface GoogleCalendarRepository {
   getConnection(producerId: string): Promise<GoogleCalendarConnectionRecord | null>;
 
   createOAuthState(state: Omit<GoogleCalendarStoredOAuthState, "consumedAt">): Promise<void>;
+
+  getOAuthState(
+    input: Readonly<{
+      tokenDigest: string;
+      now: Date;
+    }>,
+  ): Promise<GoogleCalendarStoredOAuthState | null>;
 
   consumeOAuthState(
     input: Readonly<{

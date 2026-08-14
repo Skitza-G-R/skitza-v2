@@ -27,19 +27,22 @@ type Props = {
 
 export default async function JoinSignUpPage({ params, searchParams }: Props) {
   const [{ slug, rest }, query] = await Promise.all([params, searchParams]);
-  const action =
-    rest?.[0] === "unlock"
-      ? "unlock"
-      : rest?.[0] === "home"
-        ? "home"
-        : "book";
-  const clerkRouteSegments = action === "book" ? rest : rest?.slice(1);
+  const explicitAction =
+    rest?.[0] === "book"
+      ? "book"
+      : rest?.[0] === "unlock"
+        ? "unlock"
+        : rest?.[0] === "home"
+          ? "home"
+          : null;
+  // Before Home had its own route marker, normal client invitations used the
+  // bare dedicated signup URL. Keep those already-issued links useful by
+  // treating the unmarked route as Home. Public Book now carries /book.
+  const action = explicitAction ?? "home";
+  const clerkRouteSegments = explicitAction ? rest?.slice(1) : rest;
   const continuationHref = joinContinuationHref(slug, action);
-  const postSignUpContinuationHref = joinContinuationHref(
-    slug,
-    action === "home" ? "store" : action,
-  );
-  if (continuationHref === "/" || postSignUpContinuationHref === "/") notFound();
+  const postSignUpContinuationHref = continuationHref;
+  if (continuationHref === "/") notFound();
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -64,7 +67,13 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
   }
 
   const signUpPath = `/sign-up/join/${slug}${
-    action === "unlock" ? "/unlock" : action === "home" ? "/home" : ""
+    explicitAction === "book"
+      ? "/book"
+      : explicitAction === "unlock"
+        ? "/unlock"
+        : explicitAction === "home"
+          ? "/home"
+          : ""
   }`;
   const signInHref = joinSignInHref(slug, action);
 

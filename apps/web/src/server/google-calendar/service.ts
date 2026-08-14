@@ -12,6 +12,7 @@ import {
   createGoogleCalendarOAuthState,
   deriveGoogleCalendarPkce,
   digestGoogleCalendarOAuthStateToken,
+  isGoogleCalendarOAuthBrowserBinding,
   verifyGoogleCalendarOAuthState,
   type GoogleCalendarOAuthIntent,
 } from "./oauth";
@@ -768,6 +769,7 @@ export function createGoogleCalendarService(
       options: Readonly<{
         producerId: string;
         intent: GoogleCalendarOAuthIntent;
+        browserBinding: string;
         switchConfirmed?: boolean;
       }>,
     ): Promise<GoogleCalendarOAuthStart> {
@@ -807,6 +809,7 @@ export function createGoogleCalendarService(
         intent: normalizedIntent,
         connectionId,
         expectedAccountVersion,
+        browserBinding: options.browserBinding,
         stateSecret: input.config.stateSecret,
         now: issuedAt,
       });
@@ -827,8 +830,9 @@ export function createGoogleCalendarService(
 
     async completeOAuth(
       options: Readonly<{
-        producerId: string;
+        producerId?: string;
         stateToken: string;
+        browserBinding: string;
         code?: string;
         providerError?: string;
       }>,
@@ -836,6 +840,7 @@ export function createGoogleCalendarService(
       if (
         !options.stateToken ||
         options.stateToken.length > 1_024 ||
+        !isGoogleCalendarOAuthBrowserBinding(options.browserBinding) ||
         (options.code !== undefined &&
           (!options.code || Buffer.byteLength(options.code, "utf8") > 4_096)) ||
         (options.providerError !== undefined &&
@@ -844,23 +849,33 @@ export function createGoogleCalendarService(
         throw new GoogleCalendarServiceError("state_invalid");
       }
       const consumedAt = now();
-      const state = await input.repository.consumeOAuthState({
-        producerId: options.producerId,
-        tokenDigest: digestGoogleCalendarOAuthStateToken(options.stateToken),
-        consumedAt,
-      });
-      if (!state) throw new GoogleCalendarServiceError("state_invalid");
+      const tokenDigest = digestGoogleCalendarOAuthStateToken(options.stateToken);
+      const pendingState = await input.repository.getOAuthState({ tokenDigest, now: consumedAt });
+      if (
+        !pendingState ||
+        (options.producerId !== undefined && options.producerId !== pendingState.producerId)
+      ) {
+        throw new GoogleCalendarServiceError("state_invalid");
+      }
       try {
         verifyGoogleCalendarOAuthState({
           token: options.stateToken,
-          tokenDigest: state.tokenDigest,
-          binding: state,
+          tokenDigest: pendingState.tokenDigest,
+          binding: pendingState,
+          browserBinding: options.browserBinding,
           stateSecret: input.config.stateSecret,
           now: consumedAt,
         });
       } catch {
         throw new GoogleCalendarServiceError("state_invalid");
       }
+      const state = await input.repository.consumeOAuthState({
+        producerId: pendingState.producerId,
+        tokenDigest,
+        consumedAt,
+      });
+      if (!state) throw new GoogleCalendarServiceError("state_invalid");
+      const producerId = state.producerId;
       if (options.providerError) {
         throw new GoogleCalendarServiceError(
           options.providerError === "access_denied"
@@ -871,7 +886,7 @@ export function createGoogleCalendarService(
       if (!options.code) throw new GoogleCalendarServiceError("authorization_failed");
       const { codeVerifier } = deriveGoogleCalendarPkce(
         options.stateToken,
-        options.producerId,
+        producerId,
         input.config.stateSecret,
       );
       let authorization: Awaited<ReturnType<GoogleCalendarProvider["exchangeAuthorizationCode"]>>;
@@ -884,7 +899,7 @@ export function createGoogleCalendarService(
         throw mapProviderFailure(error);
       }
 
-      const current = await input.repository.getConnection(options.producerId);
+      const current = await input.repository.getConnection(producerId);
       const disconnectedStateIsCurrent =
         current?.status !== "disconnected" ||
         (current.disconnectedAt !== null &&
@@ -925,7 +940,7 @@ export function createGoogleCalendarService(
           ? current.accountVersion + 1
           : (current?.accountVersion ?? 1);
       const targetIdentity = {
-        producerId: options.producerId,
+        producerId,
         id: targetConnectionId,
         googleSubject: authorization.identity.googleSubject,
         accountVersion: targetAccountVersion,
@@ -971,7 +986,7 @@ export function createGoogleCalendarService(
           )
         : null;
       const committed = await input.repository.commitAuthorization({
-        producerId: options.producerId,
+        producerId,
         intent: state.intent,
         expectedConnectionId: state.connectionId,
         expectedAccountVersion: state.expectedAccountVersion,
@@ -1001,7 +1016,7 @@ export function createGoogleCalendarService(
       }
       const candidates = await storeCandidates(committed.connection, authorizedCalendars);
       const finalConnection =
-        (await input.repository.getConnection(options.producerId)) ?? committed.connection;
+        (await input.repository.getConnection(producerId)) ?? committed.connection;
       return {
         connectionId: committed.connection.id,
         accountEmail: committed.connection.googleAccountEmail,

@@ -35,8 +35,8 @@ const SETTINGS = readFileSync(
   "utf8",
 );
 
-describe("SK-117 mobile bottom-navigation sizing", () => {
-  it("preserves the larger shared icon, label, and tap-target sizes", () => {
+describe("SK-235 restored mobile bottom-navigation sizing", () => {
+  it("restores the original shared icon, label, and tap-target sizes", () => {
     expect(SHARED_NAV).toContain("gap-1");
     expect(SHARED_NAV).toContain("py-2.5");
     expect(SHARED_NAV).toContain("minHeight: 68");
@@ -73,6 +73,7 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
     );
     expect(GLOBALS).toContain("--sk-nav-lens-width: calc(var(--sk-nav-column-width) - 2px);");
     expect(SHARED_NAV.match(/minHeight:\s*68/g)).toHaveLength(2);
+    expect(GLOBALS).not.toContain("transform: scaleY(calc(68 / 60));");
   });
 
   it("keeps artist content above the in-flow nav without changing desktop spacing", () => {

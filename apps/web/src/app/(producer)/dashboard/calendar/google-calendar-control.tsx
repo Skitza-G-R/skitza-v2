@@ -38,6 +38,7 @@ type PendingAction = keyof GoogleCalendarControlActions;
 export type GoogleCalendarControlProps = Readonly<{
   model: GoogleCalendarUiModel;
   actions: GoogleCalendarControlActions;
+  timeZone?: string;
   open?: boolean;
   defaultOpen?: boolean;
   defaultView?: GoogleCalendarControlView;
@@ -47,6 +48,7 @@ export type GoogleCalendarControlProps = Readonly<{
 export function GoogleCalendarControl({
   model,
   actions,
+  timeZone = "UTC",
   open,
   defaultOpen,
   defaultView,
@@ -176,6 +178,10 @@ export function GoogleCalendarControl({
     });
   }
 
+  async function repairSync() {
+    await runAction("repairSync", actions.repairSync);
+  }
+
   const pendingMessage = pendingAction ? actionPendingCopy(pendingAction) : null;
 
   return (
@@ -270,6 +276,7 @@ export function GoogleCalendarControl({
             pendingAction={pendingAction}
             feedback={feedback}
             pendingMessage={pendingMessage}
+            timeZone={timeZone}
             onConnect={() => void connect()}
             onReconnect={() => void reconnect()}
             onEdit={() => {
@@ -284,6 +291,7 @@ export function GoogleCalendarControl({
               setFeedback(null);
               setView("disconnect_confirmation");
             }}
+            onRepair={() => void repairSync()}
           />
         )}
       </DialogContent>
@@ -296,21 +304,25 @@ function SummaryPanel({
   pendingAction,
   feedback,
   pendingMessage,
+  timeZone,
   onConnect,
   onReconnect,
   onEdit,
   onSwitch,
   onDisconnect,
+  onRepair,
 }: {
   model: GoogleCalendarUiModel;
   pendingAction: PendingAction | null;
   feedback: string | null;
   pendingMessage: string | null;
+  timeZone: string;
   onConnect: () => void;
   onReconnect: () => void;
   onEdit: () => void;
   onSwitch: () => void;
   onDisconnect: () => void;
+  onRepair: () => void;
 }) {
   if (model.status === "not_connected" || model.status === "connecting") {
     const connecting = model.status === "connecting" || pendingAction === "connect";
@@ -452,50 +464,44 @@ function SummaryPanel({
           description="Skitza sessions and Google Calendar are connected."
           badge={{ label: "Connected", tone: "success" }}
         />
-        <div className="space-y-4 px-5 py-4 sm:px-6">
+        <div className="space-y-5 px-5 py-4 sm:px-6">
           <AccountStrip label="Connected account" value={model.accountLabel} />
-          <SyncHealthSummary summary={model.syncSummary} />
-          <RoutingSummary
-            title="Events go to"
-            calendars={destination ? [destination] : []}
-            emptyCopy="Choose an editable destination calendar."
+          <SyncHealthSummary
+            summary={model.syncSummary}
+            timeZone={timeZone}
+            onRepair={onRepair}
+            repairPending={pendingAction === "repairSync"}
           />
-          <RoutingSummary
-            title="Busy time comes from"
-            calendars={busyCalendars}
-            emptyCopy="Choose at least one busy-time calendar."
-          />
+          <CalendarRoutingSummary destination={destination} busyCalendars={busyCalendars} />
         </div>
-        <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
-          <Button
-            type="button"
-            variant="destructive"
-            size="lg"
-            className="rounded-[var(--radius-lg)]"
-            disabled={pendingAction !== null}
-            onClick={onDisconnect}
-          >
-            Disconnect
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="lg"
-            className="rounded-[var(--radius-lg)]"
-            disabled={pendingAction !== null}
-            onClick={onSwitch}
-          >
-            Switch account
-          </Button>
-          <Button
-            type="button"
-            size="lg"
-            className="rounded-[var(--radius-lg)]"
-            disabled={pendingAction !== null}
-            onClick={onEdit}
-          >
-            Edit calendars
-          </Button>
+        <PanelFooter feedback={feedback} pendingMessage={pendingMessage} mobileStatic>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-row-reverse sm:items-center">
+            <Button
+              type="button"
+              className="col-span-2"
+              disabled={pendingAction !== null}
+              onClick={onEdit}
+            >
+              Edit calendars
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pendingAction !== null}
+              onClick={onSwitch}
+            >
+              Switch account
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
+              disabled={pendingAction !== null}
+              onClick={onDisconnect}
+            >
+              Disconnect
+            </Button>
+          </div>
         </PanelFooter>
       </>
     );
@@ -965,15 +971,15 @@ function PanelHeader({
   return (
     <DialogHeader className="border-b border-[rgb(var(--border-subtle))] px-5 pt-5 pb-4 sm:px-6 sm:pt-6">
       <div className="flex items-start gap-3 pr-9">
-        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-text))] [&>svg]:h-[18px] [&>svg]:w-[18px]">
+        <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-text))] sm:inline-flex [&>svg]:h-[18px] [&>svg]:w-[18px]">
           {icon ?? <CalendarSync aria-hidden />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="font-mono text-[9.5px] font-bold tracking-[0.15em] text-[rgb(var(--brand-primary-text))] uppercase">
             {eyebrow}
           </span>
-          <span className="mt-1 flex flex-wrap items-center gap-2">
-            <DialogTitle className="text-[20px] font-extrabold tracking-[-0.025em]">
+          <span className="mt-1 flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <DialogTitle className="text-[18px] font-extrabold tracking-[-0.025em] sm:text-[20px]">
               {title}
             </DialogTitle>
             {badge ? <StatusBadge {...badge} /> : null}
@@ -991,24 +997,34 @@ function PanelFooter({
   feedback,
   pendingMessage,
   children,
+  mobileStatic = false,
 }: {
   feedback: string | null;
   pendingMessage: string | null;
   children: React.ReactNode;
+  mobileStatic?: boolean;
 }) {
+  const status = feedback ?? pendingMessage;
   return (
-    <div className="sticky bottom-0 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.96)] px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))] backdrop-blur-xl sm:px-6 sm:pb-5">
-      <p
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className={[
-          "mb-2 min-h-[18px] text-[11.5px] leading-relaxed",
-          feedback ? "text-[rgb(var(--fg-danger-text))]" : "text-[rgb(var(--fg-muted))]",
-        ].join(" ")}
-      >
-        {feedback ?? pendingMessage ?? ""}
-      </p>
+    <div
+      className={[
+        "border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.96)] px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))] backdrop-blur-xl sm:sticky sm:bottom-0 sm:px-6 sm:pb-5",
+        mobileStatic ? "" : "sticky bottom-0",
+      ].join(" ")}
+    >
+      {status ? (
+        <p
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={[
+            "mb-2 text-[11.5px] leading-relaxed",
+            feedback ? "text-[rgb(var(--fg-danger-text))]" : "text-[rgb(var(--fg-muted))]",
+          ].join(" ")}
+        >
+          {status}
+        </p>
+      ) : null}
       <DialogFooter>{children}</DialogFooter>
     </div>
   );
@@ -1031,11 +1047,9 @@ function PrivacyNote() {
 
 function AccountStrip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <span className="font-mono text-[9.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-        {label}
-      </span>
-      <span className="min-w-0 text-[12.5px] font-bold break-all text-[rgb(var(--fg-default))]">
+    <div className="flex min-w-0 flex-col gap-1.5 border-b border-[rgb(var(--border-subtle))] pb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <span className="text-[11px] font-semibold text-[rgb(var(--fg-muted))]">{label}</span>
+      <span className="min-w-0 text-[13px] font-bold break-all text-[rgb(var(--fg-default))]">
         {value}
       </span>
     </div>
@@ -1055,51 +1069,69 @@ function AccountCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RoutingSummary({
-  title,
+function CalendarRoutingSummary({
+  destination,
+  busyCalendars,
+}: {
+  destination: GoogleCalendarOption | null;
+  busyCalendars: readonly GoogleCalendarOption[];
+}) {
+  return (
+    <section aria-label="Calendar setup">
+      <h3 className="font-display text-[14px] font-bold tracking-tight text-[rgb(var(--fg-default))]">
+        Calendar setup
+      </h3>
+      <dl className="mt-2 divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))]">
+        <CalendarRouteRow
+          label="Events go to"
+          calendars={destination ? [destination] : []}
+          emptyCopy="Choose a destination calendar"
+        />
+        <CalendarRouteRow
+          label="Busy time comes from"
+          calendars={busyCalendars}
+          emptyCopy="Choose a busy-time calendar"
+        />
+      </dl>
+    </section>
+  );
+}
+
+function CalendarRouteRow({
+  label,
   calendars,
   emptyCopy,
 }: {
-  title: string;
+  label: string;
   calendars: readonly GoogleCalendarOption[];
   emptyCopy: string;
 }) {
   return (
-    <section aria-label={title} className="border-l-2 border-[rgb(var(--brand-primary)/0.4)] pl-3">
-      <h3 className="font-display text-[14px] font-bold tracking-tight text-[rgb(var(--fg-default))]">
-        {title}
-      </h3>
-      {calendars.length === 0 ? (
-        <p className="mt-2 text-[12px] text-[rgb(var(--fg-warning-text))]">{emptyCopy}</p>
-      ) : (
-        <ul className="mt-2 space-y-2">
-          {calendars.map((calendar) => (
-            <li
-              key={calendar.selectionKey}
-              className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2.5"
-            >
-              <p className="text-[13px] font-bold break-words text-[rgb(var(--fg-default))]">
-                {calendar.name}
-              </p>
-              <p className="mt-1 flex flex-wrap gap-x-2 font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                <span>{calendar.timeZone}</span>
-                <span aria-hidden>·</span>
-                <span>{googleCalendarAccessRoleLabel(calendar.accessRole)}</span>
-              </p>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <div className="grid gap-1.5 px-3.5 py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-start sm:gap-4">
+      <dt className="text-[11.5px] font-medium text-[rgb(var(--fg-muted))]">{label}</dt>
+      <dd className="min-w-0 text-[12.5px] font-bold break-words text-[rgb(var(--fg-default))] sm:text-right">
+        {calendars.length > 0 ? (
+          calendars.map((calendar) => calendar.name).join(", ")
+        ) : (
+          <span className="font-medium text-[rgb(var(--fg-warning-text))]">{emptyCopy}</span>
+        )}
+      </dd>
+    </div>
   );
 }
 
 function SyncHealthSummary({
   summary,
   disconnected = false,
+  timeZone = "UTC",
+  onRepair,
+  repairPending = false,
 }: {
   summary: GoogleCalendarSyncSummary;
   disconnected?: boolean;
+  timeZone?: string;
+  onRepair?: () => void;
+  repairPending?: boolean;
 }) {
   const attention = summary.notSynced + summary.missing + summary.conflicts;
   const title = disconnected
@@ -1109,37 +1141,127 @@ function SyncHealthSummary({
       : summary.syncing > 0
         ? `${String(summary.syncing)} ${summary.syncing === 1 ? "session is" : "sessions are"} syncing`
         : "Calendar sync is up to date";
-  const items = [
-    summary.syncing > 0 ? `${String(summary.syncing)} syncing` : null,
-    summary.notSynced > 0 ? `${String(summary.notSynced)} not synced` : null,
-    summary.missing > 0 ? `${String(summary.missing)} missing` : null,
-    summary.conflicts > 0
-      ? `${String(summary.conflicts)} conflict${summary.conflicts === 1 ? "" : "s"}`
-      : null,
-  ].filter((item): item is string => item !== null);
+  const description = disconnected
+    ? "Reconnect Google to continue syncing. Your Skitza sessions are safe."
+    : attention > 0
+      ? "Skitza keeps trying automatically. Your session times are safe."
+      : summary.syncing > 0
+        ? "Skitza is sending the latest session changes to Google."
+        : "All linked sessions match Google Calendar.";
+  const statusIcon = disconnected || attention > 0 ? <CircleAlert /> : <Check />;
 
   return (
     <section
       aria-label="Google Calendar sync status"
       className={[
-        "rounded-[var(--radius-md)] border px-3.5 py-3",
+        "overflow-hidden rounded-[var(--radius-lg)] border",
         disconnected || attention > 0
-          ? "border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.08)]"
-          : "border-[rgb(var(--fg-success)/0.25)] bg-[rgb(var(--fg-success)/0.07)]",
+          ? "border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.06)]"
+          : "border-[rgb(var(--fg-success)/0.25)] bg-[rgb(var(--fg-success)/0.06)]",
       ].join(" ")}
     >
-      <p className="text-[12.5px] font-bold text-[rgb(var(--fg-default))]">{title}</p>
-      {items.length > 0 ? (
-        <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">{items.join(" · ")}</p>
-      ) : (
-        <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
-          {disconnected
-            ? "Reconnect Google to continue syncing sessions."
-            : "Linked sessions match Google Calendar."}
-        </p>
-      )}
+      <div className="flex items-start gap-3 px-3.5 py-3.5">
+        <span
+          className={[
+            "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full [&>svg]:h-[15px] [&>svg]:w-[15px]",
+            disconnected || attention > 0
+              ? "bg-[rgb(var(--fg-warning)/0.14)] text-[rgb(var(--fg-warning-text))]"
+              : "bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success-text))]",
+          ].join(" ")}
+          aria-hidden
+        >
+          {statusIcon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <p className="text-[13px] font-bold text-[rgb(var(--fg-default))]">{title}</p>
+            {summary.syncing > 0 ? (
+              <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-elevated)/0.75)] px-2 py-1 text-[10px] font-semibold text-[rgb(var(--fg-muted))]">
+                {summary.syncing} syncing
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            {description}
+          </p>
+        </div>
+      </div>
+      {summary.issues.length > 0 ? (
+        <ul className="divide-y divide-[rgb(var(--border-subtle))] border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.78)]">
+          {summary.issues.map((issue) => (
+            <li
+              key={issue.bookingId}
+              className="grid gap-1.5 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(170px,0.8fr)] sm:gap-5"
+            >
+              <div className="min-w-0">
+                <p className="text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                  {issue.artistName}
+                </p>
+                <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                  {formatSyncIssueTime(issue.startsAtIso, issue.durationMin, timeZone)}
+                </p>
+              </div>
+              <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-warning-text))] sm:text-right">
+                {syncIssueCopy(issue)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!disconnected && attention > 0 && onRepair ? (
+        <div className="flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-[rgb(var(--fg-muted))]">You can also retry now.</p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="rounded-[var(--radius-sm)]"
+            disabled={repairPending}
+            onClick={onRepair}
+          >
+            {repairPending ? (
+              <Loader2 className="animate-spin motion-reduce:animate-none" size={14} aria-hidden />
+            ) : null}
+            {repairPending ? "Trying sync again…" : "Try sync again"}
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function formatSyncIssueTime(startsAtIso: string, durationMin: number, timeZone: string): string {
+  const startsAt = new Date(startsAtIso);
+  const endsAt = new Date(startsAt.getTime() + durationMin * 60_000);
+  const format = (zone: string) => {
+    const day = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    const time = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return `${day.format(startsAt)} · ${time.format(startsAt)}–${time.format(endsAt)}`;
+  };
+  try {
+    return format(timeZone);
+  } catch {
+    return format("UTC");
+  }
+}
+
+function syncIssueCopy(issue: GoogleCalendarSyncSummary["issues"][number]): string {
+  if (issue.bookingStatus === "cancelled") return "Cancelled session cleanup is waiting.";
+  if (issue.syncState === "missing") return "Google event is missing.";
+  if (issue.syncState === "conflict") {
+    return "Google change could not be used. Skitza time was kept.";
+  }
+  return "Could not sync this session to Google.";
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: "success" | "warning" | "danger" }) {
@@ -1274,6 +1396,8 @@ function actionPendingCopy(action: PendingAction): string {
       return "Opening Google to choose an account…";
     case "disconnect":
       return "Disconnecting Google Calendar…";
+    case "repairSync":
+      return "Trying calendar sync again…";
   }
 }
 
@@ -1301,5 +1425,7 @@ function actionFailureCopy(
       return "Could not update the Google account. Try again.";
     case "disconnect":
       return "Could not disconnect Google Calendar. Try again.";
+    case "repairSync":
+      return "Could not retry calendar sync. Try again.";
   }
 }

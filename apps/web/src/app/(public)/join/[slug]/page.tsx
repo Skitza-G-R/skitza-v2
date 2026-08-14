@@ -16,8 +16,9 @@ import { countPublicPortfolioTracks } from "~/server/portfolio/public-portfolio"
 // compact samples rail. On mobile the portrait drops and the rail
 // collapses to one expanded waveform + N compact rows.
 //
-// Booking is still gated on signup (Layer 1, 2026-05-06): every CTA
-// links to /sign-up/join/<slug>. No inline booking modal.
+// Booking is still gated on signup (Layer 1, 2026-05-06): public Book
+// carries an explicit /book marker so legacy unmarked client invites can
+// continue to mean Home. No inline booking modal.
 //
 // English-only, LTR-only per CLAUDE.md i18n scope — public route.
 

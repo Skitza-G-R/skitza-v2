@@ -34,7 +34,7 @@ type Harness = Readonly<{
 }>;
 
 const OWN_ORIGIN = "https://skitza.app";
-const SW_VERSION = "2026-07-27-sk128-1";
+const SW_VERSION = "2026-08-13-sk237-1";
 const BOUNDARY_NONCE = "11111111-2222-4333-8444-555555555555";
 const OTHER_BOUNDARY_NONCE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const BOUNDARY_NONCE_HEADER = "x-skitza-push-boundary-nonce";
@@ -60,7 +60,7 @@ function nextPortMessage(port: MessagePort): Promise<unknown> {
 function createHarness(
   clientSafety: readonly boolean[] = [true],
   pushSuppressed = false,
-  clientPath = "/dashboard",
+  clientPath: string | readonly string[] = "/dashboard",
 ): Harness {
   const listeners = new Map<string, ServiceWorkerListener[]>();
   const offlineResponse = new Response("<h1>Offline</h1>", {
@@ -105,9 +105,13 @@ function createHarness(
   const navigate = vi.fn();
   const focus = vi.fn(() => Promise.resolve(undefined));
   const clientMessages: unknown[] = [];
-  const clients = clientSafety.map((safe) => {
+  const clients = clientSafety.map((safe, index) => {
+    const path =
+      typeof clientPath === "string"
+        ? clientPath
+        : (clientPath[index] ?? "/dashboard");
     const client = {
-      url: `${OWN_ORIGIN}${clientPath}`,
+      url: path.startsWith("/") ? `${OWN_ORIGIN}${path}` : path,
       postMessage: (message: unknown, transfer: readonly MessagePort[]) => {
         clientMessages.push(message);
         const reply = transfer[0];
@@ -255,6 +259,69 @@ describe("service worker offline and update protocol", () => {
     expect(harness.deleteCache).toHaveBeenCalledWith("skitza-shell-v3");
     expect(harness.deleteCache).not.toHaveBeenCalledWith("skitza-push-control-v1");
     expect(harness.deleteCache).not.toHaveBeenCalledWith("unrelated-cache");
+  });
+
+  it("takes over after the version reply when every open window is the exact public launch", async () => {
+    const harness = createHarness(
+      [false, false],
+      false,
+      ["/launch", "/launch"],
+    );
+    const channel = new MessageChannel();
+    const result = nextPortMessage(channel.port1);
+    let versionWork: Promise<unknown> | undefined;
+
+    harness.listener("message")({
+      data: { type: "SKITZA_GET_VERSION" },
+      ports: [channel.port2],
+      waitUntil(work: Promise<unknown>) {
+        versionWork = work;
+      },
+    });
+    await expect(result).resolves.toMatchObject({
+      type: "SKITZA_VERSION",
+      version: SW_VERSION,
+    });
+    await versionWork;
+
+    expect(harness.skipWaiting).toHaveBeenCalledOnce();
+    expect(harness.clientMessages).toEqual([]);
+    channel.port1.close();
+    channel.port2.close();
+  });
+
+  it.each([
+    { name: "a protected dashboard", paths: ["/dashboard"] },
+    { name: "mixed launch and dashboard windows", paths: ["/launch", "/dashboard"] },
+    { name: "a query-bearing launch URL", paths: ["/launch?next=%2Fdashboard"] },
+    { name: "no open windows", paths: [] },
+    { name: "a malformed client URL", paths: ["not a valid URL"] },
+  ])("does not take over after the version reply for $name", async ({ paths }) => {
+    const harness = createHarness(
+      paths.map(() => false),
+      false,
+      paths,
+    );
+    const channel = new MessageChannel();
+    const result = nextPortMessage(channel.port1);
+    let versionWork: Promise<unknown> | undefined;
+
+    harness.listener("message")({
+      data: { type: "SKITZA_GET_VERSION" },
+      ports: [channel.port2],
+      waitUntil(work: Promise<unknown>) {
+        versionWork = work;
+      },
+    });
+    await expect(result).resolves.toMatchObject({
+      type: "SKITZA_VERSION",
+      version: SW_VERSION,
+    });
+    await versionWork;
+
+    expect(harness.skipWaiting).not.toHaveBeenCalled();
+    channel.port1.close();
+    channel.port2.close();
   });
 
   it("caches validated public launch HTML before extracting only hashed Next static assets", async () => {
@@ -504,13 +571,18 @@ describe("service worker offline and update protocol", () => {
     const message = harness.listener("message");
     const versionChannel = new MessageChannel();
     const versionResult = nextPortMessage(versionChannel.port1);
+    let versionWork: Promise<unknown> | undefined;
     message({
       data: { type: "SKITZA_GET_VERSION" },
       ports: [versionChannel.port2],
+      waitUntil(work: Promise<unknown>) {
+        versionWork = work;
+      },
     });
     const versionData = (await versionResult) as {
       version: string;
     };
+    await versionWork;
     versionChannel.port1.close();
     versionChannel.port2.close();
 
@@ -543,13 +615,18 @@ describe("service worker offline and update protocol", () => {
     const message = harness.listener("message");
     const versionChannel = new MessageChannel();
     const versionResult = nextPortMessage(versionChannel.port1);
+    let versionWork: Promise<unknown> | undefined;
     message({
       data: { type: "SKITZA_GET_VERSION" },
       ports: [versionChannel.port2],
+      waitUntil(work: Promise<unknown>) {
+        versionWork = work;
+      },
     });
     const versionData = (await versionResult) as {
       version: string;
     };
+    await versionWork;
     versionChannel.port1.close();
     versionChannel.port2.close();
 

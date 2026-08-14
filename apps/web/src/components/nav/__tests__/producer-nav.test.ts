@@ -130,7 +130,7 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(BOTTOM).not.toContain("producerBottomNavViewportStyle");
   });
 
-  it("centers the tab row, magnified copy, and lens in the same compact glass height", () => {
+  it("centers the tab row, magnified copy, and lens in the same glass height", () => {
     expect(SHARED_BOTTOM.match(/minHeight:\s*68/g)).toHaveLength(2);
     expect(GLOBALS).toContain("--sk-nav-lens-y: 34px");
     expect(GLOBALS).toContain("height: 60px");

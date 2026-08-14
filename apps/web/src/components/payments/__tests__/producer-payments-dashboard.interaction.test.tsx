@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -149,6 +149,38 @@ describe("ProducerPaymentsDashboard", () => {
     expect(screen.queryByRole("link", { name: "Artist 00" })).toBeNull();
     expect(screen.getAllByRole("link", { name: "Artist 01" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Filters (1)" })).not.toBeNull();
+  });
+
+  it("shows Project as the first desktop column and lists each Artist project once", () => {
+    const firstProject = paymentRecord(0);
+    const secondProject = {
+      ...paymentRecord(1),
+      clientContactId: firstProject.clientContactId,
+      clientName: firstProject.clientName,
+      projectId: "project-second",
+      projectTitle: "Second project",
+    };
+    const repeatedProject = {
+      ...paymentRecord(2),
+      clientContactId: firstProject.clientContactId,
+      clientName: firstProject.clientName,
+      projectId: firstProject.projectId,
+      projectTitle: firstProject.projectTitle,
+    };
+    renderDashboard({ records: [firstProject, secondProject, repeatedProject] });
+
+    const table = screen.getByRole("table", { name: /projects and artists/i });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .slice(0, 2)
+        .map((header) => header.textContent),
+    ).toEqual(["Project", "Artist"]);
+
+    const artistRow = within(table).getAllByRole("row")[1];
+    if (!artistRow) throw new Error("Expected one Artist payment row");
+    const projectCell = within(artistRow).getAllByRole("cell")[0];
+    expect(projectCell?.textContent).toBe("Project 0Second project");
   });
 
   it("links each Artist to Client Payments and each pending proof to its exact review", () => {

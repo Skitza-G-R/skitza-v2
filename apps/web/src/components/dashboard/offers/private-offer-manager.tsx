@@ -192,6 +192,8 @@ export function PrivateOfferManager({
                             terms: snapshotToInput(offer.commercialDraft),
                             expiresAt: offer.expiresAt.toISOString(),
                             expectedUpdatedAt: offer.updatedAt.toISOString(),
+                            recipientName: offer.recipientName,
+                            recipientEmail: offer.recipientEmail,
                           }}
                         />
                         <button

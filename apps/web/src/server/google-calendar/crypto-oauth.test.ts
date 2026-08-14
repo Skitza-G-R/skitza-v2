@@ -22,6 +22,7 @@ const PRODUCER_ID = "11111111-1111-4111-8111-111111111111";
 const CONNECTION_ID = "22222222-2222-4222-8222-222222222222";
 const SELECTION_ID = "33333333-3333-4333-8333-333333333333";
 const SECRET = randomBytes(32);
+const BROWSER_BINDING = "a".repeat(43);
 const ENCRYPTION_KEY = randomBytes(32);
 const KEYRING = { activeVersion: 3, keys: new Map([[3, ENCRYPTION_KEY]]) };
 
@@ -115,6 +116,7 @@ describe("Google Calendar OAuth state and PKCE", () => {
       intent: "reconnect",
       connectionId: CONNECTION_ID,
       expectedAccountVersion: 2,
+      browserBinding: BROWSER_BINDING,
       stateSecret: SECRET,
       now,
     });
@@ -124,6 +126,7 @@ describe("Google Calendar OAuth state and PKCE", () => {
         token: issued.token,
         tokenDigest: issued.tokenDigest,
         binding: issued.binding,
+        browserBinding: BROWSER_BINDING,
         stateSecret: SECRET,
         now: new Date(now.getTime() + 599_000),
       });
@@ -133,6 +136,7 @@ describe("Google Calendar OAuth state and PKCE", () => {
         token: issued.token,
         tokenDigest: issued.tokenDigest,
         binding: { ...issued.binding, producerId: "another-producer" },
+        browserBinding: BROWSER_BINDING,
         stateSecret: SECRET,
         now,
       });
@@ -142,6 +146,17 @@ describe("Google Calendar OAuth state and PKCE", () => {
         token: issued.token,
         tokenDigest: issued.tokenDigest,
         binding: issued.binding,
+        browserBinding: "b".repeat(43),
+        stateSecret: SECRET,
+        now,
+      });
+    }).toThrow(GoogleCalendarOAuthStateError);
+    expect(() => {
+      verifyGoogleCalendarOAuthState({
+        token: issued.token,
+        tokenDigest: issued.tokenDigest,
+        binding: issued.binding,
+        browserBinding: BROWSER_BINDING,
         stateSecret: SECRET,
         now: issued.binding.expiresAt,
       });
@@ -154,6 +169,7 @@ describe("Google Calendar OAuth state and PKCE", () => {
       intent: "connect",
       connectionId: null,
       expectedAccountVersion: null,
+      browserBinding: BROWSER_BINDING,
       stateSecret: SECRET,
       now,
     });
@@ -198,6 +214,7 @@ describe("Google Calendar OAuth state and PKCE", () => {
         intent: "connect",
         connectionId: null,
         expectedAccountVersion: null,
+        browserBinding: BROWSER_BINDING,
         stateSecret: SECRET,
         now,
         lifetimeSeconds: 601,

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useToast } from "~/components/ui/toast";
 
@@ -8,6 +9,7 @@ import { GoogleCalendarControl } from "./google-calendar-control";
 import {
   disconnectGoogleCalendar,
   refreshGoogleCalendarCalendars,
+  repairGoogleCalendarSync,
   saveGoogleCalendarSelection,
 } from "./google-calendar-actions";
 import type {
@@ -40,16 +42,39 @@ function openGoogleAuthorization(
   return Promise.resolve({ ok: true });
 }
 
+function repairSignature(model: GoogleCalendarUiModel): string | null {
+  if (model.status !== "connected") return null;
+  const attention =
+    model.syncSummary.notSynced + model.syncSummary.missing + model.syncSummary.conflicts;
+  if (attention + model.syncSummary.syncing === 0) return null;
+  return [
+    model.syncSummary.syncing,
+    model.syncSummary.notSynced,
+    model.syncSummary.missing,
+    model.syncSummary.conflicts,
+    ...model.syncSummary.issues.flatMap((issue) => [
+      issue.bookingId,
+      issue.syncState,
+      issue.startsAtIso,
+    ]),
+  ].join(":");
+}
+
 export function GoogleCalendarControlBoundary({
   model,
+  timeZone = "UTC",
   callbackStatus,
   navigate = navigateBrowser,
 }: {
   model: GoogleCalendarUiModel;
+  timeZone?: string;
   callbackStatus?: GoogleCalendarCallbackStatus;
   navigate?: (href: string) => void;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
+  const repairInFlight = useRef(false);
+  const syncRepairSignature = repairSignature(model);
   useEffect(() => {
     if (!callbackStatus || callbackStatus === "selection") return;
     const message =
@@ -64,6 +89,29 @@ export function GoogleCalendarControlBoundary({
               : "Google Calendar could not be connected. Try again.";
     toast(message, callbackStatus === "connected" ? "success" : "error");
   }, [callbackStatus, toast]);
+
+  useEffect(() => {
+    if (!syncRepairSignature || !navigator.onLine) return;
+    let active = true;
+    const repair = async () => {
+      if (repairInFlight.current || !navigator.onLine) return;
+      repairInFlight.current = true;
+      try {
+        const result = await repairGoogleCalendarSync({ forcePending: false });
+        if (active && result.ok) router.refresh();
+      } catch {
+        // The durable retry remains available to the next bounded wake.
+      } finally {
+        repairInFlight.current = false;
+      }
+    };
+    void repair();
+    const intervalId = window.setInterval(() => void repair(), 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [router, syncRepairSignature]);
 
   const actions = useMemo<GoogleCalendarControlActions>(
     () => ({
@@ -82,9 +130,15 @@ export function GoogleCalendarControlBoundary({
         if (!navigator.onLine) return Promise.resolve({ ok: false, reason: "offline" });
         return disconnectGoogleCalendar();
       },
+      repairSync: async () => {
+        if (!navigator.onLine) return { ok: false, reason: "offline" };
+        const result = await repairGoogleCalendarSync({ forcePending: true });
+        if (result.ok) router.refresh();
+        return result;
+      },
     }),
-    [navigate],
+    [navigate, router],
   );
 
-  return <GoogleCalendarControl model={model} actions={actions} />;
+  return <GoogleCalendarControl model={model} actions={actions} timeZone={timeZone} />;
 }

@@ -19,6 +19,9 @@ import {
 } from "./service";
 
 const PRODUCER_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_PRODUCER_ID = "22222222-2222-4222-8222-222222222222";
+const BROWSER_BINDING = "a".repeat(43);
+const FORWARDED_BROWSER_BINDING = "b".repeat(43);
 const ALL_SCOPES = [
   "openid",
   "email",
@@ -38,13 +41,27 @@ const CONFIG = {
   calendarIdFingerprintSecret: FINGERPRINT_SECRET,
 } satisfies GoogleCalendarServerConfig;
 
-function createGoogleCalendarService(
-  input: Parameters<typeof createGoogleCalendarServiceImpl>[0],
-) {
-  return createGoogleCalendarServiceImpl({
+function createGoogleCalendarService(input: Parameters<typeof createGoogleCalendarServiceImpl>[0]) {
+  const service = createGoogleCalendarServiceImpl({
     now: () => new Date("2026-08-09T10:00:00.000Z"),
     ...input,
   });
+  type BeginInput = Parameters<typeof service.beginOAuth>[0];
+  type CompleteInput = Parameters<typeof service.completeOAuth>[0];
+  return {
+    ...service,
+    beginOAuth(
+      options: Omit<BeginInput, "browserBinding"> & Partial<Pick<BeginInput, "browserBinding">>,
+    ) {
+      return service.beginOAuth({ browserBinding: BROWSER_BINDING, ...options });
+    },
+    completeOAuth(
+      options: Omit<CompleteInput, "browserBinding"> &
+        Partial<Pick<CompleteInput, "browserBinding">>,
+    ) {
+      return service.completeOAuth({ browserBinding: BROWSER_BINDING, ...options });
+    },
+  };
 }
 
 function isReady(rows: readonly GoogleCalendarCandidateRecord[]): boolean {
@@ -61,7 +78,7 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
   candidates: GoogleCalendarCandidateRecord[] = [];
   watches: GoogleCalendarStoredWatchRecord[] = [];
   linkedWatchTargets: GoogleCalendarWatchTarget[] = [];
-  syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 };
+  syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0, issues: [] };
   initialSyncCalls: Parameters<GoogleCalendarRepository["enqueueFutureConfirmedEvents"]>[0][] = [];
 
   async getConnection(producerId: string) {
@@ -72,6 +89,15 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
   async createOAuthState(state: Omit<GoogleCalendarStoredOAuthState, "consumedAt">) {
     await Promise.resolve();
     this.states.set(state.tokenDigest, { ...state, consumedAt: null });
+  }
+
+  async getOAuthState(input: { tokenDigest: string; now: Date }) {
+    await Promise.resolve();
+    const state = this.states.get(input.tokenDigest);
+    if (!state || state.consumedAt !== null || state.expiresAt.getTime() <= input.now.getTime()) {
+      return null;
+    }
+    return state;
   }
 
   async consumeOAuthState(input: { producerId: string; tokenDigest: string; consumedAt: Date }) {
@@ -641,13 +667,42 @@ function watchTarget(candidate: GoogleCalendarCandidateRecord): GoogleCalendarWa
 }
 
 describe("Google Calendar service lifecycle", () => {
-  it("connects with one-time state, encrypted credentials, and opaque calendar IDs", async () => {
+  it("rejects a forwarded authorization URL without consuming the initiating browser state", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const start = await service.beginOAuth({
+      producerId: PRODUCER_ID,
+      intent: "connect",
+      browserBinding: BROWSER_BINDING,
+    });
+    expect(start.authorizationUrl).not.toContain(BROWSER_BINDING);
+    const stateToken = stateFrom(start);
+
+    await expect(
+      service.completeOAuth({
+        stateToken,
+        code: "authorization-code",
+        browserBinding: FORWARDED_BROWSER_BINDING,
+      }),
+    ).rejects.toSatisfy((error: unknown) => expectServiceError(error, "state_invalid"));
+    expect(provider.exchangeAuthorizationCode).not.toHaveBeenCalled();
+
+    await expect(
+      service.completeOAuth({
+        stateToken,
+        code: "authorization-code",
+        browserBinding: BROWSER_BINDING,
+      }),
+    ).resolves.toMatchObject({ status: "needs_selection" });
+  });
+
+  it("connects from a sessionless callback with one-time state and encrypted credentials", async () => {
     const repository = new MemoryGoogleCalendarRepository();
     const provider = createProvider();
     const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
     const start = await service.beginOAuth({ producerId: PRODUCER_ID, intent: "connect" });
     const result = await service.completeOAuth({
-      producerId: PRODUCER_ID,
       stateToken: stateFrom(start),
       code: "authorization-code",
     });
@@ -677,6 +732,45 @@ describe("Google Calendar service lifecycle", () => {
         code: "authorization-code",
       }),
     ).rejects.toSatisfy((error: unknown) => expectServiceError(error, "state_invalid"));
+  });
+
+  it("keeps authenticated completion producer-scoped without consuming another producer's state", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const start = await service.beginOAuth({ producerId: PRODUCER_ID, intent: "connect" });
+    const stateToken = stateFrom(start);
+
+    await expect(
+      service.completeOAuth({
+        producerId: OTHER_PRODUCER_ID,
+        stateToken,
+        code: "authorization-code",
+      }),
+    ).rejects.toSatisfy((error: unknown) => expectServiceError(error, "state_invalid"));
+
+    await expect(
+      service.completeOAuth({ stateToken, code: "authorization-code" }),
+    ).resolves.toMatchObject({ status: "needs_selection" });
+  });
+
+  it("rejects an expired sessionless callback before provider exchange", async () => {
+    let clock = new Date("2026-08-09T10:00:00.000Z");
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date(clock),
+    });
+    const start = await service.beginOAuth({ producerId: PRODUCER_ID, intent: "connect" });
+    clock = new Date(clock.getTime() + 11 * 60 * 1_000);
+
+    await expect(
+      service.completeOAuth({ stateToken: stateFrom(start), code: "authorization-code" }),
+    ).rejects.toSatisfy((error: unknown) => expectServiceError(error, "state_invalid"));
+    expect(provider.exchangeAuthorizationCode).not.toHaveBeenCalled();
   });
 
   it("revokes a different account and leaves the old connection untouched", async () => {
@@ -1141,14 +1235,20 @@ describe("Google Calendar service lifecycle", () => {
 
   it("returns only safe aggregate sync health", async () => {
     const repository = new MemoryGoogleCalendarRepository();
-    repository.syncSummary = { syncing: 2, notSynced: 1, missing: 3, conflicts: 4 };
+    repository.syncSummary = {
+      syncing: 2,
+      notSynced: 1,
+      missing: 3,
+      conflicts: 4,
+      issues: [],
+    };
     const provider = createProvider();
     const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
     await connect(service);
     const snapshot = await service.status(PRODUCER_ID);
     expect(snapshot).toEqual(
       expect.objectContaining({
-        syncSummary: { syncing: 2, notSynced: 1, missing: 3, conflicts: 4 },
+        syncSummary: { syncing: 2, notSynced: 1, missing: 3, conflicts: 4, issues: [] },
       }),
     );
     expect(JSON.stringify(snapshot)).not.toContain("providerEventId");

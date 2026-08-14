@@ -2,10 +2,16 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 
 import { GOOGLE_CALENDAR_SCOPES, type GoogleCalendarServerConfig } from "./config";
 
-const STATE_VERSION = 1 as const;
+const STATE_VERSION = 2 as const;
 const DEFAULT_STATE_LIFETIME_SECONDS = 10 * 60;
 const MAX_STATE_LIFETIME_SECONDS = 10 * 60;
 const MAX_STATE_TOKEN_LENGTH = 1_024;
+const BROWSER_BINDING_BYTES = 32;
+const BROWSER_BINDING_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
+export const GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME = "skitza_gcal_oauth_txn";
+export const GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS = MAX_STATE_LIFETIME_SECONDS;
+export const GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH = "/api/integrations/google-calendar/callback";
 
 export type GoogleCalendarOAuthIntent = "connect" | "reconnect" | "switch_account";
 
@@ -38,6 +44,7 @@ type StatePayload = Readonly<{
   iat: number;
   exp: number;
   nonce: string;
+  browserBindingDigest: string;
 }>;
 
 function bindingMessage(
@@ -45,7 +52,7 @@ function bindingMessage(
   binding: Omit<GoogleCalendarOAuthStateBinding, "expiresAt" | "id">,
 ): string {
   return [
-    "skitza:google-calendar:oauth-state:v1",
+    "skitza:google-calendar:oauth-state:v2",
     encodedPayload,
     binding.producerId,
     binding.intent,
@@ -93,6 +100,24 @@ export function digestGoogleCalendarOAuthStateToken(token: string): string {
   return `sha256:${createHash("sha256").update(token, "utf8").digest("hex")}`;
 }
 
+export function createGoogleCalendarOAuthBrowserBinding(): string {
+  return randomBytes(BROWSER_BINDING_BYTES).toString("base64url");
+}
+
+export function isGoogleCalendarOAuthBrowserBinding(value: unknown): value is string {
+  return typeof value === "string" && BROWSER_BINDING_PATTERN.test(value);
+}
+
+function digestGoogleCalendarOAuthBrowserBinding(browserBinding: string): string {
+  if (!isGoogleCalendarOAuthBrowserBinding(browserBinding)) {
+    throw new GoogleCalendarOAuthStateError();
+  }
+  return createHash("sha256")
+    .update("skitza:google-calendar:oauth-browser:v1\0", "utf8")
+    .update(browserBinding, "ascii")
+    .digest("base64url");
+}
+
 function safeEqual(left: string, right: string): boolean {
   const a = Buffer.from(left, "utf8");
   const b = Buffer.from(right, "utf8");
@@ -117,7 +142,9 @@ function parsePayload(encoded: string): StatePayload {
       !Number.isSafeInteger((value as StatePayload).iat) ||
       !Number.isSafeInteger((value as StatePayload).exp) ||
       typeof (value as StatePayload).nonce !== "string" ||
-      !/^[A-Za-z0-9_-]{22}$/u.test((value as StatePayload).nonce)
+      !/^[A-Za-z0-9_-]{22}$/u.test((value as StatePayload).nonce) ||
+      typeof (value as StatePayload).browserBindingDigest !== "string" ||
+      !BROWSER_BINDING_PATTERN.test((value as StatePayload).browserBindingDigest)
     ) {
       throw new Error();
     }
@@ -133,6 +160,7 @@ export function createGoogleCalendarOAuthState(
     intent: GoogleCalendarOAuthIntent;
     connectionId: string | null;
     expectedAccountVersion: number | null;
+    browserBinding: string;
     stateSecret: Buffer;
     now?: Date;
     lifetimeSeconds?: number;
@@ -145,6 +173,7 @@ export function createGoogleCalendarOAuthState(
     expectedAccountVersion: input.expectedAccountVersion,
   } as const;
   assertBindingShape(bindingInput);
+  const browserBindingDigest = digestGoogleCalendarOAuthBrowserBinding(input.browserBinding);
   if (input.stateSecret.length !== 32) throw new GoogleCalendarOAuthStateError();
 
   const lifetime = input.lifetimeSeconds ?? DEFAULT_STATE_LIFETIME_SECONDS;
@@ -159,6 +188,7 @@ export function createGoogleCalendarOAuthState(
     iat: issuedAt,
     exp: issuedAt + lifetime,
     nonce: randomBytes(16).toString("base64url"),
+    browserBindingDigest,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const token = `${encodedPayload}.${signState(encodedPayload, bindingInput, input.stateSecret)}`;
@@ -181,6 +211,7 @@ export function verifyGoogleCalendarOAuthState(
     token: string;
     tokenDigest: string;
     binding: GoogleCalendarOAuthStateBinding;
+    browserBinding: string;
     stateSecret: Buffer;
     now?: Date;
   }>,
@@ -202,6 +233,10 @@ export function verifyGoogleCalendarOAuthState(
     if (
       !safeEqual(signature, expectedSignature) ||
       !safeEqual(digestGoogleCalendarOAuthStateToken(input.token), input.tokenDigest) ||
+      !safeEqual(
+        payload.browserBindingDigest,
+        digestGoogleCalendarOAuthBrowserBinding(input.browserBinding),
+      ) ||
       payload.id !== input.binding.id ||
       payload.exp !== persistedExpiry ||
       payload.exp <= nowSeconds ||

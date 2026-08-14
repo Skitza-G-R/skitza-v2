@@ -255,6 +255,7 @@ export function RuntimeNavigationBridge({
   const currentHrefRef = useRef("");
   const initialCacheEpoch = useRef(cacheEpoch);
   const warmSourcePathname = useRef<string | null>(null);
+  const privateStateAccessAllowedRef = useRef(privateStateAccessAllowed);
   const navigationIdentity = useMemo(
     () => toNavigationIdentity(identity),
     [identity.contextId, identity.role, identity.userId],
@@ -273,6 +274,7 @@ export function RuntimeNavigationBridge({
     [cacheEpoch, identityKey],
   );
   currentHrefRef.current = href;
+  privateStateAccessAllowedRef.current = privateStateAccessAllowed;
 
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed || !storage || !safeHref) return;
@@ -413,8 +415,6 @@ export function RuntimeNavigationBridge({
   ]);
 
   useLayoutEffect(() => {
-    if (!privateStateAccessAllowed) return;
-
     const root = document.documentElement;
     const options = {
       role: identity.role,
@@ -460,11 +460,9 @@ export function RuntimeNavigationBridge({
       delete root.dataset.skNavSource;
       warmSourcePathname.current = null;
     }
-  }, [href, identity.contextId, identity.role, navigationCache, privateStateAccessAllowed]);
+  }, [href, identity.contextId, identity.role, navigationCache]);
 
   useLayoutEffect(() => {
-    if (!privateStateAccessAllowed) return;
-
     const onNavigationIntent = (event: Event) => {
       const detail = (event as CustomEvent<Partial<RuntimeMainNavigationIntentDetail> | undefined>)
         .detail;
@@ -486,7 +484,9 @@ export function RuntimeNavigationBridge({
         return;
       }
 
-      const warm = navigationCache.isReady(targetHref);
+      const warm =
+        privateStateAccessAllowedRef.current && navigationCache.isReady(targetHref);
+      detail.warm = warm;
       root.dataset.skNavState = "pending";
       if (warm) {
         root.dataset.skNavSource = "warm";
@@ -519,7 +519,7 @@ export function RuntimeNavigationBridge({
       window.removeEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onNavigationIntent);
       clearRuntimeMainNavigationPendingTargets();
     };
-  }, [identity.contextId, identity.role, navigationCache, privateStateAccessAllowed]);
+  }, [identity.contextId, identity.role, navigationCache]);
 
   useEffect(() => {
     if (!privateStateAccessAllowed) return;

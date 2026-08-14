@@ -251,6 +251,7 @@ export function generateArtistExactSessionSlots(
     googleBusyIntervals?: readonly SessionBusyInterval[];
     ignoreBookingId?: string;
     slotIncrementMin?: number;
+    availabilityWindowDays?: number;
   }>,
 ): Readonly<{
   days: readonly ExactSessionSlotDay[];
@@ -278,11 +279,51 @@ export function generateArtistExactSessionSlots(
 
   const slotsByArtistDay = new Map<string, ExactSessionSlot[]>();
   const seenStarts = new Set<number>();
-  const producerDates = producerLocalDateRange(
-    input.now,
-    input.producerTimeZone,
-    sessionAvailabilityHorizonDays(input.minLeadHours),
-  );
+  let producerDates: string[];
+  if (input.availabilityWindowDays === undefined) {
+    producerDates = producerLocalDateRange(
+      input.now,
+      input.producerTimeZone,
+      sessionAvailabilityHorizonDays(input.minLeadHours),
+    );
+  } else {
+    sessionAvailabilityHorizonDays(input.minLeadHours, input.availabilityWindowDays);
+    const leadBoundary = new Date(
+      input.now.getTime() + input.minLeadHours * 60 * 60 * 1000,
+    );
+    const leadBoundaryDate = zonedLocalDateKey(leadBoundary, input.producerTimeZone);
+    const boundaryWeekday = new Date(`${leadBoundaryDate}T00:00:00.000Z`).getUTCDay();
+    let boundaryHasCandidateBeforeLead = false;
+    let boundaryHasCandidateAtOrAfterLead = false;
+    for (const block of blocksByWeekday.get(boundaryWeekday) ?? []) {
+      for (
+        let studioStartMin = block.startMin;
+        studioStartMin + input.durationMin <= block.endMin;
+        studioStartMin += slotIncrementMin
+      ) {
+        for (const startsAt of studioLocalDateTimeUtcCandidates({
+          date: leadBoundaryDate,
+          startMin: studioStartMin,
+          timeZone: input.producerTimeZone,
+        })) {
+          if (startsAt.getTime() < leadBoundary.getTime()) {
+            boundaryHasCandidateBeforeLead = true;
+          } else {
+            boundaryHasCandidateAtOrAfterLead = true;
+          }
+        }
+      }
+    }
+    const shiftPastLeadBoundary =
+      boundaryHasCandidateBeforeLead && !boundaryHasCandidateAtOrAfterLead;
+    const firstWindowDate = shiftPastLeadBoundary
+      ? producerLocalDateKeys(leadBoundaryDate, 2)[1]
+      : leadBoundaryDate;
+    if (!firstWindowDate) {
+      throw new SessionBookingDomainError("INVALID_SLOT", "The studio calendar range is invalid");
+    }
+    producerDates = producerLocalDateKeys(firstWindowDate, input.availabilityWindowDays);
+  }
   if (input.canBook) {
     for (const studioDate of producerDates) {
       const weekday = new Date(`${studioDate}T00:00:00.000Z`).getUTCDay();
@@ -343,7 +384,8 @@ export function generateArtistExactSessionSlots(
       .map(([date, slots]) => ({
         date,
         slots: slots.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime()),
-      })),
+      }))
+      .filter((day) => day.slots.length > 0),
     today: zonedLocalDateKey(input.now, input.artistTimeZone),
   };
 }

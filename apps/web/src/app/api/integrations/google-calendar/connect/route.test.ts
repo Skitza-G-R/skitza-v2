@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   begin: vi.fn(),
+  createBrowserBinding: vi.fn(),
   createCaller: vi.fn(),
   isConfigured: vi.fn(),
 }));
@@ -10,6 +11,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
 vi.mock("~/server/google-calendar/config", () => ({
   isGoogleCalendarServerConfigured: mocks.isConfigured,
+}));
+vi.mock("~/server/google-calendar/oauth", () => ({
+  GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS: 600,
+  GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME: "skitza_gcal_oauth_txn",
+  GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH: "/api/integrations/google-calendar/callback",
+  createGoogleCalendarOAuthBrowserBinding: mocks.createBrowserBinding,
 }));
 vi.mock("~/server/trpc/routers/_app", () => ({
   appRouter: { createCaller: mocks.createCaller },
@@ -30,6 +37,7 @@ describe("Google Calendar OAuth connect route", () => {
     vi.clearAllMocks();
     mocks.isConfigured.mockReturnValue(true);
     mocks.auth.mockResolvedValue({ userId: "user_123" });
+    mocks.createBrowserBinding.mockReturnValue("a".repeat(43));
     mocks.begin.mockResolvedValue({
       authorizationUrl: "https://accounts.google.test/o/oauth2/auth?state=signed-state",
     });
@@ -72,13 +80,27 @@ describe("Google Calendar OAuth connect route", () => {
       const response = await request(`intent=${intent}`);
 
       expect(mocks.createCaller).toHaveBeenCalledWith({ userId: "user_123" });
-      expect(mocks.begin).toHaveBeenCalledWith(input);
+      expect(mocks.begin).toHaveBeenCalledWith({
+        ...input,
+        browserBinding: "a".repeat(43),
+      });
       expect(response.status).toBe(303);
       expect(response.headers.get("Location")).toBe(
         "https://accounts.google.test/o/oauth2/auth?state=signed-state",
       );
       expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
       expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+      expect(response.headers.get("Set-Cookie")).toContain(
+        `skitza_gcal_oauth_txn=${"a".repeat(43)}`,
+      );
+      expect(response.headers.get("Set-Cookie")).toContain("HttpOnly");
+      expect(response.headers.get("Set-Cookie")).toContain("Secure");
+      expect(response.headers.get("Set-Cookie")).toContain("SameSite=lax");
+      expect(response.headers.get("Set-Cookie")).toContain(
+        "Path=/api/integrations/google-calendar/callback",
+      );
+      expect(response.headers.get("Set-Cookie")).toContain("Max-Age=600");
+      expect(response.headers.get("Location")).not.toContain("a".repeat(43));
     },
   );
 

@@ -1,6 +1,13 @@
 import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 import { isGoogleCalendarServerConfigured } from "~/server/google-calendar/config";
+import {
+  GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS,
+  GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME,
+  GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH,
+  createGoogleCalendarOAuthBrowserBinding,
+} from "~/server/google-calendar/oauth";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export const dynamic = "force-dynamic";
@@ -39,17 +46,29 @@ export async function GET(request: Request): Promise<Response> {
   if (!intent) return privateResponse("Bad request", 400);
 
   try {
+    const browserBinding = createGoogleCalendarOAuthBrowserBinding();
     const result = await appRouter.createCaller({ userId }).googleCalendar.oauth.begin({
       intent,
+      browserBinding,
       ...(intent === "switch_account" ? { switchConfirmed: true } : {}),
     });
-    return new Response(null, {
+    const response = new NextResponse(null, {
       status: 303,
       headers: {
         ...PRIVATE_HEADERS,
         Location: result.authorizationUrl,
       },
     });
+    response.cookies.set({
+      name: GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME,
+      value: browserBinding,
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH,
+      maxAge: GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS,
+    });
+    return response;
   } catch {
     return privateResponse("Google Calendar is unavailable", 502);
   }

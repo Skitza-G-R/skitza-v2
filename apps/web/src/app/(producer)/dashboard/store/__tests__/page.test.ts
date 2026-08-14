@@ -30,6 +30,13 @@ describe("dashboard/store/page.tsx", () => {
     expect(privateOfferManagerStart).toBeGreaterThan(storeScreenStart);
     expect(SRC).toMatch(/privateOffers=\{/);
     expect(SRC).toMatch(/privateOfferCount=\{offerHistory\.offers\.length\}/);
+    expect(SRC).toMatch(/privateOfferRecipients=\{offerRecipients\}/);
+  });
+
+  it("builds each private-offer shortcut from canonical raw product fields", () => {
+    expect(SRC).toMatch(/buildPrivateOfferTemplateProduct\(p,/);
+    expect(SRC).toMatch(/privateOfferTemplate:/);
+    expect(SRC).not.toMatch(/displayCents/);
   });
 
   it("passes the producer identity needed by copy-link and artist preview actions", () => {

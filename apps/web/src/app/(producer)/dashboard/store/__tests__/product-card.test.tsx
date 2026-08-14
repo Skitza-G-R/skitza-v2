@@ -28,6 +28,14 @@ describe("ProductCard shell", () => {
     expect(SRC).toMatch(/removalAction/);
   });
 
+  it("keeps the private-offer shortcut visible beside Edit outside reorder mode", () => {
+    expect(SRC).toMatch(/onSendPrivately:\s*\(\) => void/);
+    expect(SRC).toMatch(/onClick=\{onSendPrivately\}/);
+    expect(SRC).toContain("Send privately");
+    expect(SRC).toMatch(/Send \$\{product\.name\} privately/);
+    expect(SRC).toMatch(/reordering\s*\?[\s\S]*onSendPrivately/);
+  });
+
   it("uses formatMoney for the price", () => {
     expect(SRC).toMatch(/formatMoney/);
   });

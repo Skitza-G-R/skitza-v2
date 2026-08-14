@@ -21,6 +21,11 @@ import {
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
+import {
+  PrivateOfferComposer,
+  type PrivateOfferComposerRecipient,
+  type PrivateOfferTemplateProduct,
+} from "~/components/dashboard/offers/private-offer-composer";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useProducerStoreProductDraft } from "~/components/runtime-state/use-runtime-state";
 import { useToast } from "~/components/ui/toast";
@@ -72,6 +77,8 @@ export interface StoreProduct extends ProductCardData {
   // ({minQty, pricePerUnitCents}); null for flat-price products.
   pricingModel: string;
   volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
+  /** Present on products loaded by the Store page; onboarding editor seeds omit it. */
+  privateOfferTemplate?: PrivateOfferTemplateProduct;
 }
 
 export function productRemovalAction(product: StoreProduct): ProductRemovalAction {
@@ -91,6 +98,7 @@ interface StoreScreenProps {
   producerSlug: string;
   producerLogoUrl: string | null;
   privateOfferCount: number;
+  privateOfferRecipients: PrivateOfferComposerRecipient[];
   privateOffers: ReactNode;
 }
 
@@ -103,6 +111,7 @@ export function StoreScreen({
   producerSlug,
   producerLogoUrl,
   privateOfferCount,
+  privateOfferRecipients,
   privateOffers,
 }: StoreScreenProps) {
   const router = useRouter();
@@ -124,6 +133,7 @@ export function StoreScreen({
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<StoreProduct | null>(null);
   const [removing, setRemoving] = useState<StoreProduct | null>(null);
+  const [offerTemplateProduct, setOfferTemplateProduct] = useState<StoreProduct | null>(null);
   const storeDraft = useProducerStoreProductDraft();
   const restoredStoreDraftRef = useRef(false);
   // Phase 3 P3-11 — flags the most-recently-created product id so its
@@ -133,6 +143,7 @@ export function StoreScreen({
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const createdCardRef = useRef<HTMLElement | null>(null);
+  const offerReturnFocusRef = useRef<HTMLElement | null>(null);
   const copyResetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -361,6 +372,7 @@ export function StoreScreen({
         creating ||
         editing !== null ||
         removing !== null ||
+        offerTemplateProduct !== null ||
         previewOpen ||
         isShortcutTarget(e.target)
       ) {
@@ -384,7 +396,7 @@ export function StoreScreen({
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [creating, editing, previewOpen, removing]);
+  }, [creating, editing, offerTemplateProduct, previewOpen, removing]);
 
   function onToggleVisible(p: StoreProduct) {
     if (!online) {
@@ -418,6 +430,16 @@ export function StoreScreen({
 
   function onEdit(p: StoreProduct) {
     setEditing(p);
+  }
+
+  function onSendPrivately(p: StoreProduct) {
+    if (!p.privateOfferTemplate) {
+      toast("This product could not be loaded as an offer. Refresh and try again.", "error");
+      return;
+    }
+    offerReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setOfferTemplateProduct(p);
   }
 
   function onRemove(p: StoreProduct) {
@@ -519,6 +541,9 @@ export function StoreScreen({
                 onToggleVisible={() => {
                   onToggleVisible(p);
                 }}
+                onSendPrivately={() => {
+                  onSendPrivately(p);
+                }}
                 onEdit={() => {
                   onEdit(p);
                 }}
@@ -558,6 +583,9 @@ export function StoreScreen({
                   onToggleVisible={() => {
                     onToggleVisible(p);
                   }}
+                  onSendPrivately={() => {
+                    onSendPrivately(p);
+                  }}
                   onEdit={() => {
                     onEdit(p);
                   }}
@@ -588,6 +616,25 @@ export function StoreScreen({
         producerLogoUrl={producerLogoUrl}
         taxMode={taxMode}
         taxRatePct={taxRatePct}
+      />
+
+      <PrivateOfferComposer
+        recipients={privateOfferRecipients}
+        defaultCurrency={defaultCurrency}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
+        open={offerTemplateProduct !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setOfferTemplateProduct(null);
+        }}
+        onCreated={() => {
+          router.refresh();
+        }}
+        trigger={null}
+        returnFocusRef={offerReturnFocusRef}
+        {...(offerTemplateProduct?.privateOfferTemplate
+          ? { templateProduct: offerTemplateProduct.privateOfferTemplate }
+          : {})}
       />
 
       {/* Create modal */}

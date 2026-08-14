@@ -66,6 +66,7 @@ describe("artist.book purchase-owned session boundary", () => {
 
   it("delegates exact slot generation to the shared server-only booking engine", () => {
     expect(availability).toContain("generateArtistExactSessionSlots({");
+    expect(availability).toContain("availabilityWindowDays: 30");
     expect(availability).not.toMatch(/startMin \+= 30|studioLocalDateTimeUtcCandidates/);
     expect(bookingEngineSource).toMatch(/studioStartMin \+= slotIncrementMin/);
     expect(bookingEngineSource).toContain("studioLocalDateTimeUtcCandidates");
