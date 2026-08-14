@@ -1,4 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
+import { createDb, resolveActiveProviderClerkUserIdWithDb } from "@skitza/db";
 import { NextResponse } from "next/server";
 
 import {
@@ -82,6 +83,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   const body = await readExchangeBody(request);
   if (!body) return jsonResponse({ error: "bad_request" }, 400);
 
+  const clerkInstanceId = process.env.CLERK_INSTANCE_ID?.trim();
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!clerkInstanceId || !databaseUrl) {
+    return jsonResponse({ error: "unavailable" }, 503);
+  }
+
   try {
     const consumed = await consumeDesktopAuthorizationCode({
       code: body.code,
@@ -90,9 +97,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
     if (!consumed) return jsonResponse({ error: "invalid_grant" }, 401);
 
+    const providerUserId = await resolveActiveProviderClerkUserIdWithDb(createDb(databaseUrl), {
+      canonicalClerkUserId: consumed.clerkUserId,
+      clerkInstanceId,
+    });
+
     const client = await clerkClient();
     const signInToken = await client.signInTokens.createSignInToken({
-      userId: consumed.clerkUserId,
+      userId: providerUserId,
       expiresInSeconds: DESKTOP_AUTH_CODE_LIFETIME_SECONDS,
     });
     if (

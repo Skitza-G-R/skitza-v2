@@ -3,11 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   clerkClient: vi.fn(),
   consume: vi.fn(),
+  createDb: vi.fn(),
   createStore: vi.fn(),
   createSignInToken: vi.fn(),
+  resolveProviderUserId: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({ clerkClient: mocks.clerkClient }));
+vi.mock("@skitza/db", () => ({
+  createDb: mocks.createDb,
+  resolveActiveProviderClerkUserIdWithDb: mocks.resolveProviderUserId,
+}));
 vi.mock("~/server/auth/desktop-social-auth", async (importOriginal) => {
   const original = await importOriginal<typeof import("~/server/auth/desktop-social-auth")>();
   return {
@@ -37,8 +43,12 @@ describe("desktop social-auth exchange route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.SITE_URL = "https://proof.skitza.app";
+    process.env.CLERK_INSTANCE_ID = "instance-production";
+    process.env.DATABASE_URL = "postgres://test.invalid/skitza";
+    mocks.createDb.mockReturnValue({ identityDb: true });
     mocks.createStore.mockReturnValue({ consume: vi.fn(), issue: vi.fn() });
-    mocks.consume.mockResolvedValue({ clerkUserId: "user-1" });
+    mocks.consume.mockResolvedValue({ clerkUserId: "canonical-user-1" });
+    mocks.resolveProviderUserId.mockResolvedValue("provider-user-1");
     mocks.createSignInToken.mockResolvedValue({ token: TICKET });
     mocks.clerkClient.mockResolvedValue({
       signInTokens: { createSignInToken: mocks.createSignInToken },
@@ -77,6 +87,17 @@ describe("desktop social-auth exchange route", () => {
     expect(mocks.consume).not.toHaveBeenCalled();
   });
 
+  it("does not consume a code when identity configuration is missing", async () => {
+    delete process.env.CLERK_INSTANCE_ID;
+
+    const response = await request({ code: CODE, codeVerifier: VERIFIER });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "unavailable" });
+    expect(mocks.consume).not.toHaveBeenCalled();
+    expect(mocks.createSignInToken).not.toHaveBeenCalled();
+  });
+
   it("atomically consumes code plus verifier before creating a sixty-second ticket", async () => {
     const store = { consume: vi.fn(), issue: vi.fn() };
     mocks.createStore.mockReturnValue(store);
@@ -89,9 +110,16 @@ describe("desktop social-auth exchange route", () => {
       store,
     });
     expect(mocks.createSignInToken).toHaveBeenCalledWith({
-      userId: "user-1",
+      userId: "provider-user-1",
       expiresInSeconds: 60,
     });
+    expect(mocks.resolveProviderUserId).toHaveBeenCalledWith(
+      { identityDb: true },
+      {
+        canonicalClerkUserId: "canonical-user-1",
+        clerkInstanceId: "instance-production",
+      },
+    );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ protocolVersion: 1, ticket: TICKET });
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
@@ -115,5 +143,15 @@ describe("desktop social-auth exchange route", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "unavailable" });
+  });
+
+  it("fails closed without minting a ticket when no active provider identity exists", async () => {
+    mocks.resolveProviderUserId.mockRejectedValue(new Error("IDENTITY_RELINK_REQUIRED"));
+
+    const response = await request({ code: CODE, codeVerifier: VERIFIER });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "unavailable" });
+    expect(mocks.createSignInToken).not.toHaveBeenCalled();
   });
 });

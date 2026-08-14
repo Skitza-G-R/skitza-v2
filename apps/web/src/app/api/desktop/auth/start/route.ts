@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
-import { createDb, eq, producers } from "@skitza/db";
+import { and, createDb, eq, isNull, producers } from "@skitza/db";
 import { NextResponse } from "next/server";
 
+import { auth } from "~/server/auth/clerk-identity";
 import {
   createDesktopSocialAuthStore,
   desktopAuthCallbackUrl,
@@ -37,7 +37,12 @@ export async function GET(request: Request): Promise<Response> {
   const handoff = parseDesktopAuthStartUrl(requestUrl);
   if (!handoff) return privateResponse("Bad request", 400);
 
-  const { userId } = await auth();
+  let userId: string | null;
+  try {
+    ({ userId } = await auth());
+  } catch {
+    return privateResponse("Desktop authentication is unavailable", 503);
+  }
   if (!userId) return signInRedirect(requestUrl);
 
   const dbUrl = process.env.DATABASE_URL;
@@ -48,7 +53,7 @@ export async function GET(request: Request): Promise<Response> {
     const [producer] = await db
       .select({ id: producers.id })
       .from(producers)
-      .where(eq(producers.clerkUserId, userId))
+      .where(and(eq(producers.clerkUserId, userId), isNull(producers.closedAt)))
       .limit(1);
     if (!producer) return privateResponse("Forbidden", 403);
 

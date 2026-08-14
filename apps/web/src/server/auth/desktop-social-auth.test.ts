@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -26,6 +27,14 @@ function store() {
 }
 
 describe("desktop social-auth values", () => {
+  it("requires an active producer when consuming a one-use code", () => {
+    const source = readFileSync(new URL("./desktop-social-auth.ts", import.meta.url), "utf8");
+
+    expect(source).toContain(
+      ".where(and(eq(producers.id, consumed.producerId), isNull(producers.closedAt)))",
+    );
+  });
+
   it("accepts only the exact HTTPS start surface and S256 binding", () => {
     const exact = new URL(
       `https://proof.skitza.app/api/desktop/auth/start?state=${STATE}` +
