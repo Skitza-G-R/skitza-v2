@@ -104,7 +104,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <main
             id="main-content"
             tabIndex={-1}
-            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain lg:overflow-visible lg:overscroll-auto"
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-none lg:overflow-visible lg:overscroll-auto"
           >
             <HomePullToRefresh homePath="/dashboard" />
             {children}

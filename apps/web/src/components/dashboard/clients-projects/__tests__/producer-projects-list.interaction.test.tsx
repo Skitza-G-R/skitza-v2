@@ -175,6 +175,8 @@ describe("ProducerProjectsList", () => {
         .getAllByRole("option")
         .map((option) => option.textContent),
     ).toEqual(["Oldest", "Newest", "Phase", "Project name"]);
+    expect(sort.parentElement?.className).toContain("w-fit");
+    expect(sort.nextElementSibling?.getAttribute("class")).toContain("right-3");
   });
 
   it("searches project and client names and exposes the exact search-empty recovery", async () => {

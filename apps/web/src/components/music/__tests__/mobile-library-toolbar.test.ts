@@ -47,6 +47,12 @@ describe("mobile library toolbar", () => {
     expect(source).toMatch(/hidden md:block[\s\S]{0,100}<ViewToggle/);
   });
 
+  it("pulls the song status control into the wrapped mobile toolbar rhythm", () => {
+    expect(source).toMatch(
+      /aria-label="Song status"[\s\S]{0,180}className="[^"]*-mt-2[^"]*md:mt-0/,
+    );
+  });
+
   it("restores bounded view state from the URL without persisting catalog data", () => {
     expect(source).toContain("parseMusicLibraryUrlState");
     expect(source).toContain("window.history.replaceState");

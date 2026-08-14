@@ -357,7 +357,7 @@
   .sk-native-scroll {
     min-height: 0;
     overflow-y: auto;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: none;
     scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
     scroll-padding-bottom:
       calc(env(safe-area-inset-bottom, 0px) + var(--sk-keyboard-inset, 0px) + 5rem);

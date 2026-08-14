@@ -675,7 +675,7 @@ function SongArchiveFilterControl({
     <div
       role="group"
       aria-label="Song status"
-      className="flex w-fit max-w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-[2px]"
+      className="-mt-2 flex w-fit max-w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-[2px] md:mt-0"
     >
       {(["active", "archived"] as const).map((status) => {
         const active = value === status;

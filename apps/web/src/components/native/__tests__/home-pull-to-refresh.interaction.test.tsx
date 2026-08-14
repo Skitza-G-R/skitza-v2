@@ -15,10 +15,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: mocks.refresh }),
 }));
 
-function Harness({ homePath = "/artist" }: { homePath?: "/artist" | "/dashboard" }) {
+function Harness({
+  homePath = "/artist",
+  enabled = true,
+}: {
+  homePath?: "/artist" | "/dashboard";
+  enabled?: boolean;
+}) {
   return (
     <main data-testid="scroll-surface">
-      <HomePullToRefresh homePath={homePath} />
+      <HomePullToRefresh homePath={homePath} enabled={enabled} />
       <div>Home content</div>
     </main>
   );
@@ -54,11 +60,16 @@ describe("HomePullToRefresh", () => {
       fireEvent.touchStart(surface, {
         touches: [{ clientX: 40, clientY: 80 }],
       });
-      fireEvent.touchMove(surface, {
+      const downwardMove = createEvent.touchMove(surface, {
         touches: [{ clientX: 43, clientY: 164 }],
+        cancelable: true,
       });
+      fireEvent(surface, downwardMove);
 
-      expect(screen.getByTestId("home-pull-to-refresh").getAttribute("data-state")).toBe("ready");
+      const pullSurface = screen.getByTestId("home-pull-to-refresh");
+      expect(downwardMove.defaultPrevented).toBe(true);
+      expect(pullSurface.getAttribute("data-state")).toBe("ready");
+      expect(pullSurface.style.height).toBe("52px");
 
       fireEvent.touchEnd(surface, {
         changedTouches: [{ clientX: 43, clientY: 164 }],
@@ -76,14 +87,21 @@ describe("HomePullToRefresh", () => {
     fireEvent.touchStart(surface, {
       touches: [{ clientX: 40, clientY: 80 }],
     });
-    fireEvent.touchMove(surface, {
+    const downwardMove = createEvent.touchMove(surface, {
       touches: [{ clientX: 40, clientY: 130 }],
+      cancelable: true,
     });
+    fireEvent(surface, downwardMove);
+
+    expect(downwardMove.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("home-pull-to-refresh").style.height).toBe("32.5px");
+
     fireEvent.touchEnd(surface, {
       changedTouches: [{ clientX: 40, clientY: 130 }],
     });
 
     expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(screen.getByTestId("home-pull-to-refresh").style.height).toBe("0px");
   });
 
   it("leaves normal scrolling and horizontal gestures untouched", () => {
@@ -94,12 +112,16 @@ describe("HomePullToRefresh", () => {
     fireEvent.touchStart(surface, {
       touches: [{ clientX: 40, clientY: 80 }],
     });
-    fireEvent.touchMove(surface, {
+    const inPageMove = createEvent.touchMove(surface, {
       touches: [{ clientX: 40, clientY: 180 }],
+      cancelable: true,
     });
+    fireEvent(surface, inPageMove);
     fireEvent.touchEnd(surface, {
       changedTouches: [{ clientX: 40, clientY: 180 }],
     });
+
+    expect(inPageMove.defaultPrevented).toBe(false);
 
     setScrollTop(surface, 0);
     fireEvent.touchStart(surface, {
@@ -118,7 +140,7 @@ describe("HomePullToRefresh", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
-  it("does not install the gesture away from the configured Home route", () => {
+  it("keeps the page elastic away from Home without refreshing it", () => {
     mocks.pathname = "/artist/sessions";
     render(<Harness />);
     const surface = screen.getByTestId("scroll-surface");
@@ -127,14 +149,28 @@ describe("HomePullToRefresh", () => {
     fireEvent.touchStart(surface, {
       touches: [{ clientX: 40, clientY: 80 }],
     });
-    fireEvent.touchMove(surface, {
+    const downwardMove = createEvent.touchMove(surface, {
       touches: [{ clientX: 40, clientY: 180 }],
+      cancelable: true,
     });
+    fireEvent(surface, downwardMove);
+
+    const pullSurface = screen.getByTestId("home-pull-to-refresh");
+    expect(downwardMove.defaultPrevented).toBe(true);
+    expect(pullSurface.getAttribute("data-home-refresh")).toBe("false");
+    expect(pullSurface.style.height).toBe("52px");
+
     fireEvent.touchEnd(surface, {
       changedTouches: [{ clientX: 40, clientY: 180 }],
     });
 
-    expect(screen.queryByTestId("home-pull-to-refresh")).toBeNull();
+    expect(pullSurface.style.height).toBe("0px");
     expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it("does not install on focused flows that own a nested scroll surface", () => {
+    render(<Harness enabled={false} />);
+
+    expect(screen.queryByTestId("home-pull-to-refresh")).toBeNull();
   });
 });
