@@ -21,7 +21,7 @@ export function ArtistShellMain({ children }: { children: React.ReactNode }) {
           : "sk-native-scroll mx-auto min-h-0 w-full max-w-2xl flex-1 px-4 pt-6 pb-4 lg:max-w-none lg:overflow-visible lg:px-10 lg:pt-10 lg:pb-12"
       }
     >
-      <HomePullToRefresh homePath="/artist" />
+      <HomePullToRefresh homePath="/artist" enabled={!focused} />
       {children}
     </main>
   );

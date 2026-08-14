@@ -56,7 +56,9 @@ describe("artist Song-first listening surfaces", () => {
 
   it("does not apply the producer-only Song archive filter to artists", () => {
     expect(librarySource).toContain('if (role !== "producer") return filteredTracks');
-    expect(librarySource).toMatch(/role === "producer" \? \(\s*<SongArchiveFilterControl/);
+    expect(librarySource).toMatch(
+      /role === "producer" \? \([\s\S]{0,180}<SongArchiveFilterControl/,
+    );
   });
 
   it("closes only new comment entry points while keeping the comment thread controls", () => {

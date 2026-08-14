@@ -600,22 +600,28 @@ export function MusicLibraryScreen({
           onChange={setProjectFilter}
         />
 
-        {/* Phone-only row break — everything after this wraps onto the
-            second toolbar row. Display:none from md up. */}
-        <span aria-hidden className="w-full md:hidden" />
+        {/* Phone-only row break for controls that remain in this toolbar.
+            Producer Grid view moves its compact View menu beside the Song
+            status control below, so it does not need an empty second row. */}
+        {view === "table" || role !== "producer" ? (
+          <span aria-hidden className="w-full md:hidden" />
+        ) : null}
 
         {view === "table" ? <SortDropdown value={sort} onChange={updateSort} /> : null}
 
-        {/* Phones use one compact native menu; desktop keeps the faster
-            two-button view switch. Both update the same view state. */}
-        <CompactViewMenu value={view} onChange={updateView} />
+        {/* Artist phones keep the compact native menu in the toolbar.
+            Producer phones place it beside Active/Archived below. */}
+        {role !== "producer" ? <CompactViewMenu value={view} onChange={updateView} /> : null}
         <div className="hidden md:block">
           <ViewToggle value={view} onChange={updateView} />
         </div>
       </div>
 
       {role === "producer" ? (
-        <SongArchiveFilterControl value={songArchiveFilter} onChange={updateSongArchiveFilter} />
+        <div className="flex items-center justify-between gap-2 md:block">
+          <SongArchiveFilterControl value={songArchiveFilter} onChange={updateSongArchiveFilter} />
+          <CompactViewMenu value={view} onChange={updateView} />
+        </div>
       ) : null}
 
       {/* Song-first results. Project remains a filter, never a required drill-down. */}

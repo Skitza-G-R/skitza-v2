@@ -47,6 +47,13 @@ describe("mobile library toolbar", () => {
     expect(source).toMatch(/hidden md:block[\s\S]{0,100}<ViewToggle/);
   });
 
+  it("aligns the producer song status control with the compact View menu", () => {
+    expect(source).toMatch(
+      /className="flex items-center justify-between gap-2 md:block"[\s\S]{0,220}<SongArchiveFilterControl[\s\S]{0,180}<CompactViewMenu/,
+    );
+    expect(source).not.toMatch(/aria-label="Song status"[\s\S]{0,180}-mt-2/);
+  });
+
   it("restores bounded view state from the URL without persisting catalog data", () => {
     expect(source).toContain("parseMusicLibraryUrlState");
     expect(source).toContain("window.history.replaceState");

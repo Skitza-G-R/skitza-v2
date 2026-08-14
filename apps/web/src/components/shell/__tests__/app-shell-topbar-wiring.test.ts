@@ -39,13 +39,13 @@ describe("AppShell + DashboardTopBar wiring", () => {
     expect(providerCloseIdx).toBeGreaterThan(mainIdx);
   });
 
-  it("keeps main-content as the only elastic mobile scroll surface", () => {
+  it("keeps main-content as the only custom elastic mobile scroll surface", () => {
     expect(SRC).toMatch(
-      /<main[\s\S]{0,180}id="main-content"[\s\S]{0,220}overflow-y-auto[\s\S]{0,100}overscroll-y-contain/,
+      /<main[\s\S]{0,180}id="main-content"[\s\S]{0,220}overflow-y-auto[\s\S]{0,100}overscroll-y-none/,
     );
   });
 
-  it("mounts pull-to-refresh only for Producer Home", () => {
+  it("mounts shell elasticity with refresh gated to Producer Home", () => {
     expect(SRC).toContain('<HomePullToRefresh homePath="/dashboard" />');
   });
 

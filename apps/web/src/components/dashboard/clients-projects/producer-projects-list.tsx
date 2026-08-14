@@ -262,7 +262,7 @@ export function ProducerProjectsList({
           ) : null}
         </div>
 
-        <label className="relative inline-flex items-center md:hidden">
+        <label className="relative inline-flex w-fit items-center md:hidden">
           <span className="sr-only">Sort projects</span>
           <select
             aria-label="Sort projects"

@@ -26,16 +26,10 @@ const globalsCss = readFileSync(
 
 describe("artist mobile viewport shell", () => {
   it("uses the stable mobile viewport contract shared with the producer shell", () => {
-    expect(shellSource).toContain(
-      "sk-artist-app-shell fixed inset-0 flex overflow-hidden",
-    );
+    expect(shellSource).toContain("sk-artist-app-shell fixed inset-0 flex overflow-hidden");
     expect(shellSource).not.toContain("h-[var(--sk-viewport-height,100dvh)]");
     expect(shellSource).not.toContain("max-h-[var(--sk-viewport-height,100dvh)]");
-    for (const desktopClass of [
-      "lg:static",
-      "lg:min-h-dvh",
-      "lg:overflow-visible",
-    ]) {
+    for (const desktopClass of ["lg:static", "lg:min-h-dvh", "lg:overflow-visible"]) {
       expect(shellSource).toContain(desktopClass);
     }
   });
@@ -50,8 +44,14 @@ describe("artist mobile viewport shell", () => {
     expect(mainSource).toContain("lg:overflow-visible");
   });
 
-  it("mounts pull-to-refresh only for Artist Home", () => {
-    expect(mainSource).toContain('<HomePullToRefresh homePath="/artist" />');
+  it("mounts standing-page elasticity with refresh gated to Artist Home", () => {
+    expect(mainSource).toContain('<HomePullToRefresh homePath="/artist" enabled={!focused} />');
+  });
+
+  it("suppresses the native colored boundary affordance on every native page scroller", () => {
+    expect(globalsCss).toMatch(
+      /\.sk-native-scroll\s*\{[\s\S]*?overscroll-behavior-y:\s*none;[\s\S]*?\}/,
+    );
   });
 
   it("anchors focused screens during ordinary overscroll while preserving keyboard offsets", () => {
