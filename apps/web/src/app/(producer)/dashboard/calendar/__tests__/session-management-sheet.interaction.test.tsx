@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   previewSessionReschedule: vi.fn(),
   refresh: vi.fn(),
   rescheduleSession: vi.fn(),
+  setSessionTitle: vi.fn(),
   toast: vi.fn(),
 }));
 
@@ -32,6 +33,7 @@ vi.mock("../calendar-actions", () => ({
   getSessionRescheduleAvailability: mocks.getSessionRescheduleAvailability,
   previewSessionReschedule: mocks.previewSessionReschedule,
   rescheduleSession: mocks.rescheduleSession,
+  setSessionTitle: mocks.setSessionTitle,
 }));
 
 const session: SessionListItem = {
@@ -40,6 +42,7 @@ const session: SessionListItem = {
   artistEmail: "lior@example.com",
   startsAt: "2026-08-11T07:00:00.000Z",
   durationMin: 240,
+  title: "Full production",
   packageName: "Full production",
   status: "confirmed",
   billingTreatment: "included",
@@ -95,6 +98,7 @@ beforeEach(() => {
   mocks.rescheduleSession
     .mockReset()
     .mockResolvedValue({ ok: true, googleCalendarProtection: "active" });
+  mocks.setSessionTitle.mockReset().mockResolvedValue({ ok: true });
   mocks.toast.mockReset();
 });
 
@@ -244,6 +248,30 @@ describe("SessionManagementSheet", () => {
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("updates the stored title from the session sheet", async () => {
+    const onOpenChange = vi.fn();
+    renderSheet(onOpenChange);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit title" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Edit session title" }),
+    );
+    fireEvent.change(screen.getByLabelText("Session title"), {
+      target: { value: "  Updated mix review  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save title" }));
+
+    await waitFor(() => {
+      expect(mocks.setSessionTitle).toHaveBeenCalledWith({
+        id: "session-1",
+        title: "Updated mix review",
+      });
+    });
+    expect(mocks.toast).toHaveBeenCalledWith("Session title updated.", "success");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("shows recoverable inline errors for availability, preview, and save transport failures", async () => {
     mocks.getSessionRescheduleAvailability
       .mockRejectedValueOnce(new Error("availability transport"))
@@ -290,6 +318,7 @@ describe("SessionManagementSheet", () => {
     expect(screen.getByRole("heading", { name: "Session details" })).toBeTruthy();
     expect(screen.getByText("This session has ended. Its details are view-only.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reschedule" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit title" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
     expect(mocks.getSessionRescheduleAvailability).not.toHaveBeenCalled();

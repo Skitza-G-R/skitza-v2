@@ -208,6 +208,7 @@ describe("SK-68 artist session router boundary", () => {
       expect(command).not.toMatch(/now:\s*new Date\(\)/);
     }
     for (const procedure of [
+      "setTitle",
       "confirm",
       "reject",
       "cancel",
@@ -272,6 +273,23 @@ describe("SK-68 producer session router boundary", () => {
     expect(producerBookingCommands).toContain("ctx.userId");
     expect(producerBookingCommands).not.toMatch(/producerId:\s*z\./);
     expect(producerBookingCommands).not.toMatch(/actorId:\s*z\./);
+  });
+
+  it("sets a producer-owned title through the atomic domain command and queues delivery", () => {
+    const setTitle = sourceBlock(
+      producerBookingCommands,
+      "setTitle: producerProcedure",
+      "confirm: producerProcedure",
+    );
+
+    expect(setTitle).toMatch(/title:\s*z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)/);
+    expect(setTitle).toContain("setProducerSessionTitle(sessionBookingRepository(ctx.db)");
+    expect(setTitle).toContain("bookingId: input.id");
+    expect(setTitle).toContain("producerId: ctx.producerId");
+    expect(setTitle).toContain("title: input.title");
+    expect(setTitle).toContain("deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId)");
+    expect(setTitle).not.toMatch(/producerId:\s*z\./);
+    expect(setTitle).not.toMatch(/actorId:\s*z\./);
   });
 
   it("requires an operation key for every producer transition", () => {

@@ -116,6 +116,19 @@ export async function cancelSession(input: {
   }
 }
 
+export async function setSessionTitle(input: { id: string; title: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.setTitle({ id: input.id, title: input.title.trim() });
+    revalidatePath(CALENDAR_PATH);
+    revalidatePath("/artist/sessions");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function decideSessionChangeRequest(input: {
   requestId: string;
   decision: "approved" | "rejected";
