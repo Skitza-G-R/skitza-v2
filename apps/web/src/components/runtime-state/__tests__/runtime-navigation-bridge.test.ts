@@ -35,6 +35,7 @@ const mocked = vi.hoisted(() => ({
   },
   layoutEffects: [] as CapturedEffect[],
   pathname: "/dashboard/calendar",
+  privateStateAccessAllowed: true,
   persistentRefs: [] as Array<{ current: unknown }>,
   persistRefs: false,
   refIndex: 0,
@@ -81,7 +82,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("../runtime-state-provider", () => ({
   useRuntimeState: () => ({
     identity: mocked.identity,
-    privateStateAccessAllowed: true,
+    privateStateAccessAllowed: mocked.privateStateAccessAllowed,
     storage: mocked.storage,
   }),
 }));
@@ -104,6 +105,7 @@ beforeEach(() => {
   };
   mocked.layoutEffects.length = 0;
   mocked.pathname = "/dashboard/calendar";
+  mocked.privateStateAccessAllowed = true;
   mocked.persistentRefs.length = 0;
   mocked.persistRefs = false;
   mocked.refIndex = 0;
@@ -567,6 +569,48 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
 });
 
 describe("RuntimeNavigationBridge navigation intent", () => {
+  it("tracks and clears a pending tap while Clerk verifies the server identity", () => {
+    mocked.privateStateAccessAllowed = false;
+    mocked.persistRefs = true;
+    mocked.refIndex = 0;
+    const environment = setupNavigationIntentEnvironment();
+    const layoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+
+    const cleanupIntent = findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "RUNTIME_MAIN_NAVIGATION_INTENT_EVENT",
+    )();
+    environment.announce("/dashboard/music");
+
+    expect(environment.root.dataset.skNavState).toBe("pending");
+    expect(environment.root.dataset.skNavSource).toBeUndefined();
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBe("true");
+
+    mocked.privateStateAccessAllowed = true;
+    mocked.refIndex = 0;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    expect(environment.root.dataset.skNavState).toBe("pending");
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBe("true");
+
+    mocked.pathname = "/dashboard/music";
+    mocked.search = "";
+    mocked.refIndex = 0;
+    const commitLayoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    findEffect(
+      mocked.layoutEffects,
+      commitLayoutEffectIndex,
+      "afterRuntimeNavigationPaint",
+    )();
+    environment.runCommitFrames();
+
+    expect(environment.root.dataset.skNavState).toBe("settled");
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
+    if (typeof cleanupIntent === "function") cleanupIntent();
+  });
+
   it("sets pending feedback synchronously and clears every html marker on shell exit", () => {
     const environment = setupNavigationIntentEnvironment();
     const layoutEffectIndex = mocked.layoutEffects.length;

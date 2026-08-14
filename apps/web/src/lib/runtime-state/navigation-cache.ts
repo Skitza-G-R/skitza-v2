@@ -9,6 +9,8 @@ import type { RuntimeRole } from "./runtime-state";
 export const RUNTIME_MAIN_NAVIGATION_LINK_PREFETCH = false as const;
 export const RUNTIME_NAVIGATION_READY_MAX_AGE_MS = 150_000;
 export const RUNTIME_MAIN_NAVIGATION_INTENT_EVENT = "skitza:runtime-main-navigation-intent";
+export const RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT =
+  "skitza:runtime-main-navigation-presentation";
 export const RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE = "data-sk-nav-destination";
 export const RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE = "data-sk-nav-pending";
 export const RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE =
@@ -56,6 +58,7 @@ export interface RuntimeNavigationSessionCacheOptions {
 export interface RuntimeMainNavigationIntentDetail {
   href: string;
   localOnly?: boolean;
+  warm?: boolean;
 }
 
 interface RuntimeMainNavigationTarget {
@@ -244,12 +247,18 @@ export function announceRuntimeMainNavigationIntent(
     target.setAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE, "");
     target.setAttribute("aria-busy", "true");
   }
+  const detail: RuntimeMainNavigationIntentDetail = {
+    href,
+    ...(options.localOnly ? { localOnly: true } : {}),
+  };
   window.dispatchEvent(
     new CustomEvent<RuntimeMainNavigationIntentDetail>(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, {
-      detail: {
-        href,
-        ...(options.localOnly ? { localOnly: true } : {}),
-      },
+      detail,
+    }),
+  );
+  window.dispatchEvent(
+    new CustomEvent<RuntimeMainNavigationIntentDetail>(RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT, {
+      detail,
     }),
   );
 }

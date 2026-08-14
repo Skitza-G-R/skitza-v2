@@ -8,7 +8,6 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -21,7 +20,7 @@ import {
   announceRuntimeMainNavigationIntent,
   captureRuntimeMainNavigationTarget,
   RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE,
-  RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
+  RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT,
   RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE,
   resolveRuntimeMainNavigationHref,
   type RuntimeMainNavigationIntentDetail,
@@ -39,7 +38,6 @@ import {
 import { useOnlineStatus } from "./online-required-link";
 import { useRuntimeState } from "./runtime-state-provider";
 
-const PREVIEW_TIMEOUT_MS = 15_000;
 const RUNTIME_ROLE_RESOLVER_HREF = "/launch/resolve";
 
 const PRODUCER_NAV = [
@@ -63,6 +61,7 @@ interface PendingRuntimeScreen {
   localOnly: boolean;
   originHref: string;
   view: RuntimeScreenSafeView | null;
+  warm: boolean;
 }
 
 interface ResumeState {
@@ -341,17 +340,29 @@ export function RuntimeDestinationScaffold({
 
 export function RuntimeLaunchCover() {
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center bg-[rgb(var(--bg-background))] px-6 text-[rgb(var(--fg-default))]"
-      data-runtime-launch-cover=""
-    >
-      <div className="text-center" role="status" aria-live="polite">
-        <p className="font-syne text-2xl font-extrabold tracking-[-0.035em] text-[rgb(var(--brand-primary))]">
-          Skitza
-        </p>
-        <p className="mt-2 text-sm font-semibold text-[rgb(var(--fg-muted))]">
-          Opening Skitza…
-        </p>
+    <div className="sk-pwa-startup" data-runtime-launch-cover="">
+      <div
+        className="sk-pwa-startup__lockup"
+        role="status"
+        aria-label="Opening Skitza…"
+        aria-live="polite"
+      >
+        <span className="sk-pwa-startup__pulse" aria-hidden="true">
+          {/* The install icon is precached; a regular img remains available
+              offline while Next's image optimizer is network-only. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            className="sk-pwa-startup__mark"
+            src="/icons/skitza-192.png"
+            width="96"
+            height="96"
+            alt=""
+          />
+        </span>
+        <span className="sk-pwa-startup__wordmark">
+          Skitza<span aria-hidden="true">.</span>
+        </span>
+        <span className="sk-pwa-startup__status">Opening Skitza…</span>
       </div>
     </div>
   );
@@ -364,22 +375,15 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
   const online = useOnlineStatus();
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
   const [pending, setPending] = useState<PendingRuntimeScreen | null>(null);
-  const timeoutRef = useRef<number | null>(null);
   const currentHref = hrefFromLocation(pathname, searchParams);
   const identityKey = `${identity.userId}:${identity.role}:${identity.contextId}`;
 
   const clearPending = useCallback(() => {
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
     setPending(null);
     delete document.documentElement.dataset.skScreenSource;
   }, []);
 
   useLayoutEffect(() => {
-    if (!privateStateAccessAllowed || !storage) return;
-
     const onOfflineNavigationClick = (event: MouseEvent) => {
       if (
         navigator.onLine ||
@@ -413,10 +417,14 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
         role: identity.role,
         contextId: identity.contextId,
       });
-      if (
-        !targetHref ||
-        targetHref === currentHref
-      ) {
+      if (!targetHref) {
+        return;
+      }
+      if (targetHref === currentHref) {
+        if (!pending || pending.originHref !== currentHref) return;
+        event.preventDefault();
+        captureRuntimeMainNavigationTarget(link);
+        announceRuntimeMainNavigationIntent(targetHref, { localOnly: true });
         return;
       }
 
@@ -429,12 +437,10 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     return () => {
       document.removeEventListener("click", onOfflineNavigationClick, true);
     };
-  }, [currentHref, identity, privateStateAccessAllowed, storage]);
+  }, [currentHref, identity, pending]);
 
   useLayoutEffect(() => {
-    if (!privateStateAccessAllowed || !storage) return;
-
-    const onIntent = (event: Event) => {
+    const onPresentation = (event: Event) => {
       const detail = (
         event as CustomEvent<Partial<RuntimeMainNavigationIntentDetail> | undefined>
       ).detail;
@@ -444,17 +450,22 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
         role: identity.role,
         contextId: identity.contextId,
       });
-      if (!targetHref || targetHref === currentHref) return;
-
-      const localOnly = detail.localOnly === true || !navigator.onLine;
-      if (!localOnly) {
-        clearPending();
+      if (!targetHref) return;
+      if (targetHref === currentHref) {
+        if (pending?.originHref === currentHref) flushSync(clearPending);
         return;
       }
 
-      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
-      const view = readRuntimeScreenSafeView(storage, identity, targetHref);
-      document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
+      const localOnly = detail.localOnly === true || !navigator.onLine;
+      const warm = !localOnly && detail.warm === true;
+      const view = localOnly && privateStateAccessAllowed && storage
+        ? readRuntimeScreenSafeView(storage, identity, targetHref)
+        : null;
+      if (warm) {
+        delete document.documentElement.dataset.skScreenSource;
+      } else {
+        document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
+      }
       flushSync(() => {
         setPending({
           href: targetHref,
@@ -462,29 +473,59 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
           localOnly,
           originHref: currentHref,
           view,
+          warm,
         });
       });
     };
 
-    window.addEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onIntent);
+    window.addEventListener(RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT, onPresentation);
     return () => {
-      window.removeEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onIntent);
+      window.removeEventListener(RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT, onPresentation);
     };
   }, [
     clearPending,
     currentHref,
     identityKey,
     identity,
+    pending,
+    privateStateAccessAllowed,
+    storage,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      online ||
+      !pending ||
+      pending.localOnly ||
+      pending.identityKey !== identityKey ||
+      currentHref !== pending.originHref
+    ) {
+      return;
+    }
+
+    const view = privateStateAccessAllowed && storage
+      ? readRuntimeScreenSafeView(storage, identity, pending.href)
+      : null;
+    document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
+    setPending({
+      ...pending,
+      localOnly: true,
+      view,
+      warm: false,
+    });
+  }, [
+    currentHref,
+    identity,
+    identityKey,
+    online,
+    pending,
     privateStateAccessAllowed,
     storage,
   ]);
 
   useLayoutEffect(() => {
     if (!pending) return;
-    if (
-      !privateStateAccessAllowed ||
-      pending.identityKey !== identityKey
-    ) {
+    if (pending.identityKey !== identityKey) {
       clearPending();
       return;
     }
@@ -514,13 +555,11 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     identity.role,
     identityKey,
     pending,
-    privateStateAccessAllowed,
   ]);
 
   useEffect(() => {
     if (
       !pending?.localOnly ||
-      !privateStateAccessAllowed ||
       pending.identityKey !== identityKey ||
       currentHref !== pending.originHref
     ) {
@@ -528,8 +567,6 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     }
     const onOnline = () => {
       setPending((value) => (value ? { ...value, localOnly: false } : value));
-      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = window.setTimeout(clearPending, PREVIEW_TIMEOUT_MS);
       router.push(pending.href);
     };
     window.addEventListener("online", onOnline, { once: true });
@@ -537,19 +574,14 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       window.removeEventListener("online", onOnline);
     };
   }, [
-    clearPending,
     currentHref,
     identityKey,
     pending,
-    privateStateAccessAllowed,
     router,
   ]);
 
   useLayoutEffect(
     () => () => {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current);
-      }
       delete document.documentElement.dataset.skScreenSource;
     },
     [],
@@ -561,14 +593,14 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
   });
   const visiblePending =
     pending &&
-    privateStateAccessAllowed &&
     pending.identityKey === identityKey &&
     (currentHref === pending.originHref || committedHref === pending.href)
       ? pending
       : null;
 
   if (!visiblePending) return children;
-  return visiblePending.view ? (
+  if (visiblePending.warm) return children;
+  return visiblePending.view && privateStateAccessAllowed ? (
     <RuntimeScreenPreview
       view={visiblePending.view}
       refreshing={online && !visiblePending.localOnly}
