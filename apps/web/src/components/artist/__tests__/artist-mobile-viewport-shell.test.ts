@@ -25,9 +25,12 @@ const globalsCss = readFileSync(
 );
 
 describe("artist mobile viewport shell", () => {
-  it("uses the measured visual viewport and keeps document scrolling disabled on mobile", () => {
+  it("anchors the standing shell instead of replaying transient visual-viewport scroll offsets", () => {
     expect(shellSource).toContain(
-      "fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden",
+      "fixed inset-x-0 top-0 flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden",
+    );
+    expect(shellSource).not.toContain(
+      "top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)]",
     );
     for (const desktopClass of [
       "lg:static",

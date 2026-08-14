@@ -73,8 +73,13 @@ export function ArtistAppShell({
       cacheEpoch={runtimeCacheEpoch}
     >
       <NativeInstallGuidance role="artist" />
+      {/* Keep the standing shell anchored while iOS rubber-bands a short
+          inner page. visualViewport.offsetTop changes during that gesture;
+          replaying it here moves the entire shell with the finger and clips
+          the in-flow navigation. Focused keyboard flows still consume the
+          measured offset on their own fixed surfaces. */}
       <div
-        className="fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden lg:static lg:h-auto lg:max-h-none lg:min-h-dvh lg:overflow-visible"
+        className="fixed inset-x-0 top-0 flex h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] overflow-hidden lg:static lg:h-auto lg:max-h-none lg:min-h-dvh lg:overflow-visible"
         style={{
           backgroundColor: "rgb(var(--bg-background))",
           backgroundImage:
