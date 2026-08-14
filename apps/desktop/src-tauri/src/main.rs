@@ -12,7 +12,9 @@ use std::time::Duration;
 use auth::{begin_social_sign_in, handle_deep_link, AuthState};
 use origin::OriginPolicy;
 #[cfg(feature = "gate1-proof")]
-use protection_bypass::{protected_entry_url, ProtectionBypass};
+use protection_bypass::{
+    protection_cookie_from_redirect, protection_cookie_matches, ProtectionBypass,
+};
 use session::{report_session_validation, start_validation_loop, SessionValidationState};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -22,6 +24,8 @@ use tauri::{
 use tauri_plugin_deep_link::DeepLinkExt;
 use timing::{consume_reveal_elapsed_ms, export_gate1_samples, record_gate1_sample, TimingState};
 use url::Url;
+#[cfg(feature = "gate1-proof")]
+use zeroize::Zeroizing;
 
 const BRIDGE_PROTOCOL_VERSION: u16 = 1;
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -39,6 +43,76 @@ struct DesktopState {
 #[tauri::command]
 async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> Result<(), String> {
     let launch_url = state.origin.endpoint("/launch")?;
+
+    #[cfg(feature = "gate1-proof")]
+    if let Some(bypass) = state.protection_bypass.as_ref() {
+        let response = bypass
+            .configure_cookie_request(state.client.get(launch_url.clone()))
+            .send()
+            .await
+            .map_err(|_| "connection-unavailable".to_string())?;
+        let cookie = protection_cookie_from_redirect(
+            response.status(),
+            response.url(),
+            response.headers(),
+            &launch_url,
+            &state.origin,
+        )
+        .map_err(|_| "connection-unavailable".to_string())?;
+
+        let cookie_name = cookie.name().to_owned();
+        let expected_cookie_value = Zeroizing::new(cookie.value().as_bytes().to_owned());
+        let expected_cookie_host = launch_url
+            .host_str()
+            .ok_or_else(|| "connection-unavailable".to_string())?;
+        let existing_cookies = window
+            .cookies_for_url(launch_url.clone())
+            .map_err(|_| "connection-unavailable".to_string())?;
+        let mut removed_existing = false;
+        for existing in existing_cookies
+            .into_iter()
+            .filter(|existing| existing.name() == cookie_name)
+        {
+            window
+                .delete_cookie(existing)
+                .map_err(|_| "connection-unavailable".to_string())?;
+            removed_existing = true;
+        }
+        if removed_existing
+            && window
+                .cookies_for_url(launch_url.clone())
+                .map_err(|_| "connection-unavailable".to_string())?
+                .iter()
+                .any(|existing| existing.name() == cookie_name)
+        {
+            return Err("connection-unavailable".into());
+        }
+        window
+            .set_cookie(cookie)
+            .map_err(|_| "connection-unavailable".to_string())?;
+        let seeded_cookies = window
+            .cookies_for_url(launch_url.clone())
+            .map_err(|_| "connection-unavailable".to_string())?;
+        let mut matching_cookies = seeded_cookies
+            .iter()
+            .filter(|stored| stored.name() == cookie_name);
+        let stored_cookie = matching_cookies.next();
+        let exactly_one = stored_cookie.is_some() && matching_cookies.next().is_none();
+        let cookie_matches = stored_cookie.is_some_and(|stored| {
+            protection_cookie_matches(
+                stored,
+                expected_cookie_value.as_slice(),
+                expected_cookie_host,
+            )
+        });
+        if !exactly_one || !cookie_matches {
+            return Err("connection-unavailable".into());
+        }
+        return window
+            .navigate(launch_url)
+            .map_err(|_| "navigation-failed".to_string());
+    }
+
     let response = state
         .client
         .get(launch_url.clone())
@@ -48,12 +122,8 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
     if !response.status().is_success() || response.url() != &launch_url {
         return Err("connection-unavailable".into());
     }
-    #[cfg(feature = "gate1-proof")]
-    let navigation_url = protected_entry_url(launch_url, state.protection_bypass.as_ref());
-    #[cfg(not(feature = "gate1-proof"))]
-    let navigation_url = launch_url;
     window
-        .navigate(navigation_url)
+        .navigate(launch_url)
         .map_err(|_| "navigation-failed".to_string())
 }
 
