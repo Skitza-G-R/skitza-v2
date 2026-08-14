@@ -2,9 +2,55 @@ import { describe, it, expect } from "vitest";
 import {
   bypassesClerkSession,
   isAccessGated,
+  isRetiredPublicPath,
+  resolveClerkAuthorizedParties,
   resolveLegacyRedirect,
   trustedOnboardingRequestHeaders,
 } from "./middleware";
+
+describe("Clerk authorized parties", () => {
+  it("allows only the public production origin in a non-Vercel production runtime", () => {
+    expect(resolveClerkAuthorizedParties({ NODE_ENV: "production" })).toEqual([
+      "https://skitza.app",
+    ]);
+  });
+
+  it("preserves exact deployment, branch-preview, and project origins on Vercel", () => {
+    expect(
+      resolveClerkAuthorizedParties({
+        NODE_ENV: "production",
+        VERCEL_URL: "skitza-v2-web-deploy-abc-gili-asrafs-projects.vercel.app",
+        VERCEL_BRANCH_URL:
+          "https://skitza-v2-web-git-giasraf-sk-229-gili-asrafs-projects.vercel.app/",
+        VERCEL_PROJECT_PRODUCTION_URL: "skitza-v2-web.vercel.app",
+      }),
+    ).toEqual([
+      "https://skitza.app",
+      "https://skitza-v2-web-deploy-abc-gili-asrafs-projects.vercel.app",
+      "https://skitza-v2-web-git-giasraf-sk-229-gili-asrafs-projects.vercel.app",
+      "https://skitza-v2-web.vercel.app",
+    ]);
+  });
+
+  it("keeps local Test development working without widening deployed origins", () => {
+    expect(resolveClerkAuthorizedParties({ NODE_ENV: "test" })).toEqual([
+      "https://skitza.app",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    ]);
+  });
+
+  it("ignores malformed, insecure, and non-Vercel deployment values", () => {
+    expect(
+      resolveClerkAuthorizedParties({
+        NODE_ENV: "production",
+        VERCEL_URL: "http://preview.vercel.app",
+        VERCEL_BRANCH_URL: "https://skitza.app.attacker.example",
+        VERCEL_PROJECT_PRODUCTION_URL: "not a URL",
+      }),
+    ).toEqual(["https://skitza.app"]);
+  });
+});
 
 describe("Clerk session bypass", () => {
   it("bypasses Clerk only for the signed Google Calendar OAuth callback", () => {
@@ -21,14 +67,14 @@ describe("Clerk session bypass", () => {
 // NextResponse). The behavior is covered by the manual QA in Task 15.
 describe("resolveLegacyRedirect", () => {
   it.each([
-    ["/dashboard/pipeline",   "/dashboard"],
-    ["/dashboard/clients",    "/dashboard"],
-    ["/dashboard/leads",      "/dashboard"],
-    ["/dashboard/bookings",   "/dashboard"],
-    ["/dashboard/contracts",  "/dashboard"],
-    ["/dashboard/invoices",   "/dashboard"],
-    ["/dashboard/inbox",      "/dashboard"],
-    ["/dashboard/library",    "/dashboard/music"],
+    ["/dashboard/pipeline", "/dashboard"],
+    ["/dashboard/clients", "/dashboard"],
+    ["/dashboard/leads", "/dashboard"],
+    ["/dashboard/bookings", "/dashboard"],
+    ["/dashboard/contracts", "/dashboard"],
+    ["/dashboard/invoices", "/dashboard"],
+    ["/dashboard/inbox", "/dashboard"],
+    ["/dashboard/library", "/dashboard/music"],
   ])("redirects %s → %s", (from, to) => {
     expect(resolveLegacyRedirect(from)).toBe(to);
   });
@@ -69,6 +115,32 @@ describe("pre-launch access gate", () => {
   });
 });
 
+describe("retired public routes", () => {
+  it.each([
+    "/changelog",
+    "/changelog/old",
+    "/get-started",
+    "/get-started/he",
+    "/get-started/thanks",
+  ])("keeps %s unavailable before and after public launch", (pathname) => {
+    expect(isRetiredPublicPath(pathname)).toBe(true);
+  });
+
+  it.each([
+    "/",
+    "/about",
+    "/privacy",
+    "/terms",
+    "/sign-in",
+    "/sign-up",
+    "/producer-access",
+    "/join/studio",
+    "/listen/token",
+  ])("does not retire required public route %s", (pathname) => {
+    expect(isRetiredPublicPath(pathname)).toBe(false);
+  });
+});
+
 describe("trusted onboarding request headers", () => {
   it("removes forged intent and preview headers when the URL is not authorized", () => {
     const headers = trustedOnboardingRequestHeaders({
@@ -78,7 +150,6 @@ describe("trusted onboarding request headers", () => {
         "x-onboarding-preview-bypass": "1",
       }),
       pathname: "/onboarding/studio",
-      searchParams: new URLSearchParams(),
       isOnboardingPreview: false,
     });
 
@@ -87,15 +158,19 @@ describe("trusted onboarding request headers", () => {
     expect(headers.get("x-onboarding-preview-bypass")).toBeNull();
   });
 
-  it("sets trusted values only from the server-derived route conditions", () => {
-    const headers = trustedOnboardingRequestHeaders({
+  it("sets only the trusted preview value after create-studio intent is retired", () => {
+    const requestContext = {
       incomingHeaders: new Headers(),
       pathname: "/onboarding/studio",
-      searchParams: new URLSearchParams("intent=create-studio"),
       isOnboardingPreview: true,
-    });
+      // Keep the retired query in the regression input even though the helper
+      // no longer accepts or trusts search params. If query-derived intent is
+      // ever reintroduced, this test must fail.
+      searchParams: new URLSearchParams("intent=create-studio"),
+    };
+    const headers = trustedOnboardingRequestHeaders(requestContext);
 
-    expect(headers.get("x-onboarding-intent")).toBe("create-studio");
+    expect(headers.get("x-onboarding-intent")).toBeNull();
     expect(headers.get("x-onboarding-preview-bypass")).toBe("1");
   });
 });

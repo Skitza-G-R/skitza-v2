@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
@@ -24,16 +24,12 @@ export default async function LegacyProductProofPage({ params, searchParams }: P
   }
 
   try {
-    const data = await appRouter
-      .createCaller({ userId })
-      .artist.purchase.proofOfPayment.state({
-        purchaseId: purchase,
-        ...(installment ? { installmentId: installment } : {}),
-      });
+    const data = await appRouter.createCaller({ userId }).artist.purchase.proofOfPayment.state({
+      purchaseId: purchase,
+      ...(installment ? { installmentId: installment } : {}),
+    });
     if (data.productId && data.productId !== productId) notFound();
-    const latest = data.proofs
-      .filter((proof) => proof.installmentId === data.installmentId)
-      .at(-1);
+    const latest = data.proofs.filter((proof) => proof.installmentId === data.installmentId).at(-1);
     if (latest) {
       redirect(
         withArtistStudio(

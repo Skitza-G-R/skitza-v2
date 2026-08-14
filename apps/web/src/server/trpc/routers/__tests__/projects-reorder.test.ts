@@ -47,10 +47,8 @@ const dbMock = {
             return Promise.resolve(handler());
           };
           const obj = {
-            then: (
-              resolve: (value: unknown) => unknown,
-              reject?: (err: unknown) => unknown,
-            ) => consume().then(resolve, reject),
+            then: (resolve: (value: unknown) => unknown, reject?: (err: unknown) => unknown) =>
+              consume().then(resolve, reject),
             limit: () => consume(),
             orderBy: () => consume(),
           };
@@ -90,6 +88,7 @@ vi.mock("@skitza/db", () => ({
   notifications: { __table: "notifications" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),
   inArray: (col: unknown, vals: unknown[]) => ({ inArray: [col, vals] }),
@@ -175,9 +174,7 @@ describe("projects.reorder", () => {
   it("rejects empty orderedIds via zod", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     const caller = await buildCaller();
-    await expect(
-      caller.project.reorder({ orderedIds: [] }),
-    ).rejects.toThrow();
+    await expect(caller.project.reorder({ orderedIds: [] })).rejects.toThrow();
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 });

@@ -279,6 +279,10 @@ describe("project.addTrack purchase-owned capacity boundary", () => {
     expect(acceptNoChargeProposal).toContain("clerkUserId: ctx.clerkUserId");
   });
 
+  it("invalidates durable no-charge proposals when the Producer account closes", () => {
+    expect(noChargeRepositorySource.match(/isNull\(producers\.closedAt\)/g)).toHaveLength(2);
+  });
+
   it("accepts the signed proposal as a separate product-backed ₪0 purchase and one track", () => {
     expect(noChargeDomainSource).toContain("acceptPurchase(transaction.purchaseRepository");
     expect(noChargeDomainSource).toContain('kind: "no_charge_add_on"');

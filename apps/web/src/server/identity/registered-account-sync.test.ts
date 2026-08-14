@@ -13,14 +13,15 @@ function repository(): RegisteredAccountSyncRepository {
   return {
     claimEvent: vi.fn().mockResolvedValue({ replayed: false }),
     tombstone: vi.fn().mockResolvedValue({ applied: true }),
-    upsertSnapshot: vi
-      .fn()
-      .mockResolvedValue({ applied: true, terminalDeleted: false }),
+    upsertSnapshot: vi.fn().mockResolvedValue({ applied: true, terminalDeleted: false }),
   };
 }
 
 const INSTANCE_ID = "ins_skitza_test";
 const DIGEST = `sha256:${"a".repeat(64)}`;
+const resolveSelf = vi.fn((identity: { providerClerkUserId: string }) =>
+  Promise.resolve(identity.providerClerkUserId),
+);
 
 describe("registered account lifecycle synchronization", () => {
   it("uses Clerk's selected primary email and verified state", () => {
@@ -175,6 +176,7 @@ describe("registered account lifecycle synchronization", () => {
       "evt_update",
       DIGEST,
       INSTANCE_ID,
+      resolveSelf,
     );
     await synchronizeRegisteredAccount(
       repo,
@@ -187,11 +189,53 @@ describe("registered account lifecycle synchronization", () => {
       "evt_delete",
       DIGEST,
       INSTANCE_ID,
+      resolveSelf,
     );
 
     expect(repo.claimEvent).toHaveBeenCalledTimes(2);
     expect(repo.upsertSnapshot).toHaveBeenCalledTimes(1);
     expect(repo.tombstone).toHaveBeenCalledTimes(1);
+  });
+
+  it("records raw webhook identity but writes the canonical application id", async () => {
+    const repo = repository();
+    const resolveCanonical = vi.fn().mockResolvedValue("user_historical");
+
+    await synchronizeRegisteredAccount(
+      repo,
+      {
+        data: {
+          banned: false,
+          created_at: 1_700_000_000_000,
+          email_addresses: [],
+          id: "user_production",
+          locked: false,
+          updated_at: 1_700_000_100_000,
+        },
+        instance_id: INSTANCE_ID,
+        timestamp: 1_700_000_100_000,
+        type: "user.updated",
+      },
+      "evt_relinked",
+      DIGEST,
+      INSTANCE_ID,
+      resolveCanonical,
+    );
+
+    expect(repo.claimEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        canonicalClerkUserId: "user_historical",
+        clerkInstanceId: INSTANCE_ID,
+        clerkUserId: "user_production",
+      }),
+    );
+    expect(repo.upsertSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clerkInstanceId: INSTANCE_ID,
+        clerkUserId: "user_historical",
+        providerClerkUserId: "user_production",
+      }),
+    );
   });
 
   it("does not fall back to a non-primary email and defaults audience to unknown", () => {
@@ -244,11 +288,7 @@ describe("registered account lifecycle synchronization", () => {
     };
 
     expect(() =>
-      parseRegisteredAccountLifecycleEvent(
-        base,
-        "evt_wrong_instance",
-        "ins_live",
-      ),
+      parseRegisteredAccountLifecycleEvent(base, "evt_wrong_instance", "ins_live"),
     ).toThrow("CLERK_INSTANCE_MISMATCH");
     expect(() =>
       parseRegisteredAccountLifecycleEvent(
@@ -273,24 +313,24 @@ describe("registered account lifecycle synchronization", () => {
 
   it("deterministically constrains a valid combined provider name to the database limit", () => {
     const parsed = parseRegisteredAccountLifecycleEvent(
-        {
-          data: {
-            banned: false,
-            created_at: 1_700_000_000_000,
-            email_addresses: [],
-            first_name: "a".repeat(80),
-            id: "user_long_name",
-            last_name: "b".repeat(80),
-            locked: false,
-            updated_at: 1_700_000_100_000,
-          },
-          instance_id: INSTANCE_ID,
-          timestamp: 1_700_000_100_000,
-          type: "user.updated",
+      {
+        data: {
+          banned: false,
+          created_at: 1_700_000_000_000,
+          email_addresses: [],
+          first_name: "a".repeat(80),
+          id: "user_long_name",
+          last_name: "b".repeat(80),
+          locked: false,
+          updated_at: 1_700_000_100_000,
         },
-        "evt_long_name",
-        INSTANCE_ID,
-      );
+        instance_id: INSTANCE_ID,
+        timestamp: 1_700_000_100_000,
+        type: "user.updated",
+      },
+      "evt_long_name",
+      INSTANCE_ID,
+    );
     expect(parsed?.kind).toBe("snapshot");
     if (parsed?.kind === "snapshot") {
       expect(parsed.snapshot.displayName).toHaveLength(160);
@@ -320,6 +360,7 @@ describe("registered account lifecycle synchronization", () => {
       "evt_replayed",
       DIGEST,
       INSTANCE_ID,
+      resolveSelf,
     );
 
     expect(result.replayed).toBe(true);
@@ -360,6 +401,7 @@ describe("registered account lifecycle synchronization", () => {
       "evt_late_created",
       DIGEST,
       INSTANCE_ID,
+      resolveSelf,
     );
 
     expect(result).toMatchObject({
@@ -369,9 +411,7 @@ describe("registered account lifecycle synchronization", () => {
   });
 
   it("makes a deletion dominate an account update at the same millisecond", async () => {
-    let conflictConfig:
-      | { setWhere: { queryChunks?: readonly unknown[] } }
-      | undefined;
+    let conflictConfig: { setWhere: { queryChunks?: readonly unknown[] } } | undefined;
     const onConflictDoUpdate = vi.fn(
       (config: { setWhere: { queryChunks?: readonly unknown[] } }) => {
         conflictConfig = config;
@@ -392,6 +432,8 @@ describe("registered account lifecycle synchronization", () => {
 
     await repository.tombstone({
       clerkUserId: "user_equal",
+      providerClerkUserId: "user_equal",
+      clerkInstanceId: INSTANCE_ID,
       eventId: "evt_delete_equal",
       providerUpdatedAt: new Date("2026-07-30T00:00:00.000Z"),
     });

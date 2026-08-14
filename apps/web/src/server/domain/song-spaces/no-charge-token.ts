@@ -1,5 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import {
+  configuredCapabilitySecrets,
+  resolveCapabilitySecret,
+  type CapabilityVerificationSecrets,
+} from "~/server/security/capability-secrets";
 import { SongSpaceDomainError } from "./service";
 
 const TOKEN_DOMAIN = "skitza:no-charge-song-space-proposal:v1";
@@ -140,6 +145,15 @@ export function signNoChargeProposalToken(
 }
 
 export function verifyNoChargeProposalToken(
+  serverSecret: CapabilityVerificationSecrets,
+  token: string,
+): NoChargeProposalPayload {
+  return resolveCapabilitySecret(serverSecret, (candidate) =>
+    verifyNoChargeProposalTokenWithSecret(candidate, token),
+  ).value;
+}
+
+function verifyNoChargeProposalTokenWithSecret(
   serverSecret: string,
   token: string,
 ): NoChargeProposalPayload {
@@ -179,9 +193,9 @@ export function verifyNoChargeProposalToken(
 }
 
 export function configuredNoChargeProposalSecret(): string {
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret) {
-    throw new Error("CLERK_SECRET_KEY is required for no-charge proposal signing");
-  }
-  return secret;
+  return configuredCapabilitySecrets().active;
+}
+
+export function configuredNoChargeProposalVerificationSecrets(): readonly string[] {
+  return configuredCapabilitySecrets().verification;
 }

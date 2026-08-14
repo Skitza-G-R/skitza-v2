@@ -52,8 +52,7 @@ const {
         if (table === producersMarker) {
           return {
             where: () => ({
-              limit: () =>
-                Promise.resolve([{ id: PRODUCER_ID, slug: "test-slug" }]),
+              limit: () => Promise.resolve([{ id: PRODUCER_ID, slug: "test-slug" }]),
             }),
           };
         }
@@ -118,6 +117,7 @@ vi.mock("@skitza/db", () => ({
   trackVersions: { __table: "track_versions" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   or: (...conds: unknown[]) => ({ or: conds }),
   desc: (col: unknown) => ({ desc: col }),
   asc: (col: unknown) => ({ asc: col }),
@@ -131,8 +131,7 @@ vi.mock("~/server/artist/identity", () => ({
 // hitting Resend in tests. Matches the (to, props) signature.
 vi.mock("~/server/email/send", () => ({
   SITE_URL: "https://skitza.app",
-  sendClientInviteEmail: (to: string, props: Record<string, unknown>) =>
-    sendEmailSpy(to, props),
+  sendClientInviteEmail: (to: string, props: Record<string, unknown>) => sendEmailSpy(to, props),
 }));
 
 beforeEach(() => {

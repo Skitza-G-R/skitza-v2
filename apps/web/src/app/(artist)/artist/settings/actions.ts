@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
@@ -35,16 +35,12 @@ export async function saveArtistTimezoneAction(input: {
 
 export async function saveArtistNotificationPreferencesAction(
   input: ResolvedArtistNotificationPreferences,
-): Promise<
-  | { ok: true; preferences: ResolvedArtistNotificationPreferences }
-  | ActionFailure
-> {
+): Promise<{ ok: true; preferences: ResolvedArtistNotificationPreferences } | ActionFailure> {
   const caller = await artistCaller();
   if (!caller) return { ok: false, error: "Sign in to update notifications." };
 
   try {
-    const preferences =
-      await caller.artistPlatform.profile.updateNotifications(input);
+    const preferences = await caller.artistPlatform.profile.updateNotifications(input);
     revalidatePath("/artist/settings");
     return { ok: true, preferences };
   } catch (error) {
@@ -92,10 +88,7 @@ export async function previewArtistDisconnectAction(input: {
 
 export async function commitArtistDisconnectAction(input: {
   producerId: string;
-}): Promise<
-  | { ok: true }
-  | { ok: false; error: string; blockers?: ArtistDisconnectBlocker[] }
-> {
+}): Promise<{ ok: true } | { ok: false; error: string; blockers?: ArtistDisconnectBlocker[] }> {
   const caller = await artistCaller();
   if (!caller) return { ok: false, error: "Sign in to manage studios." };
 

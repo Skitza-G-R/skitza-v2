@@ -114,6 +114,7 @@ async function loadArtistAcceptanceContext(
       request: purchaseRequests,
       product: products,
       producerName: producers.displayName,
+      producerClosedAt: producers.closedAt,
       taxMode: producers.taxMode,
       taxRatePct: producers.taxRatePct,
     })
@@ -135,7 +136,7 @@ async function loadArtistAcceptanceContext(
       ),
     )
     .innerJoin(producers, eq(producers.id, purchaseRequests.producerId))
-    .where(eq(purchaseRequests.id, input.purchaseRequestId))
+    .where(and(eq(purchaseRequests.id, input.purchaseRequestId), isNull(producers.closedAt)))
     .limit(1);
   if (!row) throw new StoreAcceptanceError("NOT_FOUND", "Purchase request was not found.");
   return row;
@@ -338,6 +339,7 @@ export async function acceptStorePurchase(
         request: purchaseRequests,
         product: products,
         producerName: producers.displayName,
+        producerClosedAt: producers.closedAt,
         taxMode: producers.taxMode,
         taxRatePct: producers.taxRatePct,
       })
@@ -400,6 +402,10 @@ export async function acceptStorePurchase(
         created: false,
         notification: null,
       };
+    }
+
+    if (context.producerClosedAt !== null) {
+      throw new StoreAcceptanceError("NOT_FOUND", "Purchase request was not found.");
     }
 
     if (context.request.status !== "approved") {

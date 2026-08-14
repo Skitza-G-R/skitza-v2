@@ -157,7 +157,7 @@ describe("durable multipart initiation", () => {
     expect(authorize).toContain("version.pendingAudioSizeBytes");
     expect(authorize).toContain("input.partNumber");
     expect(authorize).toContain("if (contentLength === null)");
-    expect(authorize).toContain("return { expiresAt, contentLength }");
+    expect(authorize).toContain("return issue({ expiresAt, contentLength })");
   });
 
   it("initializes and binds only rows with no write-once completion protection", () => {

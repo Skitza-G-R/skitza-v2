@@ -14,6 +14,7 @@ import {
   lte,
   notExists,
   notInArray,
+  producers,
   sql,
   googleCalendarConnections,
   googleCalendarOAuthStates,
@@ -222,6 +223,19 @@ async function lockedConnection(
   return row ?? null;
 }
 
+async function lockedProducerAuthorizationState(
+  tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
+  producerId: string,
+): Promise<Readonly<{ id: string; closedAt: Date | null }> | null> {
+  const [row] = await tx
+    .select({ id: producers.id, closedAt: producers.closedAt })
+    .from(producers)
+    .where(eq(producers.id, producerId))
+    .limit(1)
+    .for("update");
+  return row ?? null;
+}
+
 export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository {
   return {
     async getConnection(producerId) {
@@ -279,6 +293,10 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
 
     async commitAuthorization(command) {
       return db.transaction(async (tx) => {
+        const producer = await lockedProducerAuthorizationState(tx, command.producerId);
+        if (!producer || producer.closedAt !== null) {
+          return { outcome: "stale" } as const;
+        }
         const existing = await lockedConnection(tx, command.producerId);
         if (!existing) {
           if (

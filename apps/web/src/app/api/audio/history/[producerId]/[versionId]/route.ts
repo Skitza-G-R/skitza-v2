@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb } from "@skitza/db";
 
 import { loadArtistHistoricalAudioRequest } from "~/server/artist/history";
@@ -22,10 +22,7 @@ export async function GET(
   if (!UUID.test(producerId) || !UUID.test(versionId)) return audioNotFoundResponse();
 
   const downloadValues = new URL(request.url).searchParams.getAll("download");
-  if (
-    downloadValues.length > 1 ||
-    (downloadValues.length === 1 && downloadValues[0] !== "1")
-  ) {
+  if (downloadValues.length > 1 || (downloadValues.length === 1 && downloadValues[0] !== "1")) {
     return audioNotFoundResponse();
   }
 

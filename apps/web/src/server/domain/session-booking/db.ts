@@ -159,6 +159,7 @@ function createContextFromRow(
     producerId: string;
     producerName: string | null;
     producerEmail: string;
+    producerClosedAt: Date | null;
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
@@ -189,6 +190,7 @@ function createContextFromRow(
       id: row.producerId,
       name: row.producerName?.trim() || "Skitza producer",
       email: row.producerEmail,
+      closedAt: row.producerClosedAt,
       timeZone: row.timeZone,
       autoConfirmBookings: row.autoConfirmBookings,
       cancellationPolicyHours: row.cancellationPolicyHours,
@@ -237,6 +239,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           producerId: producers.id,
           producerName: producers.displayName,
           producerEmail: producers.email,
+          producerClosedAt: producers.closedAt,
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
@@ -311,6 +314,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           producerId: producers.id,
           producerName: producers.displayName,
           producerEmail: producers.email,
+          producerClosedAt: producers.closedAt,
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
@@ -395,6 +399,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           producerId: producers.id,
           producerName: producers.displayName,
           producerEmail: producers.email,
+          producerClosedAt: producers.closedAt,
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,

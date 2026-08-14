@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { NextResponse } from "next/server";
 
 import { isGoogleCalendarServerConfigured } from "~/server/google-calendar/config";

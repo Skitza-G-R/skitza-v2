@@ -34,11 +34,7 @@ function isReconciliationPage(value: unknown): value is ReconciliationPage {
   );
 }
 
-export function ReconcileRegisteredUsers({
-  environment,
-}: {
-  environment: AdminEnvironmentId;
-}) {
+export function ReconcileRegisteredUsers({ environment }: { environment: AdminEnvironmentId }) {
   const router = useRouter();
   const [cursor, setCursor] = useState<string | null>(null);
   const [key, setKey] = useState<string | null>(null);
@@ -88,9 +84,7 @@ export function ReconcileRegisteredUsers({
         );
       }
     } catch {
-      setMessage(
-        "Network interrupted. Nothing unsafe happened; retry this page.",
-      );
+      setMessage("Network interrupted. Nothing unsafe happened; retry this page.");
     } finally {
       setPending(false);
     }
@@ -106,11 +100,7 @@ export function ReconcileRegisteredUsers({
         }}
         type="button"
       >
-        {pending
-          ? "Refreshing…"
-          : cursor
-            ? "Continue refresh"
-            : "Refresh from Clerk"}
+        {pending ? "Refreshing…" : cursor ? "Continue refresh" : "Refresh from Clerk"}
       </button>
       <span aria-live="polite">{message}</span>
     </div>
@@ -145,6 +135,149 @@ export function CopyUserId({ userId }: { userId: string }) {
   );
 }
 
+type ProducerInvitationResult = Readonly<{
+  invitationId: string;
+  reused: boolean;
+  status: "accepted" | "pending";
+}>;
+
+function isProducerInvitationResult(value: unknown): value is ProducerInvitationResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const result = value as Record<string, unknown>;
+  return (
+    typeof result.invitationId === "string" &&
+    typeof result.reused === "boolean" &&
+    (result.status === "accepted" || result.status === "pending")
+  );
+}
+
+export function ProducerInvitationControl({
+  displayEmail,
+  environment,
+  userId,
+}: {
+  displayEmail: string | null;
+  environment: AdminEnvironmentId;
+  userId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [inviteKey, setInviteKey] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const environmentLabel = environment === "live" ? "Live" : "Test";
+
+  async function sendInvitation() {
+    const requestKey = inviteKey ?? operationKey("producer-invitation-create");
+    setInviteKey(requestKey);
+    setPending(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch(
+        `/api/admin/users/${encodeURIComponent(userId)}/producer-invitations?environment=${environment}`,
+        {
+          body: "{}",
+          cache: "no-store",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": requestKey,
+          },
+          method: "POST",
+        },
+      );
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isProducerInvitationResult(payload)) {
+        setError(
+          response.status === 409
+            ? "This account is no longer eligible for a Producer invitation."
+            : response.status === 423
+              ? "The admin session is locked. Refresh and unlock before retrying."
+              : "The invitation was not confirmed. Retry safely with the same button.",
+        );
+        return;
+      }
+
+      setInviteKey(null);
+      setOpen(false);
+      setMessage(
+        payload.status === "accepted"
+          ? "This Producer invitation was already accepted."
+          : payload.reused
+            ? "A marked Producer invitation is already pending for this email."
+            : `Producer invitation sent from ${environmentLabel}. It expires in 7 days.`,
+      );
+    } catch {
+      setError("The invitation was not confirmed because the network stopped. Retry safely.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className={styles.producerInviteControl}>
+      {open ? (
+        <div className={styles.producerInviteConfirmation}>
+          <strong>Send a real {environmentLabel} invitation?</strong>
+          <p>
+            Clerk will email this account’s current verified primary email.
+            {displayEmail ? ` The admin index shows ${displayEmail}.` : ""} Their Artist access
+            stays active.
+          </p>
+          <div className={styles.inlineActions}>
+            <button
+              className={styles.primaryButton}
+              disabled={pending}
+              onClick={() => {
+                void sendInvitation();
+              }}
+              type="button"
+            >
+              {pending ? "Sending…" : `Send ${environmentLabel} invitation`}
+            </button>
+            <button
+              className={styles.quietButton}
+              disabled={pending}
+              onClick={() => {
+                setOpen(false);
+                setError(null);
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          className={styles.secondaryButton}
+          onClick={() => {
+            setOpen(true);
+            setError(null);
+            setMessage(null);
+          }}
+          type="button"
+        >
+          Invite as Producer
+        </button>
+      )}
+      {message ? (
+        <p className={styles.inlineSuccess} role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className={styles.inlineError} role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 type RevealedNote = Readonly<{
   body: string;
   createdAt: string;
@@ -168,9 +301,7 @@ export function RevealSupportNote({
   userId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState<
-    "" | "safety_issue" | "support_investigation"
-  >("");
+  const [reason, setReason] = useState<"" | "safety_issue" | "support_investigation">("");
   const [note, setNote] = useState<RevealedNote | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -251,18 +382,13 @@ export function RevealSupportNote({
                 setRevealKey(null);
                 setError(null);
                 setReason(
-                  event.currentTarget.value as
-                    | ""
-                    | "safety_issue"
-                    | "support_investigation",
+                  event.currentTarget.value as "" | "safety_issue" | "support_investigation",
                 );
               }}
               value={reason}
             >
               <option value="">Choose a reason</option>
-              <option value="support_investigation">
-                Support investigation
-              </option>
+              <option value="support_investigation">Support investigation</option>
               <option value="safety_issue">Safety issue</option>
             </select>
           </label>

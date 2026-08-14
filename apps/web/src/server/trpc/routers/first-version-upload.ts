@@ -40,6 +40,10 @@ import {
 } from "~/server/domain/first-version-uploads/service";
 import { reconcileProducerFirstVersionUploadReservations } from "~/server/domain/first-version-uploads/reconciliation";
 import {
+  lockProducerCapabilityState,
+  type LockedProducerCapabilityState,
+} from "~/server/domain/producer-capabilities/open-state";
+import {
   FirstVersionUploadPresignError,
   buildFirstVersionStagingKey,
   computeFirstVersionUploadPeaks,
@@ -350,6 +354,12 @@ function mapFirstVersionUploadError(error: unknown): never {
   }
 }
 
+function requireFirstVersionProducerOpen(producer: LockedProducerCapabilityState | null): void {
+  if (!producer || producer.closedAt !== null) {
+    throw new FirstVersionUploadError("INACTIVE", "This studio is closed");
+  }
+}
+
 function assertIntentCanUpload(
   intent: {
     requestDigest: string;
@@ -518,6 +528,7 @@ export const firstVersionUploadRouter = router({
       });
       const { intent, inserted } = await ctx.db.transaction(async (tx) => {
         await lockProducerAudioStorageQuota(tx, ctx.producerId);
+        const producer = await lockProducerCapabilityState(tx, ctx.producerId);
         const [racedExisting] = await tx
           .select()
           .from(firstVersionUploadIntents)
@@ -530,6 +541,7 @@ export const firstVersionUploadRouter = router({
           .limit(1);
         if (racedExisting) {
           assertIntentCanUpload(racedExisting, requestDigest);
+          if (!racedExisting.completedAt) requireFirstVersionProducerOpen(producer);
           if (racedExisting.stagingSealedAt && !racedExisting.completedAt) {
             throw new FirstVersionUploadError(
               "CONFLICT",
@@ -539,6 +551,7 @@ export const firstVersionUploadRouter = router({
           return { intent: racedExisting, inserted: null };
         }
 
+        requireFirstVersionProducerOpen(producer);
         await assertProducerAudioStorageAvailable(tx, ctx.producerId, input.sizeBytes);
         const [newIntent] = await tx
           .insert(firstVersionUploadIntents)
@@ -607,6 +620,7 @@ export const firstVersionUploadRouter = router({
         presign: () =>
           ctx.db.transaction(async (tx) => {
             await lockProducerAudioStorageQuota(tx, ctx.producerId);
+            const producer = await lockProducerCapabilityState(tx, ctx.producerId);
             const [lockedIntent] = await tx
               .select()
               .from(firstVersionUploadIntents)
@@ -638,6 +652,7 @@ export const firstVersionUploadRouter = router({
               }
               return { status: "completed" as const, capability: null };
             }
+            requireFirstVersionProducerOpen(producer);
             if (lockedIntent.stagingSealedAt) {
               throw new FirstVersionUploadError(
                 "CONFLICT",
@@ -841,6 +856,7 @@ export const firstVersionUploadRouter = router({
       });
       const { intent, inserted } = await ctx.db.transaction(async (tx) => {
         await lockProducerAudioStorageQuota(tx, ctx.producerId);
+        const producer = await lockProducerCapabilityState(tx, ctx.producerId);
 
         // The unlocked fast-path above keeps ordinary retries cheap. Recheck
         // under the producer quota lock so two different server instances can
@@ -858,6 +874,7 @@ export const firstVersionUploadRouter = router({
           .for("update");
         if (racedExisting) {
           assertIntentCanUpload(racedExisting, requestDigest);
+          if (!racedExisting.completedAt) requireFirstVersionProducerOpen(producer);
           const legacyIntent = await upgradeLegacyIntentIfNeeded(
             tx,
             ctx.producerId,
@@ -873,6 +890,7 @@ export const firstVersionUploadRouter = router({
           return { intent: legacyIntent, inserted: null };
         }
 
+        requireFirstVersionProducerOpen(producer);
         await assertProducerAudioStorageAvailable(tx, ctx.producerId, input.sizeBytes);
         const [newIntent] = await tx
           .insert(firstVersionUploadIntents)
@@ -961,6 +979,7 @@ export const firstVersionUploadRouter = router({
         presign: () =>
           ctx.db.transaction(async (tx) => {
             await lockProducerAudioStorageQuota(tx, ctx.producerId);
+            const producer = await lockProducerCapabilityState(tx, ctx.producerId);
             const [lockedIntent] = await tx
               .select()
               .from(firstVersionUploadIntents)
@@ -995,6 +1014,7 @@ export const firstVersionUploadRouter = router({
               }
               return { status: "completed" as const, capability: null };
             }
+            requireFirstVersionProducerOpen(producer);
             if (lockedIntent.stagingSealedAt) {
               throw new FirstVersionUploadError(
                 "CONFLICT",
@@ -1093,6 +1113,7 @@ export const firstVersionUploadRouter = router({
       // A retry may authorize the same binding, but can never rewrite it.
       const boundIntent = await ctx.db.transaction(async (tx) => {
         await lockProducerAudioStorageQuota(tx, ctx.producerId);
+        const producer = await lockProducerCapabilityState(tx, ctx.producerId);
         const [lockedIntent] = await tx
           .select()
           .from(firstVersionUploadIntents)
@@ -1131,6 +1152,7 @@ export const firstVersionUploadRouter = router({
         if (lockedIntent.finalizationDigest) {
           assertBoundAudioUploadIntent(lockedIntent);
           assertFinalizeInputMatchesBinding(lockedIntent, normalized);
+          if (!lockedIntent.completedAt) requireFirstVersionProducerOpen(producer);
           return lockedIntent;
         }
         if (
@@ -1145,6 +1167,8 @@ export const firstVersionUploadRouter = router({
             "This legacy upload must be finished from the flow that started it",
           );
         }
+
+        requireFirstVersionProducerOpen(producer);
 
         let binding: Omit<BoundAudioUploadIntent, keyof FirstVersionUploadIntentRow> &
           Pick<
@@ -1411,6 +1435,7 @@ export const firstVersionUploadRouter = router({
 
       const completed = await ctx.db.transaction(async (tx) => {
         await lockProducerAudioStorageQuota(tx, ctx.producerId);
+        const producer = await lockProducerCapabilityState(tx, ctx.producerId);
         const [lockedIntent] = await tx
           .select()
           .from(firstVersionUploadIntents)
@@ -1486,6 +1511,8 @@ export const firstVersionUploadRouter = router({
               : ({ code: "EXPIRED" as const, message: "This upload expired." } as const),
           };
         }
+
+        requireFirstVersionProducerOpen(producer);
 
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${lockedIntent.projectId}, 0))`,
@@ -1731,6 +1758,7 @@ export const firstVersionUploadRouter = router({
       try {
         const completed = await ctx.db.transaction(async (tx) => {
           await lockProducerAudioStorageQuota(tx, ctx.producerId);
+          const producer = await lockProducerCapabilityState(tx, ctx.producerId);
           const [selectedIntent] = await tx
             .select()
             .from(firstVersionUploadIntents)
@@ -1830,6 +1858,7 @@ export const firstVersionUploadRouter = router({
                   } as const),
             };
           }
+          requireFirstVersionProducerOpen(producer);
           assertIntentCanUpload(lockedIntent, lockedIntent.requestDigest);
           await tx.execute(
             sql`select pg_advisory_xact_lock(hashtextextended(${lockedIntent.projectId}, 0))`,

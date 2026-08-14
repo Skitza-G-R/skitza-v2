@@ -16,5 +16,8 @@ export const artistProcedure = publicProcedure.use(async ({ ctx, next }) => {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing DATABASE_URL" });
   }
   const db = createDb(dbUrl);
+  if (ctx.accountClosureStarted) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "account closure started" });
+  }
   return next({ ctx: { ...ctx, db, clerkUserId: ctx.userId } });
 });

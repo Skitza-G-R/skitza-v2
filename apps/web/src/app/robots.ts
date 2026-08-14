@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 const BASE = process.env.SITE_URL ?? "https://skitza.app";
 
 // Crawl policy:
-// * / , /about, /privacy, /terms, /changelog, /sign-up, /sign-in are
+// * / , /about, /privacy, /terms, /sign-up, /sign-in are
 //   the marketing surface area — allow.
 // * /dashboard/* and /onboarding — auth-gated, no value to index.
 // * /join/* — the artist funnel requires Clerk signup; no durable
@@ -22,8 +22,10 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/about", "/privacy", "/terms", "/changelog", "/sign-in", "/sign-up"],
+        allow: ["/", "/about", "/privacy", "/terms", "/sign-in", "/sign-up"],
         disallow: [
+          "/changelog",
+          "/get-started",
           "/dashboard",
           "/onboarding",
           "/join/",

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  ProducerRow,
-  UserAccountMemberships,
-} from "../role";
+import type { ProducerRow, UserAccountMemberships } from "../role";
 import {
   chosenRoleDestination,
   joinSignUpHrefFromTarget,
@@ -66,8 +63,7 @@ describe("sanitizePostSignInTarget", () => {
     [
       "/artist/payments/purchase-1/proof?return=%2Fartist%2Fpayments",
       {
-        href:
-          "/artist/payments/purchase-1/proof?return=%2Fartist%2Fpayments",
+        href: "/artist/payments/purchase-1/proof?return=%2Fartist%2Fpayments",
         platform: "artist",
       },
     ],
@@ -162,9 +158,7 @@ describe("sanitizePostSignInTarget", () => {
   });
 
   it("rejects an unbounded target", () => {
-    expect(
-      sanitizePostSignInTarget(`/artist?search=${"a".repeat(2100)}`),
-    ).toBeNull();
+    expect(sanitizePostSignInTarget(`/artist?search=${"a".repeat(2100)}`)).toBeNull();
   });
 });
 
@@ -174,31 +168,23 @@ describe("postSignInResolverHref", () => {
   });
 
   it("nests a safe deep link under the authenticated resolver", () => {
-    expect(
-      postSignInResolverHref("/artist/music/song/version-1?studio=studio-a"),
-    ).toBe(
+    expect(postSignInResolverHref("/artist/music/song/version-1?studio=studio-a")).toBe(
       "/auth/resolve?next=%2Fartist%2Fmusic%2Fsong%2Fversion-1%3Fstudio%3Dstudio-a",
     );
   });
 
   it("drops an unsafe deep link", () => {
-    expect(postSignInResolverHref("https://evil.example/artist")).toBe(
-      "/auth/resolve",
-    );
+    expect(postSignInResolverHref("https://evil.example/artist")).toBe("/auth/resolve");
   });
 
   it("keeps the producer slug and booking action for join-origin sign-in", () => {
-    expect(
-      postSignInResolverHref("/join/studio-slug/continue?action=book"),
-    ).toBe(
+    expect(postSignInResolverHref("/join/studio-slug/continue?action=book")).toBe(
       "/auth/resolve?next=%2Fjoin%2Fstudio-slug%2Fcontinue%3Faction%3Dbook",
     );
   });
 
   it("normalizes a legacy Store continuation to Home during sign-in", () => {
-    expect(
-      postSignInResolverHref("/join/studio-slug/continue?action=store"),
-    ).toBe(
+    expect(postSignInResolverHref("/join/studio-slug/continue?action=store")).toBe(
       "/auth/resolve?next=%2Fjoin%2Fstudio-slug%2Fcontinue%3Faction%3Dhome",
     );
   });
@@ -206,97 +192,68 @@ describe("postSignInResolverHref", () => {
   it.each(["---", "-studio", "studio-", "s".repeat(48)])(
     "accepts persisted public-slug boundary %s",
     (slug) => {
-      expect(
-        postSignInResolverHref(`/join/${slug}/continue?action=book`),
-      ).toContain(encodeURIComponent(`/join/${slug}/continue?action=book`));
+      expect(postSignInResolverHref(`/join/${slug}/continue?action=book`)).toContain(
+        encodeURIComponent(`/join/${slug}/continue?action=book`),
+      );
     },
   );
 
   it.each(["ab", "s".repeat(49), "Studio", "studio/other"])(
     "rejects an invalid join slug %s",
     (slug) => {
-      expect(
-        postSignInResolverHref(`/join/${slug}/continue?action=book`),
-      ).toBe("/auth/resolve");
+      expect(postSignInResolverHref(`/join/${slug}/continue?action=book`)).toBe("/auth/resolve");
     },
   );
 });
 
 describe("postSignUpResolverHref", () => {
   it("keeps a successful normal-invite signup on the validated Home continuation", () => {
-    expect(
-      postSignUpResolverHref(
-        "/join/northline-studio/continue?action=home",
-      ),
-    ).toBe(
+    expect(postSignUpResolverHref("/join/northline-studio/continue?action=home")).toBe(
       "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
     );
 
-    expect(
-      postSignInResolverHref(
-        "/join/northline-studio/continue?action=home",
-      ),
-    ).toBe(
+    expect(postSignInResolverHref("/join/northline-studio/continue?action=home")).toBe(
       "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
     );
   });
 
-  it.each(["book", "unlock"])(
-    "keeps the existing %s signup continuation unchanged",
-    (action) => {
-      const target = `/join/northline-studio/continue?action=${action}`;
-      expect(postSignUpResolverHref(target)).toBe(
-        postSignInResolverHref(target),
-      );
-    },
-  );
+  it.each(["book", "unlock"])("keeps the existing %s signup continuation unchanged", (action) => {
+    const target = `/join/northline-studio/continue?action=${action}`;
+    expect(postSignUpResolverHref(target)).toBe(postSignInResolverHref(target));
+  });
 
   it("keeps a legacy Store signup URL valid but sends it to Home", () => {
-    expect(
-      postSignUpResolverHref(
-        "/join/northline-studio/continue?action=store",
-      ),
-    ).toBe(
+    expect(postSignUpResolverHref("/join/northline-studio/continue?action=store")).toBe(
       "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
     );
   });
 
   it("drops an invalid Producer context instead of constructing a destination", () => {
+    expect(postSignUpResolverHref("/join/Invalid/continue?action=home")).toBe("/auth/resolve");
     expect(
-      postSignUpResolverHref(
-        "/join/Invalid/continue?action=home",
-      ),
-    ).toBe("/auth/resolve");
-    expect(
-      postSignUpResolverHref(
-        "https://evil.example/join/northline-studio/continue?action=home",
-      ),
+      postSignUpResolverHref("https://evil.example/join/northline-studio/continue?action=home"),
     ).toBe("/auth/resolve");
   });
 });
 
 describe("joinSignUpMetadataFromTarget", () => {
   it("derives Artist metadata only from a strictly validated join continuation", () => {
-    expect(
-      joinSignUpMetadataFromTarget(
-        "/join/northline-studio/continue?action=book",
-      ),
-    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
-    expect(
-      joinSignUpMetadataFromTarget(
-        "/join/northline-studio/continue?action=unlock",
-      ),
-    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
-    expect(
-      joinSignUpMetadataFromTarget(
-        "/join/northline-studio/continue?action=home",
-      ),
-    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
-    expect(
-      joinSignUpMetadataFromTarget(
-        "/join/northline-studio/continue?action=store",
-      ),
-    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+    expect(joinSignUpMetadataFromTarget("/join/northline-studio/continue?action=book")).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
+    expect(joinSignUpMetadataFromTarget("/join/northline-studio/continue?action=unlock")).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
+    expect(joinSignUpMetadataFromTarget("/join/northline-studio/continue?action=home")).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
+    expect(joinSignUpMetadataFromTarget("/join/northline-studio/continue?action=store")).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
   });
 
   it.each([
@@ -312,26 +269,18 @@ describe("joinSignUpMetadataFromTarget", () => {
 
 describe("joinSignUpHrefFromTarget", () => {
   it("marks Book, Unlock, and Home switches as explicit account creation", () => {
-    expect(
-      joinSignUpHrefFromTarget(
-        "/join/northline-studio/continue?action=book",
-      ),
-    ).toBe("/sign-up/join/northline-studio/book?intent=signup");
-    expect(
-      joinSignUpHrefFromTarget(
-        "/join/northline-studio/continue?action=unlock",
-      ),
-    ).toBe("/sign-up/join/northline-studio/unlock?intent=signup");
-    expect(
-      joinSignUpHrefFromTarget(
-        "/join/northline-studio/continue?action=home",
-      ),
-    ).toBe("/sign-up/join/northline-studio/home?intent=signup");
-    expect(
-      joinSignUpHrefFromTarget(
-        "/join/northline-studio/continue?action=store",
-      ),
-    ).toBe("/sign-up/join/northline-studio/home?intent=signup");
+    expect(joinSignUpHrefFromTarget("/join/northline-studio/continue?action=book")).toBe(
+      "/sign-up/join/northline-studio/book?intent=signup",
+    );
+    expect(joinSignUpHrefFromTarget("/join/northline-studio/continue?action=unlock")).toBe(
+      "/sign-up/join/northline-studio/unlock?intent=signup",
+    );
+    expect(joinSignUpHrefFromTarget("/join/northline-studio/continue?action=home")).toBe(
+      "/sign-up/join/northline-studio/home?intent=signup",
+    );
+    expect(joinSignUpHrefFromTarget("/join/northline-studio/continue?action=store")).toBe(
+      "/sign-up/join/northline-studio/home?intent=signup",
+    );
   });
 });
 
@@ -347,9 +296,7 @@ describe("same-origin Clerk transfer targets", () => {
       origin,
     );
 
-    expect(normalized).toBe(
-      "/join/northline-studio/continue?action=book",
-    );
+    expect(normalized).toBe("/join/northline-studio/continue?action=book");
     expect(joinSignUpMetadataFromTarget(normalized)).toEqual({
       signupOrigin: "join",
       producerSlug: "northline-studio",
@@ -361,12 +308,7 @@ describe("same-origin Clerk transfer targets", () => {
     "https://preview.example.test@evil.example/join/northline-studio/continue?action=book",
     "https://preview.example.test/join/northline-studio/continue?action=book#unsafe",
   ])("rejects a non-equivalent absolute transfer target %s", (target) => {
-    expect(
-      normalizeSameOriginPostSignInTarget(
-        target,
-        "https://preview.example.test",
-      ),
-    ).toBeNull();
+    expect(normalizeSameOriginPostSignInTarget(target, "https://preview.example.test")).toBeNull();
   });
 
   it("rejects malformed forwarded request origins", () => {
@@ -382,9 +324,7 @@ describe("same-origin Clerk transfer targets", () => {
 
 describe("postSignInDestination", () => {
   it("does not replay generic Producer signup intent for a completed account", () => {
-    expect(postSignInDestination(producerOnly, "/onboarding")).toBe(
-      "/dashboard",
-    );
+    expect(postSignInDestination(producerOnly, "/onboarding")).toBe("/dashboard");
     expect(
       postSignInDestination(
         {
@@ -397,52 +337,34 @@ describe("postSignInDestination", () => {
     ).toBe("/onboarding");
   });
 
-  it("preserves an explicit Create-a-studio onboarding action", () => {
-    expect(
-      postSignInDestination(
-        producerOnly,
-        "/onboarding/studio?intent=create-studio",
-      ),
-    ).toBe("/onboarding/studio?intent=create-studio");
+  it("preserves an onboarding deep link for an existing Producer", () => {
+    expect(postSignInDestination(producerOnly, "/onboarding/studio")).toBe("/onboarding/studio");
   });
 
   it("preserves a matching artist deep link", () => {
-    expect(
-      postSignInDestination(
-        artistOnly,
-        "/artist/music/song/version-1?studio=studio-a",
-      ),
-    ).toBe("/artist/music/song/version-1?studio=studio-a");
+    expect(postSignInDestination(artistOnly, "/artist/music/song/version-1?studio=studio-a")).toBe(
+      "/artist/music/song/version-1?studio=studio-a",
+    );
   });
 
   it("preserves a matching producer deep link", () => {
     expect(
-      postSignInDestination(
-        producerOnly,
-        "/dashboard/clients-projects/project-1?song=song-1",
-      ),
+      postSignInDestination(producerOnly, "/dashboard/clients-projects/project-1?song=song-1"),
     ).toBe("/dashboard/clients-projects/project-1?song=song-1");
   });
 
   it.each([artistOnly, producerOnly, dualRole])(
     "returns every signed-in account to the same guest Song link",
     (memberships) => {
-      expect(
-        postSignInDestination(
-          memberships,
-          "/listen/guest_song-token_123.signature_456",
-        ),
-      ).toBe("/listen/guest_song-token_123.signature_456");
+      expect(postSignInDestination(memberships, "/listen/guest_song-token_123.signature_456")).toBe(
+        "/listen/guest_song-token_123.signature_456",
+      );
     },
   );
 
   it("drops a cross-role deep link for a single-role account", () => {
-    expect(postSignInDestination(artistOnly, "/dashboard/music")).toBe(
-      "/artist",
-    );
-    expect(postSignInDestination(producerOnly, "/artist/music")).toBe(
-      "/dashboard",
-    );
+    expect(postSignInDestination(artistOnly, "/dashboard/music")).toBe("/artist");
+    expect(postSignInDestination(producerOnly, "/artist/music")).toBe("/dashboard");
   });
 
   it("routes an incomplete producer to onboarding", () => {
@@ -458,7 +380,7 @@ describe("postSignInDestination", () => {
     ).toBe("/onboarding");
   });
 
-  it("routes a webhook-race orphan to onboarding", () => {
+  it("routes an authenticated account without a role to Producer invitation information", () => {
     expect(
       postSignInDestination(
         {
@@ -468,7 +390,7 @@ describe("postSignInDestination", () => {
         },
         null,
       ),
-    ).toBe("/onboarding");
+    ).toBe("/producer-access");
   });
 
   it("keeps a disconnected artist account on the artist platform", () => {
@@ -485,48 +407,31 @@ describe("postSignInDestination", () => {
   });
 
   it("lets an explicit Artist deep link override Producer precedence", () => {
-    expect(
-      postSignInDestination(
-        dualRole,
-        "/artist/music/song/version-1?studio=studio-a",
-      ),
-    ).toBe("/artist/music/song/version-1?studio=studio-a");
-  });
-
-  it("keeps Artist mode usable while Producer setup is unfinished", () => {
-    expect(
-      postSignInDestination(
-        incompleteDualRole,
-        "/artist/book?studio=producer-target",
-      ),
-    ).toBe("/artist/book?studio=producer-target");
-  });
-
-  it("preserves only the exact Create-a-studio action for an Artist after sign-in", () => {
-    expect(
-      postSignInDestination(
-        artistOnly,
-        "/onboarding/studio?intent=create-studio",
-      ),
-    ).toBe("/onboarding/studio?intent=create-studio");
-    expect(
-      postSignInDestination(
-        artistOnly,
-        "/onboarding/studio?intent=create-studio&next=/dashboard",
-      ),
-    ).toBe("/artist");
-    expect(postSignInDestination(artistOnly, "/onboarding/studio")).toBe(
-      "/artist",
+    expect(postSignInDestination(dualRole, "/artist/music/song/version-1?studio=studio-a")).toBe(
+      "/artist/music/song/version-1?studio=studio-a",
     );
   });
 
-  it("preserves join intent for a Producer so the join route can ask for confirmation", () => {
+  it("keeps Artist mode usable while Producer setup is unfinished", () => {
+    expect(postSignInDestination(incompleteDualRole, "/artist/book?studio=producer-target")).toBe(
+      "/artist/book?studio=producer-target",
+    );
+  });
+
+  it("never treats a create-studio URL as Producer access for an Artist", () => {
+    expect(postSignInDestination(artistOnly, "/onboarding/studio?intent=create-studio")).toBe(
+      "/artist",
+    );
     expect(
-      postSignInDestination(
-        producerOnly,
-        "/join/studio-slug/continue?action=book",
-      ),
-    ).toBe("/join/studio-slug/continue?action=book");
+      postSignInDestination(artistOnly, "/onboarding/studio?intent=create-studio&next=/dashboard"),
+    ).toBe("/artist");
+    expect(postSignInDestination(artistOnly, "/onboarding/studio")).toBe("/artist");
+  });
+
+  it("preserves join intent for a Producer so the join route can ask for confirmation", () => {
+    expect(postSignInDestination(producerOnly, "/join/studio-slug/continue?action=book")).toBe(
+      "/join/studio-slug/continue?action=book",
+    );
   });
 
   it("preserves the intended target when an unauthenticated resolver is revisited", () => {
@@ -546,21 +451,11 @@ describe("postSignInDestination", () => {
 describe("chosenRoleDestination", () => {
   it("preserves only a deep link owned by the chosen role", () => {
     expect(
-      chosenRoleDestination(
-        dualRole,
-        "artist",
-        "/artist/music/song/version-1?studio=studio-a",
-      ),
+      chosenRoleDestination(dualRole, "artist", "/artist/music/song/version-1?studio=studio-a"),
     ).toBe("/artist/music/song/version-1?studio=studio-a");
+    expect(chosenRoleDestination(dualRole, "producer", "/artist/music")).toBe("/dashboard");
     expect(
-      chosenRoleDestination(dualRole, "producer", "/artist/music"),
-    ).toBe("/dashboard");
-    expect(
-      chosenRoleDestination(
-        dualRole,
-        "producer",
-        "/dashboard/clients-projects/project-1",
-      ),
+      chosenRoleDestination(dualRole, "producer", "/dashboard/clients-projects/project-1"),
     ).toBe("/dashboard/clients-projects/project-1");
   });
 
@@ -579,12 +474,8 @@ describe("chosenRoleDestination", () => {
   });
 
   it("refuses a role the account does not own", () => {
-    expect(
-      chosenRoleDestination(artistOnly, "producer", "/dashboard/music"),
-    ).toBe("/artist");
-    expect(
-      chosenRoleDestination(producerOnly, "artist", "/artist/music"),
-    ).toBe("/dashboard");
+    expect(chosenRoleDestination(artistOnly, "producer", "/dashboard/music")).toBe("/artist");
+    expect(chosenRoleDestination(producerOnly, "artist", "/artist/music")).toBe("/dashboard");
   });
 
   it("does not trust an impossible artist flag without an authenticated identity", () => {

@@ -1,5 +1,9 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import {
+  clerkMiddleware,
+  createRouteMatcher,
+  type ClerkMiddlewareAuth,
+} from "@clerk/nextjs/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import {
@@ -24,21 +28,21 @@ const isProtected = createRouteMatcher([
 // view on Today, or merged into Setup. Emailed links + bookmarks
 // land here — returning a 301 keeps them working.
 const STATIC_REDIRECTS: Record<string, string> = {
-  "/dashboard/pipeline":  "/dashboard",
-  "/dashboard/clients":   "/dashboard",
-  "/dashboard/leads":     "/dashboard",
-  "/dashboard/bookings":  "/dashboard",  // plural — never existed but listed for safety
+  "/dashboard/pipeline": "/dashboard",
+  "/dashboard/clients": "/dashboard",
+  "/dashboard/leads": "/dashboard",
+  "/dashboard/bookings": "/dashboard", // plural — never existed but listed for safety
   // P2-A-7: /booking → /calendar (booking shell still exists for now,
   // but the canonical home for session/availability work is the new
   // Calendar page); /revenue collapsed back into Today; /projects
   // renamed to /clients-projects to match the PRD §4 producer surface.
-  "/dashboard/booking":   "/dashboard/calendar",
-  "/dashboard/revenue":   "/dashboard",
-  "/dashboard/projects":  "/dashboard/clients-projects",
+  "/dashboard/booking": "/dashboard/calendar",
+  "/dashboard/revenue": "/dashboard",
+  "/dashboard/projects": "/dashboard/clients-projects",
   "/dashboard/contracts": "/dashboard",
-  "/dashboard/invoices":  "/dashboard",
-  "/dashboard/inbox":     "/dashboard",
-  "/dashboard/library":   "/dashboard/music",
+  "/dashboard/invoices": "/dashboard",
+  "/dashboard/inbox": "/dashboard",
+  "/dashboard/library": "/dashboard/music",
   // /dashboard/portfolio was redirected into settings while portfolio
   // lived as a settings tab. As of PR #142 (2026-05-18) the route is
   // the canonical Portfolio page (two-column showcase canvas, exposed
@@ -53,7 +57,7 @@ const STATIC_REDIRECTS: Record<string, string> = {
   //     blackouts + booking policies live next to the schedule grid.
   // The legacy /dashboard/services and /dashboard/availability paths
   // 301 to the new homes so any prior bookmarks resolve cleanly.
-  "/dashboard/services":     "/dashboard/profile?tab=store",
+  "/dashboard/services": "/dashboard/profile?tab=store",
   "/dashboard/availability": "/dashboard/calendar?tab=availability",
 };
 
@@ -68,7 +72,7 @@ const DYNAMIC_PREFIXES = [
   "/dashboard/contracts/",
   "/dashboard/leads/",
   "/dashboard/clients/",
-  "/dashboard/deals/",      // legacy — predates the projects rename
+  "/dashboard/deals/", // legacy — predates the projects rename
 ];
 
 export function resolveLegacyRedirect(pathname: string): string | null {
@@ -100,9 +104,55 @@ export function resolveLegacyRedirect(pathname: string): string | null {
 // and only delegate to Clerk when access is allowed.
 const ACCESS_COOKIE = "skitza-access";
 const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/integrations/google-calendar/callback";
+const RETIRED_PUBLIC_PATHS = ["/changelog", "/get-started"] as const;
+const PRODUCTION_ORIGIN = "https://skitza.app";
+const LOCAL_DEVELOPMENT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"] as const;
+const VERCEL_ORIGIN_ENV_KEYS = [
+  "VERCEL_URL",
+  "VERCEL_BRANCH_URL",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+] as const;
+
+type ClerkAuthorizedPartiesEnvironment = {
+  NODE_ENV?: string;
+} & Partial<Record<(typeof VERCEL_ORIGIN_ENV_KEYS)[number], string>>;
+
+function exactVercelOrigin(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".vercel.app")) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveClerkAuthorizedParties(
+  environment: ClerkAuthorizedPartiesEnvironment = process.env,
+): string[] {
+  const parties = new Set<string>([PRODUCTION_ORIGIN]);
+
+  if (environment.NODE_ENV !== "production") {
+    for (const origin of LOCAL_DEVELOPMENT_ORIGINS) parties.add(origin);
+  }
+
+  for (const key of VERCEL_ORIGIN_ENV_KEYS) {
+    const origin = exactVercelOrigin(environment[key]);
+    if (origin) parties.add(origin);
+  }
+
+  return [...parties];
+}
 
 export function bypassesClerkSession(pathname: string): boolean {
   return pathname === GOOGLE_CALENDAR_CALLBACK_PATH;
+}
+
+export function isRetiredPublicPath(pathname: string): boolean {
+  return RETIRED_PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
 export function isAccessGated(pathname: string): boolean {
@@ -110,8 +160,6 @@ export function isAccessGated(pathname: string): boolean {
   // (Clerk, Stripe, Resend) keep working without the token.
   if (pathname.startsWith("/api/") || pathname === "/api") return false;
   if (pathname.startsWith("/trpc/") || pathname === "/trpc") return false;
-  // /get-started is the public funnel entry — always reachable without the gate.
-  if (pathname === "/get-started" || pathname.startsWith("/get-started/")) return false;
   // /launch is a force-static, no-data bootstrap used by the installed app.
   // Its authenticated resolver remains gated and network-only.
   if (pathname === "/launch") return false;
@@ -125,25 +173,18 @@ export function isAccessGated(pathname: string): boolean {
 export function trustedOnboardingRequestHeaders(input: {
   incomingHeaders: Headers;
   pathname: string;
-  searchParams: URLSearchParams;
   isOnboardingPreview: boolean;
 }): Headers {
   const requestHeaders = new Headers(input.incomingHeaders);
 
   // These values cross an authorization boundary. Never trust namesakes on
   // the incoming request: clear them before deriving fresh values from the
-  // server-observed pathname, query, environment, and preview predicate.
+  // server-observed pathname and preview predicate.
   requestHeaders.delete("x-pathname");
   requestHeaders.delete("x-onboarding-intent");
   requestHeaders.delete("x-onboarding-preview-bypass");
   requestHeaders.set("x-pathname", input.pathname);
 
-  if (
-    input.pathname === "/onboarding/studio" &&
-    input.searchParams.get("intent") === "create-studio"
-  ) {
-    requestHeaders.set("x-onboarding-intent", "create-studio");
-  }
   if (input.isOnboardingPreview) {
     requestHeaders.set("x-onboarding-preview-bypass", "1");
   }
@@ -151,7 +192,7 @@ export function trustedOnboardingRequestHeaders(input: {
   return requestHeaders;
 }
 
-const clerk = clerkMiddleware(async (auth, req) => {
+const clerkHandler = async (auth: ClerkMiddlewareAuth, req: NextRequest) => {
   const { userId } = await auth();
   const returningDeviceCookie = req.cookies.get(RETURNING_DEVICE_COOKIE)?.value;
   const finalizeResponse = (response: NextResponse) => {
@@ -189,8 +230,7 @@ const clerk = clerkMiddleware(async (auth, req) => {
   // environment, so this branch is unreachable from any deployed URL.
   // See lib/onboarding/dev-preview.ts for the gate logic + tests.
   const isOnboardingPreview =
-    req.nextUrl.pathname.startsWith("/onboarding") &&
-    isDevPreviewBypass(req.nextUrl.searchParams);
+    req.nextUrl.pathname.startsWith("/onboarding") && isDevPreviewBypass(req.nextUrl.searchParams);
 
   if (isProtected(req) && !isOnboardingPreview) {
     const target = req.nextUrl.pathname + req.nextUrl.search;
@@ -223,7 +263,6 @@ const clerk = clerkMiddleware(async (auth, req) => {
     const requestHeaders = trustedOnboardingRequestHeaders({
       incomingHeaders: req.headers,
       pathname: req.nextUrl.pathname,
-      searchParams: req.nextUrl.searchParams,
       isOnboardingPreview,
     });
     // Forward the dev-preview bypass signal so the (onboarding) layout
@@ -232,18 +271,24 @@ const clerk = clerkMiddleware(async (auth, req) => {
     // search params from the URL directly, so we hop the signal across
     // the request/response boundary as a header. Same NODE_ENV +
     // ?__preview=1 gate as above — see lib/onboarding/dev-preview.ts.
-    return finalizeResponse(
-      NextResponse.next({ request: { headers: requestHeaders } }),
-    );
+    return finalizeResponse(NextResponse.next({ request: { headers: requestHeaders } }));
   }
 
   return finalizeResponse(NextResponse.next());
+};
+
+const clerk = clerkMiddleware(clerkHandler, {
+  authorizedParties: resolveClerkAuthorizedParties(),
 });
 
 export default async function middleware(
   req: Parameters<typeof clerk>[0],
   ev: Parameters<typeof clerk>[1],
 ) {
+  if (isRetiredPublicPath(req.nextUrl.pathname)) {
+    return new Response("Not found.", { status: 404 });
+  }
+
   // Google returns here after the producer may have spent longer than Clerk's
   // short-lived app session token allows. The route authenticates the return
   // with signed, expiring, one-time OAuth state plus the initiating browser's
@@ -267,8 +312,7 @@ export default async function middleware(
       // .next() directly here would skip Clerk and break any downstream
       // page that calls auth().
       const res = await clerk(req, ev);
-      const finalRes =
-        res instanceof NextResponse ? res : NextResponse.next();
+      const finalRes = res instanceof NextResponse ? res : NextResponse.next();
       finalRes.cookies.set({
         name: ACCESS_COOKIE,
         value: accessToken,

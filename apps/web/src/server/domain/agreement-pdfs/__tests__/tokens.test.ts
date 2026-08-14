@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveCapabilitySecret } from "~/server/security/capability-secrets";
 import {
   AgreementPdfTokenError,
   agreementPdfObjectKeys,
@@ -46,6 +47,35 @@ describe("private agreement PDF upload tokens", () => {
     expect(keys.finalKey).toMatch(/^agreement-pdfs\/[a-f0-9]{64}$/);
     expect(JSON.stringify(keys)).not.toContain("producer");
     expect(JSON.stringify(keys)).not.toContain("terms.pdf");
+  });
+
+  it("keeps an in-flight upload on its original derived storage path after rotation", () => {
+    const signed = createAgreementPdfUploadToken(
+      SECRET,
+      {
+        producerId: "producer-1",
+        viewerClerkUserId: "user-1",
+        originalFileName: "terms.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 100,
+      },
+      new Date("2026-08-09T10:00:00.000Z"),
+    );
+    const verified = resolveCapabilitySecret(
+      ["rotated-agreement-pdf-secret-that-is-long-enough", SECRET],
+      (secret) =>
+        verifyOwnedAgreementPdfUploadToken(
+          secret,
+          signed.token,
+          { producerId: "producer-1", viewerClerkUserId: "user-1" },
+          new Date("2026-08-09T10:01:00.000Z"),
+        ),
+    );
+
+    expect(verified.secret).toBe(SECRET);
+    expect(agreementPdfObjectKeys(verified.secret, verified.value.uploadId)).toEqual(
+      agreementPdfObjectKeys(SECRET, signed.payload.uploadId),
+    );
   });
 
   it("allows an expired authentic owner token only for staging cleanup", () => {

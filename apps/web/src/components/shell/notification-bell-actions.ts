@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
@@ -12,9 +12,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // directly and revalidates the dashboard shell so the server-side
 // unread count + items list refresh on the next render.
 
-export type NotificationActionResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type NotificationActionResult = { ok: true } | { ok: false; error: string };
 
 const UPDATE_ERROR = "Notifications couldn't be updated. Try again.";
 
@@ -28,9 +26,7 @@ function toMessage(err: unknown): string {
   return UPDATE_ERROR;
 }
 
-export async function markNotificationRead(
-  id: string,
-): Promise<NotificationActionResult> {
+export async function markNotificationRead(id: string): Promise<NotificationActionResult> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
   try {
@@ -58,9 +54,7 @@ export async function markAllNotificationsRead(): Promise<NotificationActionResu
   }
 }
 
-export async function archiveNotification(
-  id: string,
-): Promise<NotificationActionResult> {
+export async function archiveNotification(id: string): Promise<NotificationActionResult> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
   try {

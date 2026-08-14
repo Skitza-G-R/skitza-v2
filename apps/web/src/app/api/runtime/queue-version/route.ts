@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb } from "@skitza/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";

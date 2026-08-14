@@ -13,6 +13,7 @@ import {
   verifyNoChargeProposalToken,
   type NoChargeProposalPayload,
 } from "./no-charge-token";
+import type { CapabilityVerificationSecrets } from "~/server/security/capability-secrets";
 import { SongSpaceDomainError, type NewSongSpaceRecord, type SongSpaceRecord } from "./service";
 
 const NO_CHARGE_CURRENCY = "ILS";
@@ -279,7 +280,11 @@ export async function createNoChargeSongSpaceProposal(
 
 export async function previewNoChargeSongSpaceProposal(
   repository: NoChargeProposalRepository,
-  input: { proposalToken: string; clerkUserId: string; signingSecret: string },
+  input: {
+    proposalToken: string;
+    clerkUserId: string;
+    signingSecret: CapabilityVerificationSecrets;
+  },
 ): Promise<NoChargeProposalPreview> {
   const clerkUserId = canonicalArtistClerkUserId(input.clerkUserId);
   const payload = verifyNoChargeProposalToken(input.signingSecret, input.proposalToken);
@@ -315,7 +320,7 @@ export async function acceptNoChargeSongSpaceProposal(
   input: {
     proposalToken: string;
     clerkUserId: string;
-    signingSecret: string;
+    signingSecret: CapabilityVerificationSecrets;
     expectedSnapshotDigest: string;
     agreementAccepted: boolean;
     acceptedAt: Date;

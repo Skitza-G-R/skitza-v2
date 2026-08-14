@@ -1,13 +1,10 @@
 import { SignUp } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { AuthHero } from "~/components/auth/auth-hero";
-import {
-  joinContinuationHref,
-  joinSignInHref,
-} from "~/server/auth/post-sign-in";
+import { joinContinuationHref, joinSignInHref } from "~/server/auth/post-sign-in";
 import {
   RETURNING_DEVICE_COOKIE,
   shouldRedirectReturningDeviceToSignIn,

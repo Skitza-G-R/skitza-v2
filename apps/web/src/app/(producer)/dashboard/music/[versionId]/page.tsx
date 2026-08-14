@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import { notFound, redirect } from "next/navigation";
 
@@ -28,10 +28,7 @@ import {
   l3SetDownloadOverride,
 } from "./actions";
 import { loadProducerSongSupplements } from "./song-detail-supplements";
-import {
-  canUploadProducerSongVersion,
-  producerProjectOriginHref,
-} from "./project-origin";
+import { canUploadProducerSongVersion, producerProjectOriginHref } from "./project-origin";
 import {
   disablePublicSongLink,
   publishPublicSongLink,

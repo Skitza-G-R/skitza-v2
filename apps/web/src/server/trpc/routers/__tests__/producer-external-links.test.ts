@@ -51,6 +51,7 @@ vi.mock("@skitza/db", () => ({
   producerExternalLinks: linksMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   asc: (col: unknown) => ({ asc: col }),
 }));
 
@@ -142,9 +143,9 @@ describe("producerExternalLinks.add (smart-paste, URL only)", () => {
 
   it("rejects malformed URLs via zod (not a URL string)", async () => {
     const caller = await buildCaller();
-    await expect(
-      caller.producerExternalLinks.add({ url: "not-a-url" }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.producerExternalLinks.add({ url: "not-a-url" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
     expect(linksInsertReturningMock).not.toHaveBeenCalled();
   });
 
@@ -201,9 +202,9 @@ describe("producerExternalLinks.remove", () => {
   it("throws NOT_FOUND for a non-existent id (zero-row UPDATE result)", async () => {
     linksDeleteReturningMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
-    await expect(
-      caller.producerExternalLinks.remove({ id: LINK_ID }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.producerExternalLinks.remove({ id: LINK_ID })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 
   it("throws NOT_FOUND for a cross-tenant id (same zero-row outcome — enumeration-proof)", async () => {
@@ -212,9 +213,9 @@ describe("producerExternalLinks.remove", () => {
     // case. This is the enumeration-proof property we want.
     linksDeleteReturningMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
-    await expect(
-      caller.producerExternalLinks.remove({ id: LINK_ID }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.producerExternalLinks.remove({ id: LINK_ID })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });
 
@@ -233,9 +234,9 @@ describe("producerExternalLinks.reorder", () => {
 
   it("rejects an empty list via zod min(1)", async () => {
     const caller = await buildCaller();
-    await expect(
-      caller.producerExternalLinks.reorder({ orderedIds: [] }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.producerExternalLinks.reorder({ orderedIds: [] })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
   });
 
   it("rejects more than 50 ids", async () => {
@@ -252,17 +253,17 @@ describe("producerExternalLinks.reorder", () => {
 describe("producerExternalLinks — auth scoping across all mutations", () => {
   it("requires Clerk session for every mutation", async () => {
     const caller = await buildCaller(null);
-    await expect(
-      caller.producerExternalLinks.list(),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.producerExternalLinks.list()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
     await expect(
       caller.producerExternalLinks.add({
         url: "https://open.spotify.com/x",
       }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    await expect(
-      caller.producerExternalLinks.remove({ id: LINK_ID }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.producerExternalLinks.remove({ id: LINK_ID })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
     await expect(
       caller.producerExternalLinks.reorder({ orderedIds: [LINK_ID] }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });

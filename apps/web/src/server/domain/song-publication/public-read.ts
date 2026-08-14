@@ -3,6 +3,7 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   projectTracks,
   projects,
   producers,
@@ -33,16 +34,8 @@ import {
   type PublicSongScope,
   type PublicStoredVersionCandidate,
 } from "./read-model";
-import {
-  hashSongPublicToken,
-  verifySongPublicToken,
-  type SongPublicTokenPayload,
-} from "./tokens";
-import {
-  publicPortfolioSongAudioPath,
-  publicSongAudioPath,
-  publicSongDownloadPath,
-} from "./urls";
+import { hashSongPublicToken, verifySongPublicToken, type SongPublicTokenPayload } from "./tokens";
+import { publicPortfolioSongAudioPath, publicSongAudioPath, publicSongDownloadPath } from "./urls";
 
 type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -117,18 +110,21 @@ async function discoverPortfolioScope(
         eq(purchases.producerId, payload.producerId),
       ),
     )
-    .where(
-      and(
-        eq(projectTracks.id, payload.trackId),
-        eq(purchases.producerId, payload.producerId),
-      ),
-    )
+    .where(and(eq(projectTracks.id, payload.trackId), eq(purchases.producerId, payload.producerId)))
     .limit(1);
   if (!scope) notFound();
   return { ...scope, linkId: null };
 }
 
 async function lockCoreRows(tx: TransactionDb, scope: DiscoveredScope): Promise<void> {
+  const [producer] = await tx
+    .select({ id: producers.id })
+    .from(producers)
+    .where(and(eq(producers.id, scope.producerId), isNull(producers.closedAt)))
+    .limit(1)
+    .for("share");
+  if (!producer) notFound();
+
   const [project] = await tx
     .select({ id: projects.id, producerId: projects.producerId })
     .from(projects)
@@ -183,10 +179,7 @@ async function lockCoreScope(tx: TransactionDb, scope: DiscoveredScope): Promise
   await lockCoreRows(tx, scope);
 }
 
-async function lockCommercialLinkScope(
-  tx: TransactionDb,
-  scope: DiscoveredScope,
-): Promise<void> {
+async function lockCommercialLinkScope(tx: TransactionDb, scope: DiscoveredScope): Promise<void> {
   // Match the established audio-delivery lock graph before reading money:
   // lifecycle project, publication/deletion project + purchase, then ledger.
   // Shared variants allow guest reads together while payment, override,
@@ -389,17 +382,11 @@ export async function readPublicSong(
       .from(projectTracks)
       .innerJoin(
         projects,
-        and(
-          eq(projects.id, scope.projectId),
-          eq(projects.producerId, scope.producerId),
-        ),
+        and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)),
       )
       .innerJoin(producers, eq(producers.id, scope.producerId))
       .where(
-        and(
-          eq(projectTracks.id, scope.trackId),
-          eq(projectTracks.purchaseId, scope.purchaseId),
-        ),
+        and(eq(projectTracks.id, scope.trackId), eq(projectTracks.purchaseId, scope.purchaseId)),
       )
       .limit(1);
     if (!safe) notFound();
@@ -643,6 +630,14 @@ export async function listPublicPortfolioSongs(
   input: Readonly<{ producerId: string; secret: string; limit?: number }>,
 ): Promise<PublicPortfolioSong[]> {
   return db.transaction(async (tx) => {
+    const [producer] = await tx
+      .select({ id: producers.id, closedAt: producers.closedAt })
+      .from(producers)
+      .where(and(eq(producers.id, input.producerId), isNull(producers.closedAt)))
+      .limit(1)
+      .for("share");
+    if (!producer) return [];
+
     const tracks = await tx
       .select({
         projectId: projectTracks.projectId,

@@ -2,6 +2,7 @@ export * from "./schema";
 export * from "./client";
 export * from "./event-foundation";
 export * from "./event-store";
+export * from "./clerk-identity";
 // Re-export drizzle helpers so consumer apps don't need a direct
 // drizzle-orm dependency just to compose where-clauses. Add more
 // helpers here only when an actual call-site needs them.

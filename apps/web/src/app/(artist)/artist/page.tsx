@@ -1,4 +1,5 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import {
   selectArtistHomeMainAction,
@@ -20,14 +21,14 @@ type ArtistHomePageProps = {
 };
 
 export default async function ArtistHomePage({ searchParams }: ArtistHomePageProps) {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, providerUserId } = await auth();
+  if (!userId || !providerUserId) return null;
 
   const caller = appRouter.createCaller({ userId });
   const [user, studiosResponse, savedStudioId, artistProfile] = await Promise.all([
     currentUser(),
     caller.artist.studios(),
-    readArtistStudioPreference(userId),
+    readArtistStudioPreference(providerUserId),
     caller.artistPlatform.profile.get(),
   ]);
   const requestedStudioId = (await searchParams)?.studio;

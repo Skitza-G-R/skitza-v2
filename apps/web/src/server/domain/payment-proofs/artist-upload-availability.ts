@@ -6,6 +6,7 @@ export type ArtistProofUploadAvailability =
   | Readonly<{ status: "available" }>
   | Readonly<{ status: "awaiting_review" }>
   | Readonly<{ status: "paid_in_full" }>
+  | Readonly<{ status: "studio_closed" }>
   | Readonly<{ status: "purchase_canceled" }>
   | Readonly<{
       status: "not_due";
@@ -16,6 +17,7 @@ export type ArtistProofUploadAvailability =
   | Readonly<{ status: "unavailable" }>;
 
 type AvailabilityInput = Readonly<{
+  studioClosed: boolean;
   purchaseCanceled: boolean;
   hasPendingProof: boolean;
   paidInFull: boolean;
@@ -36,6 +38,7 @@ type AvailabilityInput = Readonly<{
 export function resolveArtistProofUploadAvailability(
   input: AvailabilityInput,
 ): ArtistProofUploadAvailability {
+  if (input.studioClosed) return Object.freeze({ status: "studio_closed" });
   if (input.purchaseCanceled) return Object.freeze({ status: "purchase_canceled" });
   if (input.hasPendingProof) return Object.freeze({ status: "awaiting_review" });
   if (input.paidInFull) return Object.freeze({ status: "paid_in_full" });

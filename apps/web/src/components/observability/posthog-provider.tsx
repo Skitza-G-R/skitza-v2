@@ -2,15 +2,14 @@
 
 import posthog from "posthog-js";
 import { PostHogProvider as PHProvider, usePostHog } from "posthog-js/react";
-import * as Sentry from "@sentry/nextjs";
 import { useEffect, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 
 import {
   filterCurrentBrowserPublicSongTelemetry,
-  isBrowserPublicSongListenPage,
-  isPublicSongListenPath,
+  isBrowserSensitiveAuthorityPage,
+  isSensitiveAuthorityLocation,
   redactPublicSongTelemetryString,
 } from "~/lib/observability/public-song-telemetry";
 
@@ -33,7 +32,7 @@ const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    if (!POSTHOG_KEY || isBrowserPublicSongListenPage()) return;
+    if (!POSTHOG_KEY || isBrowserSensitiveAuthorityPage()) return;
     // Check idempotency — if already initialised (e.g. after a soft
     // nav in dev with HMR), skip re-init.
     if (typeof window !== "undefined" && !posthog.__loaded) {
@@ -43,8 +42,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         api_host: "/ingest",
         // Tell PostHog the REAL host so its internal feature-flag + session-
         // replay endpoints resolve correctly behind the proxy.
-        ui_host:
-          process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.posthog.com",
+        ui_host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.posthog.com",
         // We fire $pageview manually from the effect below (App Router
         // doesn't send one automatically on route changes).
         capture_pageview: false,
@@ -59,7 +57,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         before_send: filterCurrentBrowserPublicSongTelemetry,
         // Initial /listen loads skip init above. Keep recording disabled
         // as a second guard if the location changes during initialization.
-        disable_session_recording: isBrowserPublicSongListenPage(),
+        disable_session_recording: isBrowserSensitiveAuthorityPage(),
       });
     }
   }, []);
@@ -86,13 +84,12 @@ function PostHogPageView() {
 
   useEffect(() => {
     if (!pathname) return;
-    if (isPublicSongListenPath(pathname)) {
+    const search = searchParams.toString();
+    if (isSensitiveAuthorityLocation(pathname, search)) {
       if (POSTHOG_KEY && posthog.__loaded) ph.stopSessionRecording();
-      void Sentry.getReplay()?.stop();
       return;
     }
     if (!POSTHOG_KEY) return;
-    const search = searchParams.toString();
     const url = search ? `${pathname}?${search}` : pathname;
     ph.capture("$pageview", { $current_url: redactPublicSongTelemetryString(url) });
   }, [pathname, searchParams, ph]);
@@ -111,7 +108,7 @@ function PostHogIdentify() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!POSTHOG_KEY || !isLoaded || isPublicSongListenPath(pathname)) return;
+    if (!POSTHOG_KEY || !isLoaded || isBrowserSensitiveAuthorityPage()) return;
     if (isSignedIn) {
       ph.identify(user.id, {
         email: user.emailAddresses[0]?.emailAddress,

@@ -2,7 +2,7 @@ import "~/styles/landing.css";
 import "~/styles/get-started.css";
 
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
@@ -54,27 +54,15 @@ export default async function GetStartedPageHe() {
 
       <HeroSection locale="he" />
 
-      <section
-        id="cascade"
-        className="section section-dark"
-        style={{ background: "transparent" }}
-      >
+      <section id="cascade" className="section section-dark" style={{ background: "transparent" }}>
         <PainCascadeSection locale="he" />
       </section>
 
-      <section
-        id="founder"
-        className="section section-dark"
-        style={{ background: "transparent" }}
-      >
+      <section id="founder" className="section section-dark" style={{ background: "transparent" }}>
         <FounderSection locale="he" />
       </section>
 
-      <section
-        id="cta"
-        className="section section-dark"
-        style={{ background: "transparent" }}
-      >
+      <section id="cta" className="section section-dark" style={{ background: "transparent" }}>
         <CtaSection locale="he" />
       </section>
     </div>

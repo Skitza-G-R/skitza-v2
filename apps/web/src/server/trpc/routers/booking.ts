@@ -107,6 +107,14 @@ import {
   replayedGoogleCalendarProtection,
   reviewedFinalGoogleCalendarProtection,
 } from "~/server/google-calendar/booking-protection";
+import {
+  configuredCapabilitySecrets,
+  resolveCapabilitySecret,
+} from "~/server/security/capability-secrets";
+import {
+  lockProducerCapabilityState,
+  type LockedProducerCapabilityState,
+} from "~/server/domain/producer-capabilities/open-state";
 
 type GoogleCalendarProtection = "active" | "reduced";
 
@@ -176,9 +184,11 @@ function mapStoreProductCommercialError(error: unknown): never {
 }
 
 function agreementPdfServerSecret(): string {
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret) throw new Error("Missing CLERK_SECRET_KEY");
-  return secret;
+  return configuredCapabilitySecrets().active;
+}
+
+function agreementPdfVerificationSecrets(): readonly string[] {
+  return configuredCapabilitySecrets().verification;
 }
 
 function mapSessionBookingDomainError(error: unknown): never {
@@ -791,10 +801,17 @@ export const __wallClockInTzToUtcForTests = wallClockInTzToUtc;
 type AgreementPdfChangeInput = z.infer<typeof AgreementPdfChange>;
 
 function privateAgreementInputError(error: unknown): never {
+  if (error instanceof TRPCError) throw error;
   if (error instanceof Error) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
   }
   throw error;
+}
+
+function requireAgreementPdfProducerOpen(producer: LockedProducerCapabilityState | null): void {
+  if (!producer || producer.closedAt !== null) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "account closure started" });
+  }
 }
 
 async function finalizeAgreementPdfChange(
@@ -804,8 +821,10 @@ async function finalizeAgreementPdfChange(
 ): Promise<AgreementPdfDocument | null> {
   if (change?.kind !== "replace") return null;
   try {
-    const secret = agreementPdfServerSecret();
-    const token = verifyOwnedAgreementPdfUploadToken(secret, change.uploadToken, expected);
+    const verified = resolveCapabilitySecret(agreementPdfVerificationSecrets(), (secret) =>
+      verifyOwnedAgreementPdfUploadToken(secret, change.uploadToken, expected),
+    );
+    const { secret, value: token } = verified;
     await onCandidate?.(agreementPdfFinalCandidate(secret, token));
     return await finalizePrivateAgreementPdfUpload(secret, token);
   } catch (error) {
@@ -1026,16 +1045,19 @@ const productsRouter = router({
       const fileError = agreementPdfFileError(input);
       if (fileError) throw new TRPCError({ code: "BAD_REQUEST", message: fileError });
       try {
-        const secret = agreementPdfServerSecret();
-        const signed = createAgreementPdfUploadToken(secret, {
-          producerId: ctx.producerId,
-          viewerClerkUserId: producerActorClerkUserId(ctx.userId),
-          originalFileName: input.originalFileName,
-          contentType: input.contentType,
-          sizeBytes: input.sizeBytes,
+        return await ctx.db.transaction(async (tx) => {
+          requireAgreementPdfProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
+          const secret = agreementPdfServerSecret();
+          const signed = createAgreementPdfUploadToken(secret, {
+            producerId: ctx.producerId,
+            viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+            originalFileName: input.originalFileName,
+            contentType: input.contentType,
+            sizeBytes: input.sizeBytes,
+          });
+          const upload = await createPrivateAgreementPdfUpload(secret, signed.payload);
+          return { ...upload, uploadToken: signed.token };
         });
-        const upload = await createPrivateAgreementPdfUpload(secret, signed.payload);
-        return { ...upload, uploadToken: signed.token };
       } catch (error) {
         privateAgreementInputError(error);
       }
@@ -1045,11 +1067,13 @@ const productsRouter = router({
     .input(z.object({ uploadToken: z.string().min(1).max(4_096) }))
     .mutation(async ({ ctx, input }) => {
       try {
-        const secret = agreementPdfServerSecret();
-        const token = verifyOwnedAgreementPdfUploadTokenForCleanup(secret, input.uploadToken, {
-          producerId: ctx.producerId,
-          viewerClerkUserId: producerActorClerkUserId(ctx.userId),
-        });
+        const verified = resolveCapabilitySecret(agreementPdfVerificationSecrets(), (secret) =>
+          verifyOwnedAgreementPdfUploadTokenForCleanup(secret, input.uploadToken, {
+            producerId: ctx.producerId,
+            viewerClerkUserId: producerActorClerkUserId(ctx.userId),
+          }),
+        );
+        const { secret, value: token } = verified;
         await deletePrivateAgreementPdfStaging(secret, token);
         return { cancelled: true as const };
       } catch (error) {
@@ -1124,7 +1148,10 @@ const productsRouter = router({
           .orderBy(asc(products.position));
         const nextPos =
           existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
-        if (agreementPdf?.kind === "replace") assertAgreementPdfContractCanAppend(null);
+        if (agreementPdf?.kind === "replace") {
+          requireAgreementPdfProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
+          assertAgreementPdfContractCanAppend(null);
+        }
         finalization.replacement = await finalizeAgreementPdfChange(
           agreementPdf,
           {
@@ -1198,6 +1225,9 @@ const productsRouter = router({
           });
         } catch (error) {
           mapStoreProductCommercialError(error);
+        }
+        if (agreementPdf?.kind === "replace") {
+          requireAgreementPdfProducerOpen(await lockProducerCapabilityState(tx, ctx.producerId));
         }
         finalization.replacement = await finalizeAgreementPdfChange(
           agreementPdf,
@@ -2406,10 +2436,7 @@ export const bookingRouter = router({
         )
         .innerJoin(
           projects,
-          and(
-            eq(projects.id, bookings.projectId),
-            eq(projects.producerId, bookings.producerId),
-          ),
+          and(eq(projects.id, bookings.projectId), eq(projects.producerId, bookings.producerId)),
         )
         .where(
           and(
@@ -2553,10 +2580,7 @@ export const bookingRouter = router({
         )
         .innerJoin(
           projects,
-          and(
-            eq(projects.id, bookings.projectId),
-            eq(projects.producerId, bookings.producerId),
-          ),
+          and(eq(projects.id, bookings.projectId), eq(projects.producerId, bookings.producerId)),
         )
         .leftJoin(
           bookingChangeRequests,

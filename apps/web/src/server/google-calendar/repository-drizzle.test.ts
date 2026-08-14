@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { producers, type Db } from "@skitza/db";
+import { describe, expect, it, vi } from "vitest";
+
+import type { GoogleCalendarRepository } from "./repository";
+import { createGoogleCalendarRepository } from "./repository-drizzle";
 
 const source = readFileSync(
   fileURLToPath(new URL("./repository-drizzle.ts", import.meta.url)),
@@ -19,8 +23,91 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(source).toContain(".returning()");
   });
 
-  it("locks the producer connection and rejects OAuth state older than disconnect", () => {
-    expect(source).toContain('.for("update")');
+  it("locks the exact open Producer before any OAuth connection or token write", () => {
+    const commitStart = source.indexOf("async commitAuthorization(command)");
+    const commitEnd = source.indexOf("async storeRefreshedAccessToken(command)", commitStart);
+    const commit = source.slice(commitStart, commitEnd);
+    const producerLock = commit.indexOf("lockedProducerAuthorizationState");
+    const closedGuard = commit.indexOf("producer.closedAt !== null", producerLock);
+    const connectionLock = commit.indexOf("lockedConnection", closedGuard);
+    const insert = commit.indexOf(".insert(googleCalendarConnections)", connectionLock);
+    const update = commit.indexOf(".update(googleCalendarConnections)", connectionLock);
+
+    expect(producerLock).toBeGreaterThanOrEqual(0);
+    expect(closedGuard).toBeGreaterThan(producerLock);
+    expect(connectionLock).toBeGreaterThan(closedGuard);
+    expect(insert).toBeGreaterThan(connectionLock);
+    expect(update).toBeGreaterThan(connectionLock);
+    expect(source).toMatch(
+      /lockedProducerAuthorizationState[\s\S]*closedAt: producers\.closedAt[\s\S]*eq\(producers\.id, producerId\)[\s\S]*\.for\("update"\)/u,
+    );
+  });
+
+  it("rejects a consumed callback against a closed Producer without touching credentials", async () => {
+    const selectChain = {
+      from: vi.fn(),
+      where: vi.fn(),
+      limit: vi.fn(),
+      for: vi.fn(),
+    };
+    selectChain.from.mockReturnValue(selectChain);
+    selectChain.where.mockReturnValue(selectChain);
+    selectChain.limit.mockReturnValue(selectChain);
+    selectChain.for.mockResolvedValue([
+      { id: "11111111-1111-4111-8111-111111111111", closedAt: new Date("2026-08-14T12:00:00Z") },
+    ]);
+    const tx = {
+      select: vi.fn(() => selectChain),
+      insert: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    };
+    const transaction = vi.fn(
+      async (work: (transaction: typeof tx) => Promise<unknown>): Promise<unknown> => work(tx),
+    );
+    const repository = createGoogleCalendarRepository({ transaction } as unknown as Db);
+    const command: Parameters<GoogleCalendarRepository["commitAuthorization"]>[0] = {
+      producerId: "11111111-1111-4111-8111-111111111111",
+      intent: "connect",
+      expectedConnectionId: null,
+      expectedAccountVersion: null,
+      oauthStateCreatedAt: new Date("2026-08-14T11:55:00Z"),
+      targetConnectionId: "22222222-2222-4222-8222-222222222222",
+      targetAccountVersion: 1,
+      identity: {
+        googleSubject: "google-subject",
+        googleAccountEmail: "producer@example.test",
+      },
+      grantedScopes: ["calendar"],
+      accessToken: {
+        version: 1,
+        keyVersion: 1,
+        ciphertext: "access-ciphertext",
+        iv: "access-iv",
+        authTag: "access-tag",
+      },
+      accessTokenExpiresAt: new Date("2026-08-14T13:00:00Z"),
+      refreshToken: {
+        version: 1,
+        keyVersion: 1,
+        ciphertext: "refresh-ciphertext",
+        iv: "refresh-iv",
+        authTag: "refresh-tag",
+      },
+      authorizedAt: new Date("2026-08-14T12:01:00Z"),
+    };
+
+    await expect(repository.commitAuthorization(command)).resolves.toEqual({ outcome: "stale" });
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(selectChain.from).toHaveBeenCalledWith(producers);
+    expect(selectChain.for).toHaveBeenCalledWith("update");
+    expect(tx.select).toHaveBeenCalledOnce();
+    expect(tx.insert).not.toHaveBeenCalled();
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps disconnect freshness checks after the Producer guard", () => {
     expect(source).toContain(
       "command.oauthStateCreatedAt.getTime() <= existing.disconnectedAt.getTime()",
     );

@@ -12,12 +12,7 @@ import {
   purchaseRequests,
   sql,
 } from "@skitza/db";
-import type {
-  Db,
-  PaymentPlan,
-  Product,
-  PurchaseRequest,
-} from "@skitza/db";
+import type { Db, PaymentPlan, Product, PurchaseRequest } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { z } from "zod";
@@ -97,6 +92,7 @@ import {
   deliverPushToProjectArtist,
   deliverPushToPurchaseRequestArtist,
 } from "~/server/push/delivery";
+import { configuredCapabilitySecrets } from "~/server/security/capability-secrets";
 import { buildPlanOptions } from "~/server/payments/plan-preview";
 import {
   buildStorePurchaseSnapshot,
@@ -174,14 +170,25 @@ function mapPaymentProofError(error: unknown): never {
 }
 
 function proofServerSecret(): string {
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret) {
+  try {
+    return configuredCapabilitySecrets().active;
+  } catch {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "Private proof delivery is not configured",
     });
   }
-  return secret;
+}
+
+function proofVerificationSecrets(): readonly string[] {
+  try {
+    return configuredCapabilitySecrets().verification;
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Private proof delivery is not configured",
+    });
+  }
 }
 
 function mapPurchaseTargetingError(error: unknown): never {
@@ -437,13 +444,7 @@ export const artistPurchaseRouter = router({
       const [product] = await ctx.db
         .select()
         .from(products)
-        .where(
-          and(
-            eq(products.id, input.productId),
-            eq(products.active, true),
-            isNull(products.archivedAt),
-          ),
-        )
+        .where(eq(products.id, input.productId))
         .limit(1);
       if (!product) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -485,25 +486,6 @@ export const artistPurchaseRouter = router({
       }
       if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const [commercialOwner] = await ctx.db
-        .select({ taxMode: producers.taxMode, taxRatePct: producers.taxRatePct })
-        .from(producers)
-        .where(eq(producers.id, product.producerId))
-        .limit(1);
-      const initialPlan = product.paymentPlans[0];
-      if (!commercialOwner || !initialPlan) throw new TRPCError({ code: "NOT_FOUND" });
-      try {
-        buildStorePurchaseSnapshot({
-          ...currentAgreementPdfTerms(product),
-          requestedSongQty: input.songQty,
-          taxMode: commercialOwner.taxMode,
-          taxRatePct: commercialOwner.taxRatePct,
-          selectedPaymentPlan: initialPlan,
-        });
-      } catch {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This product is not available." });
-      }
-
       const brief = input.brief?.trim() || null;
       let operation;
       try {
@@ -544,19 +526,26 @@ export const artistPurchaseRouter = router({
           } catch (error) {
             mapRequestDomainError(error);
           }
+          return { request: existing, created: false };
         }
 
-        if (!existing) {
-          const guard = await loadArtistPurchaseGuard(tx, {
-            clerkUserId: ctx.clerkUserId,
-            producerId: product.producerId,
+        const [availableProducer] = await tx
+          .select({ taxMode: producers.taxMode, taxRatePct: producers.taxRatePct })
+          .from(producers)
+          .where(and(eq(producers.id, product.producerId), isNull(producers.closedAt)))
+          .limit(1)
+          .for("share");
+        if (!availableProducer) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const guard = await loadArtistPurchaseGuard(tx, {
+          clerkUserId: ctx.clerkUserId,
+          producerId: product.producerId,
+        });
+        if (guard.blocked) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Finish the current purchase with this studio before starting another.",
           });
-          if (guard.blocked) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "Finish the current purchase with this studio before starting another.",
-            });
-          }
         }
 
         const [availableProduct] = await tx
@@ -573,12 +562,14 @@ export const artistPurchaseRouter = router({
           .limit(1)
           .for("share");
         if (!availableProduct) throw new TRPCError({ code: "NOT_FOUND" });
+        const initialPlan = availableProduct.paymentPlans[0];
+        if (!initialPlan) throw new TRPCError({ code: "NOT_FOUND" });
         try {
           buildStorePurchaseSnapshot({
             ...currentAgreementPdfTerms(availableProduct),
             requestedSongQty: input.songQty,
-            taxMode: commercialOwner.taxMode,
-            taxRatePct: commercialOwner.taxRatePct,
+            taxMode: availableProducer.taxMode,
+            taxRatePct: availableProducer.taxRatePct,
             selectedPaymentPlan: initialPlan,
           });
         } catch {
@@ -600,10 +591,6 @@ export const artistPurchaseRouter = router({
             .limit(1)
             .for("share");
           if (!availableTarget) throw new TRPCError({ code: "NOT_FOUND" });
-        }
-
-        if (existing) {
-          return { request: existing, created: false };
         }
 
         const now = new Date();
@@ -1029,7 +1016,7 @@ export const artistPurchaseRouter = router({
             purchaseId: input.purchaseId,
             installmentId: input.installmentId,
             uploadToken: input.uploadToken,
-            serverSecret: proofServerSecret(),
+            serverSecret: proofVerificationSecrets(),
           });
         } catch (error) {
           mapPaymentProofError(error);
@@ -1055,7 +1042,7 @@ export const artistPurchaseRouter = router({
             uploadToken: input.uploadToken,
             amountCents: input.amountCents,
             note: input.note,
-            serverSecret: proofServerSecret(),
+            serverSecret: proofVerificationSecrets(),
           });
         } catch (error) {
           mapPaymentProofError(error);
@@ -1328,8 +1315,7 @@ export const producerPurchaseRouter = router({
             priceCents: proposal?.totalCents ?? null,
             currency: proposal?.currency ?? product.currency,
             commercialTermsAvailable: proposal !== null,
-            approvalAvailable:
-              proposal !== null && isPurchaseRequestApprovalAvailable(product),
+            approvalAvailable: proposal !== null && isPurchaseRequestApprovalAvailable(product),
             requestedSongQty: request.requestedSongQty,
             brief: request.brief,
             createdAt: request.createdAt,

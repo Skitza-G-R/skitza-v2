@@ -11,6 +11,7 @@ const { createPrivateOfferMock, dbMock, producersMarker, sendEmailMock } = vi.ho
   const producersMarker = {
     id: { column: "producers.id" },
     clerkUserId: { column: "producers.clerk_user_id" },
+    closedAt: { column: "producers.closed_at" },
   };
   const dbMock = {
     select: () => ({
@@ -25,8 +26,10 @@ const { createPrivateOfferMock, dbMock, producersMarker, sendEmailMock } = vi.ho
 });
 
 vi.mock("@skitza/db", () => ({
+  and: (...conditions: unknown[]) => ({ conditions }),
   createDb: () => dbMock,
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  isNull: (column: unknown) => ({ column, operator: "is-null" }),
   producers: producersMarker,
 }));
 
@@ -190,9 +193,9 @@ describe("privateOffers.send idempotency", () => {
     await expect(caller.send(withoutOfferId as never)).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
-    await expect(
-      caller.send({ ...sendInput(), offerId: "not-a-uuid" }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.send({ ...sendInput(), offerId: "not-a-uuid" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
     expect(createPrivateOfferMock).not.toHaveBeenCalled();
     expect(sendEmailMock).not.toHaveBeenCalled();
   });

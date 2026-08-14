@@ -98,6 +98,7 @@ vi.mock("@skitza/db", () => ({
   trackVersions: { __table: "track_versions" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNull: (col: unknown) => ({ isNull: col }),
   or: (...conds: unknown[]) => ({ or: conds }),
   desc: (col: unknown) => ({ desc: col }),
   asc: (col: unknown) => ({ asc: col }),

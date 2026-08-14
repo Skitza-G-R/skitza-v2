@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
@@ -15,10 +15,7 @@ type PageProps = {
 
 export const metadata: Metadata = { title: "Payment instructions" };
 
-export default async function ArtistPaymentInstructionsPage({
-  params,
-  searchParams,
-}: PageProps) {
+export default async function ArtistPaymentInstructionsPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) notFound();
   const { purchaseId } = await params;

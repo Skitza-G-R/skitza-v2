@@ -10,5 +10,7 @@ describe("robots", () => {
 
     expect(disallowed).toContain("/listen/");
     expect(disallowed).toContain("/api/");
+    expect(disallowed).toContain("/changelog");
+    expect(disallowed).toContain("/get-started");
   });
 });

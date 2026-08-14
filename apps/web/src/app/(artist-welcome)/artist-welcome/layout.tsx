@@ -1,3 +1,4 @@
+import { requireRole } from "~/server/auth/role";
 import { AppI18nProvider } from "~/i18n/app-i18n-provider";
 
 // Welcome doesn't get the artist app shell — no bottom nav, no
@@ -13,11 +14,9 @@ import { AppI18nProvider } from "~/i18n/app-i18n-provider";
 // AppI18nProvider is mounted here — welcome is a signed-in surface
 // that can be reached with a Hebrew cookie set, so it needs the
 // translations + dir wrapper.
-export default function ArtistWelcomeLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function ArtistWelcomeLayout({ children }: { children: React.ReactNode }) {
+  await requireRole("artist");
+
   return (
     <AppI18nProvider>
       <div className="min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">

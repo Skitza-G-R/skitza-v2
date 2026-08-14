@@ -4,7 +4,7 @@
 // (social links left, featured tracks right). One screen at 1440×900,
 // no scroll. See docs/plans/active/2026-05-17-portfolio-redesign-design.md.
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";

@@ -1,10 +1,14 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { createDb } from "@skitza/db";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { authorizePrivateProofEvidence } from "~/server/domain/payment-proofs/service";
 import { readPrivateProofObject } from "~/server/domain/payment-proofs/storage";
 import { verifyProofEvidenceToken } from "~/server/domain/payment-proofs/tokens";
+import {
+  configuredCapabilitySecrets,
+  resolveCapabilitySecret,
+} from "~/server/security/capability-secrets";
 
 export const dynamic = "force-dynamic";
 
@@ -28,12 +32,13 @@ function contentDisposition(fileName: string): string {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { userId } = await auth();
   const token = request.nextUrl.searchParams.get("token");
-  const serverSecret = process.env.CLERK_SECRET_KEY;
   const databaseUrl = process.env.DATABASE_URL;
-  if (!userId || !token || !serverSecret || !databaseUrl) return unavailable();
+  if (!userId || !token || !databaseUrl) return unavailable();
 
   try {
-    const payload = verifyProofEvidenceToken(serverSecret, token);
+    const payload = resolveCapabilitySecret(configuredCapabilitySecrets().verification, (secret) =>
+      verifyProofEvidenceToken(secret, token),
+    ).value;
     if (payload.viewerClerkUserId !== userId) return unavailable();
     const evidence = await authorizePrivateProofEvidence(createDb(databaseUrl), {
       role: payload.viewerRole,

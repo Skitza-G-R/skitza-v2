@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
@@ -28,7 +28,7 @@ async function startJoinAction(slug: string, action: JoinIntentAction): Promise<
   const target = await findJoinTargetProducer(dbUrl, slug);
   if (!target) notFound();
 
-  const { userId } = await auth();
+  const { userId, providerUserId } = await auth();
   if (!userId) {
     const token = issueJoinIntentToken({
       slug: target.slug,
@@ -43,9 +43,7 @@ async function startJoinAction(slug: string, action: JoinIntentAction): Promise<
       joinIntentCookieOptions(process.env.NODE_ENV === "production"),
     );
     redirect(
-      `/sign-up/join/${encodeURIComponent(target.slug)}${
-        action === "book" ? "/book" : "/unlock"
-      }`,
+      `/sign-up/join/${encodeURIComponent(target.slug)}${action === "book" ? "/book" : "/unlock"}`,
     );
   }
 
@@ -58,7 +56,7 @@ async function startJoinAction(slug: string, action: JoinIntentAction): Promise<
   }
 
   try {
-    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
+    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, providerUserId, target });
     redirect(action === "book" ? bookingHref : joinArtistHref(target));
   } catch (error) {
     if (isJoinAccountConflict(error)) {

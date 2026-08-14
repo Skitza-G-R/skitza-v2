@@ -56,21 +56,15 @@ describe("auth page switch URLs", () => {
   });
 
   it("returns join intent to the dedicated Artist signup route", () => {
-    expect(
-      signUpSwitchHref(
-        "/join/northline-studio/continue?action=book",
-      ),
-    ).toBe("/sign-up/join/northline-studio/book?intent=signup");
-    expect(
-      signUpSwitchHref(
-        "/join/northline-studio/continue?action=unlock",
-      ),
-    ).toBe("/sign-up/join/northline-studio/unlock?intent=signup");
-    expect(
-      signUpSwitchHref(
-        "/join/northline-studio/continue?action=home",
-      ),
-    ).toBe("/sign-up/join/northline-studio/home?intent=signup");
+    expect(signUpSwitchHref("/join/northline-studio/continue?action=book")).toBe(
+      "/sign-up/join/northline-studio/book?intent=signup",
+    );
+    expect(signUpSwitchHref("/join/northline-studio/continue?action=unlock")).toBe(
+      "/sign-up/join/northline-studio/unlock?intent=signup",
+    );
+    expect(signUpSwitchHref("/join/northline-studio/continue?action=home")).toBe(
+      "/sign-up/join/northline-studio/home?intent=signup",
+    );
   });
 
   it("preserves a safe deep link when switching back to sign-in", () => {
@@ -84,15 +78,11 @@ describe("auth page switch URLs", () => {
     expect(signInSwitchHref("/onboarding")).toBe("/sign-in");
   });
 
-  it("preserves explicit onboarding and Artist targets on that handoff", () => {
-    expect(
-      signInSwitchHref("/onboarding/studio?intent=create-studio"),
-    ).toBe(
-      "/sign-in?redirect_url=%2Fonboarding%2Fstudio%3Fintent%3Dcreate-studio",
+  it("preserves safe Producer and Artist targets on that handoff", () => {
+    expect(signInSwitchHref("/onboarding/studio")).toBe(
+      "/sign-in?redirect_url=%2Fonboarding%2Fstudio",
     );
-    expect(
-      signInSwitchHref("/join/northline-studio/continue?action=book"),
-    ).toBe(
+    expect(signInSwitchHref("/join/northline-studio/continue?action=book")).toBe(
       "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dbook",
     );
     expect(signInSwitchHref("/artist/music?studio=studio-a")).toBe(

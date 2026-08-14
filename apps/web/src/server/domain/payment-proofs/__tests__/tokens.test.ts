@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveCapabilitySecret } from "~/server/security/capability-secrets";
 import {
   createProofEvidenceToken,
   createProofUploadToken,
@@ -87,9 +88,9 @@ describe("private proof upload tokens", () => {
       { ...exactScope, purchaseId: "purchase-2" },
       { ...exactScope, installmentId: "installment-2" },
     ]) {
-      expect(() =>
-        verifyOwnedProofUploadToken(SECRET, signed.token, wrongScope, NOW),
-      ).toThrow(ProofTokenError);
+      expect(() => verifyOwnedProofUploadToken(SECRET, signed.token, wrongScope, NOW)).toThrow(
+        ProofTokenError,
+      );
     }
   });
 
@@ -121,5 +122,20 @@ describe("private proof evidence tokens", () => {
     expect(() =>
       verifyProofEvidenceToken(SECRET, token, new Date(NOW.getTime() + 300_000)),
     ).toThrow(ProofTokenError);
+  });
+
+  it("keeps an in-flight evidence link valid through the legacy key ring", () => {
+    const token = createProofEvidenceToken(
+      SECRET,
+      { proofId: "proof-1", viewerClerkUserId: "artist-clerk-1", viewerRole: "artist" },
+      NOW,
+    );
+    const verified = resolveCapabilitySecret(
+      ["rotated-skitza-test-secret-that-is-long-enough", SECRET],
+      (secret) => verifyProofEvidenceToken(secret, token, NOW),
+    );
+
+    expect(verified.secret).toBe(SECRET);
+    expect(verified.value.proofId).toBe("proof-1");
   });
 });

@@ -2,7 +2,7 @@ import "~/styles/landing.css";
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { LandingPage } from "~/components/landing/landing-page";
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
@@ -13,7 +13,7 @@ import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 export const metadata: Metadata = {
   title: "Skitza — Run your producer business",
   description:
-    "CRM, audio collaboration, booking, and contracts — unified for solo music producers. One URL. Every client. Every session. Every bounce.",
+    "Clients, projects, audio review, bookings, agreements, external-payment records, and optional Google Calendar sync for solo music producers.",
   alternates: {
     canonical: "/",
   },
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Skitza — Run your producer business",
     description:
-      "CRM, audio collaboration, booking, and contracts — unified for solo music producers.",
+      "Clients, projects, audio review, bookings, agreements, and external-payment records for solo music producers.",
     type: "website",
     url: "/",
   },
@@ -33,12 +33,13 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Skitza — Run your producer business",
     description:
-      "CRM, audio collaboration, booking, and contracts — unified for solo music producers.",
+      "Clients, projects, audio review, bookings, agreements, and external-payment records for solo music producers.",
   },
 };
 
-// Marketing landing. Signed-in producers skip this and go straight to
-// /dashboard — this route is for cold visitors.
+// Marketing landing. Signed-in accounts pass through the membership resolver
+// so an accepted Producer invitation is applied before choosing a workspace.
+// This route itself is for cold visitors.
 //
 // After PR #50, the previous 17-component decomposition broke the hero
 // word-fade animation (the `.page-loaded` class went on `<html>` instead
@@ -57,6 +58,6 @@ export default async function HomePage({ searchParams }: HomePageProps = {}) {
   }
 
   const { userId } = await auth();
-  if (userId) redirect("/dashboard");
+  if (userId) redirect("/auth/resolve");
   return <LandingPage />;
 }

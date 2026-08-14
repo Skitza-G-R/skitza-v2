@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 import { TRPCError } from "@trpc/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -15,9 +15,7 @@ export type PaletteResult = {
   tracks: Array<{ id: string; title: string; label: string; projectId: string }>;
 };
 
-export async function paletteSearch(
-  q: string,
-): Promise<PaletteResult | { error: string }> {
+export async function paletteSearch(q: string): Promise<PaletteResult | { error: string }> {
   const { userId } = await auth();
   if (!userId) return { error: "Please sign in." };
   try {

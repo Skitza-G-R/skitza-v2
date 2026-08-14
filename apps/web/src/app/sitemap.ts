@@ -20,15 +20,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${BASE}/about`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${BASE}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${BASE}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
-    { url: `${BASE}/changelog`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     { url: `${BASE}/sign-up`, lastModified: now, changeFrequency: "yearly", priority: 0.6 },
     { url: `${BASE}/sign-in`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ];
-  // Belt-and-suspenders for the dead-end-funnel rule (see
-  // docs/plans/active/2026-05-08-marketing-landing-design.md §3.5).
-  // The /get-started* routes set noindex+nofollow at the layout level
-  // already; this filter ensures even an accidental future addition
-  // can't end up advertised in sitemap.xml. Test:
-  // apps/web/src/app/__tests__/sitemap.test.ts
-  return entries.filter((e) => !e.url.includes("/get-started"));
+  return entries;
 }

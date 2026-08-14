@@ -97,12 +97,16 @@ describe("purchase.request idempotency and the studio-wide guard", () => {
       "eq(purchaseRequests.clientContactId, contact.id)",
     );
     const existingLookup = requestSource.indexOf("const existing = await findExisting()");
+    const replayReturn = requestSource.indexOf(
+      "return { request: existing, created: false }",
+      existingLookup,
+    );
     const guardLookup = requestSource.indexOf("const guard = await loadArtistPurchaseGuard");
 
     expect(selectedContactLookup).toBeGreaterThan(-1);
     expect(existingLookup).toBeGreaterThan(selectedContactLookup);
-    expect(guardLookup).toBeGreaterThan(existingLookup);
-    expect(requestSource.slice(existingLookup, guardLookup)).toContain("if (!existing)");
+    expect(replayReturn).toBeGreaterThan(existingLookup);
+    expect(guardLookup).toBeGreaterThan(replayReturn);
   });
 
   it("bypasses the guard only for an exact replay verified on the selected contact", () => {
@@ -117,32 +121,26 @@ describe("purchase.request idempotency and the studio-wide guard", () => {
     );
     const replayReturn = requestSource.indexOf(
       "return { request: existing, created: false }",
-      guardLookup,
+      replayCheck,
     );
 
     expect(existingLookup).toBeGreaterThan(-1);
     expect(replayCheck).toBeGreaterThan(existingLookup);
-    expect(guardLookup).toBeGreaterThan(replayCheck);
-    expect(replayReturn).toBeGreaterThan(guardLookup);
+    expect(replayReturn).toBeGreaterThan(replayCheck);
+    expect(guardLookup).toBeGreaterThan(replayReturn);
   });
 
   it("guards every owned contact row while requiring an active new target", () => {
     expect(typeof loadArtistPurchaseGuard).toBe("function");
-    expect(guardSource).toContain(
-      "eq(clientContacts.clerkUserId, input.clerkUserId)",
-    );
-    expect(guardSource).toContain(
-      "eq(clientContacts.producerId, input.producerId)",
-    );
+    expect(guardSource).toContain("eq(clientContacts.clerkUserId, input.clerkUserId)");
+    expect(guardSource).toContain("eq(clientContacts.producerId, input.producerId)");
     expect(guardSource).not.toContain("isNull(clientContacts.archivedAt)");
 
     const targetResolution = requestSource.slice(
       requestSource.indexOf("let contact:"),
-      requestSource.indexOf("const [commercialOwner]"),
+      requestSource.indexOf("const brief"),
     );
-    expect(
-      targetResolution.match(/isNull\(clientContacts\.archivedAt\)/g),
-    ).toHaveLength(2);
+    expect(targetResolution.match(/isNull\(clientContacts\.archivedAt\)/g)).toHaveLength(2);
   });
 
   it("includes unfinished requestless purchases and releases canceled or fully verified ones", () => {
@@ -150,15 +148,9 @@ describe("purchase.request idempotency and the studio-wide guard", () => {
     expect(guardSource).toContain(
       'inArray(purchases.lifecycleStatus, ["waiting_for_payment", "active"])',
     );
-    expect(guardSource).toContain(
-      "inArray(purchases.clientContactId, contactIds)",
-    );
-    expect(guardSource).toContain(
-      "case when ${paymentProofs.status} = 'confirmed'",
-    );
+    expect(guardSource).toContain("inArray(purchases.clientContactId, contactIds)");
+    expect(guardSource).toContain("case when ${paymentProofs.status} = 'confirmed'");
     expect(guardSource).toContain("requestId: null");
-    expect(guardSource).toContain(
-      "href: `/artist/payments/${purchase.purchaseId}`",
-    );
+    expect(guardSource).toContain("href: `/artist/payments/${purchase.purchaseId}`");
   });
 });

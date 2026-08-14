@@ -1,13 +1,16 @@
-import type {
-  UserAccountMemberships,
-  UserRole,
-} from "~/server/auth/role";
+import type { UserAccountMemberships, UserRole } from "~/server/auth/role";
 
 // Role wall for producer onboarding. Identity completion unlocks the
 // dashboard, but it does not lock the producer out of onboarding: every
 // completed producer step remains available for exact resume and back/edit.
 
-export type OnboardingRedirect = "/sign-in" | "/artist" | "/onboarding/studio" | null; // null means "render the wizard"
+export type OnboardingRedirect =
+  | "/sign-in"
+  | "/artist"
+  | "/producer-access"
+  | "/account-closed"
+  | "/onboarding/studio"
+  | null; // null means "render the wizard"
 
 export type OnboardingStep =
   | "studio"
@@ -66,37 +69,33 @@ export function stepFromPath(pathname: string | null | undefined): OnboardingGua
 export function decideOnboardingRedirect(
   role: UserRole,
   currentStep: OnboardingGuardStep = "studio",
-  options: { allowArtistCreateStudio?: boolean } = {},
 ): OnboardingRedirect {
   switch (role.kind) {
     case "unauthenticated":
       return "/sign-in";
     case "artist":
-      return currentStep === "studio" && options.allowArtistCreateStudio
-        ? null
-        : "/artist";
+      return "/artist";
     case "producer-complete":
       return null;
     case "producer-incomplete":
-    case "orphan":
       return currentStep === "studio" ? null : "/onboarding/studio";
+    case "orphan":
+      return "/producer-access";
   }
 }
 
 export function decideOnboardingMembershipRedirect(
   memberships: UserAccountMemberships,
   currentStep: OnboardingGuardStep = "studio",
-  options: { allowArtistCreateStudio?: boolean } = {},
 ): OnboardingRedirect {
   if (!memberships.isAuthenticated) return "/sign-in";
+  if (memberships.accountStatus === "closure_started") return "/account-closed";
   if (memberships.producer.status === "complete") return null;
   if (memberships.producer.status === "incomplete") {
     return currentStep === "studio" ? null : "/onboarding/studio";
   }
   if (memberships.artist.hasAccess) {
-    return currentStep === "studio" && options.allowArtistCreateStudio
-      ? null
-      : "/artist";
+    return "/artist";
   }
-  return currentStep === "studio" ? null : "/onboarding/studio";
+  return "/producer-access";
 }

@@ -104,7 +104,9 @@ export const songPublicationRouter = router({
         tokenSecret: songPublicationSecret(),
       });
       return await publishSongPublicLink(
-        songPublicationRepository(ctx.db, { artistClerkUserId: ctx.clerkUserId }),
+        songPublicationRepository(ctx.db, {
+          artistClerkUserId: ctx.clerkUserId,
+        }),
         {
           producerId: state.producerId,
           trackId: input.trackId,

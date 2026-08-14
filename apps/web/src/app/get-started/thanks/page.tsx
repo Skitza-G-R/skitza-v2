@@ -1,7 +1,7 @@
 import "~/styles/get-started.css";
 
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "~/server/auth/clerk-identity";
 
 import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
 
@@ -31,16 +31,9 @@ export default async function ThanksPage({
   const name = sanitizeName(params.n);
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="get-started-root focus:outline-none"
-    >
+    <main id="main-content" tabIndex={-1} className="get-started-root focus:outline-none">
       <PublicConnectivityNotice />
-      <header
-        className="gs-header"
-        style={{ paddingTop: "max(28px, env(safe-area-inset-top))" }}
-      >
+      <header className="gs-header" style={{ paddingTop: "max(28px, env(safe-area-inset-top))" }}>
         <div className="container">
           <StaticLogo />
         </div>
@@ -59,10 +52,7 @@ export default async function ThanksPage({
       >
         <PostSignupConfetti />
         <span className="eyebrow">{"You're on the list"}</span>
-        <h1
-          className="h1"
-          style={{ marginTop: 14, maxWidth: 760 }}
-        >
+        <h1 className="h1" style={{ marginTop: 14, maxWidth: 760 }}>
           {name ? (
             <>
               {`You're in, ${name}`}
@@ -76,8 +66,8 @@ export default async function ThanksPage({
           )}
         </h1>
         <p className="body-lg" style={{ maxWidth: 520, marginTop: 8 }}>
-          Beta opens soon. We&apos;ll email you the moment your spot opens
-          — usually a few weeks, not months.
+          Beta opens soon. We&apos;ll email you the moment your spot opens — usually a few weeks,
+          not months.
         </p>
         {/* In-funnel back button — /get-started is allowed by the
             isolation rule (§3.5). Gives the visitor somewhere to go

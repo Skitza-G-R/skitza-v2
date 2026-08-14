@@ -1,12 +1,5 @@
 import { currentUser } from "@clerk/nextjs/server";
-import {
-  and,
-  clientContacts,
-  createDb,
-  eq,
-  isNull,
-  producers,
-} from "@skitza/db";
+import { and, clientContacts, createDb, eq, isNull, producers } from "@skitza/db";
 
 import { verifiedEmailHashesFromUser } from "~/server/auth/verified-email";
 import type { UserAccountMemberships } from "~/server/auth/role";
@@ -46,7 +39,7 @@ export async function findJoinTargetProducer(
       slug: producers.slug,
     })
     .from(producers)
-    .where(eq(producers.slug, slug))
+    .where(and(eq(producers.slug, slug), isNull(producers.closedAt)))
     .limit(1);
   return producer ?? null;
 }
@@ -70,9 +63,7 @@ export function joinStoreHref(target: JoinTargetProducer): string {
 export function joinEntryMode(
   memberships: UserAccountMemberships,
 ): "direct" | "producer-confirmation" {
-  return memberships.producer.status === "none"
-    ? "direct"
-    : "producer-confirmation";
+  return memberships.producer.status === "none" ? "direct" : "producer-confirmation";
 }
 
 /**
@@ -83,18 +74,19 @@ export function joinEntryMode(
 export async function connectCurrentUserForJoin(input: {
   dbUrl: string;
   userId: string | null;
+  providerUserId: string | null;
   target: JoinTargetProducer;
 }): Promise<string> {
-  if (!input.userId) throw new JoinContinuationError("UNAUTHENTICATED");
+  if (!input.userId || !input.providerUserId) {
+    throw new JoinContinuationError("UNAUTHENTICATED");
+  }
   if (isSelfJoin(input.userId, input.target)) {
     throw new JoinContinuationError("SELF_JOIN");
   }
 
   const user = await currentUser();
   const email = user?.primaryEmailAddress?.emailAddress.trim().toLowerCase() ?? null;
-  const verifiedEmailHashes = user
-    ? verifiedEmailHashesFromUser(user, input.userId)
-    : [];
+  const verifiedEmailHashes = user ? verifiedEmailHashesFromUser(user, input.providerUserId) : [];
   if (!user || !email || verifiedEmailHashes.length === 0) {
     throw new JoinContinuationError("UNVERIFIED_EMAIL");
   }

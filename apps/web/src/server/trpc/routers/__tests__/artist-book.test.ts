@@ -82,6 +82,30 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(activePackages).toMatch(/eq\(purchases\.lifecycleStatus, "active"\)/);
     expect(activePackages).toMatch(/eq\(projects\.lifecycleStatus, "active"\)/);
     expect(activePackages).toMatch(/isNull\(purchaseSessionAllowances\.closedAt\)/);
+    expect(activePackages).toMatch(/isNull\(producers\.closedAt\)/);
+  });
+
+  it("fails closed for session discovery and new transaction writes after studio closure", () => {
+    expect(availability).toMatch(/isNull\(producers\.closedAt\)/);
+    expect(mySessions).toContain("producerClosedAt: producers.closedAt");
+    expect(mySessions).toMatch(
+      /allowance\.producerClosedAt === null[\s\S]*sessionAllowanceCanBook/,
+    );
+
+    const createContext = repositorySource.slice(
+      repositorySource.indexOf("loadCreateContext: async"),
+      repositorySource.indexOf("loadBookingContext: async"),
+    );
+    const producerState = createContext.indexOf("producerClosedAt: producers.closedAt");
+    const rowLock = createContext.indexOf('.for("update")', producerState);
+    const replay = domainSource.indexOf("if (replay)");
+    const closureGuard = domainSource.indexOf("context.producer.closedAt !== null", replay);
+    const insert = domainSource.indexOf("transaction.insertBooking", closureGuard);
+
+    expect(producerState).toBeGreaterThanOrEqual(0);
+    expect(rowLock).toBeGreaterThan(producerState);
+    expect(closureGuard).toBeGreaterThan(replay);
+    expect(insert).toBeGreaterThan(closureGuard);
   });
 
   it("derives allowance usage from purchase-owned booking outcomes", () => {

@@ -60,7 +60,10 @@ import {
   createNoChargeSongSpaceProposal,
   previewNoChargeSongSpaceProposal,
 } from "~/server/domain/song-spaces/no-charge";
-import { configuredNoChargeProposalSecret } from "~/server/domain/song-spaces/no-charge-token";
+import {
+  configuredNoChargeProposalSecret,
+  configuredNoChargeProposalVerificationSecrets,
+} from "~/server/domain/song-spaces/no-charge-token";
 import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
@@ -791,7 +794,7 @@ export const projectRouter = router({
         return await previewNoChargeSongSpaceProposal(noChargeProposalRepository(ctx.db), {
           proposalToken: input.proposalToken,
           clerkUserId: ctx.clerkUserId,
-          signingSecret: configuredNoChargeProposalSecret(),
+          signingSecret: configuredNoChargeProposalVerificationSecrets(),
         });
       } catch (error) {
         mapSongSpaceDomainError(error);
@@ -803,7 +806,7 @@ export const projectRouter = router({
         return await acceptNoChargeSongSpaceProposal(noChargeProposalRepository(ctx.db), {
           proposalToken: input.proposalToken,
           clerkUserId: ctx.clerkUserId,
-          signingSecret: configuredNoChargeProposalSecret(),
+          signingSecret: configuredNoChargeProposalVerificationSecrets(),
           expectedSnapshotDigest: input.expectedSnapshotDigest,
           agreementAccepted: input.agreementAccepted,
           acceptedAt: new Date(),

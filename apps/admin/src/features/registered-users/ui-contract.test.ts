@@ -21,56 +21,49 @@ describe("registered-users page and control safety", () => {
   });
 
   it("shows malformed directory and activity cursors as safe resets", () => {
-    const directory = source(
-      "src/app/(admin)/[environment]/users/page.tsx",
-    );
-    const profile = source(
-      "src/app/(admin)/[environment]/users/[userId]/page.tsx",
-    );
+    const directory = source("src/app/(admin)/[environment]/users/page.tsx");
+    const profile = source("src/app/(admin)/[environment]/users/[userId]/page.tsx");
 
     expect(directory).toContain("malformedCursor && !data.cursorReset");
-    expect(directory).toContain(
-      'cursorInput !== undefined && typeof cursorInput !== "string"',
-    );
+    expect(directory).toContain('cursorInput !== undefined && typeof cursorInput !== "string"');
     expect(directory).toContain("cursorReset: true");
     expect(profile).toContain("malformedActivityCursor");
-    expect(profile).toContain(
-      'cursorInput !== undefined && typeof cursorInput !== "string"',
-    );
+    expect(profile).toContain('cursorInput !== undefined && typeof cursorInput !== "string"');
     expect(profile).toContain("cursorReset: true");
   });
 
   it("binds Summary access to the header's current tombstone state", () => {
-    const profile = source(
-      "src/app/(admin)/[environment]/users/[userId]/page.tsx",
-    );
+    const profile = source("src/app/(admin)/[environment]/users/[userId]/page.tsx");
 
-    expect(profile).toContain(
-      'allowDeletedSummary: header.status === "Deleted"',
-    );
+    expect(profile).toContain('allowDeletedSummary: header.status === "Deleted"');
   });
 
   it("keeps one reveal idempotency key across failed retries", () => {
-    const controls = source(
-      "src/features/registered-users/client-controls.tsx",
-    );
+    const controls = source("src/features/registered-users/client-controls.tsx");
 
     expect(controls).toContain(
       'const requestKey = revealKey ?? operationKey("support-note-reveal")',
     );
     expect(controls).toContain('"idempotency-key": requestKey');
-    expect(controls).not.toContain(
-      '"idempotency-key": operationKey("support-note-reveal")',
-    );
+    expect(controls).not.toContain('"idempotency-key": operationKey("support-note-reveal")');
+  });
+
+  it("keeps Producer invitations two-step, environment-bound, and free of client email input", () => {
+    const controls = source("src/features/registered-users/client-controls.tsx");
+    const profile = source("src/features/registered-users/profile-view.tsx");
+
+    expect(controls).toContain("Invite as Producer");
+    expect(controls).toContain("Send a real {environmentLabel} invitation?");
+    expect(controls).toContain("?environment=${environment}");
+    expect(controls).toContain('body: "{}"');
+    expect(controls).not.toMatch(/body:\s*JSON\.stringify\([^)]*email/i);
+    expect(profile).toContain('header.roles.includes("Artist")');
+    expect(profile).toContain('!header.roles.includes("Producer")');
   });
 
   it("keeps the compact desktop signup sort and mobile touch targets", () => {
-    const directory = source(
-      "src/features/registered-users/directory-view.tsx",
-    );
-    const styles = source(
-      "src/features/registered-users/registered-users.module.css",
-    );
+    const directory = source("src/features/registered-users/directory-view.tsx");
+    const styles = source("src/features/registered-users/registered-users.module.css");
 
     expect(directory).toMatch(/sort="signup"[\s\S]*>\s*Signup\s*</);
     expect(styles).toContain("@media (max-width: 1120px)");
@@ -80,9 +73,7 @@ describe("registered-users page and control safety", () => {
   });
 
   it("uses truthful error copy without claiming the database stayed closed", () => {
-    const error = source(
-      "src/app/(admin)/[environment]/users/error.tsx",
-    );
+    const error = source("src/app/(admin)/[environment]/users/error.tsx");
 
     expect(error).toContain("no account changes were made");
     expect(error).not.toContain("environment stayed closed");

@@ -20,9 +20,13 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@skitza/db", () => ({
   createDb: mocks.createDb,
+  and: (...conditions: Array<{ value?: string }>) =>
+    conditions.find((condition) => condition.value !== undefined) ?? {},
   eq: (_column: unknown, value: string) => ({ value }),
+  isNull: (column: unknown) => ({ isNull: column }),
   producers: {
     clerkUserId: Symbol("producers.clerkUserId"),
+    closedAt: Symbol("producers.closedAt"),
     id: Symbol("producers.id"),
   },
 }));
