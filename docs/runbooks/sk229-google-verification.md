@@ -4,7 +4,7 @@ Use this runbook only after the SK-229 deployment is running behind the launch
 gate with the final production Clerk instance. Use disposable Producer, Artist,
 booking, and Google Calendar data.
 
-## Verified console state (13 August 2026)
+## Verified console state (14 August 2026)
 
 - Google Cloud project: `skitza-openclaw` (`Skitza Calendar`).
 - OAuth client: `Skitza Production`.
@@ -19,9 +19,8 @@ booking, and Google Calendar data.
   `calendar.calendarlist.readonly`, and `calendar.events.freebusy`.
 - Sensitive scope: `calendar.events`.
 - Restricted scopes: none.
-- Search Console ownership for `skitza.app` is not complete. Add the CNAME
-  record Search Console supplies, verify it publicly, and then complete
-  ownership from the Google Cloud project owner account.
+- Search Console domain ownership for `skitza.app` is verified. The Google
+  account used for the matching Cloud project is shown as a verified owner.
 
 Do not publish the OAuth app while the public homepage or Privacy URL is behind
 the launch gate. Testing mode limits access to the listed test users and gives
