@@ -153,7 +153,7 @@ export function createDesktopSocialAuthStore(db: Db): DesktopSocialAuthStore {
         const [producer] = await tx
           .select({ clerkUserId: producers.clerkUserId })
           .from(producers)
-          .where(eq(producers.id, consumed.producerId))
+          .where(and(eq(producers.id, consumed.producerId), isNull(producers.closedAt)))
           .limit(1);
         return producer ?? null;
       });

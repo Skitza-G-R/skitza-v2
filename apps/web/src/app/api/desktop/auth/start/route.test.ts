@@ -1,18 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  and: vi.fn((...conditions: unknown[]) => conditions),
   auth: vi.fn(),
   createDb: vi.fn(),
   createStore: vi.fn(),
+  eq: vi.fn(() => "where"),
   issue: vi.fn(),
+  isNull: vi.fn(() => "is-null"),
 }));
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
 vi.mock("@skitza/db", () => ({
+  and: mocks.and,
   createDb: mocks.createDb,
-  eq: vi.fn(() => "where"),
-  producers: { clerkUserId: "clerk_user_id", id: "id" },
+  eq: mocks.eq,
+  isNull: mocks.isNull,
+  producers: { clerkUserId: "clerk_user_id", closedAt: "closed_at", id: "id" },
 }));
+vi.mock("~/server/auth/clerk-identity", () => ({ auth: mocks.auth }));
 vi.mock("~/server/auth/desktop-social-auth", async (importOriginal) => {
   const original = await importOriginal<typeof import("~/server/auth/desktop-social-auth")>();
   return {
@@ -49,7 +54,7 @@ describe("desktop social-auth start route", () => {
     vi.clearAllMocks();
     process.env.SITE_URL = "https://proof.skitza.app";
     process.env.DATABASE_URL = "postgres://test.invalid/skitza";
-    mocks.auth.mockResolvedValue({ userId: "user-1" });
+    mocks.auth.mockResolvedValue({ providerUserId: "provider-user-1", userId: "canonical-user-1" });
     mocks.createDb.mockReturnValue(dbWithProducer("producer-1"));
     mocks.createStore.mockReturnValue({ consume: vi.fn(), issue: vi.fn() });
     mocks.issue.mockResolvedValue(CODE);
@@ -93,6 +98,8 @@ describe("desktop social-auth start route", () => {
       state: STATE,
       store,
     });
+    expect(mocks.eq).toHaveBeenCalledWith("clerk_user_id", "canonical-user-1");
+    expect(mocks.isNull).toHaveBeenCalledWith("closed_at");
     expect(response.status).toBe(303);
     expect(location.protocol).toBe("skitza:");
     expect(location.host).toBe("auth");
@@ -110,5 +117,25 @@ describe("desktop social-auth start route", () => {
 
     expect(response.status).toBe(403);
     expect(mocks.issue).not.toHaveBeenCalled();
+  });
+
+  it("does not issue a desktop handoff for a closed producer account", async () => {
+    mocks.createDb.mockReturnValue(dbWithProducer(null));
+
+    const response = await request();
+
+    expect(response.status).toBe(403);
+    expect(mocks.isNull).toHaveBeenCalledWith("closed_at");
+    expect(mocks.issue).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the provider identity cannot resolve", async () => {
+    mocks.auth.mockRejectedValue(new Error("IDENTITY_RELINK_REQUIRED"));
+
+    const response = await request();
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe("Desktop authentication is unavailable");
+    expect(mocks.createDb).not.toHaveBeenCalled();
   });
 });
