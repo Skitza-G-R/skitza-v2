@@ -294,9 +294,9 @@ describe("PersistentPlayer source — reserves bottom padding so the dock doesn'
     expect(playerSrc).toMatch(/document\.body[^;]*(?:dataset|setAttribute|classList)/);
   });
 
-  it("makes hidden dock chrome inert as well as aria-hidden", () => {
+  it("makes hidden dock chrome inert and removes the full-player modal layer", () => {
     expect(playerSrc.match(/inert=\{hidden\}/g)).toHaveLength(2);
-    expect(playerSrc).toContain("expanded={expanded && !hidden}");
+    expect(playerSrc).toContain('{mounted && !hidden && typeof document !== "undefined"');
   });
 });
 

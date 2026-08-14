@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import tailwindPostcss from "@tailwindcss/postcss";
 import { describe, expect, it } from "vitest";
 
-import {
-  calculateNativeViewportGrowth,
-  calculateNativeViewportMetrics,
-} from "../native-viewport";
+import { calculateNativeViewportGrowth, calculateNativeViewportMetrics } from "../native-viewport";
 import { isCompletedBackSwipe } from "../use-native-navigation";
 
 const globalsCss = readFileSync(
@@ -28,6 +25,10 @@ const appShellSource = readFileSync(
 );
 const nativeViewportSource = readFileSync(
   fileURLToPath(new URL("../native-viewport.tsx", import.meta.url)),
+  "utf8",
+);
+const playerSource = readFileSync(
+  fileURLToPath(new URL("../../audio/persistent-player.tsx", import.meta.url)),
   "utf8",
 );
 const tailwindRequire = createRequire(
@@ -52,10 +53,7 @@ interface ParsedCssRule extends ParsedCssNode {
 
 const postcss = tailwindRequire("postcss") as {
   (plugins: unknown[]): {
-    process: (
-      css: string,
-      options: { from: string },
-    ) => Promise<{ css: string }>;
+    process: (css: string, options: { from: string }) => Promise<{ css: string }>;
   };
   parse: (css: string) => {
     walkRules: (callback: (rule: ParsedCssRule) => void) => void;
@@ -72,6 +70,8 @@ describe("native viewport metrics", () => {
       }),
     ).toEqual({
       height: 520,
+      layoutTop: 0,
+      layoutHeight: 520,
       offsetTop: 0,
       keyboardInset: 324,
       keyboardOpen: true,
@@ -85,6 +85,8 @@ describe("native viewport metrics", () => {
       }),
     ).toEqual({
       height: 520,
+      layoutTop: 59,
+      layoutHeight: 520,
       offsetTop: 59,
       keyboardInset: 265,
       keyboardOpen: true,
@@ -100,6 +102,22 @@ describe("native viewport metrics", () => {
       }),
     ).toMatchObject({
       height: 800,
+      keyboardInset: 0,
+      keyboardOpen: false,
+    });
+  });
+
+  it("keeps a full-screen layout through a non-keyboard Home Indicator gap", () => {
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 812,
+        viewportHeight: 770,
+        viewportOffsetTop: 0,
+      }),
+    ).toMatchObject({
+      height: 770,
+      layoutTop: 0,
+      layoutHeight: 812,
       keyboardInset: 0,
       keyboardOpen: false,
     });
@@ -176,9 +194,7 @@ describe("native navigation motion", () => {
   });
 
   it("stays fluid at 360/390px and constrains the desktop reference state", () => {
-    expect(flowSource).toContain(
-      "fixed inset-x-0 z-[71] flex w-full flex-col",
-    );
+    expect(flowSource).toContain("fixed inset-x-0 z-[71] flex w-full flex-col");
     expect(flowSource).toContain("md:max-w-3xl");
     expect(flowSource).toContain("md:rounded-[var(--radius-xl)]");
   });
@@ -215,12 +231,8 @@ describe("native CSS contracts", () => {
     const shellDeclarations = Object.fromEntries(
       (standaloneShellRule?.nodes ?? [])
         .filter(
-          (
-            node,
-          ): node is ParsedCssDeclaration & { prop: string; value: string } =>
-            node.type === "decl" &&
-            typeof node.prop === "string" &&
-            typeof node.value === "string",
+          (node): node is ParsedCssDeclaration & { prop: string; value: string } =>
+            node.type === "decl" && typeof node.prop === "string" && typeof node.value === "string",
         )
         .map((node) => [node.prop, node.value]),
     );
@@ -243,13 +255,42 @@ describe("native CSS contracts", () => {
     expect(Object.values(shellDeclarations).join(" ")).not.toContain("100vh");
     expect(keyboardShellRule).toBeUndefined();
     expect(nativeViewportSource).not.toContain("--sk-viewport-bottom");
-    expect(productionCss.css).toContain(
-      ".sk-producer-app-shell .persistent-player-dock",
+    expect(nativeViewportSource).toContain(
+      'setProperty("--sk-layout-viewport-top", `${String(metrics.layoutTop)}px`)',
     );
-    expect(productionCss.css).toContain(
-      ".sk-producer-app-shell .mobile-full-player-sheet",
+    expect(nativeViewportSource).toContain(
+      'setProperty("--sk-layout-viewport-height", `${String(metrics.layoutHeight)}px`)',
     );
+    expect(productionCss.css).toContain(".sk-producer-app-shell .persistent-player-dock");
+    expect(productionCss.css).not.toContain(".sk-producer-app-shell .mobile-full-player-sheet");
     expect(productionCss.css).toContain("position:absolute");
+    expect(playerSource).toContain('top: "var(--sk-layout-viewport-top, 0px)"');
+    expect(playerSource).toContain('height: "var(--sk-layout-viewport-height, 100dvh)"');
+    expect(playerSource).toContain("createPortal(");
+
+    const sheetRules: ParsedCssRule[] = [];
+    postcss.parse(productionCss.css).walkRules((rule) => {
+      if (
+        rule.selector === ".mobile-full-player-sheet" ||
+        rule.selector.startsWith(".mobile-full-player-sheet[data-player-state=")
+      ) {
+        sheetRules.push(rule);
+      }
+    });
+    const sheetDeclarations = sheetRules.map((rule) =>
+      Object.fromEntries(
+        (rule.nodes ?? [])
+          .filter(
+            (node): node is ParsedCssDeclaration & { prop: string; value: string } =>
+              node.type === "decl" &&
+              typeof node.prop === "string" &&
+              typeof node.value === "string",
+          )
+          .map((node) => [node.prop, node.value]),
+      ),
+    );
+    expect(sheetDeclarations).toContainEqual(expect.objectContaining({ visibility: "hidden" }));
+    expect(sheetDeclarations).toContainEqual(expect.objectContaining({ visibility: "visible" }));
 
     // Current iOS standalone can expose a 402 x 874 physical screen while
     // only 812 CSS pixels are paintable. The shell must end at 812 rather

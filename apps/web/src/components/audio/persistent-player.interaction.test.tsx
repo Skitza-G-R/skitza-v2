@@ -11,12 +11,14 @@ vi.mock("next/link", () => ({
   default: ({
     href,
     children,
+    prefetch,
     ...props
   }: AnchorHTMLAttributes<HTMLAnchorElement> & {
     href: string;
     children: ReactNode;
+    prefetch?: boolean;
   }) => (
-    <a href={href} {...props}>
+    <a href={href} data-prefetch={prefetch ? "true" : undefined} {...props}>
       {children}
     </a>
   ),
@@ -28,6 +30,7 @@ vi.mock("next/navigation", () => ({
 
 import {
   MiniWaveform,
+  MobileDock,
   MobileFullPlayer,
   shouldCollapsePlayerDrag,
   type PlayerTrack,
@@ -43,12 +46,7 @@ const track: PlayerTrack = {
 
 function dispatchPointer(
   target: Element,
-  type:
-    | "lostpointercapture"
-    | "pointercancel"
-    | "pointerdown"
-    | "pointermove"
-    | "pointerup",
+  type: "lostpointercapture" | "pointercancel" | "pointerdown" | "pointermove" | "pointerup",
   {
     clientX = 20,
     clientY,
@@ -113,6 +111,34 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("full player direct manipulation", () => {
+  it("makes a collapsed full player genuinely non-painted", () => {
+    const collapseBtnRef = createRef<HTMLButtonElement>();
+    render(
+      <MobileFullPlayer
+        track={track}
+        playing
+        currentMs={9_000}
+        durationMs={90_000}
+        progressPct={10}
+        onTogglePlay={vi.fn()}
+        onScrub={vi.fn()}
+        onSkip={vi.fn()}
+        expanded={false}
+        onCollapse={vi.fn()}
+        collapseBtnRef={collapseBtnRef}
+        pathname="/dashboard/music"
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { hidden: true });
+    expect(dialog.getAttribute("aria-label")).toBe("Now playing — Lama");
+    expect(dialog.getAttribute("data-player-state")).toBe("closed");
+    expect(dialog.style.willChange).toBe("");
+    expect(dialog.style.top).toBe("var(--sk-layout-viewport-top, 0px)");
+    expect(dialog.style.bottom).toBe("auto");
+    expect(dialog.style.height).toBe("var(--sk-layout-viewport-height, 100dvh)");
+  });
+
   it("follows a downward finger, reverses upward, and settles open without firing the tap action", () => {
     const onCollapse = vi.fn();
     renderFullPlayer({ onCollapse });
@@ -279,6 +305,44 @@ describe("full player direct manipulation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Minimize player" }));
 
     expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("full player route lifecycle", () => {
+  function mobileDock(hidden: boolean) {
+    return (
+      <div dir="rtl" lang="he">
+        <MobileDock
+          track={track}
+          playing
+          currentMs={9_000}
+          durationMs={90_000}
+          progressPct={10}
+          onTogglePlay={vi.fn()}
+          onScrub={vi.fn()}
+          onSkip={vi.fn()}
+          hidden={hidden}
+          pathname="/dashboard/music"
+        />
+      </div>
+    );
+  }
+
+  it("removes the modal layer and body lock as soon as the Song route hides the dock", () => {
+    document.body.style.overflow = "auto";
+    const view = render(mobileDock(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand player" }));
+    const dialog = screen.getByRole("dialog", { name: "Now playing — Lama" });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.getAttribute("dir")).toBe("rtl");
+    expect(dialog.getAttribute("lang")).toBe("he");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    view.rerender(mobileDock(true));
+
+    expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
+    expect(document.body.style.overflow).toBe("auto");
   });
 });
 

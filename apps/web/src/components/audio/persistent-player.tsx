@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import {
@@ -407,7 +408,7 @@ function DesktopDock({
 
 // ─── Mobile dock ─────────────────────────────────────────────────────
 
-function MobileDock({
+export function MobileDock({
   track,
   playing,
   currentMs,
@@ -434,7 +435,21 @@ function MobileDock({
   // Spotify/Apple-Music pattern). One state flag toggles the
   // `.expanded` class on the overlay; CSS transitions do the motion.
   const [expanded, setExpanded] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const dockRef = useRef<HTMLDivElement | null>(null);
   const collapseBtnRef = useRef<HTMLButtonElement | null>(null);
+  const fullPlayerExpanded = expanded && !hidden;
+  const portalScope =
+    mounted && typeof document !== "undefined"
+      ? dockRef.current?.closest<HTMLElement>("[dir]")
+      : null;
+
+  // The full player is a true viewport modal, not part of the clipped app
+  // shell. Defer the body portal until after hydration so SSR never touches
+  // `document`.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Force-collapse if the dock is hidden externally (e.g. close event).
   useEffect(() => {
@@ -445,7 +460,7 @@ function MobileDock({
   // to the collapse chevron so keyboard/VoiceOver users land inside
   // the dialog.
   useEffect(() => {
-    if (!expanded) return;
+    if (!fullPlayerExpanded) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     collapseBtnRef.current?.focus();
@@ -457,11 +472,12 @@ function MobileDock({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
     };
-  }, [expanded]);
+  }, [fullPlayerExpanded]);
 
   return (
     <>
       <div
+        ref={dockRef}
         role="region"
         aria-label="Audio player"
         aria-hidden={hidden}
@@ -546,33 +562,39 @@ function MobileDock({
         </div>
       </div>
 
-      <MobileFullPlayer
-        track={track}
-        playing={playing}
-        currentMs={currentMs}
-        durationMs={durationMs}
-        progressPct={progressPct}
-        onTogglePlay={onTogglePlay}
-        onScrub={onScrub}
-        onSkip={onSkip}
-        expanded={expanded && !hidden}
-        onCollapse={() => {
-          setExpanded(false);
-        }}
-        collapseBtnRef={collapseBtnRef}
-        pathname={pathname}
-      />
+      {mounted && !hidden && typeof document !== "undefined"
+        ? createPortal(
+            <MobileFullPlayer
+              track={track}
+              playing={playing}
+              currentMs={currentMs}
+              durationMs={durationMs}
+              progressPct={progressPct}
+              onTogglePlay={onTogglePlay}
+              onScrub={onScrub}
+              onSkip={onSkip}
+              expanded={expanded}
+              onCollapse={() => {
+                setExpanded(false);
+              }}
+              collapseBtnRef={collapseBtnRef}
+              pathname={pathname}
+              direction={portalScope?.dir === "rtl" ? "rtl" : "ltr"}
+              language={portalScope?.lang || document.documentElement.lang || undefined}
+            />,
+            document.body,
+          )
+        : null}
     </>
   );
 }
 
 // ─── Mobile full-screen player (SK-55) ───────────────────────────────
 //
-// Always mounted under the mini dock so the slide-up/down transition
-// can run both ways; the `expanded` flag toggles the transform (CSS
-// class-toggle pattern — the state machine is one boolean, the motion
-// is pure CSS). Apple-sheet curve, 340ms up / feels-quicker down via
-// the same curve (distance shrinks as it leaves). Reduced-motion users
+// Kept mounted while the dock is visible so the slide-up/down transition
+// can run both ways; route-hidden states remove it entirely. The `expanded`
+// flag toggles the transform (CSS class-toggle pattern — the state machine
+// is one boolean, the motion is pure CSS). Reduced-motion users
 // get an instant swap.
 
 export function MobileFullPlayer({
@@ -588,6 +610,8 @@ export function MobileFullPlayer({
   onCollapse,
   collapseBtnRef,
   pathname,
+  direction,
+  language,
 }: {
   track: PlayerTrack;
   playing: boolean;
@@ -601,6 +625,8 @@ export function MobileFullPlayer({
   onCollapse: () => void;
   collapseBtnRef: React.RefObject<HTMLButtonElement | null>;
   pathname: string | null;
+  direction?: "ltr" | "rtl";
+  language?: string | undefined;
 }) {
   // Tint the top of the sheet with the track's identity gradient —
   // same producerGradient hash the covers use, so mini → full reads
@@ -739,17 +765,23 @@ export function MobileFullPlayer({
       aria-label={`Now playing — ${track.title}`}
       aria-hidden={!expanded}
       inert={!expanded}
+      data-player-state={expanded ? "open" : "closed"}
+      dir={direction}
+      lang={language}
       className={[
-        "mobile-full-player-sheet fixed inset-0 z-50 flex flex-col md:hidden",
+        "mobile-full-player-sheet fixed inset-x-0 z-50 flex flex-col md:hidden",
         expanded ? "" : "pointer-events-none",
       ].join(" ")}
       style={{
         background: "#141414",
         color: "#fff",
+        top: "var(--sk-layout-viewport-top, 0px)",
+        bottom: "auto",
+        height: "var(--sk-layout-viewport-height, 100dvh)",
+        maxHeight: "var(--sk-layout-viewport-height, 100dvh)",
         transform: expanded ? `translateY(${String(dragOffsetY)}px)` : "translateY(100%)",
         transition: dragging ? "none" : undefined,
-        willChange: "transform",
-        visibility: expanded ? "visible" : undefined,
+        willChange: expanded || dragging ? "transform" : undefined,
       }}
     >
       {/* Identity tint — fades from the track gradient into the dark
