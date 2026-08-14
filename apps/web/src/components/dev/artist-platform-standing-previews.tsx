@@ -32,13 +32,9 @@ function PreviewCanvas({
   width?: string;
 }) {
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="min-h-dvh bg-transparent px-4 py-6 sm:px-6 sm:py-9"
-    >
+    <div className="min-h-dvh bg-transparent px-4 py-6 sm:px-6 sm:py-9">
       <div className={`mx-auto w-full ${width}`}>{children}</div>
-    </main>
+    </div>
   );
 }
 

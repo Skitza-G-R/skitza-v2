@@ -187,7 +187,6 @@
     --sk-viewport-height: 100dvh;
     --sk-viewport-offset-top: 0px;
     --sk-keyboard-inset: 0px;
-    --sk-viewport-growth: 0px;
   }
 
   /* Dark mode — `chrome-dark` selector kept for compat; ThemeProvider in
@@ -2084,14 +2083,6 @@
     top: 0;
   }
 
-  main#main-content[data-artist-shell-mode="standing"] {
-    padding-bottom: calc(1rem + var(--sk-viewport-growth, 0px));
-  }
-
-  body[data-skitza-dock="1"]
-    main#main-content[data-artist-shell-mode="standing"] {
-    padding-bottom: calc(102px + var(--sk-viewport-growth, 0px));
-  }
 }
 
 /* --------------------------------------------------------------
@@ -2734,20 +2725,22 @@ html[data-theme="dark"] .sk-auth-shell {
 }
 
 /* Current iOS can expose a classic viewport that extends into an OS-owned,
- * unpaintable band in a Home Screen app. Keep the installed producer shell
- * inside the measured visual viewport so its in-flow footer is always fully
- * visible. Artist uses the same measured-viewport contract in its shell.
+ * unpaintable band in a Home Screen app. Keep each installed app shell inside
+ * the measured visual viewport so its in-flow footer is always fully visible.
  * Keep this unlayered so it wins over Tailwind's layered `fixed` utility only
  * in standalone mobile mode. */
 @media (display-mode: standalone) and (max-width: 1023px) {
-  .sk-producer-app-shell {
+  .sk-producer-app-shell,
+  .sk-artist-app-shell {
     inset: 0 0 auto;
     height: var(--sk-viewport-height, 100dvh);
     max-height: var(--sk-viewport-height, 100dvh);
   }
 
   .sk-producer-app-shell .persistent-player-dock,
-  .sk-producer-app-shell .mobile-full-player-sheet {
+  .sk-producer-app-shell .mobile-full-player-sheet,
+  .sk-artist-app-shell .persistent-player-dock,
+  .sk-artist-app-shell .mobile-full-player-sheet {
     position: absolute;
   }
 }

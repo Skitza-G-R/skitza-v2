@@ -56,6 +56,20 @@ export const ARTIST_PLATFORM_PREVIEW_GROUPS: readonly ArtistPlatformPreviewGroup
         detail: "Exact booking, dual timezone, and change policy.",
       },
       {
+        label: "Book a session",
+        href: "/dev/screens/artist-book",
+        chrome: "Focused",
+        activeDestination: null,
+        detail: "Available-day selection in the exact focused booking frame.",
+      },
+      {
+        label: "Payments",
+        href: "/dev/screens/artist-payments",
+        chrome: "Standing",
+        activeDestination: "payments",
+        detail: "Artist balances, payment actions, and immutable history.",
+      },
+      {
         label: "Settings",
         href: "/dev/screens/artist-settings",
         chrome: "Standing",

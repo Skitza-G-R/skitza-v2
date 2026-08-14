@@ -58,7 +58,7 @@ const PREVIEW_NAV_ITEMS: readonly PreviewNavItem[] = [
   },
   {
     destination: "payments",
-    href: "/dev/screens/sk69-payments-flow",
+    href: "/dev/screens/artist-payments",
     label: "Payments",
     icon: "payments",
   },
@@ -305,7 +305,7 @@ function PreviewBottomNav({
     <LiquidGlassBottomNav
       ariaLabel="Artist preview tabs"
       tabs={tabs}
-      position="fixed"
+      position="in-flow"
       frameClassName="artist-preview-bottom-nav-frame"
     />
   );
@@ -325,7 +325,7 @@ export function ArtistPlatformPreviewShell({
       data-artist-platform-preview-chrome="standing"
       data-artist-platform-preview-destination={activeDestination}
       data-artist-platform-preview-screen={screenLabel}
-      className="flex min-h-dvh bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
+      className="sk-artist-app-shell fixed inset-0 flex overflow-hidden bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] lg:static lg:min-h-dvh lg:overflow-visible"
       style={{
         backgroundColor: "rgb(var(--bg-background))",
         backgroundImage:
@@ -333,13 +333,18 @@ export function ArtistPlatformPreviewShell({
       }}
     >
       <PreviewDesktopSidebar activeDestination={activeDestination} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <PreviewTopBar activeDestination={activeDestination} />
-        <div className="min-w-0 flex-1 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          data-artist-shell-mode="standing"
+          className="sk-native-scroll min-h-0 min-w-0 flex-1 lg:overflow-visible"
+        >
           {children}
-        </div>
+        </main>
+        <PreviewBottomNav activeDestination={activeDestination} />
       </div>
-      <PreviewBottomNav activeDestination={activeDestination} />
     </div>
   );
 }
