@@ -36,11 +36,16 @@ import {
   type RuntimeScreenSafeView,
 } from "~/lib/runtime-state/runtime-state";
 import {
+  DESKTOP_CAPABILITIES,
+  desktopBridgeHasCapability,
+  detectDesktopBridge,
+} from "~/lib/desktop/bridge";
+import { recordGate1MeaningfulPaint, startGate1Journey } from "~/lib/desktop/gate1-proof";
+import {
   desktopSavedScreenPreviewEnabled,
   desktopSessionCacheAccess,
   subscribeDesktopSessionValidation,
 } from "~/lib/desktop/session-validation";
-import { recordGate1MeaningfulPaint, startGate1Journey } from "~/lib/desktop/gate1-proof";
 
 import { useOnlineStatus } from "./online-required-link";
 import { useRuntimeState } from "./runtime-state-provider";
@@ -828,6 +833,17 @@ export function RuntimeResumeBoundary({
       : null;
   const launchDesktopAccess = desktopSessionCacheAccess(userId ?? null, online);
   const launchIsLocked = launchDesktopAccess.kind === "desktop" && !launchDesktopAccess.allowed;
+  const launchDesktopDetection = detectDesktopBridge();
+  const signedOutDesktopAuthAvailable =
+    desktopBridgeHasCapability(launchDesktopDetection, DESKTOP_CAPABILITIES.sessionValidation) &&
+    desktopBridgeHasCapability(launchDesktopDetection, DESKTOP_CAPABILITIES.socialAuth);
+
+  useEffect(() => {
+    if (!navigate || !online || !isLoaded || userId !== null || !signedOutDesktopAuthAvailable) {
+      return;
+    }
+    router.replace("/sign-in");
+  }, [isLoaded, navigate, online, router, signedOutDesktopAuthAvailable, userId]);
 
   useEffect(() => {
     if (!navigate || !resolvedIdentity || !online) return;
