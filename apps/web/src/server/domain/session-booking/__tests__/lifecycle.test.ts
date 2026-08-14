@@ -19,6 +19,7 @@ import {
   rejectSessionBooking,
   restoreMissingSessionBookingGoogleCalendarEvent,
   retrySessionBookingGoogleCalendarSync,
+  setProducerSessionTitle,
   previewProducerSessionReschedule,
   rescheduleArtistSessionBooking,
   rescheduleProducerSessionBooking,
@@ -1315,7 +1316,7 @@ describe("session booking lifecycle commands", () => {
     expect(created.booking.title).toBe("Studio session");
   });
 
-  it("keeps the stored and ICS titles purchase-derived while Google uses the project name", async () => {
+  it("uses the stored session title for both ICS and Google delivery", async () => {
     const icsRepository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true }),
     );
@@ -1341,7 +1342,7 @@ describe("session booking lifecycle commands", () => {
 
     expect(googleCreated.booking.title).toBe("Studio session");
     expect(googlePayload(googleRepository.calendarJobs[0])).toMatchObject({
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Studio session",
     });
   });
 
@@ -1492,7 +1493,7 @@ describe("session booking lifecycle commands", () => {
       sequence: 2,
       startsAtUtc: "2026-07-20T10:00:00.000Z",
       endsAtUtc: "2026-07-20T11:30:00.000Z",
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Private vocal session",
       artistSafeUrl: `https://skitza.app/artist/sessions/${created.booking.id}`,
       attendee: {
         name: "SK-68 Artist",
@@ -1763,7 +1764,7 @@ describe("session booking lifecycle commands", () => {
     });
   });
 
-  it("rejects producer cancellation and reschedule after a confirmed session has ended", async () => {
+  it("rejects producer cancellation, rename, and reschedule after a confirmed session has ended", async () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true }),
     );
@@ -1776,6 +1777,14 @@ describe("session booking lifecycle commands", () => {
         repository,
         producerCommand(created.booking.id, "cancel-ended-session", endedAt),
       ),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+    await expect(
+      setProducerSessionTitle(repository, {
+        bookingId: created.booking.id,
+        producerId: created.booking.producerId,
+        title: "Too late to rename",
+        now: endedAt,
+      }),
     ).rejects.toMatchObject({ code: "INVALID_STATUS" });
     await expect(
       loadProducerSessionRescheduleAvailabilitySnapshot(repository, {
@@ -2180,7 +2189,63 @@ describe("session booking lifecycle commands", () => {
       notificationMode: "all",
       sequence: 2,
       startsAtUtc: "2026-07-20T12:00:00.000Z",
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Tracking",
+    });
+  });
+
+  it("sets a confirmed session title once and queues the matching Google revision", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    repository.googleConnected = true;
+    const created = await createSessionBooking(
+      repository,
+      createInput({ operationKey: "set-title-source" }),
+    );
+
+    await expect(
+      setProducerSessionTitle(repository, {
+        bookingId: created.booking.id,
+        producerId: created.booking.producerId,
+        title: "x".repeat(201),
+        now: new Date("2026-07-19T11:44:59.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_SLOT" });
+    expect(repository.bookings[0]).toMatchObject({
+      title: "Studio session",
+      calendarRevision: 1,
+    });
+    expect(repository.calendarJobs).toHaveLength(1);
+
+    const changed = await setProducerSessionTitle(repository, {
+      bookingId: created.booking.id,
+      producerId: created.booking.producerId,
+      title: "  Updated mix review  ",
+      now: new Date("2026-07-19T11:45:00.000Z"),
+    });
+    const replay = await setProducerSessionTitle(repository, {
+      bookingId: created.booking.id,
+      producerId: created.booking.producerId,
+      title: "Updated mix review",
+      now: new Date("2026-07-19T11:45:01.000Z"),
+    });
+
+    expect(changed).toMatchObject({
+      changed: true,
+      booking: { title: "Updated mix review", calendarRevision: 2 },
+      calendarSyncJobId: repository.calendarJobs[1]?.id,
+    });
+    expect(replay).toMatchObject({
+      changed: false,
+      booking: { title: "Updated mix review", calendarRevision: 2 },
+      calendarSyncJobId: null,
+    });
+    expect(repository.calendarJobs).toHaveLength(2);
+    expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
+      action: "upsert",
+      notificationMode: "all",
+      sequence: 2,
+      summary: "Updated mix review",
     });
   });
 
@@ -2965,7 +3030,7 @@ describe("session booking lifecycle commands", () => {
     expect(repository.bookingCalendarLinks).toEqual([]);
   });
 
-  it("restores the canonical Google title and fixed duration without renaming the app session", async () => {
+  it("imports a valid Google title while restoring the fixed duration", async () => {
     const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
     const result = await applyGoogleCalendarSessionReconciliation(
       repository,
@@ -2996,7 +3061,7 @@ describe("session booking lifecycle commands", () => {
     expect(result).toEqual({ outcome: "corrected" });
     expect(repository.bookings[0]).toMatchObject({
       id: created.booking.id,
-      title: "Studio session",
+      title: "Updated mix review",
       durationMin: 60,
       calendarRevision: 2,
       artistRsvpStatus: "accepted",
@@ -3012,9 +3077,51 @@ describe("session booking lifecycle commands", () => {
       action: "upsert",
       notificationMode: "none",
       sequence: 2,
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Updated mix review",
       startsAtUtc: created.booking.startsAt.toISOString(),
       endsAtUtc: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1_000).toISOString(),
+    });
+  });
+
+  it("keeps the local title when Google returns a title longer than the app limit", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        {
+          outcome: "found",
+          event: {
+            eventId: prepared.link.providerEventId,
+            etag: '"etag-overlong-title"',
+            status: "confirmed",
+            linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+            updatedAt: new Date("2026-08-09T12:02:00.000Z"),
+            summary: "x".repeat(201),
+            timing: {
+              kind: "timed",
+              startsAt: created.booking.startsAt,
+              endsAt: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1_000),
+            },
+            artistRsvp: null,
+          },
+        },
+        {
+          leaseToken: "lease-domain-reconcile",
+          reconciledAt: new Date("2026-08-09T12:02:01.000Z"),
+        },
+      ),
+    ).resolves.toEqual({ outcome: "corrected" });
+
+    expect(repository.bookings[0]).toMatchObject({
+      title: "Studio session",
+      calendarRevision: 2,
+    });
+    expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
+      sequence: 2,
+      summary: "Studio session",
+      notificationMode: "none",
     });
   });
 
@@ -3034,7 +3141,7 @@ describe("session booking lifecycle commands", () => {
             status: "confirmed",
             linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
             updatedAt: new Date("2026-08-09T12:05:00.000Z"),
-            summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+            summary: "Moved Google title",
             timing: {
               kind: "timed",
               startsAt: movedStartsAt,
@@ -3057,6 +3164,7 @@ describe("session booking lifecycle commands", () => {
       calendarRevision: 2,
     });
     expect(repository.bookings[1]).toMatchObject({
+      title: "Moved Google title",
       startsAt: movedStartsAt,
       durationMin: 60,
       status: "confirmed",
@@ -3067,6 +3175,11 @@ describe("session booking lifecycle commands", () => {
     expect(repository.bookingCalendarLinks[0]).toMatchObject({
       currentBookingId: repository.bookings[1]?.id,
       desiredRevision: 2,
+    });
+    expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
+      sequence: 2,
+      summary: "Moved Google title",
+      startsAtUtc: movedStartsAt.toISOString(),
     });
     const rescheduleEvents = repository.events.filter((event) => event.kind === "rescheduled");
     expect(rescheduleEvents).toEqual([
@@ -3311,7 +3424,7 @@ describe("session booking lifecycle commands", () => {
             status: "confirmed",
             linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
             updatedAt: new Date("2026-08-09T12:20:00.000Z"),
-            summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+            summary: "Studio session",
             timing: {
               kind: "timed",
               startsAt: created.booking.startsAt,

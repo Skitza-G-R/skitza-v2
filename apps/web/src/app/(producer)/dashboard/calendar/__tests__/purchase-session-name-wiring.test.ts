@@ -49,10 +49,16 @@ describe("project-owned session names", () => {
     expect(desktopPending).toContain("packageName: b.projectName");
     expect(desktopSchedule.match(/packageName: b\.projectName/g)).toHaveLength(2);
     expect(desktopSessions).toContain("packageName: b.projectName");
+    expect(desktopSessions).toContain("title: b.title ?? b.packageNameSnapshot");
     expect(desktopSessions).toContain("kindSource: b.title ?? b.packageNameSnapshot");
 
     expect(mobileSchedule.match(/packageName: b\.projectName/g)).toHaveLength(2);
+    expect(mobileSchedule).toContain("title: b.title ?? b.packageNameSnapshot");
+    expect(mobileSchedule).toContain(
+      "title: full?.title ?? full?.packageNameSnapshot ?? b.packageName",
+    );
     expect(mobileSessions).toContain("packageName: b.projectName");
+    expect(mobileSessions).toContain("title: b.title ?? b.packageNameSnapshot");
     expect(calendarPage).toContain("initial={mobilePendingRequests}");
     expect(calendarPage).toContain("desktopSessions={allSessions}");
     expect(calendarPage).toContain("sessions={mobileAllSessions}");
