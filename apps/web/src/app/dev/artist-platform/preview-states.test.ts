@@ -17,6 +17,10 @@ const shellSource = readFileSync(
   join(here, "..", "..", "..", "components", "dev", "artist-platform-preview-shell.tsx"),
   "utf8",
 );
+const paymentsFixtureSource = readFileSync(
+  join(here, "..", "..", "..", "components", "dev", "sk69-payments-dev-screen.tsx"),
+  "utf8",
+);
 
 function screenName(href: string): string {
   return href.replace("/dev/screens/", "");
@@ -42,6 +46,8 @@ describe("artist platform preview handoff", () => {
         "/dev/screens/artist-store",
         "/dev/screens/artist-sessions",
         "/dev/screens/artist-session-detail",
+        "/dev/screens/artist-payments",
+        "/dev/screens/artist-book",
         "/dev/screens/artist-settings",
         "/dev/screens/artist-notifications",
         "/dev/screens/s3",
@@ -81,6 +87,7 @@ describe("artist platform preview handoff", () => {
       "artist-store": "store",
       "artist-sessions": "sessions",
       "artist-session-detail": "sessions",
+      "artist-payments": "payments",
       "artist-settings": "settings",
       "artist-notifications": "notifications",
       "artist-library-lifecycle": "music",
@@ -116,9 +123,7 @@ describe("artist platform preview handoff", () => {
 
   it("renders the approved responsive chrome without production auth", () => {
     expect(shellSource).toContain('data-artist-platform-preview-chrome="standing"');
-    expect(shellSource).toContain(
-      "sk-artist-app-shell fixed inset-0 flex overflow-hidden",
-    );
+    expect(shellSource).toContain("sk-artist-app-shell fixed inset-0 flex overflow-hidden");
     expect(shellSource).toContain('data-artist-shell-mode="standing"');
     expect(shellSource).toContain("sk-native-scroll");
     expect(shellSource).toContain("lg:hidden");
@@ -126,6 +131,7 @@ describe("artist platform preview handoff", () => {
     expect(shellSource).toContain("<PreviewTopBar");
     expect(shellSource).toContain("<LiquidGlassBottomNav");
     expect(shellSource).toContain('ariaLabel="Artist preview tabs"');
+    expect(shellSource).toContain('href: "/dev/screens/artist-payments"');
     expect(shellSource).toContain('position="in-flow"');
     expect(shellSource).not.toContain('position="fixed"');
     expect(standingSource).not.toContain("<main");
@@ -139,6 +145,14 @@ describe("artist platform preview handoff", () => {
   });
 
   it("uses standing payment and proof records while retaining focused instructions and upload", () => {
+    expect(screensSource).toContain('case "artist-payments"');
+    expect(screensSource).toContain(
+      '<Sk69PaymentsDevScreen initialSurface="artist-payments" embedded />',
+    );
+    expect(paymentsFixtureSource).toContain('initialSurface = "producer-payments"');
+    expect(paymentsFixtureSource).toContain("embedded = false");
+    expect(screensSource).toContain('case "artist-book"');
+    expect(screensSource).toContain("<BookingClient");
     expect(screensSource).toContain("<PaymentInstructionsScreen");
     expect(screensSource).toContain("<UploadProofScreen");
     expect(screensSource).toContain("<PaymentSummaryScreen");

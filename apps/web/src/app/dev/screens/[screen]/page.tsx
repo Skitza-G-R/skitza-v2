@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { PurchaseCommercialSnapshot } from "@skitza/db";
 import type { ReactNode } from "react";
 
+import { BookingClient } from "~/app/(artist)/artist/book/booking-client";
 import { WorkspaceListView } from "~/components/dashboard/clients-projects/workspace-list-view";
 import {
   ClientSpaceHero,
@@ -74,6 +75,22 @@ const DEV_PROOF_ID = "00000000-0000-4000-8000-000000000002";
 const DEV_USD_PROOF_ID = "00000000-0000-4000-8000-000000000003";
 const DEV_ARTIST_PURCHASE_ID = "00000000-0000-4000-8000-000000000010";
 const DEV_ARTIST_STUDIO_ID = "00000000-0000-4000-8000-000000000011";
+const DEV_ARTIST_BOOKING_DAYS = ["2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19"].map(
+  (date, dayIndex) => ({
+    date,
+    slots: Array.from({ length: dayIndex === 1 ? 5 : 8 }, (_, slotIndex) => {
+      const startsAt = new Date(`${date}T06:00:00.000Z`);
+      startsAt.setUTCHours(startsAt.getUTCHours() + slotIndex * 2);
+      const endsAt = new Date(startsAt.getTime() + 4 * 60 * 60 * 1000);
+      return {
+        startsAtISO: startsAt.toISOString(),
+        endsAtISO: endsAt.toISOString(),
+        studioDate: date,
+        studioStartMin: 9 * 60 + slotIndex * 120,
+      };
+    }),
+  }),
+);
 const DEV_ARTIST_PENDING_PROOF = {
   proofId: "00000000-0000-4000-8000-000000000012",
   installmentId: "00000000-0000-4000-8000-000000000016",
@@ -738,6 +755,51 @@ export default async function DevScreenPage({ params }: Params) {
       return withArtistPlatformStandingChrome(screen, <ArtistSessionsHubDevPreview />);
     case "artist-session-detail":
       return withArtistPlatformStandingChrome(screen, <ArtistSessionDetailDevPreview />);
+    case "artist-book":
+      return (
+        <BookingClient
+          activeStudioId={DEV_ARTIST_STUDIO_ID}
+          availability={{
+            days: DEV_ARTIST_BOOKING_DAYS,
+            artistTimeZone: "Asia/Jerusalem",
+            studioTimeZone: "Asia/Jerusalem",
+            today: "2026-08-14",
+          }}
+          studios={[
+            {
+              producerId: DEV_ARTIST_STUDIO_ID,
+              name: "Northline Studio",
+              slug: "northline",
+              logoUrl: null,
+            },
+          ]}
+          activePackages={[
+            {
+              purchaseId: DEV_ARTIST_PURCHASE_ID,
+              sessionAllowanceId: "00000000-0000-4000-8000-000000000018",
+              projectId: "00000000-0000-4000-8000-000000000019",
+              title: "Three-song production",
+              packageName: "Three-song production",
+              sessionCount: 4,
+              sessionsUsed: 0,
+              sessionsRemaining: 4,
+              unlimitedSessions: false,
+              durationMin: 240,
+              locationType: "studio",
+              bufferMinutes: 30,
+              minLeadHours: 24,
+              autoConfirm: false,
+            },
+          ]}
+          initialSessionAllowanceId="00000000-0000-4000-8000-000000000018"
+          rescheduleSessionId={null}
+        />
+      );
+    case "artist-payments":
+      return withArtistPlatformStandingChrome(
+        screen,
+        <Sk69PaymentsDevScreen initialSurface="artist-payments" embedded />,
+      );
     case "artist-settings":
       return withArtistPlatformStandingChrome(screen, <ArtistSettingsDevPreview />);
     case "artist-notifications":

@@ -486,44 +486,53 @@ const SECTIONS: Record<
   },
 };
 
-export function Sk69PaymentsDevScreen() {
-  const [surface, setSurface] = useState<Surface>("producer-payments");
+export function Sk69PaymentsDevScreen({
+  initialSurface = "producer-payments",
+  embedded = false,
+}: {
+  initialSurface?: Surface;
+  embedded?: boolean;
+} = {}) {
+  const [surface, setSurface] = useState<Surface>(initialSurface);
   const paymentHistorySurface = surface === "project";
+  const Root = embedded ? "div" : "main";
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-[1180px] px-4 py-5 sm:px-6 sm:py-8">
-      <div className="mb-5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
-        <p className="font-mono text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary-text))] uppercase">
-          SK-69 safe browser fixture
-        </p>
-        <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
-          No database or payment writes. Every payment surface below uses the same purchase truth.
-        </p>
-        <div
-          role="tablist"
-          aria-label="SK-69 verification surfaces"
-          className="mt-3 flex max-w-full gap-2 overflow-x-auto pb-1"
-        >
-          {SURFACES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={surface === item.id}
-              onClick={() => {
-                setSurface(item.id);
-              }}
-              className={`min-h-11 shrink-0 rounded-[var(--radius-lg)] border px-3 text-xs font-bold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none ${
-                surface === item.id
-                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
-                  : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-secondary))]"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
+    <Root className="mx-auto min-h-screen w-full max-w-[1180px] px-4 py-5 sm:px-6 sm:py-8">
+      {!embedded ? (
+        <div className="mb-5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
+          <p className="font-mono text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary-text))] uppercase">
+            SK-69 safe browser fixture
+          </p>
+          <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+            No database or payment writes. Every payment surface below uses the same purchase truth.
+          </p>
+          <div
+            role="tablist"
+            aria-label="SK-69 verification surfaces"
+            className="mt-3 flex max-w-full gap-2 overflow-x-auto pb-1"
+          >
+            {SURFACES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={surface === item.id}
+                onClick={() => {
+                  setSurface(item.id);
+                }}
+                className={`min-h-11 shrink-0 rounded-[var(--radius-lg)] border px-3 text-xs font-bold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none ${
+                  surface === item.id
+                    ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
+                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-secondary))]"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <section data-testid={`sk69-surface-${surface}`}>
         {surface === "producer-payments" ? (
@@ -582,7 +591,7 @@ export function Sk69PaymentsDevScreen() {
         {surface === "artist-home" ? <ArtistHomeFixture /> : null}
         {surface === "requests" ? <RequestsFixture /> : null}
       </section>
-    </main>
+    </Root>
   );
 }
 

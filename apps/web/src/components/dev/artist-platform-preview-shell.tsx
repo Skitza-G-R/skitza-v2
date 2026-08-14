@@ -58,7 +58,7 @@ const PREVIEW_NAV_ITEMS: readonly PreviewNavItem[] = [
   },
   {
     destination: "payments",
-    href: "/dev/screens/sk69-payments-flow",
+    href: "/dev/screens/artist-payments",
     label: "Payments",
     icon: "payments",
   },
