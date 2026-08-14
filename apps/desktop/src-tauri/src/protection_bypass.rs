@@ -5,12 +5,7 @@ use reqwest::{
 use subtle::ConstantTimeEq;
 use tauri::webview::{cookie::SameSite, Cookie};
 use url::Url;
-use zeroize::{Zeroize, Zeroizing};
-
-#[cfg(target_os = "macos")]
-use objc2_foundation::{NSMutableURLRequest, NSString, NSURL};
-#[cfg(target_os = "macos")]
-use objc2_web_kit::WKWebView;
+use zeroize::Zeroize;
 
 use crate::origin::OriginPolicy;
 
@@ -18,18 +13,10 @@ const BYPASS_ENV: &str = "SKITZA_DESKTOP_PROTECTION_BYPASS";
 const BYPASS_PARAMETER: &str = "x-vercel-protection-bypass";
 const SET_BYPASS_COOKIE_PARAMETER: &str = "x-vercel-set-bypass-cookie";
 const BYPASS_COOKIE_NAME: &str = "_vercel_jwt";
-#[cfg(target_os = "macos")]
-const COOKIE_HEADER: &str = "Cookie";
 const PRODUCTION_HOST: &str = "skitza.app";
 
 pub struct ProtectionBypass {
     value: String,
-}
-
-#[cfg(target_os = "macos")]
-struct ProtectedWebviewRequestPlan {
-    launch_url: String,
-    headers: [(&'static str, Zeroizing<String>); 1],
 }
 
 impl ProtectionBypass {
@@ -80,55 +67,6 @@ impl ProtectionBypass {
         )
     }
 
-    #[cfg(target_os = "macos")]
-    pub fn navigate_webview_with_cookie(
-        &self,
-        window: &tauri::WebviewWindow,
-        launch_url: Url,
-        origin: &OriginPolicy,
-        cookie_value: Zeroizing<String>,
-    ) -> Result<(), &'static str> {
-        let request_plan = self.protected_webview_request_plan(launch_url, origin, cookie_value)?;
-
-        window
-            .with_webview(move |platform_webview| unsafe {
-                let Some(url) = NSURL::URLWithString(&NSString::from_str(&request_plan.launch_url))
-                else {
-                    return;
-                };
-                let request = NSMutableURLRequest::requestWithURL(&url);
-                for (name, value) in request_plan.headers {
-                    request.setValue_forHTTPHeaderField(
-                        Some(&NSString::from_str(value.as_str())),
-                        &NSString::from_str(name),
-                    );
-                }
-
-                let webview = platform_webview.inner().cast::<WKWebView>();
-                if !webview.is_null() {
-                    (&*webview).loadRequest(&request);
-                }
-            })
-            .map_err(|_| "protected-webview-navigation-failed")
-    }
-
-    #[cfg(target_os = "macos")]
-    fn protected_webview_request_plan(
-        &self,
-        launch_url: Url,
-        origin: &OriginPolicy,
-        cookie_value: Zeroizing<String>,
-    ) -> Result<ProtectedWebviewRequestPlan, &'static str> {
-        validate_protected_webview_launch(&launch_url, origin)?;
-        Ok(ProtectedWebviewRequestPlan {
-            launch_url: launch_url.as_str().to_owned(),
-            headers: [(
-                COOKIE_HEADER,
-                Zeroizing::new(format!("{BYPASS_COOKIE_NAME}={}", cookie_value.as_str())),
-            )],
-        })
-    }
-
     fn default_headers(&self) -> HeaderMap {
         let mut value = HeaderValue::from_str(&self.value)
             .expect("validated protection bypass must be a valid header value");
@@ -169,21 +107,6 @@ pub fn protected_entry_url(base: Url, bypass: Option<&ProtectionBypass>) -> Url 
         Some(value) => value.add_entry_query(base),
         None => base,
     }
-}
-
-#[cfg(target_os = "macos")]
-fn validate_protected_webview_launch(
-    launch_url: &Url,
-    origin: &OriginPolicy,
-) -> Result<(), &'static str> {
-    if !origin.is_trusted_remote(launch_url)
-        || launch_url.path() != "/launch"
-        || launch_url.query().is_some()
-        || launch_url.fragment().is_some()
-    {
-        return Err("protected-webview-url-invalid");
-    }
-    Ok(())
 }
 
 pub fn protection_cookie_from_redirect(
@@ -361,42 +284,6 @@ mod tests {
         );
         assert_eq!(request.headers().len(), 1);
         assert_eq!(request.url().as_str(), "https://proof.example/launch");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn mac_webview_header_navigation_accepts_only_the_exact_clean_launch_url() {
-        let origin = OriginPolicy::parse("https://proof.example").unwrap();
-        let bypass = ProtectionBypass::parse("A".repeat(32)).unwrap();
-
-        let plan = bypass
-            .protected_webview_request_plan(
-                Url::parse("https://proof.example/launch").unwrap(),
-                &origin,
-                Zeroizing::new("proof.jwt.value".to_owned()),
-            )
-            .unwrap();
-        assert_eq!(plan.launch_url, "https://proof.example/launch");
-        assert_eq!(plan.headers.len(), 1);
-        assert_eq!(plan.headers[0].0, COOKIE_HEADER);
-        assert!(plan.headers[0].1.starts_with("_vercel_jwt="));
-        assert_eq!(plan.headers[0].1.len(), 27);
-        assert!(!plan.headers[0].1.contains("AAAA"));
-        for invalid in [
-            "https://proof.example/launch?secret=forbidden",
-            "https://proof.example/launch#fragment",
-            "https://proof.example/other",
-            "https://evil.example/launch",
-            "http://proof.example/launch",
-        ] {
-            assert!(bypass
-                .protected_webview_request_plan(
-                    Url::parse(invalid).unwrap(),
-                    &origin,
-                    Zeroizing::new("proof.jwt.value".to_owned()),
-                )
-                .is_err());
-        }
     }
 
     #[test]

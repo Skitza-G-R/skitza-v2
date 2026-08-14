@@ -132,17 +132,6 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
                 return Err("connection-unavailable".into());
             }
 
-            #[cfg(target_os = "macos")]
-            return bypass
-                .navigate_webview_with_cookie(
-                    &window,
-                    launch_url,
-                    &state.origin,
-                    expected_cookie_value,
-                )
-                .map_err(|_| "navigation-failed".to_string());
-
-            #[cfg(not(target_os = "macos"))]
             return window
                 .navigate(launch_url)
                 .map_err(|_| "navigation-failed".to_string());
