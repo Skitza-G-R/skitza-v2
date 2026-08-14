@@ -39,6 +39,24 @@ test("generated remote capability never uses a wildcard host", () => {
   assert.equal(parsed.hostname.includes("*"), false);
 });
 
+test("generated build config never embeds the runtime access token", () => {
+  const sentinel = "do-not-embed-this-runtime-value";
+  const previous = process.env.SKITZA_DESKTOP_ACCESS_TOKEN;
+  process.env.SKITZA_DESKTOP_ACCESS_TOKEN = sentinel;
+  try {
+    const serialized = JSON.stringify(proofConfig(DEFAULT_DESKTOP_ORIGIN));
+    assert.equal(serialized.includes("SKITZA_DESKTOP_ACCESS_TOKEN"), false);
+    assert.equal(serialized.includes("skitza-access"), false);
+    assert.equal(serialized.includes(sentinel), false);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SKITZA_DESKTOP_ACCESS_TOKEN;
+    } else {
+      process.env.SKITZA_DESKTOP_ACCESS_TOKEN = previous;
+    }
+  }
+});
+
 test("local and exact-remote command grants cannot overlap", () => {
   const [local, remote] = proofConfig("https://proof.example").app.security.capabilities;
   assert.equal(local.remote, undefined);

@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(feature = "gate1-proof")]
+mod access_token;
 mod auth;
 mod origin;
 #[cfg(feature = "gate1-proof")]
@@ -9,6 +11,8 @@ mod timing;
 
 use std::time::Duration;
 
+#[cfg(feature = "gate1-proof")]
+use access_token::DesktopAccessToken;
 use auth::{begin_social_sign_in, handle_deep_link, AuthState};
 use origin::OriginPolicy;
 #[cfg(feature = "gate1-proof")]
@@ -35,6 +39,8 @@ struct DesktopState {
     client: reqwest::Client,
     origin: OriginPolicy,
     #[cfg(feature = "gate1-proof")]
+    access_token: Option<DesktopAccessToken>,
+    #[cfg(feature = "gate1-proof")]
     protection_bypass: Option<ProtectionBypass>,
     session: SessionValidationState,
     timing: TimingState,
@@ -42,23 +48,23 @@ struct DesktopState {
 
 #[derive(Clone, Copy)]
 struct DesktopDiagnosticsPolicy {
-    protection_bypass_present: bool,
+    sensitive_bootstrap_present: bool,
 }
 
 impl DesktopDiagnosticsPolicy {
-    fn new(protection_bypass_present: bool) -> Self {
+    fn new(protection_bypass_present: bool, access_token_present: bool) -> Self {
         Self {
-            protection_bypass_present,
+            sensitive_bootstrap_present: protection_bypass_present || access_token_present,
         }
     }
 
     fn disable_webview_devtools(self) -> bool {
-        self.protection_bypass_present
+        self.sensitive_bootstrap_present
     }
 
     #[cfg(feature = "gate1-proof")]
     fn expose_gate_inspector(self) -> bool {
-        !self.protection_bypass_present
+        !self.sensitive_bootstrap_present
     }
 }
 
@@ -146,6 +152,12 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
         .map_err(|_| "connection-unavailable".to_string())?;
     if !response.status().is_success() || response.url() != &launch_url {
         return Err("connection-unavailable".into());
+    }
+    #[cfg(feature = "gate1-proof")]
+    if let Some(access_token) = state.access_token.as_ref() {
+        access_token
+            .seed_cookie(&window, &launch_url, &state.origin)
+            .map_err(|_| "connection-unavailable".to_string())?;
     }
     window
         .navigate(launch_url)
@@ -297,9 +309,13 @@ fn main() {
     let protection_bypass = ProtectionBypass::from_env(&origin)
         .expect("invalid Gate 1 protection bypass configuration");
     #[cfg(feature = "gate1-proof")]
-    let diagnostics = DesktopDiagnosticsPolicy::new(protection_bypass.is_some());
+    let access_token = DesktopAccessToken::from_env(&origin, protection_bypass.is_some())
+        .expect("invalid desktop access token configuration");
+    #[cfg(feature = "gate1-proof")]
+    let diagnostics =
+        DesktopDiagnosticsPolicy::new(protection_bypass.is_some(), access_token.is_some());
     #[cfg(not(feature = "gate1-proof"))]
-    let diagnostics = DesktopDiagnosticsPolicy::new(false);
+    let diagnostics = DesktopDiagnosticsPolicy::new(false, false);
     let client_builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(12))
@@ -324,6 +340,8 @@ fn main() {
             auth: AuthState::default(),
             client,
             origin: origin.clone(),
+            #[cfg(feature = "gate1-proof")]
+            access_token,
             #[cfg(feature = "gate1-proof")]
             protection_bypass,
             session: SessionValidationState::default(),
@@ -378,7 +396,7 @@ mod tests {
 
     #[test]
     fn protected_runtime_disables_webview_inspection() {
-        let diagnostics = DesktopDiagnosticsPolicy::new(true);
+        let diagnostics = DesktopDiagnosticsPolicy::new(true, false);
 
         assert!(diagnostics.disable_webview_devtools());
         #[cfg(feature = "gate1-proof")]
@@ -387,8 +405,17 @@ mod tests {
 
     #[cfg(feature = "gate1-proof")]
     #[test]
-    fn absent_bypass_keeps_gate_inspector_available() {
-        let diagnostics = DesktopDiagnosticsPolicy::new(false);
+    fn access_token_bootstrap_disables_webview_inspection() {
+        let diagnostics = DesktopDiagnosticsPolicy::new(false, true);
+
+        assert!(diagnostics.disable_webview_devtools());
+        assert!(!diagnostics.expose_gate_inspector());
+    }
+
+    #[cfg(feature = "gate1-proof")]
+    #[test]
+    fn absent_env_relaunch_restores_gate_inspector() {
+        let diagnostics = DesktopDiagnosticsPolicy::new(false, false);
 
         assert!(!diagnostics.disable_webview_devtools());
         assert!(diagnostics.expose_gate_inspector());

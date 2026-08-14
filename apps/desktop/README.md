@@ -32,6 +32,24 @@ refuses the value when compiled for `https://skitza.app`. The private proof's
 first WebView launch and social-auth system-browser entry use it only to set
 Vercel's same-origin bypass cookie through a clean redirect.
 
+For a private local run against the exact production origin while its temporary
+site access gate is enabled, provide `SKITZA_DESKTOP_ACCESS_TOKEN` only to the
+running `gate1-proof` app. The value is read once at runtime, removed from the
+process environment, and its native owner is zeroized when dropped. It is never
+added to a build, URL, query, custom header, or log. Before the clean
+`https://skitza.app/launch` navigation, the app persists a `Secure`, `HttpOnly`,
+`SameSite=Lax` `skitza-access` cookie constructed with the exact `skitza.app`
+host and `/` path, bounded to 30 days. It first checks the full WebView cookie
+store, removes every stale same-name cookie that could cover `skitza.app`, and
+verifies that fence before setting the controlled cookie. The WebView
+necessarily sends the value in its normal `Cookie` request header. After this
+first run, the cookie lets Finder relaunch the app without the environment
+variable until it expires. The token-present bootstrap disables the Web
+Inspector so it cannot expose the cookie. Quit, then relaunch from Finder
+without the environment variable to regain **Gate 1 Web Inspector** using the
+persisted cookie. The runtime refuses the value for any other origin or
+together with `SKITZA_DESKTOP_PROTECTION_BYPASS`.
+
 ## Gate 1 bridge
 
 Trusted pages feature-detect `window.__SKITZA_DESKTOP__`. The frozen bridge has
