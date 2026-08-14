@@ -185,6 +185,8 @@
        Visual Viewport is available. The CSS fallbacks remain useful before
        hydration and in browsers without that API. */
     --sk-viewport-height: 100dvh;
+    --sk-layout-viewport-top: 0px;
+    --sk-layout-viewport-height: 100dvh;
     --sk-viewport-offset-top: 0px;
     --sk-keyboard-inset: 0px;
   }
@@ -669,7 +671,16 @@
     bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   }
   .mobile-full-player-sheet {
-    transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+    visibility: hidden;
+    transition:
+      transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
+      visibility 0s linear 340ms;
+  }
+  .mobile-full-player-sheet[data-player-state="open"] {
+    visibility: visible;
+    transition:
+      transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
+      visibility 0s linear 0s;
   }
   @media (min-width: 1024px) {
     .persistent-player-dock {
@@ -2738,9 +2749,7 @@ html[data-theme="dark"] .sk-auth-shell {
   }
 
   .sk-producer-app-shell .persistent-player-dock,
-  .sk-producer-app-shell .mobile-full-player-sheet,
-  .sk-artist-app-shell .persistent-player-dock,
-  .sk-artist-app-shell .mobile-full-player-sheet {
+  .sk-artist-app-shell .persistent-player-dock {
     position: absolute;
   }
 }
