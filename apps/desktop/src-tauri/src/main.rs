@@ -40,6 +40,28 @@ struct DesktopState {
     timing: TimingState,
 }
 
+#[derive(Clone, Copy)]
+struct DesktopDiagnosticsPolicy {
+    protection_bypass_present: bool,
+}
+
+impl DesktopDiagnosticsPolicy {
+    fn new(protection_bypass_present: bool) -> Self {
+        Self {
+            protection_bypass_present,
+        }
+    }
+
+    fn disable_webview_devtools(self) -> bool {
+        self.protection_bypass_present
+    }
+
+    #[cfg(feature = "gate1-proof")]
+    fn expose_gate_inspector(self) -> bool {
+        !self.protection_bypass_present
+    }
+}
+
 #[tauri::command]
 async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> Result<(), String> {
     let launch_url = state.origin.endpoint("/launch")?;
@@ -60,57 +82,71 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
         )
         .map_err(|_| "connection-unavailable".to_string())?;
 
-        let cookie_name = cookie.name().to_owned();
-        let expected_cookie_value = Zeroizing::new(cookie.value().as_bytes().to_owned());
-        let expected_cookie_host = launch_url
-            .host_str()
-            .ok_or_else(|| "connection-unavailable".to_string())?;
-        let existing_cookies = window
-            .cookies_for_url(launch_url.clone())
-            .map_err(|_| "connection-unavailable".to_string())?;
-        let mut removed_existing = false;
-        for existing in existing_cookies
-            .into_iter()
-            .filter(|existing| existing.name() == cookie_name)
         {
-            window
-                .delete_cookie(existing)
-                .map_err(|_| "connection-unavailable".to_string())?;
-            removed_existing = true;
-        }
-        if removed_existing
-            && window
+            let cookie_name = cookie.name().to_owned();
+            let expected_cookie_value = Zeroizing::new(cookie.value().to_owned());
+            let expected_cookie_host = launch_url
+                .host_str()
+                .ok_or_else(|| "connection-unavailable".to_string())?;
+            let existing_cookies = window
                 .cookies_for_url(launch_url.clone())
-                .map_err(|_| "connection-unavailable".to_string())?
+                .map_err(|_| "connection-unavailable".to_string())?;
+            let mut removed_existing = false;
+            for existing in existing_cookies
+                .into_iter()
+                .filter(|existing| existing.name() == cookie_name)
+            {
+                window
+                    .delete_cookie(existing)
+                    .map_err(|_| "connection-unavailable".to_string())?;
+                removed_existing = true;
+            }
+            if removed_existing
+                && window
+                    .cookies_for_url(launch_url.clone())
+                    .map_err(|_| "connection-unavailable".to_string())?
+                    .iter()
+                    .any(|existing| existing.name() == cookie_name)
+            {
+                return Err("connection-unavailable".into());
+            }
+            window
+                .set_cookie(cookie)
+                .map_err(|_| "connection-unavailable".to_string())?;
+            let seeded_cookies = window
+                .cookies_for_url(launch_url.clone())
+                .map_err(|_| "connection-unavailable".to_string())?;
+            let mut matching_cookies = seeded_cookies
                 .iter()
-                .any(|existing| existing.name() == cookie_name)
-        {
-            return Err("connection-unavailable".into());
+                .filter(|stored| stored.name() == cookie_name);
+            let stored_cookie = matching_cookies.next();
+            let exactly_one = stored_cookie.is_some() && matching_cookies.next().is_none();
+            let cookie_matches = stored_cookie.is_some_and(|stored| {
+                protection_cookie_matches(
+                    stored,
+                    expected_cookie_value.as_bytes(),
+                    expected_cookie_host,
+                )
+            });
+            if !exactly_one || !cookie_matches {
+                return Err("connection-unavailable".into());
+            }
+
+            #[cfg(target_os = "macos")]
+            return bypass
+                .navigate_webview_with_cookie(
+                    &window,
+                    launch_url,
+                    &state.origin,
+                    expected_cookie_value,
+                )
+                .map_err(|_| "navigation-failed".to_string());
+
+            #[cfg(not(target_os = "macos"))]
+            return window
+                .navigate(launch_url)
+                .map_err(|_| "navigation-failed".to_string());
         }
-        window
-            .set_cookie(cookie)
-            .map_err(|_| "connection-unavailable".to_string())?;
-        let seeded_cookies = window
-            .cookies_for_url(launch_url.clone())
-            .map_err(|_| "connection-unavailable".to_string())?;
-        let mut matching_cookies = seeded_cookies
-            .iter()
-            .filter(|stored| stored.name() == cookie_name);
-        let stored_cookie = matching_cookies.next();
-        let exactly_one = stored_cookie.is_some() && matching_cookies.next().is_none();
-        let cookie_matches = stored_cookie.is_some_and(|stored| {
-            protection_cookie_matches(
-                stored,
-                expected_cookie_value.as_slice(),
-                expected_cookie_host,
-            )
-        });
-        if !exactly_one || !cookie_matches {
-            return Err("connection-unavailable".into());
-        }
-        return window
-            .navigate(launch_url)
-            .map_err(|_| "navigation-failed".to_string());
     }
 
     let response = state
@@ -140,7 +176,11 @@ fn reveal_main_window(app: &AppHandle) {
     }
 }
 
-fn create_main_window(app: &mut tauri::App, origin: OriginPolicy) -> tauri::Result<()> {
+fn create_main_window(
+    app: &mut tauri::App,
+    origin: OriginPolicy,
+    diagnostics: DesktopDiagnosticsPolicy,
+) -> tauri::Result<()> {
     let navigation_origin = origin.clone();
     let new_window_origin = origin.clone();
     let trusted_origin =
@@ -149,46 +189,58 @@ fn create_main_window(app: &mut tauri::App, origin: OriginPolicy) -> tauri::Resu
         "Object.defineProperty(window,'__SKITZA_DESKTOP_TRUSTED_ORIGIN__',{{configurable:false,enumerable:false,writable:false,value:{trusted_origin}}});\n{}",
         include_str!("../../assets/bridge.js")
     );
-    let window =
+    let window_builder =
         WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
             .title("Skitza")
             .inner_size(1280.0, 800.0)
             .min_inner_size(960.0, 600.0)
             .center()
-            .initialization_script(initialization_script)
-            .on_navigation(move |url| {
-                if navigation_origin.allows_navigation(url) {
-                    return true;
-                }
-                if navigation_origin.is_external_web_url(url) {
-                    let _ = webbrowser::open(url.as_str());
-                }
-                false
-            })
-            .on_new_window(move |url, _features| {
-                if new_window_origin.is_trusted_remote(&url)
-                    || new_window_origin.is_external_web_url(&url)
-                {
-                    let _ = webbrowser::open(url.as_str());
-                }
-                tauri::webview::NewWindowResponse::Deny
-            })
-            .build()?;
+            .initialization_script(initialization_script);
+    let window_builder = if diagnostics.disable_webview_devtools() {
+        window_builder.devtools(false)
+    } else {
+        window_builder
+    };
+    let window = window_builder
+        .on_navigation(move |url| {
+            if navigation_origin.allows_navigation(url) {
+                return true;
+            }
+            if navigation_origin.is_external_web_url(url) {
+                let _ = webbrowser::open(url.as_str());
+            }
+            false
+        })
+        .on_new_window(move |url, _features| {
+            if new_window_origin.is_trusted_remote(&url)
+                || new_window_origin.is_external_web_url(&url)
+            {
+                let _ = webbrowser::open(url.as_str());
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build()?;
     window.show()?;
     Ok(())
 }
 
-fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
+fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> tauri::Result<()> {
+    #[cfg(not(feature = "gate1-proof"))]
+    let _ = diagnostics;
     let open = MenuItemBuilder::with_id("open-skitza", "Open Skitza").build(app)?;
     #[cfg(feature = "gate1-proof")]
-    let inspector =
-        MenuItemBuilder::with_id("gate1-inspector", "Gate 1 Web Inspector").build(app)?;
+    let inspector = if diagnostics.expose_gate_inspector() {
+        Some(MenuItemBuilder::with_id("gate1-inspector", "Gate 1 Web Inspector").build(app)?)
+    } else {
+        None
+    };
     let quit = MenuItemBuilder::with_id("quit-skitza", "Quit Skitza").build(app)?;
-    let mut menu_builder = MenuBuilder::new(app).item(&open);
+    let menu_builder = MenuBuilder::new(app).item(&open);
     #[cfg(feature = "gate1-proof")]
-    {
-        menu_builder = menu_builder.item(&inspector);
-    }
+    let menu_builder = match &inspector {
+        Some(inspector) => menu_builder.item(inspector),
+        None => menu_builder,
+    };
     let menu = menu_builder.item(&quit).build()?;
 
     let icon = app
@@ -200,10 +252,10 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .tooltip("Skitza")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
+        .on_menu_event(move |app, event| match event.id().as_ref() {
             "open-skitza" => reveal_main_window(app),
             #[cfg(feature = "gate1-proof")]
-            "gate1-inspector" => {
+            "gate1-inspector" if diagnostics.expose_gate_inspector() => {
                 reveal_main_window(app);
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                     window.open_devtools();
@@ -255,6 +307,10 @@ fn main() {
     #[cfg(feature = "gate1-proof")]
     let protection_bypass = ProtectionBypass::from_env(&origin)
         .expect("invalid Gate 1 protection bypass configuration");
+    #[cfg(feature = "gate1-proof")]
+    let diagnostics = DesktopDiagnosticsPolicy::new(protection_bypass.is_some());
+    #[cfg(not(feature = "gate1-proof"))]
+    let diagnostics = DesktopDiagnosticsPolicy::new(false);
     let client_builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(12))
@@ -293,8 +349,8 @@ fn main() {
             report_session_validation,
         ])
         .setup(move |app| {
-            create_main_window(app, origin.clone())?;
-            create_tray(app)?;
+            create_main_window(app, origin.clone(), diagnostics)?;
+            create_tray(app, diagnostics)?;
             start_validation_loop(app.handle().clone());
 
             #[cfg(any(target_os = "linux", windows))]
@@ -325,4 +381,27 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("Skitza desktop failed to run");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DesktopDiagnosticsPolicy;
+
+    #[test]
+    fn protected_runtime_disables_webview_inspection() {
+        let diagnostics = DesktopDiagnosticsPolicy::new(true);
+
+        assert!(diagnostics.disable_webview_devtools());
+        #[cfg(feature = "gate1-proof")]
+        assert!(!diagnostics.expose_gate_inspector());
+    }
+
+    #[cfg(feature = "gate1-proof")]
+    #[test]
+    fn absent_bypass_keeps_gate_inspector_available() {
+        let diagnostics = DesktopDiagnosticsPolicy::new(false);
+
+        assert!(!diagnostics.disable_webview_devtools());
+        assert!(diagnostics.expose_gate_inspector());
+    }
 }
