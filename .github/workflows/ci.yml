@@ -14,6 +14,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev
+
       # pnpm/action-setup puts pnpm on PATH for the runner. We still call it
       # via `corepack pnpm` in scripts on the dev box; in CI either is fine,
       # so we use the bare `pnpm` shim here for readability and rely on
