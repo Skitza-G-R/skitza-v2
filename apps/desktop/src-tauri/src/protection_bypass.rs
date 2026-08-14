@@ -1,7 +1,9 @@
 use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
-    ClientBuilder,
+    header::{HeaderMap, HeaderName, HeaderValue, LOCATION, SET_COOKIE},
+    ClientBuilder, RequestBuilder, StatusCode,
 };
+use subtle::ConstantTimeEq;
+use tauri::webview::{cookie::SameSite, Cookie};
 use url::Url;
 use zeroize::Zeroize;
 
@@ -10,6 +12,7 @@ use crate::origin::OriginPolicy;
 const BYPASS_ENV: &str = "SKITZA_DESKTOP_PROTECTION_BYPASS";
 const BYPASS_PARAMETER: &str = "x-vercel-protection-bypass";
 const SET_BYPASS_COOKIE_PARAMETER: &str = "x-vercel-set-bypass-cookie";
+const BYPASS_COOKIE_NAME: &str = "_vercel_jwt";
 const PRODUCTION_HOST: &str = "skitza.app";
 
 pub struct ProtectionBypass {
@@ -57,6 +60,13 @@ impl ProtectionBypass {
         builder.default_headers(self.default_headers())
     }
 
+    pub fn configure_cookie_request(&self, builder: RequestBuilder) -> RequestBuilder {
+        builder.header(
+            HeaderName::from_static(SET_BYPASS_COOKIE_PARAMETER),
+            HeaderValue::from_static("true"),
+        )
+    }
+
     fn default_headers(&self) -> HeaderMap {
         let mut value = HeaderValue::from_str(&self.value)
             .expect("validated protection bypass must be a valid header value");
@@ -97,6 +107,95 @@ pub fn protected_entry_url(base: Url, bypass: Option<&ProtectionBypass>) -> Url 
         Some(value) => value.add_entry_query(base),
         None => base,
     }
+}
+
+pub fn protection_cookie_from_redirect(
+    status: StatusCode,
+    response_url: &Url,
+    headers: &HeaderMap,
+    expected_launch: &Url,
+    origin: &OriginPolicy,
+) -> Result<Cookie<'static>, &'static str> {
+    if status != StatusCode::TEMPORARY_REDIRECT || response_url != expected_launch {
+        return Err("protection-cookie-response-invalid");
+    }
+    let mut locations = headers.get_all(LOCATION).iter();
+    let location = locations
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .ok_or("protection-cookie-redirect-invalid")?;
+    if locations.next().is_some() {
+        return Err("protection-cookie-redirect-invalid");
+    }
+    let redirected = response_url
+        .join(location)
+        .map_err(|_| "protection-cookie-redirect-invalid")?;
+    if &redirected != expected_launch || !origin.is_trusted_remote(&redirected) {
+        return Err("protection-cookie-redirect-invalid");
+    }
+
+    let mut matching_cookie = None;
+    for header in headers.get_all(SET_COOKIE) {
+        let Ok(raw) = header.to_str() else {
+            return Err("protection-cookie-invalid");
+        };
+        let Ok(cookie) = Cookie::parse(raw.to_owned()) else {
+            return Err("protection-cookie-invalid");
+        };
+        if cookie.name() != BYPASS_COOKIE_NAME {
+            continue;
+        }
+        if matching_cookie.is_some() {
+            return Err("protection-cookie-invalid");
+        }
+        matching_cookie = Some(cookie.into_owned());
+    }
+
+    let host = Url::parse(origin.as_str())
+        .ok()
+        .and_then(|url| url.host_str().map(ToOwned::to_owned))
+        .ok_or("protection-cookie-origin-invalid")?;
+    let cookie = matching_cookie.ok_or("protection-cookie-missing")?;
+    if cookie.value().is_empty()
+        || cookie.value().len() > 4096
+        || cookie
+            .domain()
+            .is_some_and(|domain| !domain.eq_ignore_ascii_case(&host))
+        || cookie.path() != Some("/")
+        || cookie.secure() != Some(true)
+        || cookie.http_only() != Some(true)
+        || cookie.same_site() != Some(SameSite::Lax)
+    {
+        return Err("protection-cookie-invalid");
+    }
+
+    Ok(
+        Cookie::build((BYPASS_COOKIE_NAME, cookie.value().to_owned()))
+            .domain(host)
+            .path("/")
+            .secure(true)
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .build(),
+    )
+}
+
+pub fn protection_cookie_matches(
+    cookie: &Cookie<'_>,
+    expected_value: &[u8],
+    expected_host: &str,
+) -> bool {
+    cookie.name() == BYPASS_COOKIE_NAME
+        && cookie.domain().is_some_and(|domain| {
+            domain
+                .trim_start_matches('.')
+                .eq_ignore_ascii_case(expected_host)
+        })
+        && cookie.path() == Some("/")
+        && cookie.secure() == Some(true)
+        && cookie.http_only() == Some(true)
+        && cookie.same_site() == Some(SameSite::Lax)
+        && bool::from(expected_value.ct_eq(cookie.value().as_bytes()))
 }
 
 #[cfg(test)]
@@ -171,6 +270,23 @@ mod tests {
     }
 
     #[test]
+    fn cookie_seed_request_adds_only_the_documented_non_secret_header() {
+        let bypass = ProtectionBypass::parse("A".repeat(32)).unwrap();
+        let client = reqwest::Client::new();
+        let request = bypass
+            .configure_cookie_request(client.get("https://proof.example/launch"))
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            request.headers().get(SET_BYPASS_COOKIE_PARAMETER).unwrap(),
+            "true"
+        );
+        assert_eq!(request.headers().len(), 1);
+        assert_eq!(request.url().as_str(), "https://proof.example/launch");
+    }
+
+    #[test]
     fn protected_entry_query_keeps_the_exact_origin_and_sets_cookie() {
         let base = Url::parse("https://proof.example/launch").unwrap();
         assert_eq!(protected_entry_url(base.clone(), None), base);
@@ -191,5 +307,191 @@ mod tests {
                 (SET_BYPASS_COOKIE_PARAMETER.into(), "true".into()),
             ]
         );
+    }
+
+    #[test]
+    fn converts_only_the_exact_protected_redirect_cookie_to_a_session_cookie() {
+        let origin = OriginPolicy::parse("https://proof.example").unwrap();
+        let expected_launch = Url::parse("https://proof.example/launch").unwrap();
+        let response_url = expected_launch.clone();
+        let mut headers = HeaderMap::new();
+        headers.insert(LOCATION, HeaderValue::from_static("/launch"));
+        headers.append(
+            SET_COOKIE,
+            HeaderValue::from_static(
+                "_vercel_jwt=proof.jwt.value; Max-Age=604800; Path=/; Secure; HttpOnly; SameSite=Lax",
+            ),
+        );
+
+        let cookie = protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &headers,
+            &expected_launch,
+            &origin,
+        )
+        .unwrap();
+
+        assert_eq!(cookie.name(), BYPASS_COOKIE_NAME);
+        assert_eq!(cookie.value(), "proof.jwt.value");
+        assert_eq!(cookie.domain(), Some("proof.example"));
+        assert_eq!(cookie.path(), Some("/"));
+        assert_eq!(cookie.secure(), Some(true));
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.same_site(), Some(SameSite::Lax));
+        assert!(cookie.max_age().is_none());
+        assert!(cookie.expires().is_none());
+    }
+
+    #[test]
+    fn rejects_missing_insecure_duplicate_or_cross_origin_protection_cookies() {
+        let origin = OriginPolicy::parse("https://proof.example").unwrap();
+        let expected_launch = Url::parse("https://proof.example/launch").unwrap();
+        let response_url = expected_launch.clone();
+
+        let mut missing = HeaderMap::new();
+        missing.insert(LOCATION, HeaderValue::from_static("/launch"));
+        assert!(protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &missing,
+            &expected_launch,
+            &origin,
+        )
+        .is_err());
+
+        let mut duplicate_location = HeaderMap::new();
+        duplicate_location.append(LOCATION, HeaderValue::from_static("/launch"));
+        duplicate_location.append(LOCATION, HeaderValue::from_static("/launch"));
+        duplicate_location.insert(
+            SET_COOKIE,
+            HeaderValue::from_static("_vercel_jwt=value; Path=/; Secure; HttpOnly; SameSite=Lax"),
+        );
+        assert!(protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &duplicate_location,
+            &expected_launch,
+            &origin,
+        )
+        .is_err());
+
+        let mut insecure = missing.clone();
+        insecure.insert(
+            SET_COOKIE,
+            HeaderValue::from_static("_vercel_jwt=value; Path=/; HttpOnly; SameSite=Lax"),
+        );
+        assert!(protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &insecure,
+            &expected_launch,
+            &origin,
+        )
+        .is_err());
+
+        let mut duplicate = missing.clone();
+        for value in ["first", "second"] {
+            duplicate.append(
+                SET_COOKIE,
+                HeaderValue::from_str(&format!(
+                    "_vercel_jwt={value}; Path=/; Secure; HttpOnly; SameSite=Lax"
+                ))
+                .unwrap(),
+            );
+        }
+        assert!(protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &duplicate,
+            &expected_launch,
+            &origin,
+        )
+        .is_err());
+
+        let mut wrong_domain = HeaderMap::new();
+        wrong_domain.insert(LOCATION, HeaderValue::from_static("/launch"));
+        wrong_domain.insert(
+            SET_COOKIE,
+            HeaderValue::from_static(
+                "_vercel_jwt=value; Domain=example.com; Path=/; Secure; HttpOnly; SameSite=Lax",
+            ),
+        );
+        assert!(protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &wrong_domain,
+            &expected_launch,
+            &origin,
+        )
+        .is_err());
+
+        let mut cross_origin = missing;
+        cross_origin.insert(
+            LOCATION,
+            HeaderValue::from_static("https://example.com/launch"),
+        );
+        cross_origin.insert(
+            SET_COOKIE,
+            HeaderValue::from_static("_vercel_jwt=value; Path=/; Secure; HttpOnly; SameSite=Lax"),
+        );
+        assert!(protection_cookie_from_redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            &response_url,
+            &cross_origin,
+            &expected_launch,
+            &origin,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn stored_cookie_match_requires_the_exact_value_and_security_scope() {
+        let expected = b"proof.jwt.value";
+        let valid = Cookie::build((BYPASS_COOKIE_NAME, "proof.jwt.value"))
+            .domain("proof.example")
+            .path("/")
+            .secure(true)
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .build();
+        assert!(protection_cookie_matches(&valid, expected, "proof.example"));
+
+        for invalid in [
+            Cookie::build((BYPASS_COOKIE_NAME, "wrong"))
+                .domain("proof.example")
+                .path("/")
+                .secure(true)
+                .http_only(true)
+                .same_site(SameSite::Lax)
+                .build(),
+            Cookie::build((BYPASS_COOKIE_NAME, "proof.jwt.value"))
+                .domain("example.com")
+                .path("/")
+                .secure(true)
+                .http_only(true)
+                .same_site(SameSite::Lax)
+                .build(),
+            Cookie::build((BYPASS_COOKIE_NAME, "proof.jwt.value"))
+                .domain("proof.example")
+                .path("/other")
+                .secure(true)
+                .http_only(true)
+                .same_site(SameSite::Lax)
+                .build(),
+            Cookie::build((BYPASS_COOKIE_NAME, "proof.jwt.value"))
+                .domain("proof.example")
+                .path("/")
+                .secure(false)
+                .http_only(true)
+                .same_site(SameSite::Lax)
+                .build(),
+        ] {
+            assert!(!protection_cookie_matches(
+                &invalid,
+                expected,
+                "proof.example"
+            ));
+        }
     }
 }
