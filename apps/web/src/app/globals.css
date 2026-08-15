@@ -2094,6 +2094,13 @@
     top: 0;
   }
 
+  /* iOS already keeps the focused control inside the visual viewport. Keeping
+   * the in-flow producer dock visible compresses the shell a second time and
+   * leaves the navigation floating above the keyboard. */
+  body[data-sk-keyboard="open"] .producer-bottom-nav-frame {
+    display: none;
+  }
+
 }
 
 /* --------------------------------------------------------------

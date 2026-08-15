@@ -122,16 +122,23 @@ describe("producer payment instructions settings interaction", () => {
     expect(within(saved).getByText("Account number")).toBeTruthy();
     expect(within(saved).getByText("12-345678")).toBeTruthy();
     expect(screen.queryByLabelText("Account owner")).toBeNull();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit details" })).toBeTruthy();
     expect(view.container.querySelector(".s-payment-editor")?.getAttribute("data-mode")).toBe(
       "read",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
+    const accountOwner = screen.getByLabelText<HTMLInputElement>("Account owner");
+    expect(accountOwner.className).toContain("sk-native-field");
+    fireEvent.change(accountOwner, { target: { value: "Updated owner" } });
+    expect(accountOwner.value).toBe("Updated owner");
+    expect(screen.getByRole("button", { name: "Save details" })).toBeTruthy();
   });
 
   it("keeps a payment draft out of the global savebar, guards role switches, and Cancels locally", async () => {
     const view = renderGettingPaid();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     fireEvent.change(screen.getByLabelText("Account owner"), {
       target: { value: "Changed owner" },
     });
@@ -161,7 +168,7 @@ describe("producer payment instructions settings interaction", () => {
   it("keeps a local payment draft when another Settings section is opened", () => {
     renderGettingPaid();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     fireEvent.change(screen.getByLabelText("Account owner"), {
       target: { value: "Draft owner" },
     });
@@ -178,12 +185,12 @@ describe("producer payment instructions settings interaction", () => {
   it("locally saves all payment keys and serializes the four Bank fields", async () => {
     const view = renderGettingPaid();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "700" } });
     fireEvent.change(screen.getByLabelText("Bit phone number"), {
       target: { value: "050-222-2222" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save payment details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
 
     await waitFor(() => {
       expect(mocks.updateProducer).toHaveBeenCalledWith({
@@ -219,12 +226,12 @@ describe("producer payment instructions settings interaction", () => {
     renderGettingPaid({ bankTransfer: legacyBank });
 
     expect(screen.getAllByText(legacyBank)).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     expect(screen.getByText("Kept as-is unless you edit a bank field above.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Bit phone number"), {
       target: { value: "050-333-3333" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save payment details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
 
     await waitFor(() => {
       expect(mocks.updateProducer).toHaveBeenCalledWith({
@@ -252,9 +259,9 @@ describe("producer payment instructions settings interaction", () => {
     ].join("\n");
     renderGettingPaid({ bankTransfer: mixedBank });
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "700" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save payment details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
 
     await waitFor(() => {
       expect(mocks.updateProducer).toHaveBeenCalledWith({
@@ -280,14 +287,14 @@ describe("producer payment instructions settings interaction", () => {
     });
     renderGettingPaid();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     fireEvent.change(screen.getByLabelText("Bank"), { target: { value: "Leumi" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save payment details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
 
     await waitFor(() => {
       expect(mocks.toast).toHaveBeenCalledWith("Payment details were not saved.", "error");
     });
     expect(screen.getByLabelText<HTMLInputElement>("Bank").value).toBe("Leumi");
-    expect(screen.getByRole("button", { name: "Save payment details" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save details" })).toBeTruthy();
   });
 });

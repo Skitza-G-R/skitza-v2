@@ -102,6 +102,12 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
+  it("removes the producer tab bar while the mobile software keyboard is open", () => {
+    expect(GLOBALS).toMatch(
+      /body\[data-sk-keyboard="open"\]\s+\.producer-bottom-nav-frame\s*\{[^}]*display:\s*none;/,
+    );
+  });
+
   it("locks the mobile app shell to the viewport with an internal content scroller", () => {
     expect(APP_SHELL).toContain("fixed inset-0 flex overflow-hidden");
     expect(APP_SHELL).toContain("lg:static lg:min-h-dvh");

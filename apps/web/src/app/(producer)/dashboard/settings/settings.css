@@ -761,7 +761,18 @@
   align-items: start;
 }
 .s-payment-editor {
+  position: relative;
   min-width: 0;
+  box-shadow: 0 20px 48px -38px rgb(var(--bg-sidebar) / 0.52);
+}
+.s-payment-editor::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 3px;
+  background: linear-gradient(90deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)));
+  pointer-events: none;
 }
 .s-payment-editor[data-mode="read"] {
   background: rgb(var(--bg-background));
@@ -778,7 +789,9 @@
     rgb(var(--bg-elevated));
 }
 .s-payment-editor[data-mode="read"] .s-payment-editor-head {
-  background: rgb(var(--bg-background));
+  background:
+    linear-gradient(135deg, rgb(var(--brand-primary) / 0.06), transparent 52%),
+    rgb(var(--bg-elevated));
 }
 .s-payment-kicker {
   display: block;
@@ -843,6 +856,16 @@
 }
 .s-payment-local-actions .s-btn {
   border-radius: var(--radius-lg);
+}
+.s-payment-edit-button {
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgb(var(--fg-default));
+  background: rgb(var(--fg-default));
+  color: rgb(var(--bg-elevated));
+  font-size: 11.5px;
+  box-shadow: 0 8px 18px -14px rgb(var(--bg-sidebar) / 0.72);
 }
 .s-payment-edit-fields {
   min-inline-size: 0;
@@ -924,6 +947,29 @@
 }
 .s-payment-readonly-field {
   min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: var(--radius-lg);
+  background: rgb(var(--bg-elevated));
+}
+.s-payment-readonly .s-payment-bank-grid {
+  gap: 0 20px;
+  padding: 0 11px;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: var(--radius-lg);
+  background: rgb(var(--bg-elevated));
+}
+.s-payment-readonly .s-payment-bank-grid .s-payment-readonly-field {
+  padding: 11px 0;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--border-subtle));
+  border-radius: 0;
+  background: transparent;
+}
+.s-payment-readonly .s-payment-bank-grid .s-payment-readonly-field:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+.s-payment-readonly .s-payment-method-bit .s-payment-readonly-field {
   padding: 9px 11px;
   border: 1px solid rgb(var(--border-subtle));
   border-radius: var(--radius-lg);
@@ -1193,36 +1239,97 @@
 }
 
 @media (max-width: 640px) {
+  .s-payment-section .s-section-head {
+    margin-bottom: 10px;
+  }
+  .s-payment-section .s-section-head h2 {
+    font-size: 22px;
+  }
+  .s-payment-section .s-section-head p {
+    margin-top: 4px;
+    font-size: 11.5px;
+  }
+  .s-payment-section .s-section-eyebrow {
+    margin-bottom: 5px;
+    font-size: 9px;
+  }
   .s-payment-editor-head {
     flex-wrap: wrap;
-    gap: 10px;
-    padding: 14px;
+    gap: 8px;
+    padding: 11px 12px;
+  }
+  .s-payment-editor-head h3 {
+    font-size: 18px;
+  }
+  .s-payment-editor-head p {
+    margin-top: 3px;
+    font-size: 10.5px;
   }
   .s-payment-local-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
     width: 100%;
   }
+  .s-payment-status {
+    min-height: 36px;
+    justify-content: center;
+  }
   .s-payment-local-actions .s-btn {
-    min-height: 44px;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    min-height: 0;
+    padding: 0 10px;
     border-radius: var(--radius-lg);
   }
   .s-payment-bank-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .s-payment-readonly .s-payment-bank-grid {
+    gap: 0 12px;
+    padding: 0 10px;
   }
   .s-payment-method,
   .s-payment-note-editor {
-    padding: 14px;
+    padding: 10px 12px;
+  }
+  .s-payment-method-head {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .s-payment-method-icon {
+    width: 28px;
+    height: 28px;
+  }
+  .s-payment-method-head h4 {
+    font-size: 12.5px;
+  }
+  .s-payment-method-head p {
+    margin-top: 2px;
+    font-size: 10px;
+  }
+  .s-payment-field-label,
+  .s-payment-bank-field .s-payment-field-label {
+    margin-bottom: 4px;
+    font-size: 10px;
+  }
+  .s-payment-method .s-input,
+  .s-payment-note-editor .s-input {
+    padding: 7px 10px;
   }
   .s-payment-method-bit {
     display: block;
   }
   .s-payment-method-bit .s-payment-method-head {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   .s-payment-boundary {
-    padding: 12px 14px;
+    padding: 10px 12px;
   }
   .s-payment-preview-intro {
-    padding-top: 15px;
+    padding-top: 12px;
   }
 }
 
