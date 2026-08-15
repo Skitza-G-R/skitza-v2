@@ -1,7 +1,17 @@
 "use client";
 
 import { useAuth, useClerk } from "@clerk/nextjs";
-import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import {
   getBrowserRuntimeStorage,
@@ -13,6 +23,12 @@ import {
   clearAccountPrivateRuntimeQuery,
   clearAccountPrivateRuntimeState,
 } from "~/lib/runtime-state/account-exit";
+import {
+  desktopSessionCacheAccess,
+  getBrowserOnlineSnapshot,
+  subscribeBrowserOnline,
+  subscribeDesktopSessionValidation,
+} from "~/lib/desktop/session-validation";
 
 export interface RuntimeIdentity {
   userId: string;
@@ -79,10 +95,31 @@ export function RuntimeStateProvider({
   const { isLoaded, userId: clerkUserId } = useAuth();
   const previousUserId = useRef<string | null>(clerkUserId ?? identity.userId);
   const reloadedAccountBoundary = useRef<string | null>(null);
+  const [, setDesktopValidationVersion] = useState(0);
+  const browserOnline = useSyncExternalStore(
+    subscribeBrowserOnline,
+    getBrowserOnlineSnapshot,
+    () => true,
+  );
   const storage = getBrowserRuntimeStorage();
-  const privateStateAccessAllowed = isLoaded && clerkUserId === identity.userId;
+  const desktopAccess = desktopSessionCacheAccess(clerkUserId ?? null, browserOnline);
+  const privateStateAccessAllowed =
+    isLoaded &&
+    clerkUserId === identity.userId &&
+    (desktopAccess.kind === "web" || desktopAccess.allowed);
+  const desktopMustConceal = desktopAccess.kind === "desktop" && !desktopAccess.allowed;
+  const desktopSessionEnded =
+    desktopAccess.kind === "desktop" && desktopAccess.reason === "revoked";
   const verifiedServerUserId = useRef<string | null>(
     privateStateAccessAllowed ? identity.userId : null,
+  );
+
+  useEffect(
+    () =>
+      subscribeDesktopSessionValidation(() => {
+        setDesktopValidationVersion((version) => version + 1);
+      }),
+    [],
   );
 
   useLayoutEffect(() => {
@@ -133,6 +170,7 @@ export function RuntimeStateProvider({
   // Conceal the old server tree immediately; account-scoped keys also make
   // it impossible for the next identity to read the previous user's cache.
   if (
+    desktopMustConceal ||
     shouldConcealRuntimeContent(
       isLoaded,
       clerkUserId,
@@ -142,10 +180,24 @@ export function RuntimeStateProvider({
   ) {
     return (
       <div
-        aria-busy="true"
-        aria-label="Switching account"
-        className="min-h-dvh bg-[rgb(var(--bg-background))]"
-      />
+        aria-busy={desktopSessionEnded ? undefined : true}
+        aria-label={
+          desktopSessionEnded
+            ? "Session ended"
+            : desktopMustConceal
+              ? "Checking connection"
+              : "Switching account"
+        }
+        className="flex min-h-dvh items-center justify-center bg-[rgb(var(--bg-background))] px-6"
+      >
+        <p className="text-sm font-semibold text-[rgb(var(--fg-muted))]">
+          {desktopSessionEnded
+            ? "Sign in again to open your studio."
+            : desktopMustConceal
+              ? "Checking your secure session…"
+              : "Switching account…"}
+        </p>
+      </div>
     );
   }
 

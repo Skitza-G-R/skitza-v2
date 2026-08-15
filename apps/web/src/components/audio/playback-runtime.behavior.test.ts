@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clampSeekMs,
+  clearPlaybackMediaSessionForPrivacy,
   normalizePlayerTrack,
   playbackSetCommandFromDetail,
   persistPlaybackSnapshotForAccount,
@@ -35,6 +36,41 @@ afterEach(() => {
 });
 
 describe("playback restoration", () => {
+  it("gates cache lookup and active audio on live desktop validation", () => {
+    expect(SOURCE).toContain("desktopSessionCacheAccess(accountId ?? null, browserOnline)");
+    expect(SOURCE).toContain("subscribeBrowserOnline");
+    expect(SOURCE).toContain("subscribeDesktopSessionValidation");
+    expect(SOURCE).toContain('audio?.removeAttribute("src")');
+    expect(SOURCE).toContain("clearPlaybackMediaSessionForPrivacy()");
+    expect(SOURCE).toContain("emitPlayback({ ...EMPTY_PLAYBACK, volume: playbackSnapshot.volume })");
+    expect(SOURCE.match(/if \(!desktopAudioAllowedRef\.current\) return;/g)).toHaveLength(6);
+    expect(SOURCE).toContain("setResolvedSource(null)");
+  });
+
+  it("removes private Media Session metadata when desktop audio is locked", () => {
+    const mediaSession = {
+      metadata: { title: "Private mix" },
+      playbackState: "playing",
+    };
+    vi.stubGlobal("navigator", { mediaSession });
+
+    clearPlaybackMediaSessionForPrivacy();
+
+    expect(mediaSession).toEqual({ metadata: null, playbackState: "none" });
+    expect(SOURCE).toMatch(
+      /if \(!desktopAudioAllowed\) \{\s*clearPlaybackMediaSessionForPrivacy\(\);\s*return;/,
+    );
+  });
+
+  it("re-reports a resolved recent-cache source at Play before audible proof", () => {
+    expect(SOURCE).toContain('proofSource: "recent-cache"');
+    expect(SOURCE).toContain("recordGate1AudioSource(resolvedSource.proofSource)");
+    expect(SOURCE.indexOf("recordGate1AudioSource(resolvedSource.proofSource)")).toBeLessThan(
+      SOURCE.indexOf("void audio.play()"),
+    );
+    expect(SOURCE).toContain("if (!audio.muted && audio.volume > 0) recordGate1AudioPlaying()");
+  });
+
   it("restores a safe route paused for its owning account only", () => {
     const accountA = "user_restore_a";
     const accountB = "user_restore_b";

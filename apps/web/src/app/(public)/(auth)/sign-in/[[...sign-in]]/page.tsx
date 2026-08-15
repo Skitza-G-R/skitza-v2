@@ -2,6 +2,7 @@ import { SignIn } from "@clerk/nextjs";
 import { headers } from "next/headers";
 
 import { AuthHero } from "~/components/auth/auth-hero";
+import { DesktopSocialSignInControl } from "~/components/auth/desktop-social-sign-in-control";
 import { signUpSwitchHref } from "~/server/auth/returning-device";
 import {
   joinSignUpMetadataFromTarget,
@@ -19,17 +20,13 @@ type Props = {
 // stay focused here while `/sign-up` keeps its marketing-led desktop layout.
 export default async function Page({ searchParams }: Props) {
   const [query, requestHeaders] = await Promise.all([searchParams, headers()]);
-  const rawRequestedHref =
-    typeof query.redirect_url === "string" ? query.redirect_url : null;
+  const rawRequestedHref = typeof query.redirect_url === "string" ? query.redirect_url : null;
   const requestOrigin = trustedAuthRequestOrigin({
     forwardedHost: requestHeaders.get("x-forwarded-host"),
     forwardedProto: requestHeaders.get("x-forwarded-proto"),
     host: requestHeaders.get("host"),
   });
-  const requestedHref = normalizeSameOriginPostSignInTarget(
-    rawRequestedHref,
-    requestOrigin,
-  );
+  const requestedHref = normalizeSameOriginPostSignInTarget(rawRequestedHref, requestOrigin);
   const resolverHref = postSignInResolverHref(requestedHref);
   const signUpResolverHref = postSignUpResolverHref(requestedHref);
   const signUpHref = signUpSwitchHref(requestedHref);
@@ -38,14 +35,16 @@ export default async function Page({ searchParams }: Props) {
   return (
     <div className="sk-auth-page" data-auth-page="sign-in">
       <AuthHero eyebrow="Sign in" title="Welcome back" blurb="Sign in to continue to Skitza." />
-      <SignIn
-        signUpUrl={signUpHref}
-        {...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}
-        fallbackRedirectUrl={resolverHref}
-        forceRedirectUrl={resolverHref}
-        signUpFallbackRedirectUrl={signUpResolverHref}
-        signUpForceRedirectUrl={signUpResolverHref}
-      />
+      <DesktopSocialSignInControl>
+        <SignIn
+          signUpUrl={signUpHref}
+          {...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}
+          fallbackRedirectUrl={resolverHref}
+          forceRedirectUrl={resolverHref}
+          signUpFallbackRedirectUrl={signUpResolverHref}
+          signUpForceRedirectUrl={signUpResolverHref}
+        />
+      </DesktopSocialSignInControl>
     </div>
   );
 }

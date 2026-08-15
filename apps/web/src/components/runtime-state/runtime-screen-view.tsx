@@ -8,6 +8,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -34,6 +35,17 @@ import {
   type RuntimeRole,
   type RuntimeScreenSafeView,
 } from "~/lib/runtime-state/runtime-state";
+import {
+  DESKTOP_CAPABILITIES,
+  desktopBridgeHasCapability,
+  detectDesktopBridge,
+} from "~/lib/desktop/bridge";
+import { recordGate1MeaningfulPaint, startGate1Journey } from "~/lib/desktop/gate1-proof";
+import {
+  desktopSavedScreenPreviewEnabled,
+  desktopSessionCacheAccess,
+  subscribeDesktopSessionValidation,
+} from "~/lib/desktop/session-validation";
 
 import { useOnlineStatus } from "./online-required-link";
 import { useRuntimeState } from "./runtime-state-provider";
@@ -56,6 +68,7 @@ const ARTIST_NAV = [
 ] as const;
 
 interface PendingRuntimeScreen {
+  desktopPreview: boolean;
   href: string;
   identityKey: string;
   localOnly: boolean;
@@ -122,16 +135,9 @@ export function RuntimeScreenSafeViewWriter({
   contextId?: string;
 }) {
   return href !== undefined ? (
-    <RuntimeScreenSafeViewWriterAtHref
-      view={view}
-      href={href}
-      contextId={contextId}
-    />
+    <RuntimeScreenSafeViewWriterAtHref view={view} href={href} contextId={contextId} />
   ) : (
-    <RuntimeScreenSafeViewWriterForCurrentRoute
-      view={view}
-      contextId={contextId}
-    />
+    <RuntimeScreenSafeViewWriterForCurrentRoute view={view} contextId={contextId} />
   );
 }
 
@@ -178,30 +184,78 @@ function RuntimeScreenSafeViewWriterAtHref({
       return;
     }
     writeRuntimeScreenSafeView(storage, identity, href, view);
-  }, [
-    contextId,
-    href,
-    identity,
-    privateStateAccessAllowed,
-    storage,
-    view,
-    writeGeneration,
-  ]);
+  }, [contextId, href, identity, privateStateAccessAllowed, storage, view, writeGeneration]);
+
+  useEffect(() => {
+    if (!privateStateAccessAllowed) return;
+    const meaningful =
+      view.title.trim().length > 0 &&
+      (view.metrics.length > 0 || view.sections.some((section) => section.items.length > 0));
+    if (!meaningful) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const proofScreen =
+          href === "/dashboard"
+            ? "today"
+            : href === "/dashboard/clients-projects"
+              ? "clients-projects"
+              : null;
+        recordGate1MeaningfulPaint({
+          href,
+          root: proofScreen
+            ? document.querySelector<HTMLElement>(`[data-gate1-meaningful-screen="${proofScreen}"]`)
+            : null,
+          source: "server",
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [href, privateStateAccessAllowed, view]);
 
   return null;
 }
 
 export function RuntimeScreenPreview({
   view,
+  proofHref,
   source = "cache",
   refreshing,
 }: {
   view: RuntimeScreenSafeView;
+  proofHref?: string;
   source?: "cache" | "resume";
   refreshing: boolean;
 }) {
+  const proofRootRef = useRef<HTMLDivElement>(null);
+  const meaningful =
+    view.title.trim().length > 0 &&
+    (view.metrics.length > 0 || view.sections.some((section) => section.items.length > 0));
+
+  useEffect(() => {
+    if (!meaningful) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        recordGate1MeaningfulPaint({
+          href: proofHref ?? window.location.pathname,
+          root: proofRootRef.current,
+          source,
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [meaningful, proofHref, source, view]);
+
   return (
     <div
+      ref={proofRootRef}
       aria-label={`${view.title} saved view`}
       aria-busy={refreshing || undefined}
       data-runtime-screen-source={source}
@@ -375,8 +429,20 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
   const online = useOnlineStatus();
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
   const [pending, setPending] = useState<PendingRuntimeScreen | null>(null);
+  const [, setDesktopValidationVersion] = useState(0);
   const currentHref = hrefFromLocation(pathname, searchParams);
   const identityKey = `${identity.userId}:${identity.role}:${identity.contextId}`;
+  const desktopPreviewEnabled = desktopSavedScreenPreviewEnabled();
+  const desktopCacheAccess = desktopSessionCacheAccess(identity.userId, online);
+  const desktopPreviewAllowed = desktopCacheAccess.kind === "web" || desktopCacheAccess.allowed;
+
+  useEffect(
+    () =>
+      subscribeDesktopSessionValidation(() => {
+        setDesktopValidationVersion((version) => version + 1);
+      }),
+    [],
+  );
 
   const clearPending = useCallback(() => {
     setPending(null);
@@ -457,10 +523,20 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       }
 
       const localOnly = detail.localOnly === true || !navigator.onLine;
-      const warm = !localOnly && detail.warm === true;
-      const view = localOnly && privateStateAccessAllowed && storage
+      if (targetHref === "/dashboard/clients-projects") {
+        startGate1Journey("safe-clients-projects");
+      }
+      const desktopAccessAllowed = !desktopPreviewEnabled || desktopPreviewAllowed;
+      const mayReadSavedView =
+        desktopAccessAllowed &&
+        (localOnly || desktopPreviewEnabled) &&
+        privateStateAccessAllowed &&
+        storage;
+      const view = mayReadSavedView
         ? readRuntimeScreenSafeView(storage, identity, targetHref)
         : null;
+      const warm =
+        desktopAccessAllowed && !localOnly && !view && detail.warm === true;
       if (warm) {
         delete document.documentElement.dataset.skScreenSource;
       } else {
@@ -468,6 +544,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       }
       flushSync(() => {
         setPending({
+          desktopPreview: desktopPreviewEnabled,
           href: targetHref,
           identityKey,
           localOnly,
@@ -487,6 +564,8 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     currentHref,
     identityKey,
     identity,
+    desktopPreviewAllowed,
+    desktopPreviewEnabled,
     pending,
     privateStateAccessAllowed,
     storage,
@@ -503,7 +582,8 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       return;
     }
 
-    const view = privateStateAccessAllowed && storage
+    const desktopAccessAllowed = !pending.desktopPreview || desktopPreviewAllowed;
+    const view = desktopAccessAllowed && privateStateAccessAllowed && storage
       ? readRuntimeScreenSafeView(storage, identity, pending.href)
       : null;
     document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
@@ -515,6 +595,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     });
   }, [
     currentHref,
+    desktopPreviewAllowed,
     identity,
     identityKey,
     online,
@@ -527,6 +608,16 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     if (!pending) return;
     if (pending.identityKey !== identityKey) {
       clearPending();
+      return;
+    }
+    if (
+      pending.desktopPreview &&
+      (!privateStateAccessAllowed || !desktopPreviewAllowed)
+    ) {
+      if (pending.view || pending.warm) {
+        document.documentElement.dataset.skScreenSource = "scaffold";
+        setPending({ ...pending, view: null, warm: false });
+      }
       return;
     }
 
@@ -555,6 +646,8 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     identity.role,
     identityKey,
     pending,
+    desktopPreviewAllowed,
+    privateStateAccessAllowed,
   ]);
 
   useEffect(() => {
@@ -599,9 +692,17 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       : null;
 
   if (!visiblePending) return children;
-  if (visiblePending.warm) return children;
-  return visiblePending.view && privateStateAccessAllowed ? (
+  if (
+    visiblePending.warm &&
+    (!visiblePending.desktopPreview || desktopPreviewAllowed)
+  ) {
+    return children;
+  }
+  return visiblePending.view &&
+    privateStateAccessAllowed &&
+    (!visiblePending.desktopPreview || desktopPreviewAllowed) ? (
     <RuntimeScreenPreview
+      proofHref={visiblePending.href}
       view={visiblePending.view}
       refreshing={online && !visiblePending.localOnly}
     />
@@ -638,18 +739,14 @@ function initialOfflineResumeState(): ResumeState | null {
   return userId ? readResumeState(userId) : null;
 }
 
-function readRequestedResumeView(
-  resume: ResumeState,
-  href: string,
-): RuntimeScreenSafeView | null {
+function readRequestedResumeView(resume: ResumeState, href: string): RuntimeScreenSafeView | null {
   const storage = getBrowserRuntimeStorage();
   if (!storage) return null;
 
   if (resume.target.role === "artist") {
-    const requestedStudio = new URL(
-      href,
-      "https://runtime.skitza.invalid",
-    ).searchParams.get("studio");
+    const requestedStudio = new URL(href, "https://runtime.skitza.invalid").searchParams.get(
+      "studio",
+    );
     if (
       resume.target.contextId === "artist-no-studio"
         ? requestedStudio !== null
@@ -684,56 +781,129 @@ export function RuntimeResumeBoundary({
   const online = useOnlineStatus();
   const [resume, setResume] = useState<ResumeState | null>(null);
   const [resolvedIdentity, setResolvedIdentity] = useState(false);
+  const [desktopValidationVersion, forceDesktopValidationRead] = useState(0);
   const requestedHref = hrefFromLocation(pathname, searchParams);
+
+  useEffect(
+    () =>
+      subscribeDesktopSessionValidation(() => {
+        forceDesktopValidationRead((version) => version + 1);
+      }),
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!isLoaded) {
-      setResume(online ? null : initialOfflineResumeState());
+      setResolvedIdentity(false);
+      setResume(
+        desktopSessionCacheAccess(null, online).kind === "web"
+          ? initialOfflineResumeState()
+          : null,
+      );
+      return;
+    }
+    const desktopAccess = desktopSessionCacheAccess(userId ?? null, navigator.onLine);
+    if (desktopAccess.kind === "desktop" && !desktopAccess.allowed) {
+      setResolvedIdentity(false);
+      setResume(null);
       return;
     }
     setResolvedIdentity(true);
-    setResume(userId ? readResumeState(userId) : null);
-  }, [isLoaded, online, userId]);
+    setResume(
+      userId && (desktopAccess.kind === "web" || desktopAccess.allowed)
+        ? readResumeState(userId)
+        : null,
+    );
+  }, [desktopValidationVersion, isLoaded, online, userId]);
 
   const fallbackRole = expectedRole ?? resume?.target.role ?? "producer";
   const fallbackHref =
-    expectedRole &&
-    requestedHref.startsWith(expectedRole === "producer" ? "/dashboard" : "/artist")
+    expectedRole && requestedHref.startsWith(expectedRole === "producer" ? "/dashboard" : "/artist")
       ? requestedHref
       : fallbackRole === "producer"
         ? "/dashboard"
         : "/artist";
   const activeResume =
     resume && (!expectedRole || resume.target.role === expectedRole) ? resume : null;
-  const presentedHref = navigate
-    ? (activeResume?.target.href ?? fallbackHref)
-    : fallbackHref;
+  const presentedHref = navigate ? (activeResume?.target.href ?? fallbackHref) : fallbackHref;
   const presentedView = navigate
     ? (activeResume?.view ?? null)
     : activeResume
       ? readRequestedResumeView(activeResume, presentedHref)
       : null;
+  const launchDesktopAccess = desktopSessionCacheAccess(userId ?? null, online);
+  const launchIsLocked = launchDesktopAccess.kind === "desktop" && !launchDesktopAccess.allowed;
+  const launchDesktopDetection = detectDesktopBridge();
+  const signedOutDesktopAuthAvailable =
+    desktopBridgeHasCapability(launchDesktopDetection, DESKTOP_CAPABILITIES.sessionValidation) &&
+    desktopBridgeHasCapability(launchDesktopDetection, DESKTOP_CAPABILITIES.socialAuth);
 
   useEffect(() => {
-    if (!navigate || !resolvedIdentity || !navigator.onLine) return;
+    if (!navigate || !online || !isLoaded || userId !== null || !signedOutDesktopAuthAvailable) {
+      return;
+    }
+    router.replace("/sign-in");
+  }, [isLoaded, navigate, online, router, signedOutDesktopAuthAvailable, userId]);
+
+  useEffect(() => {
+    if (!navigate || !resolvedIdentity || !online) return;
     const href = runtimeRoleResolverHref(activeResume?.target.href ?? null);
-    router.replace(href);
-  }, [activeResume?.target.href, navigate, resolvedIdentity, router, userId]);
+    if (launchDesktopAccess.kind === "web") {
+      router.replace(href);
+      return;
+    }
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        router.replace(href);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [
+    activeResume?.target.href,
+    launchDesktopAccess.kind,
+    navigate,
+    online,
+    resolvedIdentity,
+    router,
+    userId,
+  ]);
 
   useEffect(() => {
-    if (!navigate || navigator.onLine) return;
+    if (!navigate || online || launchDesktopAccess.kind === "desktop") return;
     const onOnline = () => {
-      router.replace(
-        runtimeRoleResolverHref(activeResume?.target.href ?? null),
-      );
+      router.replace(runtimeRoleResolverHref(activeResume?.target.href ?? null));
     };
     window.addEventListener("online", onOnline, { once: true });
     return () => {
       window.removeEventListener("online", onOnline);
     };
-  }, [activeResume?.target.href, navigate, router]);
+  }, [activeResume?.target.href, launchDesktopAccess.kind, navigate, online, router]);
 
-  if (navigate && online) return <RuntimeLaunchCover />;
+  if (launchIsLocked) {
+    const message =
+      launchDesktopAccess.reason === "offline"
+        ? "Reconnect to open your studio."
+        : launchDesktopAccess.reason === "revoked"
+          ? "Sign in again to open your studio."
+          : "Checking your secure session…";
+    return (
+      <div
+        aria-busy={launchDesktopAccess.reason !== "revoked"}
+        aria-label="Secure launch"
+        className="fixed inset-0 flex items-center justify-center bg-[rgb(var(--bg-background))] px-6 text-center text-sm font-semibold text-[rgb(var(--fg-muted))]"
+      >
+        {message}
+      </div>
+    );
+  }
+
+  if (navigate && online && launchDesktopAccess.kind === "web") {
+    return <RuntimeLaunchCover />;
+  }
 
   return (
     <RuntimeResumeShell
@@ -774,9 +944,7 @@ function RuntimeResumeShell({
                 key={route}
                 className="rounded-[var(--radius-lg)] px-3 py-3 text-sm font-semibold"
                 style={{
-                  color: active
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-onsidebar) / 0.64)",
+                  color: active ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.64)",
                   background: active ? "rgb(var(--fg-onsidebar) / 0.06)" : "transparent",
                 }}
               >
@@ -796,6 +964,7 @@ function RuntimeResumeShell({
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {view ? (
             <RuntimeScreenPreview
+              proofHref={href}
               view={view}
               source="resume"
               refreshing={refreshing}
@@ -817,9 +986,7 @@ function RuntimeResumeShell({
                 key={route}
                 className="flex min-h-[68px] items-center justify-center px-1 text-center text-[11px] font-bold"
                 style={{
-                  color: active
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-onsidebar) / 0.58)",
+                  color: active ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.58)",
                 }}
               >
                 {label}

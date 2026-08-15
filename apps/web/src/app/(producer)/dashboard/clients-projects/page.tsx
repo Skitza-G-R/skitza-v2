@@ -120,7 +120,7 @@ async function ProjectsPageContent({
   }
 
   return (
-    <div className="relative isolate">
+    <div className="relative isolate" data-gate1-meaningful-screen="clients-projects">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"

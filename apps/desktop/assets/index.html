@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Opening Skitza</title>
+    <link rel="stylesheet" href="./startup-v2.css" />
+  </head>
+  <body>
+    <main class="sk-pwa-startup">
+      <div
+        class="sk-pwa-startup__lockup"
+        role="status"
+        aria-label="Opening Skitza…"
+        aria-live="polite"
+      >
+        <span class="sk-pwa-startup__pulse" aria-hidden="true">
+          <img
+            class="sk-pwa-startup__mark"
+            src="./skitza-192.png"
+            width="96"
+            height="96"
+            alt=""
+          />
+        </span>
+        <span class="sk-pwa-startup__wordmark">
+          Skitza<span aria-hidden="true">.</span>
+        </span>
+        <span id="status" class="sk-pwa-startup__status">Opening Skitza…</span>
+        <button id="retry" type="button" hidden>Try again</button>
+      </div>
+    </main>
+    <script src="./startup-v2.js"></script>
+  </body>
+</html>

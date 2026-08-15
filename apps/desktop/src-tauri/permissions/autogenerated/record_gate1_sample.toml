@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-record-gate1-sample"
+description = "Enables the record_gate1_sample command without any pre-configured scope."
+commands.allow = ["record_gate1_sample"]
+
+[[permission]]
+identifier = "deny-record-gate1-sample"
+description = "Denies the record_gate1_sample command without any pre-configured scope."
+commands.deny = ["record_gate1_sample"]

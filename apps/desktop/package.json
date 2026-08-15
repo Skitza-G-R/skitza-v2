@@ -1,0 +1,17 @@
+{
+  "name": "@skitza/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-tauri.mjs dev",
+    "build": "node scripts/run-tauri.mjs build --bundles app",
+    "test": "node --test scripts/*.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:release": "cargo test --release --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "node --check scripts/*.mjs && node --check assets/*.js",
+    "lint": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

@@ -1,12 +1,12 @@
 # Skitza — Product Requirements Document
 
 **Version:** 5.2
-**Date:** 12 August 2026
+**Date:** 13 August 2026
 **Status:** Durable product source of truth
 
 ## 1. Authority and scope
 
-This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026, and the approved **Manual sessions and Google Calendar sync** contract, finalized on 8 August 2026.
+This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026, the approved **Manual sessions and Google Calendar sync** contract, finalized on 8 August 2026, and the approved **Enhanced producer desktop app** contract, finalized on 13 August 2026.
 
 When sources conflict, use this order:
 
@@ -50,7 +50,7 @@ For a true ₪0 private offer, acceptance makes the purchase fully paid and acti
 - Stable ownership and strict producer/artist isolation.
 - Smart defaults and simple choices.
 - English-only for v1.
-- Web-only for v1.
+- The complete product remains available on the web; producers may also use the optional enhanced Mac and Windows desktop app defined in §4.7.
 - No AI dependency.
 - No custom domains; the producer's permanent acquisition link remains under Skitza.
 - Mobile layouts must be complete at true 390px and 360px, with desktop behavior preserved.
@@ -202,6 +202,44 @@ All Store products, private offers, session products, paid extra songs, and no-c
 14. A true ₪0 purchase becomes fully paid and active at acceptance.
 
 Skitza records off-app money. It does not take, hold, route, split, or process card payments.
+
+### 4.7 — Mac and Windows desktop apps
+
+Skitza has an optional producer-only **enhanced, speed-first** desktop app for
+macOS and Windows, built with Tauri 2. It uses the same producer account, web
+interface, backend, data, and permissions as the complete web dashboard. It is
+not a basic wrapper, a separate interface, or a full-offline product.
+
+- Artists and public visitors remain on the website.
+- Producers download signed Mac and Windows installers directly from the
+  Skitza website. App stores are not used.
+- Windows supports Windows 11 x64 only; Windows 10 and Windows ARM are not
+  supported. Mac supports Apple Silicon and Intel.
+- The live app looks the same as Skitza Web; only the OS window and native
+  menu-bar/tray menu differ.
+- Closing the window hides it. A Mac menu-bar or Windows system-tray icon
+  reopens it and shows current upload status and Quit.
+- Existing bounded, account-scoped caches may warm routes and recent audio, but
+  the desktop app does not show a saved-screen preview. While a desktop session
+  is being checked, only the moving Skitza loading mark is visible; the current
+  live page appears after validation. Normal website behavior is unchanged.
+- Uploads continue while the app process is running with its window hidden,
+  but are not guaranteed after Quit, crash, restart, shutdown, or sleep.
+- Full offline mode, offline drafts, native notifications, native media
+  controls, start-at-login, product/content deep links, and full-Quit upload
+  recovery are not included. A private authentication callback is still
+  required for secure social sign-in.
+- A 1–2-day Mac/Windows performance proof must show a noticeable improvement
+  over Skitza Web before the rest of the app is built.
+- The website, Mac app, and Windows app launch publicly together with no public
+  beta or staged platform rollout.
+
+Within this desktop scope, the detailed plan is normative; product-wide PRD
+decisions still take precedence. A conflict must be resolved in both files
+before implementation continues. The passing speed targets, security
+boundaries, non-goals, and 8–12-working-day internal-release-candidate target
+live in
+[the enhanced producer desktop app plan](producer-desktop-app.md).
 
 ## 5. Clients
 
@@ -997,11 +1035,12 @@ This PRD does not authorize running a reset or migration.
 - Storage: Cloudflare R2.
 - Email: Resend + React Email.
 - English-only v1; no IP locale detection.
-- Web-only; no native iOS/Android app.
+- No native iOS/Android app; mobile remains web/PWA.
+- The optional producer desktop app uses Tauri 2 and the shared Skitza Web interface as defined in §4.7.
 - No AI/LLM requirement.
 - No custom domains.
 - No Framer Motion or new animation library.
-- No Tauri, Documenso/PDF signing, waitlist, or removed magic-link share flow.
+- No Documenso/PDF signing, waitlist, or removed magic-link share flow.
 - The public producer acquisition route remains under Skitza.
 
 ## 19. Explicit non-goals

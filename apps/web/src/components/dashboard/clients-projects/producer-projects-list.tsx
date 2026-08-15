@@ -285,7 +285,10 @@ export function ProducerProjectsList({
         </label>
       </div>
 
-      <p className="mt-4 mb-2 text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+      <p
+        data-gate1-meaningful-item
+        className="mt-4 mb-2 text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
+      >
         {view === "current" ? "Current" : "Archived"} · {visibleProjects.length}
       </p>
 

@@ -1,13 +1,6 @@
 // @vitest-environment jsdom
 
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +12,12 @@ import {
   RUNTIME_MAIN_NAVIGATION_PRESENTATION_EVENT,
   type RuntimeMainNavigationIntentDetail,
 } from "~/lib/runtime-state/navigation-cache";
+import { DESKTOP_CAPABILITIES } from "~/lib/desktop/bridge";
+import {
+  invalidateDesktopSessionValidation,
+  resetDesktopSessionValidationForTests,
+  updateDesktopSessionValidation,
+} from "~/lib/desktop/session-validation";
 import {
   writeRuntimeLaunchPointer,
   writeRuntimeScreenSafeView,
@@ -146,6 +145,8 @@ function renderTransitionBoundary() {
 }
 
 beforeEach(() => {
+  resetDesktopSessionValidationForTests();
+  delete window.__SKITZA_DESKTOP__;
   window.localStorage.clear();
   mocked.auth = {
     isLoaded: true,
@@ -174,6 +175,8 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   delete document.documentElement.dataset.skScreenSource;
+  resetDesktopSessionValidationForTests();
+  delete window.__SKITZA_DESKTOP__;
 });
 
 describe("instant runtime screen transitions", () => {
@@ -242,12 +245,7 @@ describe("instant runtime screen transitions", () => {
     ({ label, origin, destination, cachedView }) => {
       mocked.pathname = origin;
       expect(
-        writeRuntimeScreenSafeView(
-          window.localStorage,
-          PRODUCER,
-          destination,
-          cachedView,
-        ),
+        writeRuntimeScreenSafeView(window.localStorage, PRODUCER, destination, cachedView),
       ).toBe(true);
       renderTransitionBoundary();
 
@@ -420,12 +418,7 @@ describe("instant runtime screen transitions", () => {
   it("shows a cached destination synchronously for an offline navigation", () => {
     mocked.online = false;
     expect(
-      writeRuntimeScreenSafeView(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard/music",
-        musicView(),
-      ),
+      writeRuntimeScreenSafeView(window.localStorage, PRODUCER, "/dashboard/music", musicView()),
     ).toBe(true);
     renderTransitionBoundary();
 
@@ -435,17 +428,44 @@ describe("instant runtime screen transitions", () => {
     expect(screen.getByText("Midnight")).toBeTruthy();
     expect(screen.queryByTestId("current-server-screen")).toBeNull();
     expect(
-      document
-        .querySelector('[data-runtime-screen-source="cache"]')
-        ?.hasAttribute("aria-busy"),
+      document.querySelector('[data-runtime-screen-source="cache"]')?.hasAttribute("aria-busy"),
     ).toBe(false);
     expect(document.querySelector("[data-runtime-resume-shell]")).toBeNull();
     expect(screen.queryByText(/Restoring your last screen/i)).toBeNull();
     expect(document.documentElement.dataset.skScreenSource).toBe("cache");
-    expect(
-      screen.queryByText(/Showing the last saved view while fresh data loads/i),
-    ).toBeNull();
+    expect(screen.queryByText(/Showing the last saved view while fresh data loads/i)).toBeNull();
     expect(screen.queryByText("Updating Saved music library")).toBeNull();
+  });
+
+  it("shows and immediately drops a desktop preview across validation revocation", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 1,
+      capabilities: [
+        DESKTOP_CAPABILITIES.savedScreenPreview,
+        DESKTOP_CAPABILITIES.sessionValidation,
+      ],
+      listen: () => () => undefined,
+    };
+    updateDesktopSessionValidation({ accountId: "producer-user", status: "valid" });
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/clients-projects",
+        workspaceView("Validated client workspace"),
+      ),
+    ).toBe(true);
+    renderTransitionBoundary();
+
+    announceNavigation("/dashboard/clients-projects", { warm: true });
+    expect(screen.getByText("Validated client workspace")).toBeTruthy();
+
+    act(() => {
+      invalidateDesktopSessionValidation("revoked");
+    });
+    expect(screen.queryByText("Validated client workspace")).toBeNull();
+    expect(screen.queryByTestId("current-server-screen")).toBeNull();
+    expect(screen.getByLabelText("Loading Clients")).toBeTruthy();
   });
 
   it("shows a destination-shaped scaffold synchronously for an offline never-seen screen", () => {
@@ -457,13 +477,9 @@ describe("instant runtime screen transitions", () => {
     expect(screen.getByRole("heading", { name: "Calendar" })).toBeTruthy();
     expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
     expect(screen.queryByTestId("current-server-screen")).toBeNull();
-    expect(
-      document.querySelector('[data-runtime-screen-source="scaffold"]'),
-    ).toBeTruthy();
+    expect(document.querySelector('[data-runtime-screen-source="scaffold"]')).toBeTruthy();
     expect(document.documentElement.dataset.skScreenSource).toBe("scaffold");
-    expect(
-      screen.getByText("Reconnect to load the latest calendar data."),
-    ).toBeTruthy();
+    expect(screen.getByText("Reconnect to load the latest calendar data.")).toBeTruthy();
   });
 
   it("never renders a cached view from another account or artist studio", () => {
@@ -529,9 +545,7 @@ describe("instant runtime screen transitions", () => {
 
     announceNavigation("/dashboard/music");
     expect(screen.getByText("Offline music library")).toBeTruthy();
-    const offlinePreview = document.querySelector(
-      '[data-runtime-screen-source="cache"]',
-    );
+    const offlinePreview = document.querySelector('[data-runtime-screen-source="cache"]');
     expect(offlinePreview?.hasAttribute("aria-busy")).toBe(false);
     expect(screen.queryByText("Updating Offline music library")).toBeNull();
     expect(mocked.router.push).not.toHaveBeenCalled();
@@ -547,9 +561,7 @@ describe("instant runtime screen transitions", () => {
       window.dispatchEvent(new Event("online"));
     });
     expect(
-      document
-        .querySelector('[data-runtime-screen-source="cache"]')
-        ?.getAttribute("aria-busy"),
+      document.querySelector('[data-runtime-screen-source="cache"]')?.getAttribute("aria-busy"),
     ).toBe("true");
     expect(screen.getByText("Updating Offline music library")).toBeTruthy();
     expect(mocked.router.push).toHaveBeenCalledOnce();
@@ -619,10 +631,7 @@ describe("instant runtime screen transitions", () => {
     mocked.online = false;
     render(
       <RuntimeScreenTransitionBoundary>
-        <Link
-          href="/dashboard/calendar"
-          data-sk-nav-destination="/dashboard/calendar"
-        >
+        <Link href="/dashboard/calendar" data-sk-nav-destination="/dashboard/calendar">
           Calendar
         </Link>
       </RuntimeScreenTransitionBoundary>,
@@ -631,9 +640,7 @@ describe("instant runtime screen transitions", () => {
     fireEvent.click(screen.getByRole("link", { name: "Calendar" }));
 
     expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
-    expect(
-      screen.getByText("Reconnect to load the latest calendar data."),
-    ).toBeTruthy();
+    expect(screen.getByText("Reconnect to load the latest calendar data.")).toBeTruthy();
     expect(mocked.router.push).not.toHaveBeenCalled();
 
     mocked.online = true;
@@ -654,15 +661,10 @@ describe("instant runtime screen transitions", () => {
     mocked.search = "studio=studio-a";
     mocked.online = false;
     expect(
-      writeRuntimeScreenSafeView(
-        window.localStorage,
-        studioA,
-        "/artist/music?studio=studio-a",
-        {
-          ...musicView("Studio A pending library"),
-          kind: "artist-music",
-        },
-      ),
+      writeRuntimeScreenSafeView(window.localStorage, studioA, "/artist/music?studio=studio-a", {
+        ...musicView("Studio A pending library"),
+        kind: "artist-music",
+      }),
     ).toBe(true);
     const boundary = renderTransitionBoundary();
     announceNavigation("/artist/music?studio=studio-a");
@@ -799,6 +801,160 @@ describe("close and reopen runtime restore", () => {
     );
   });
 
+  it("does not navigate or reveal a desktop cache before live validation", async () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 1,
+      capabilities: [
+        DESKTOP_CAPABILITIES.savedScreenPreview,
+        DESKTOP_CAPABILITIES.sessionValidation,
+      ],
+      listen: () => () => undefined,
+    };
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Locked desktop music"),
+      ),
+    ).toBe(true);
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrameId += 1;
+      frames.set(nextFrameId, callback);
+      return nextFrameId;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((frameId) => {
+      frames.delete(frameId);
+    });
+    const runFrameBatch = (timestamp: number) => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      for (const callback of callbacks) callback(timestamp);
+    };
+
+    const boundary = render(<RuntimeResumeBoundary navigate />);
+    expect(screen.queryByText("Locked desktop music")).toBeNull();
+    expect(screen.getByLabelText("Secure launch")).toBeTruthy();
+    expect(frames.size).toBe(0);
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+
+    act(() => {
+      updateDesktopSessionValidation({ accountId: "another-producer", status: "valid" });
+    });
+    boundary.rerender(<RuntimeResumeBoundary navigate />);
+    expect(screen.queryByText("Locked desktop music")).toBeNull();
+    expect(screen.getByLabelText("Secure launch")).toBeTruthy();
+    expect(frames.size).toBe(0);
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+
+    act(() => {
+      updateDesktopSessionValidation({ accountId: "producer-user", status: "valid" });
+    });
+    boundary.rerender(<RuntimeResumeBoundary navigate />);
+    await waitFor(() => {
+      expect(screen.getByText("Locked desktop music")).toBeTruthy();
+    });
+    expect(frames.size).toBeGreaterThan(0);
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+
+    act(() => {
+      runFrameBatch(0);
+    });
+    expect(frames.size).toBeGreaterThan(0);
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+
+    act(() => {
+      runFrameBatch(16);
+    });
+    expect(mocked.router.replace).toHaveBeenCalledWith(
+      "/launch/resolve?next=%2Fdashboard%2Fmusic",
+    );
+  });
+
+  it("routes a signed-out desktop launch to sign-in without revealing cache", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 1,
+      capabilities: [
+        DESKTOP_CAPABILITIES.savedScreenPreview,
+        DESKTOP_CAPABILITIES.sessionValidation,
+        DESKTOP_CAPABILITIES.socialAuth,
+      ],
+      listen: () => () => undefined,
+    };
+    mocked.auth = {
+      isLoaded: true,
+      userId: null,
+    };
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Private desktop music"),
+      ),
+    ).toBe(true);
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(screen.getByLabelText("Secure launch")).toBeTruthy();
+    expect(screen.queryByText("Private desktop music")).toBeNull();
+    expect(mocked.router.replace).toHaveBeenCalledWith("/sign-in");
+    expect(mocked.router.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a signed-out desktop launch locked while offline", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 1,
+      capabilities: [
+        DESKTOP_CAPABILITIES.savedScreenPreview,
+        DESKTOP_CAPABILITIES.sessionValidation,
+        DESKTOP_CAPABILITIES.socialAuth,
+      ],
+      listen: () => () => undefined,
+    };
+    mocked.auth = {
+      isLoaded: true,
+      userId: null,
+    };
+    mocked.online = false;
+    expect(
+      writeRuntimeScreenSafeView(
+        window.localStorage,
+        PRODUCER,
+        "/dashboard/music",
+        musicView("Offline private desktop music"),
+      ),
+    ).toBe(true);
+
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(screen.getByText("Reconnect to open your studio.")).toBeTruthy();
+    expect(screen.queryByText("Offline private desktop music")).toBeNull();
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps a signed-out desktop launch locked for an unsupported bridge", () => {
+    window.__SKITZA_DESKTOP__ = {
+      protocolVersion: 2,
+      capabilities: [
+        DESKTOP_CAPABILITIES.sessionValidation,
+        DESKTOP_CAPABILITIES.socialAuth,
+      ],
+      listen: () => () => undefined,
+    };
+    mocked.auth = {
+      isLoaded: true,
+      userId: null,
+    };
+
+    render(<RuntimeResumeBoundary navigate />);
+
+    expect(screen.getByText("Checking your secure session…")).toBeTruthy();
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
   it("restores the last safe screen from persistent storage before auth or network", () => {
     mocked.online = false;
     mocked.auth = {
@@ -813,39 +969,25 @@ describe("close and reopen runtime restore", () => {
         musicView("Reopened music library"),
       ),
     ).toBe(true);
-    expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard/music",
-      ),
-    ).toBe(true);
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
 
     render(<RuntimeResumeBoundary navigate />);
 
     expect(document.querySelector("[data-runtime-resume-shell]")).toBeTruthy();
-    expect(
-      document.querySelector('[data-runtime-screen-source="resume"]'),
-    ).toBeTruthy();
-    const offlineResume = document.querySelector(
-      '[data-runtime-screen-source="resume"]',
-    );
+    expect(document.querySelector('[data-runtime-screen-source="resume"]')).toBeTruthy();
+    const offlineResume = document.querySelector('[data-runtime-screen-source="resume"]');
     expect(offlineResume?.hasAttribute("aria-busy")).toBe(false);
     expect(screen.queryByText("Updating Reopened music library")).toBeNull();
     expect(screen.getByText("Reopened music library")).toBeTruthy();
     expect(screen.getByText("Midnight")).toBeTruthy();
     expect(screen.getByText("Opening Skitza…")).toBeTruthy();
-    expect(
-      screen.queryByText(/Showing the last saved view while fresh data loads/i),
-    ).toBeNull();
+    expect(screen.queryByText(/Showing the last saved view while fresh data loads/i)).toBeNull();
     expect(mocked.router.replace).not.toHaveBeenCalled();
 
     cleanup();
     render(<RuntimeResumeBoundary navigate />);
     expect(screen.getByText("Reopened music library")).toBeTruthy();
-    expect(
-      document.querySelector('[data-runtime-screen-source="resume"]'),
-    ).toBeTruthy();
+    expect(document.querySelector('[data-runtime-screen-source="resume"]')).toBeTruthy();
   });
 
   it("hydrates the public scaffold cleanly, then restores offline data before paint", () => {
@@ -862,13 +1004,7 @@ describe("close and reopen runtime restore", () => {
         musicView("Hydrated offline library"),
       ),
     ).toBe(true);
-    expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard/music",
-      ),
-    ).toBe(true);
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
 
     const serverHtml = renderToString(<RuntimeResumeBoundary navigate />);
     expect(serverHtml).not.toContain("Hydrated offline library");
@@ -876,11 +1012,9 @@ describe("close and reopen runtime restore", () => {
     container.innerHTML = serverHtml;
     document.body.append(container);
     const errors: unknown[][] = [];
-    const errorSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation((...args: unknown[]) => {
-        errors.push(args);
-      });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args);
+    });
 
     let root: ReturnType<typeof hydrateRoot> | undefined;
     act(() => {
@@ -888,13 +1022,9 @@ describe("close and reopen runtime restore", () => {
     });
 
     expect(within(container).getByText("Hydrated offline library")).toBeTruthy();
-    const hydratedResume = container.querySelector(
-      '[data-runtime-screen-source="resume"]',
-    );
+    const hydratedResume = container.querySelector('[data-runtime-screen-source="resume"]');
     expect(hydratedResume?.hasAttribute("aria-busy")).toBe(false);
-    expect(
-      within(container).queryByText("Updating Hydrated offline library"),
-    ).toBeNull();
+    expect(within(container).queryByText("Updating Hydrated offline library")).toBeNull();
     expect(errors).toEqual([]);
 
     act(() => {
@@ -921,18 +1051,10 @@ describe("close and reopen runtime restore", () => {
         workspaceView(),
       ),
     ).toBe(true);
-    expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard/music",
-      ),
-    ).toBe(true);
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
 
     mocked.pathname = "/dashboard/clients-projects";
-    const requested = render(
-      <RuntimeResumeBoundary expectedRole="producer" />,
-    );
+    const requested = render(<RuntimeResumeBoundary expectedRole="producer" />);
     expect(screen.getByText("Saved client workspace")).toBeTruthy();
     expect(screen.queryByText("Old launch screen")).toBeNull();
 
@@ -957,22 +1079,13 @@ describe("close and reopen runtime restore", () => {
     mocked.search = "";
 
     expect(
-      writeRuntimeScreenSafeView(
-        window.localStorage,
-        artist,
-        "/artist/store?studio=studio-a",
-        {
-          ...musicView("Studio A saved store"),
-          kind: "artist-store",
-        },
-      ),
+      writeRuntimeScreenSafeView(window.localStorage, artist, "/artist/store?studio=studio-a", {
+        ...musicView("Studio A saved store"),
+        kind: "artist-store",
+      }),
     ).toBe(true);
     expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        artist,
-        "/artist/store?studio=studio-a",
-      ),
+      writeRuntimeLaunchPointer(window.localStorage, artist, "/artist/store?studio=studio-a"),
     ).toBe(true);
 
     render(<RuntimeResumeBoundary expectedRole="artist" />);
@@ -991,12 +1104,8 @@ describe("close and reopen runtime restore", () => {
     ).toBe(true);
     render(<RuntimeResumeBoundary navigate />);
 
-    expect(mocked.router.replace).toHaveBeenCalledWith(
-      "/launch/resolve?next=%2Fdashboard%2Fmusic",
-    );
-    expect(mocked.router.replace).not.toHaveBeenCalledWith(
-      "/dashboard/music",
-    );
+    expect(mocked.router.replace).toHaveBeenCalledWith("/launch/resolve?next=%2Fdashboard%2Fmusic");
+    expect(mocked.router.replace).not.toHaveBeenCalledWith("/dashboard/music");
   });
 
   it("uses the authenticated role resolver when no launch pointer exists", () => {
