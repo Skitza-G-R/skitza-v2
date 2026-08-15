@@ -244,6 +244,9 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
     };
     let menu = menu_builder.item(&quit).build()?;
 
+    #[cfg(target_os = "macos")]
+    let icon = tauri::include_image!("icons/tray-template.png");
+    #[cfg(not(target_os = "macos"))]
     let icon = app
         .default_window_icon()
         .cloned()
@@ -252,7 +255,10 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
         .icon(icon)
         .tooltip("Skitza")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder.icon_as_template(true);
+    let builder = builder
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open-skitza" => reveal_main_window(app),
             #[cfg(feature = "gate1-proof")]
