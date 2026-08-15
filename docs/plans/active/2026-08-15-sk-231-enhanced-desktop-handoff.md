@@ -16,12 +16,15 @@
 
 **Current combined/deployed source:** `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`
 
+**Current local desktop source:** `339df7eca0444ddf1e95f4080f6acd975bb66ab6`
+
 **Target branch:** `v3-clean`
 
 ## Plain-English status
 
-The local Apple Silicon app is built and installed, but the full desktop plan
-is **not finished** and Gate 1 has **not passed**.
+The local Apple Silicon app is built, installed, and now usable for normal
+signed-in Skitza work. The full desktop plan is **not finished** and Gate 1 has
+**not passed**.
 
 A large, tested foundation exists:
 
@@ -76,14 +79,21 @@ boundary:
   redirect normally, `/launch` 200, database health 200, desktop session 401
   when signed out, production Clerk only, exact build ID present, all three
   Gate journeys present, and no observed runtime error or 5xx cluster; and
-- the exact verified app was copied to `/Applications/Skitza.app`. Its binary
-  hash matches the verified build exactly and its strict signature check
-  passes.
+- the latest verified desktop app was copied to `/Applications/Skitza.app`,
+  locally ad-hoc signed, and its strict signature check passes.
 
-One older Skitza process is still running from the build folder and started on
-August 14. It was not force-quit because doing so could interrupt an unknown
-hidden upload. The next safe action is a manual **Quit Skitza**, followed by
-opening `/Applications/Skitza.app` and completing the user smoke.
+The installed app was cleanly relaunched from `/Applications/Skitza.app`. It
+showed the mobile-style animated Skitza loader and then opened the real signed-in
+dashboard without showing the old saved-studio placeholder. The process path,
+Apple Silicon architecture, local signature, live dashboard URL, and
+close-to-hide behavior were checked directly.
+
+The menu-bar icon now keeps the full orange square around the black Skitza S.
+Cold startup is owned by the native app rather than a fragile startup-page IPC
+reply. The navigation boundary remains closed except for the exact live Skitza
+origin and Clerk's exact production session-handshake path at
+`https://clerk.skitza.app/v1/client/handshake`, which is required to return the
+signed-in WebView to Skitza.
 
 ## Immediate plan to make the local Mac app usable
 
@@ -116,9 +126,12 @@ Execution checklist:
 - [x] Ask Gili to approve that exact deployment ID.
 - [x] After approval, switch only `skitza.app` to the approved candidate and
       watch health/errors.
-- [ ] Open the existing local Mac app and complete the real user smoke test.
+- [x] Open the installed Mac app and prove animated startup, real-dashboard
+      arrival, production Clerk handshake, and close-to-hide.
+- [ ] Complete the remaining sign-out, fresh sign-in, social sign-in, hidden
+      upload, menu-bar reopen, and Quit lifecycle checks.
 
-The Mac binary was rebuilt from the exact combined source, strictly verified,
+The Mac binary was rebuilt from the current desktop source, strictly verified,
 and copied to `/Applications/Skitza.app`.
 
 ## Locked decisions kept throughout the work
@@ -132,8 +145,9 @@ and copied to `/Applications/Skitza.app`.
 - Windows 11 x64 only; no Windows 10 or Windows ARM.
 - Signed direct downloads from `skitza.app`; no app stores.
 - No excluded desktop features were added.
-- Exact-origin security remained intact. Clerk or Vercel difficulties were not
-  solved by widening the desktop allowlist.
+- Navigation remains limited to packaged local assets, the exact Skitza origin,
+  and Clerk's one exact production session-handshake path. No broad Clerk,
+  wildcard, or Vercel host was allowed.
 - No public installer was published and PR #351 was not merged.
 
 ## Work completed
@@ -331,6 +345,12 @@ desktop identity or signed-out-launch changes. The correct verification label
 remains **PARTIAL**, because required live Gate and release-candidate checks
 are missing.
 
+For the final local-startup change at `339df7ec`, workspace typecheck and lint,
+14 desktop Node tests, 39 debug and 39 optimized Rust tests, 275 database tests,
+406 admin tests, 7,190 web tests, and the full optimized repository build all
+passed. The installed app was also visually checked from the animated loader
+through the production Clerk handshake to the real signed-in dashboard.
+
 ### 10. Local Mac artifact
 
 The latest locally rebuilt app is:
@@ -343,7 +363,8 @@ The identical installed copy is:
 
 Recorded properties:
 
-- implementation source: `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
+- website source: `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
+- local desktop source: `339df7eca0444ddf1e95f4080f6acd975bb66ab6`;
 - Apple Silicon `arm64` executable;
 - bundle identifier `app.skitza.desktop`;
 - version `0.1.0`;
@@ -351,9 +372,9 @@ Recorded properties:
 - locally ad-hoc signed; and
 - strict local code-signature verification passed.
 
-The installed executable and build executable have the same recorded SHA-256:
+The final locally signed installed executable has SHA-256:
 
-`2761ba07e2d85df18d16cbf3cc3d8fb86960014fd89c259dd50f55a27fac8434`
+`d0dbdddc16313d354fbd8edb1db7416fa22352c1e80f360f2243e588a5006d8c`
 
 This is a local proof artifact, not a distributable installer. It is not
 Developer ID signed or notarized.
@@ -382,6 +403,8 @@ Developer ID signed or notarized.
 | `2dc1b71b` | Added Linux Tauri dependencies to CI.           |
 | `d954664f` | Fixed signed-out desktop startup routing.       |
 | `39d5f304` | Added the full implementation handoff.          |
+| `b108f48a` | Restored the orange Skitza desktop icon.         |
+| `339df7ec` | Finished direct Mac startup and full tray mark.  |
 
 ## Deployment record
 
@@ -407,6 +430,8 @@ At the time of this handoff:
 - refreshed base: `d239e439f0c6870dabf47975e5ce426dd21049d5`;
 - current combined source and PR head before this documentation update:
   `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
+- current verified local desktop source:
+  `339df7eca0444ddf1e95f4080f6acd975bb66ab6`;
 - all 20 pre-refresh commits were retained patch-identically by range-diff;
 - the branch is directly based on current `origin/v3-clean` with no base commit
   missing;
@@ -467,9 +492,11 @@ promoted. The website is intentionally open. The candidate is the current
 
 ### 3. Complete the final Mac authentication and lifecycle smoke — in progress
 
-The exact verified app is installed at `/Applications/Skitza.app`. A stale
-process from the build folder remains alive, so the installed copy still needs
-one clean manual Quit/relaunch before the following user checks:
+The exact verified app is installed at `/Applications/Skitza.app`. A clean
+local launch now reaches the real signed-in Producer dashboard through the
+animated mobile-style loader. The old saved-studio placeholder no longer
+appears, and Close was verified to keep the same process alive. These checks
+remain:
 
 1. Start signed out and confirm the app reaches Sign in.
 2. Complete email/password sign-in and confirm the correct Producer.
@@ -478,7 +505,7 @@ one clean manual Quit/relaunch before the following user checks:
 5. Complete one social sign-in through the system browser and
    `skitza://auth/callback`.
 6. Confirm `/api/desktop/session` validates the same active provider account.
-7. Confirm close hides, menu-bar Open restores, and Quit stops the process.
+7. Confirm menu-bar Open restores the hidden window and Quit stops the process.
 
 ### 4. Run the exact Mac Gate 1 proof
 
@@ -553,8 +580,8 @@ After the internal release candidate passes:
 ## Final completion statement
 
 The combined website and desktop connection are live, and the exact verified
-Apple Silicon app is installed locally. The approved full desktop plan is not
-complete: the installed copy still needs a clean manual Quit/relaunch and live
-user smoke, Mac Gate 1 timing evidence is missing, post-Gate upload-tray and
-updater work is not built, Windows remains deferred, and no public installer
-has been published.
+Apple Silicon app is installed and usable locally. The approved full desktop
+plan is not complete: fresh password/social auth and hidden-upload lifecycle
+smoke are still missing, Mac Gate 1 timing evidence is missing, post-Gate
+upload-tray and updater work is not built, Windows remains deferred, and no
+public installer has been published.
