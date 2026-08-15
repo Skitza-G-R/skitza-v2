@@ -117,9 +117,14 @@ export const googleCalendarRouter = router({
   repair: producerProcedure
     .input(z.object({ forcePending: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const repaired = await repairProducerCalendarSyncBestEffort(ctx.db, ctx.producerId, {
-        forcePending: input.forcePending,
-      });
+      if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const repaired = await repairProducerCalendarSyncBestEffort(
+        ctx.db,
+        ctx.producerId,
+        input.forcePending
+          ? { forcePending: true, actorIdentity: ctx.userId }
+          : { forcePending: false },
+      );
       if (!repaired) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

@@ -139,7 +139,10 @@ describe("producer payment instructions settings interaction", () => {
     const view = renderGettingPaid();
     const editButton = screen.getByRole("button", { name: "Edit details" });
     const touchRelease = new Event("pointerup", { bubbles: true, cancelable: true });
-    Object.defineProperty(touchRelease, "pointerType", { value: "touch" });
+    Object.defineProperties(touchRelease, {
+      button: { value: 0 },
+      pointerType: { value: "touch" },
+    });
 
     fireEvent(editButton, touchRelease);
 
@@ -149,6 +152,34 @@ describe("producer payment instructions settings interaction", () => {
     const accountOwner = screen.getByLabelText<HTMLInputElement>("Account owner");
     fireEvent.change(accountOwner, { target: { value: "Touch edited owner" } });
     expect(accountOwner.value).toBe("Touch edited owner");
+  });
+
+  it("opens real payment inputs from the desktop mouse press before swipe capture", () => {
+    const view = renderGettingPaid();
+    const editButton = screen.getByRole("button", { name: "Edit details" });
+    const mousePress = new Event("pointerdown", { bubbles: true, cancelable: true });
+    Object.defineProperties(mousePress, {
+      button: { value: 0 },
+      pointerType: { value: "mouse" },
+    });
+
+    fireEvent(editButton, mousePress);
+
+    expect(view.container.querySelector(".s-payment-editor")?.getAttribute("data-mode")).toBe(
+      "edit",
+    );
+    expect(screen.getByLabelText<HTMLInputElement>("Account owner")).toBeTruthy();
+  });
+
+  it("opens real payment inputs from the desktop keyboard path", () => {
+    const view = renderGettingPaid();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Edit details" }), { key: "Enter" });
+
+    expect(view.container.querySelector(".s-payment-editor")?.getAttribute("data-mode")).toBe(
+      "edit",
+    );
+    expect(screen.getByLabelText<HTMLInputElement>("Account owner")).toBeTruthy();
   });
 
   it("keeps a payment draft out of the global savebar, guards role switches, and Cancels locally", async () => {

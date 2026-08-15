@@ -21,6 +21,64 @@ const isProtected = createRouteMatcher([
   "/artist-welcome(.*)",
 ]);
 
+const UUID_PATH_SEGMENT = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const PRODUCER_SONG_PATH = new RegExp(`^/dashboard/music/(${UUID_PATH_SEGMENT})$`, "i");
+const ARTIST_SONG_PATH = new RegExp(`^/artist/music/song/(${UUID_PATH_SEGMENT})$`, "i");
+
+export const GUEST_SONG_ORIGINAL_PATH_HEADER = "x-skitza-original-song-path";
+
+export type GuestSongPathMatch = {
+  versionId: string;
+  surface: "producer" | "artist";
+};
+
+/**
+ * Match only the two canonical Song-page URL shapes. The UUID segment is the
+ * shared resource identifier; adjacent Music, Project, and Artist routes must
+ * continue through the normal authenticated app gates.
+ */
+export function matchGuestSongPath(pathname: string): GuestSongPathMatch | null {
+  const producer = PRODUCER_SONG_PATH.exec(pathname);
+  if (producer?.[1]) {
+    return { versionId: producer[1], surface: "producer" };
+  }
+
+  const artist = ARTIST_SONG_PATH.exec(pathname);
+  if (artist?.[1]) {
+    return { versionId: artist[1], surface: "artist" };
+  }
+
+  return null;
+}
+
+/**
+ * Build the signed-out rewrite independently from Clerk so the authorization
+ * boundary is directly unit-testable. Rewriting keeps the browser on the
+ * normal Song URL while routing the request through the shell-free guest page.
+ */
+export function buildSignedOutGuestSongRewrite(input: {
+  requestUrl: string;
+  pathname: string;
+  incomingHeaders: Headers;
+  userId: string | null;
+}): NextResponse | null {
+  if (input.userId !== null) return null;
+
+  const match = matchGuestSongPath(input.pathname);
+  if (!match) return null;
+
+  const destination = new URL(input.requestUrl);
+  destination.pathname = `/guest-song/${match.versionId}`;
+
+  const requestHeaders = new Headers(input.incomingHeaders);
+  requestHeaders.delete(GUEST_SONG_ORIGINAL_PATH_HEADER);
+  requestHeaders.set(GUEST_SONG_ORIGINAL_PATH_HEADER, input.pathname);
+
+  return NextResponse.rewrite(destination, {
+    request: { headers: requestHeaders },
+  });
+}
+
 // Legacy → new-shape redirect map. Keys are EXACT paths (no regex) plus
 // a dynamic-segment fallback for ID-based routes. Everything in this
 // table was a top-level dashboard nav item before the 4-screen
@@ -163,6 +221,19 @@ export function isAccessGated(pathname: string): boolean {
   // /launch is a force-static, no-data bootstrap used by the installed app.
   // Its authenticated resolver remains gated and network-only.
   if (pathname === "/launch") return false;
+  // The two normal Song-page addresses are also the signed-out listening
+  // addresses. Their exact UUID path is the private-by-URL credential.
+  if (matchGuestSongPath(pathname)) return false;
+  // A guest can choose to log in from the listening page without first
+  // receiving the pre-launch access cookie.
+  if (
+    pathname === "/sign-in" ||
+    pathname.startsWith("/sign-in/") ||
+    pathname === "/sign-up" ||
+    pathname.startsWith("/sign-up/")
+  ) {
+    return false;
+  }
   // Producer-published song URLs are intentionally guest-listenable. The
   // unguessable, resettable song token is the authorization boundary; the
   // pre-launch site gate must never turn a live share into a private app URL.
@@ -210,6 +281,14 @@ const clerkHandler = async (auth: ClerkMiddlewareAuth, req: NextRequest) => {
     }
     return response;
   };
+
+  const guestSongRewrite = buildSignedOutGuestSongRewrite({
+    requestUrl: req.url,
+    pathname: req.nextUrl.pathname,
+    incomingHeaders: req.headers,
+    userId,
+  });
+  if (guestSongRewrite) return finalizeResponse(guestSongRewrite);
 
   // the target is always inside /dashboard which is also protected.
   const legacy = resolveLegacyRedirect(req.nextUrl.pathname);

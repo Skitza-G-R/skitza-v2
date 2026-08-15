@@ -167,6 +167,20 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(initialSync).toContain('notificationMode: "none"');
   });
 
+  it("uses the agreed project, producer, and artist identity during initial Google sync", () => {
+    const initialSyncStart = source.indexOf("async enqueueFutureConfirmedEvents(command)");
+    const initialSyncEnd = source.indexOf("async disconnect(command)", initialSyncStart);
+    const initialSync = source.slice(initialSyncStart, initialSyncEnd);
+
+    expect(initialSync).toContain("projectTitle: projects.title");
+    expect(initialSync).toContain("producerName: producers.displayName");
+    expect(initialSync).toContain(".innerJoin(\n            projects,");
+    expect(initialSync).toContain(".innerJoin(producers,");
+    expect(initialSync).toContain("candidate.projectTitle.trim()");
+    expect(initialSync).toContain("candidate.producerName?.trim()");
+    expect(initialSync).toContain("candidate.artistName.trim()");
+  });
+
   it("keeps pending holds and confirmed events on old destinations watched", () => {
     const targetStart = source.indexOf("async listRequiredCalendarWatchTargets(command)");
     const targetEnd = source.indexOf("async reserveCalendarWatch(command)", targetStart);

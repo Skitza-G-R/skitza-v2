@@ -1,4 +1,3 @@
-import { TRPCError } from "@trpc/server";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,8 +36,6 @@ vi.mock("../actions", () => ({
   l3AddComment: vi.fn(),
   l3ApproveVersion: vi.fn(),
   l3ResolveComment: vi.fn(),
-  publishArtistPublicSongLink: vi.fn(),
-  refreshArtistPublicSongLink: vi.fn(),
 }));
 
 import ArtistSongPage from "../page";
@@ -47,7 +44,7 @@ const VERSION_ID = "ff8ff16b-7b1f-4313-8233-458096705d2f";
 const TRACK_ID = "11111111-1111-4111-8111-111111111111";
 const PURCHASE_ID = "22222222-2222-4222-8222-222222222222";
 
-function callerWith(publicSharingError: TRPCError) {
+function artistCaller() {
   return {
     artist: {
       music: {
@@ -88,9 +85,6 @@ function callerWith(publicSharingError: TRPCError) {
         }),
       },
     },
-    songPublication: {
-      artistState: vi.fn().mockRejectedValue(publicSharingError),
-    },
     audioDelivery: {
       artistEntitlement: vi.fn().mockResolvedValue({
         purchaseId: PURCHASE_ID,
@@ -110,31 +104,14 @@ describe("Artist Song route", () => {
     mocks.auth.mockResolvedValue({ userId: "artist-user" });
   });
 
-  it("keeps the owned Song available when optional public-link signing is unconfigured", async () => {
-    mocks.createCaller.mockReturnValue(
-      callerWith(
-        new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          cause: new Error("Missing or weak SONG_PUBLIC_LINK_SECRET"),
-        }),
-      ),
-    );
+  it("renders the owned Song without loading a separate public-link state", async () => {
+    const caller = artistCaller();
+    mocks.createCaller.mockReturnValue(caller);
 
     const ui = await ArtistSongPage({ params: Promise.resolve({ versionId: VERSION_ID }) });
 
     expect(renderToStaticMarkup(ui)).toContain("Artist Song");
     expect(mocks.songPage.mock.calls[0]?.[0]).not.toHaveProperty("publicSharing");
-  });
-
-  it("still surfaces unrelated public-sharing failures", async () => {
-    const unexpected = new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Public song state is invalid",
-    });
-    mocks.createCaller.mockReturnValue(callerWith(unexpected));
-
-    await expect(
-      ArtistSongPage({ params: Promise.resolve({ versionId: VERSION_ID }) }),
-    ).rejects.toBe(unexpected);
+    expect(caller).not.toHaveProperty("songPublication");
   });
 });

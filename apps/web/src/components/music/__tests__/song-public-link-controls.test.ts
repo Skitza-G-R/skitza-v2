@@ -158,7 +158,7 @@ describe("artist public-link share authority", () => {
     expect(shares).toEqual([]);
   });
 
-  it("lets the owning artist create a guest link and rechecks it before sharing", () => {
+  it("keeps the separate public-link flow out of the normal Artist Song page", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const route = join(
       here,
@@ -172,14 +172,13 @@ describe("artist public-link share authority", () => {
       "song",
       "[versionId]",
     );
-    const actions = readFileSync(join(route, "actions.ts"), "utf8");
     const page = readFileSync(join(route, "page.tsx"), "utf8");
 
-    expect(actions).toContain("caller.songPublication.artistState(input)");
-    expect(actions).toContain("caller.songPublication.artistPublish(input)");
-    expect(actions).toContain("publishArtistPublicSongLink");
-    expect(page).toContain("publicSharingRefresh: refreshArtistPublicSongLink");
-    expect(page).toContain("publicSharingActions");
+    expect(page).toContain("<SongPage");
+    expect(page).toContain('role="artist"');
+    expect(page).not.toContain("refreshArtistPublicSongLink");
+    expect(page).not.toContain("publishArtistPublicSongLink");
+    expect(page).not.toContain("publicSharingActions");
   });
 });
 

@@ -225,6 +225,28 @@ export function RuntimeStatePreviewProvider({
   return <RuntimeStateContext.Provider value={value}>{children}</RuntimeStateContext.Provider>;
 }
 
+const DISABLED_RUNTIME_STATE_VALUE: RuntimeStateContextValue = {
+  identity: {
+    userId: "signed-out",
+    role: "producer",
+    contextId: "public",
+  },
+  storage: null,
+  privateStateAccessAllowed: false,
+};
+
+/**
+ * Keeps shared read-only components renderable on signed-out pages without
+ * granting them access to account-private runtime state or browser storage.
+ */
+export function RuntimeStateDisabledProvider({ children }: { children: ReactNode }) {
+  return (
+    <RuntimeStateContext.Provider value={DISABLED_RUNTIME_STATE_VALUE}>
+      {children}
+    </RuntimeStateContext.Provider>
+  );
+}
+
 export function useRuntimeState(): RuntimeStateContextValue {
   const value = useContext(RuntimeStateContext);
   if (!value) {

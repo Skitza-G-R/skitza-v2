@@ -542,10 +542,11 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
     expect(songPageSrc).not.toContain('animation: "skitza-pop-in');
   });
 
-  it("uses a truly disabled control with a reason when audio cannot be downloaded", () => {
+  it("keeps owner download reasons disabled and hides unavailable guest download actions", () => {
     expect(moreActionsPanelSrc).not.toContain("aria-disabled");
-    expect(moreActionsPanelSrc).toContain('role === "guest"');
-    expect(moreActionsPanelSrc).toContain('"Download is unavailable"');
+    expect(moreActionsPanelSrc).toContain('role !== "guest"');
+    expect(moreActionsPanelSrc).not.toContain('"Download is unavailable"');
+    expect(moreActionsPanelSrc).not.toContain('"Download unavailable"');
     expect(moreActionsPanelSrc).toContain('"Audio was deleted"');
     expect(moreActionsPanelSrc).toContain('"Audio is still uploading"');
     expect(moreActionsPanelSrc).toMatch(/type="button"\s+disabled/);
@@ -564,9 +565,12 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
     expect(songPageSrc).not.toContain("isFavorite");
   });
 
-  it("uses the producer-controlled public-link surface instead of copying the private page URL", () => {
+  it("shares the normal Song page address without copying query strings or hashes", () => {
     expect(songPageSrc).toContain("SongPublicLinkControls");
-    expect(songPageSrc).not.toContain('aria-label="Share with artist"');
+    expect(songPageSrc).toContain("portfolioOnly");
+    expect(songPageSrc).toContain("canonicalSongPageAddress");
+    expect(songPageSrc).toContain("shareNative");
+    expect(songPageSrc).toContain('data-test="share-song-address"');
     expect(songPageSrc).not.toContain("window.location.href");
   });
 
@@ -574,9 +578,9 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
     expect(songPageSrc).toContain('aria-label="Download"');
   });
 
-  it("keeps the Download icon inline and removes the obsolete private-page share icon", () => {
+  it("keeps Download and Share icons inline", () => {
     expect(songPageSrc).toContain("DownloadIcon");
-    expect(songPageSrc).not.toContain("ShareIcon");
+    expect(songPageSrc).toContain("ShareIcon");
   });
 
   it("Download button reads from activeVersion.audioUrl (so version switch swaps the target)", () => {
