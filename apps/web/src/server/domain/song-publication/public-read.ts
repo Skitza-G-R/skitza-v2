@@ -24,18 +24,28 @@ import {
 import { readPurchaseLedger } from "~/server/domain/purchase-ledger/service";
 
 import {
+  createAddressAudioCapability,
+  type AddressAudioCapabilityPayload,
   createPortfolioAudioCapability,
   type PortfolioAudioCapabilityPayload,
+  verifyAddressAudioCapability,
   verifyPortfolioAudioCapability,
 } from "./audio-capability";
 import {
   isPublicStoredVersionCandidate,
   selectPublicStoredVersions,
   type PublicSongScope,
+  type PublicStoredVersion,
   type PublicStoredVersionCandidate,
 } from "./read-model";
 import { hashSongPublicToken, verifySongPublicToken, type SongPublicTokenPayload } from "./tokens";
-import { publicPortfolioSongAudioPath, publicSongAudioPath, publicSongDownloadPath } from "./urls";
+import {
+  publicAddressSongAudioPath,
+  publicAddressSongDownloadPath,
+  publicPortfolioSongAudioPath,
+  publicSongAudioPath,
+  publicSongDownloadPath,
+} from "./urls";
 
 type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -111,6 +121,39 @@ async function discoverPortfolioScope(
       ),
     )
     .where(and(eq(projectTracks.id, payload.trackId), eq(purchases.producerId, payload.producerId)))
+    .limit(1);
+  if (!scope) notFound();
+  return { ...scope, linkId: null };
+}
+
+async function discoverAddressScope(
+  tx: TransactionDb,
+  pageVersionId: string,
+): Promise<DiscoveredScope> {
+  const [scope] = await tx
+    .select({
+      projectId: projectTracks.projectId,
+      purchaseId: trackVersions.purchaseId,
+      producerId: trackVersions.producerId,
+      trackId: trackVersions.trackId,
+    })
+    .from(trackVersions)
+    .innerJoin(
+      projectTracks,
+      and(
+        eq(projectTracks.id, trackVersions.trackId),
+        eq(projectTracks.purchaseId, trackVersions.purchaseId),
+      ),
+    )
+    .innerJoin(
+      purchases,
+      and(
+        eq(purchases.id, trackVersions.purchaseId),
+        eq(purchases.projectId, projectTracks.projectId),
+        eq(purchases.producerId, trackVersions.producerId),
+      ),
+    )
+    .where(eq(trackVersions.id, pageVersionId))
     .limit(1);
   if (!scope) notFound();
   return { ...scope, linkId: null };
@@ -328,6 +371,17 @@ function requireAudioRequest(
   };
 }
 
+function requireAddressScope(scope: DiscoveredScope, payload: AddressAudioCapabilityPayload): void {
+  if (scope.trackId !== payload.trackId) notFound();
+}
+
+function requireAddressPageVersion(
+  stored: readonly PublicStoredVersion[],
+  pageVersionId: string,
+): void {
+  if (!stored.some((version) => version.id === pageVersionId)) notFound();
+}
+
 export type PublicSongView = Readonly<{
   producer: Readonly<{
     displayName: string;
@@ -356,6 +410,52 @@ export type PublicSongView = Readonly<{
   >;
 }>;
 
+async function readSafeSongView(
+  tx: TransactionDb,
+  scope: DiscoveredScope,
+  stored: readonly PublicStoredVersion[],
+  audioUrlFor: (version: PublicStoredVersion) => string,
+): Promise<PublicSongView> {
+  const [safe] = await tx
+    .select({
+      title: projectTracks.title,
+      artist: projectTracks.artist,
+      workflowStage: projectTracks.workflowStage,
+      projectTitle: projects.title,
+      displayName: producers.displayName,
+      brand: producers.brand,
+    })
+    .from(projectTracks)
+    .innerJoin(
+      projects,
+      and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)),
+    )
+    .innerJoin(producers, eq(producers.id, scope.producerId))
+    .where(and(eq(projectTracks.id, scope.trackId), eq(projectTracks.purchaseId, scope.purchaseId)))
+    .limit(1);
+  if (!safe) notFound();
+  return {
+    producer: {
+      displayName: safe.displayName?.trim() || "Producer",
+      logoUrl: safe.brand?.logoUrl ?? null,
+      primaryColor: safe.brand?.primary ?? null,
+      accentColor: safe.brand?.accent ?? null,
+    },
+    song: {
+      id: scope.trackId,
+      projectId: scope.projectId,
+      projectTitle: safe.projectTitle,
+      title: safe.title,
+      artist: safe.artist,
+      workflowStage: safe.workflowStage,
+    },
+    versions: stored.map((version) => ({
+      ...version,
+      audioUrl: audioUrlFor(version),
+    })),
+  };
+}
+
 export async function readPublicSong(
   db: Db,
   input: Readonly<{ secret: string; token: string }>,
@@ -369,47 +469,41 @@ export async function readPublicSong(
     await requireCurrentLink(tx, scope, payload, tokenHash);
     const stored = selectPublicStoredVersions(candidates, scope);
     if (stored.length === 0) notFound();
+    return readSafeSongView(tx, scope, stored, (version) =>
+      publicSongAudioPath(version.id, input.token),
+    );
+  });
+}
 
-    const [safe] = await tx
-      .select({
-        title: projectTracks.title,
-        artist: projectTracks.artist,
-        workflowStage: projectTracks.workflowStage,
-        projectTitle: projects.title,
-        displayName: producers.displayName,
-        brand: producers.brand,
-      })
-      .from(projectTracks)
-      .innerJoin(
-        projects,
-        and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)),
-      )
-      .innerJoin(producers, eq(producers.id, scope.producerId))
-      .where(
-        and(eq(projectTracks.id, scope.trackId), eq(projectTracks.purchaseId, scope.purchaseId)),
-      )
-      .limit(1);
-    if (!safe) notFound();
-    return {
-      producer: {
-        displayName: safe.displayName?.trim() || "Producer",
-        logoUrl: safe.brand?.logoUrl ?? null,
-        primaryColor: safe.brand?.primary ?? null,
-        accentColor: safe.brand?.accent ?? null,
-      },
-      song: {
-        id: scope.trackId,
-        projectId: scope.projectId,
-        projectTitle: safe.projectTitle,
-        title: safe.title,
-        artist: safe.artist,
-        workflowStage: safe.workflowStage,
-      },
-      versions: stored.map((version) => ({
-        ...version,
-        audioUrl: publicSongAudioPath(version.id, input.token),
-      })),
-    };
+export type AddressSharedSongView = PublicSongView &
+  Readonly<{
+    selectedVersionId: string;
+  }>;
+
+export async function readAddressSharedSong(
+  db: Db,
+  input: Readonly<{ secret: string; pageVersionId: string; now?: Date }>,
+): Promise<AddressSharedSongView> {
+  const now = input.now ?? new Date();
+  return db.transaction(async (tx) => {
+    const scope = await discoverAddressScope(tx, input.pageVersionId);
+    await lockCoreScope(tx, scope);
+    const candidates = await lockStoredVersions(tx, scope);
+    const stored = selectPublicStoredVersions(candidates, scope);
+    requireAddressPageVersion(stored, input.pageVersionId);
+    const view = await readSafeSongView(tx, scope, stored, (version) => {
+      const capability = createAddressAudioCapability(
+        input.secret,
+        {
+          pageVersionId: input.pageVersionId,
+          trackId: scope.trackId,
+          versionId: version.id,
+        },
+        now,
+      );
+      return publicAddressSongAudioPath(version.id, capability);
+    });
+    return { ...view, selectedVersionId: input.pageVersionId };
   });
 }
 
@@ -425,40 +519,34 @@ export type SongLinkDownloadEntitlement = Readonly<{
   downloadUrl: string | null;
 }>;
 
-type CommercialSongLinkSnapshot = Readonly<{
+type CommercialSongSnapshot = Readonly<{
   scope: DiscoveredScope;
   candidates: readonly PublicStoredVersionCandidate[];
   entitlements: readonly SongLinkDownloadEntitlement[];
 }>;
 
-async function commercialSongLinkSnapshot(
+async function commercialSnapshotForStoredVersions(
   tx: TransactionDb,
   input: Readonly<{
-    payload: SongPublicTokenPayload;
-    token: string;
-    tokenHash: string;
+    scope: DiscoveredScope;
+    candidates: readonly PublicStoredVersionCandidate[];
+    stored: readonly PublicStoredVersion[];
     now: Date;
+    downloadUrlFor: (version: PublicStoredVersion) => string;
   }>,
-): Promise<CommercialSongLinkSnapshot> {
-  const scope = await discoverLinkScope(tx, input.payload);
-  await lockCommercialLinkScope(tx, scope);
-  const candidates = await lockStoredVersions(tx, scope);
-  await requireCurrentLink(tx, scope, input.payload, input.tokenHash);
-  const stored = selectPublicStoredVersions(candidates, scope);
-  if (stored.length === 0) notFound();
-
+): Promise<CommercialSongSnapshot> {
   const ledger = await readPurchaseLedger(
     purchaseLedgerRepositoryForTransaction(tx, {
-      producerId: scope.producerId,
-      purchaseId: scope.purchaseId,
+      producerId: input.scope.producerId,
+      purchaseId: input.scope.purchaseId,
     }),
     {
-      producerId: scope.producerId,
-      purchaseId: scope.purchaseId,
+      producerId: input.scope.producerId,
+      purchaseId: input.scope.purchaseId,
       asOf: input.now,
     },
   );
-  const versionIds = stored.map((version) => version.id);
+  const versionIds = input.stored.map((version) => version.id);
   const overrideRows = await tx
     .selectDistinctOn([purchaseDownloadOverrideEvents.versionId], {
       versionId: purchaseDownloadOverrideEvents.versionId,
@@ -468,8 +556,8 @@ async function commercialSongLinkSnapshot(
     .from(purchaseDownloadOverrideEvents)
     .where(
       and(
-        eq(purchaseDownloadOverrideEvents.producerId, scope.producerId),
-        eq(purchaseDownloadOverrideEvents.purchaseId, scope.purchaseId),
+        eq(purchaseDownloadOverrideEvents.producerId, input.scope.producerId),
+        eq(purchaseDownloadOverrideEvents.purchaseId, input.scope.purchaseId),
         inArray(purchaseDownloadOverrideEvents.versionId, versionIds),
       ),
     )
@@ -484,9 +572,9 @@ async function commercialSongLinkSnapshot(
   );
 
   return {
-    scope,
-    candidates,
-    entitlements: stored.map((version) => {
+    scope: input.scope,
+    candidates: input.candidates,
+    entitlements: input.stored.map((version) => {
       const overrideEnabled = overrides.get(version.id) === true;
       const permission = fullyPaid
         ? "purchase_fully_paid"
@@ -495,7 +583,7 @@ async function commercialSongLinkSnapshot(
           : "payment_required";
       const canDownload = permission !== "payment_required";
       return {
-        purchaseId: scope.purchaseId,
+        purchaseId: input.scope.purchaseId,
         versionId: version.id,
         permission,
         canDownload,
@@ -503,10 +591,71 @@ async function commercialSongLinkSnapshot(
         remainingCents: ledger.projection.remainingCents,
         currency: ledger.projection.currency,
         overdue,
-        downloadUrl: canDownload ? publicSongDownloadPath(version.id, input.token) : null,
+        downloadUrl: canDownload ? input.downloadUrlFor(version) : null,
       };
     }),
   };
+}
+
+async function commercialSongLinkSnapshot(
+  tx: TransactionDb,
+  input: Readonly<{
+    payload: SongPublicTokenPayload;
+    token: string;
+    tokenHash: string;
+    now: Date;
+  }>,
+): Promise<CommercialSongSnapshot> {
+  const scope = await discoverLinkScope(tx, input.payload);
+  await lockCommercialLinkScope(tx, scope);
+  const candidates = await lockStoredVersions(tx, scope);
+  await requireCurrentLink(tx, scope, input.payload, input.tokenHash);
+  const stored = selectPublicStoredVersions(candidates, scope);
+  if (stored.length === 0) notFound();
+  return commercialSnapshotForStoredVersions(tx, {
+    scope,
+    candidates,
+    stored,
+    now: input.now,
+    downloadUrlFor: (version) => publicSongDownloadPath(version.id, input.token),
+  });
+}
+
+async function commercialAddressSnapshot(
+  tx: TransactionDb,
+  input: Readonly<{
+    secret: string;
+    pageVersionId: string;
+    expectedTrackId?: string;
+    now: Date;
+  }>,
+): Promise<CommercialSongSnapshot> {
+  const scope = await discoverAddressScope(tx, input.pageVersionId);
+  if (input.expectedTrackId !== undefined && scope.trackId !== input.expectedTrackId) {
+    notFound();
+  }
+  await lockCommercialLinkScope(tx, scope);
+  const candidates = await lockStoredVersions(tx, scope);
+  const stored = selectPublicStoredVersions(candidates, scope);
+  requireAddressPageVersion(stored, input.pageVersionId);
+  return commercialSnapshotForStoredVersions(tx, {
+    scope,
+    candidates,
+    stored,
+    now: input.now,
+    downloadUrlFor: (version) => {
+      const capability = createAddressAudioCapability(
+        input.secret,
+        {
+          pageVersionId: input.pageVersionId,
+          trackId: scope.trackId,
+          versionId: version.id,
+        },
+        input.now,
+      );
+      return publicAddressSongDownloadPath(version.id, capability);
+    },
+  });
 }
 
 export async function readSongLinkDownloadEntitlements(
@@ -520,6 +669,20 @@ export async function readSongLinkDownloadEntitlements(
       payload,
       token: input.token,
       tokenHash,
+      now: input.now ?? new Date(),
+    });
+    return snapshot.entitlements;
+  });
+}
+
+export async function readAddressSongDownloadEntitlements(
+  db: Db,
+  input: Readonly<{ secret: string; pageVersionId: string; now?: Date }>,
+): Promise<readonly SongLinkDownloadEntitlement[]> {
+  return db.transaction(async (tx) => {
+    const snapshot = await commercialAddressSnapshot(tx, {
+      secret: input.secret,
+      pageVersionId: input.pageVersionId,
       now: input.now ?? new Date(),
     });
     return snapshot.entitlements;
@@ -554,6 +717,35 @@ export async function deliverSongLinkDownload<Result>(
   });
 }
 
+export async function deliverAddressSongDownload<Result>(
+  db: Db,
+  input: Readonly<{
+    secret: string;
+    capability: string;
+    versionId: string;
+    now?: Date;
+  }>,
+  open: (request: AudioObjectRequest) => Promise<Result>,
+): Promise<Result> {
+  const now = input.now ?? new Date();
+  const payload = verifyAddressAudioCapability(input.secret, input.capability, now);
+  if (payload.versionId !== input.versionId) notFound();
+  return db.transaction(async (tx) => {
+    const snapshot = await commercialAddressSnapshot(tx, {
+      secret: input.secret,
+      pageVersionId: payload.pageVersionId,
+      expectedTrackId: payload.trackId,
+      now,
+    });
+    const entitlement = snapshot.entitlements.find(
+      (candidate) => candidate.versionId === payload.versionId,
+    );
+    if (!entitlement?.canDownload) notFound();
+    const selected = snapshot.candidates.find((candidate) => candidate.id === payload.versionId);
+    return open(requireAudioRequest(selected, snapshot.scope));
+  });
+}
+
 export async function deliverSongLinkAudio<Result>(
   db: Db,
   input: Readonly<{ secret: string; token: string; versionId: string }>,
@@ -567,6 +759,34 @@ export async function deliverSongLinkAudio<Result>(
     const candidates = await lockStoredVersions(tx, scope);
     await requireCurrentLink(tx, scope, payload, tokenHash);
     const selected = candidates.find((candidate) => candidate.id === input.versionId);
+    return open(requireAudioRequest(selected, scope));
+  });
+}
+
+export async function deliverAddressSongAudio<Result>(
+  db: Db,
+  input: Readonly<{
+    secret: string;
+    capability: string;
+    versionId: string;
+    now?: Date;
+  }>,
+  open: (request: AudioObjectRequest) => Promise<Result>,
+): Promise<Result> {
+  const payload = verifyAddressAudioCapability(
+    input.secret,
+    input.capability,
+    input.now ?? new Date(),
+  );
+  if (payload.versionId !== input.versionId) notFound();
+  return db.transaction(async (tx) => {
+    const scope = await discoverAddressScope(tx, payload.pageVersionId);
+    requireAddressScope(scope, payload);
+    await lockCoreScope(tx, scope);
+    const candidates = await lockStoredVersions(tx, scope);
+    const stored = selectPublicStoredVersions(candidates, scope);
+    requireAddressPageVersion(stored, payload.pageVersionId);
+    const selected = candidates.find((candidate) => candidate.id === payload.versionId);
     return open(requireAudioRequest(selected, scope));
   });
 }

@@ -1,10 +1,21 @@
 const REDACTED_AUTHORITY = "[redacted]";
 const LISTEN_TOKEN_PATTERN = /(\/listen\/)([^/?#\s"'<>]+)/gi;
 const QUERY_PARAMETER_PATTERN = /(^|[?&\s])([^=?&#\s"'<>]+)=([^&#\s"'<>]*)/g;
-const AUTHORITY_PROPERTY_NAMES = new Set(["token", "cap", "__clerk_ticket"]);
+const SONG_VERSION_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const NORMAL_SONG_ADDRESS_PATTERN = new RegExp(
+  `(\\/(?:dashboard\\/music|artist\\/music\\/song)\\/)(${SONG_VERSION_UUID})(?=$|[?#\\s"'<>])`,
+  "gi",
+);
+const NORMAL_SONG_PATH = new RegExp(
+  `^/(?:dashboard/music|artist/music/song)/${SONG_VERSION_UUID}$`,
+  "i",
+);
+const AUTHORITY_PROPERTY_NAMES = new Set(["token", "cap", "address", "__clerk_ticket"]);
 
 export function isPublicSongListenPath(pathname: string): boolean {
-  return pathname === "/listen" || pathname.startsWith("/listen/");
+  return (
+    pathname === "/listen" || pathname.startsWith("/listen/") || NORMAL_SONG_PATH.test(pathname)
+  );
 }
 
 export function hasInvitationTicketAuthority(search: string): boolean {
@@ -23,6 +34,10 @@ export function isSensitiveAuthorityLocation(pathname: string, search: string): 
 export function redactPublicSongTelemetryString(value: string): string {
   return value
     .replace(LISTEN_TOKEN_PATTERN, (_match, prefix: string) => `${prefix}${REDACTED_AUTHORITY}`)
+    .replace(
+      NORMAL_SONG_ADDRESS_PATTERN,
+      (_match, prefix: string) => `${prefix}${REDACTED_AUTHORITY}`,
+    )
     .replace(QUERY_PARAMETER_PATTERN, (match, separator: string, encodedName: string) => {
       let decodedName: string;
       try {

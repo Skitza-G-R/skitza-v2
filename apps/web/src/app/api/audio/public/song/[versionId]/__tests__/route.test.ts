@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createDb: vi.fn(() => ({ kind: "db" })),
+  deliverAddressSongAudio: vi.fn(),
+  deliverAddressSongDownload: vi.fn(),
   deliverSongLinkAudio: vi.fn(),
   deliverSongLinkDownload: vi.fn(),
   deliverPortfolioSongAudio: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock("~/server/domain/song-publication/public-read", async (importOriginal) =
     await importOriginal<typeof import("~/server/domain/song-publication/public-read")>();
   return {
     ...actual,
+    deliverAddressSongAudio: mocks.deliverAddressSongAudio,
+    deliverAddressSongDownload: mocks.deliverAddressSongDownload,
     deliverSongLinkAudio: mocks.deliverSongLinkAudio,
     deliverSongLinkDownload: mocks.deliverSongLinkDownload,
     deliverPortfolioSongAudio: mocks.deliverPortfolioSongAudio,
@@ -55,6 +59,36 @@ describe("public song audio route", () => {
       (_db: unknown, _input: unknown, open: (value: typeof audio) => Response) =>
         Promise.resolve(open(audio)),
     );
+    mocks.deliverAddressSongAudio.mockImplementation(
+      (_db: unknown, _input: unknown, open: (value: typeof audio) => Response) =>
+        Promise.resolve(open(audio)),
+    );
+    mocks.deliverAddressSongDownload.mockImplementation(
+      (_db: unknown, _input: unknown, open: (value: typeof audio) => Response) =>
+        Promise.resolve(open(audio)),
+    );
+  });
+
+  it("streams and downloads through one exact address capability authority", async () => {
+    const inline = await GET(
+      new Request(
+        `https://skitza.test/api/audio/public/song/${versionId}?address=address-capability`,
+      ),
+      { params: Promise.resolve({ versionId }) },
+    );
+    const attachment = await GET(
+      new Request(
+        `https://skitza.test/api/audio/public/song/${versionId}?address=address-capability&download=1`,
+      ),
+      { params: Promise.resolve({ versionId }) },
+    );
+
+    expect(inline.status).toBe(200);
+    expect(inline.headers.get("Content-Disposition")).toBe("inline");
+    expect(attachment.status).toBe(200);
+    expect(attachment.headers.get("Content-Disposition")).toBe("attachment");
+    expect(mocks.deliverAddressSongAudio).toHaveBeenCalledOnce();
+    expect(mocks.deliverAddressSongDownload).toHaveBeenCalledOnce();
   });
 
   it("downloads only through the exact live-link entitlement", async () => {
@@ -95,7 +129,11 @@ describe("public song audio route", () => {
   it.each([
     `https://skitza.test/api/audio/public/song/${versionId}`,
     `https://skitza.test/api/audio/public/song/${versionId}?token=one&cap=two`,
+    `https://skitza.test/api/audio/public/song/${versionId}?token=one&address=two`,
+    `https://skitza.test/api/audio/public/song/${versionId}?cap=one&address=two`,
+    `https://skitza.test/api/audio/public/song/${versionId}?address=one&address=two`,
     `https://skitza.test/api/audio/public/song/${versionId}?cap=portfolio&download=1`,
+    `https://skitza.test/api/audio/public/song/${versionId}?address=one&download=0`,
     `https://skitza.test/api/audio/public/song/${versionId}?token=one&download=0`,
     `https://skitza.test/api/audio/public/song/${versionId}?token=one&download=1&download=1`,
   ])("fails closed for missing or ambiguous authority: %s", async (url) => {
@@ -107,5 +145,7 @@ describe("public song audio route", () => {
     expect(mocks.deliverSongLinkAudio).not.toHaveBeenCalled();
     expect(mocks.deliverSongLinkDownload).not.toHaveBeenCalled();
     expect(mocks.deliverPortfolioSongAudio).not.toHaveBeenCalled();
+    expect(mocks.deliverAddressSongAudio).not.toHaveBeenCalled();
+    expect(mocks.deliverAddressSongDownload).not.toHaveBeenCalled();
   });
 });

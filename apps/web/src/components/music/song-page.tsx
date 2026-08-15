@@ -33,8 +33,10 @@ import { useOnlineStatus } from "~/components/runtime-state/online-required-link
 import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
 import { Card } from "~/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
+import { useToast } from "~/components/ui/toast";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
+import { shareNative } from "~/lib/native/share";
 
 import {
   presentVersionDelivery,
@@ -43,11 +45,11 @@ import {
 } from "./delivery-state";
 import { gradientForSeed } from "./lib";
 import { ProjectCover } from "./project-cover";
+import { canonicalSongPageAddress, replaceBrowserSongPageVersion } from "./song-page-address";
 import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
 import {
   SongPublicLinkControls,
   type SongPublicSharingActions,
-  type SongPublicSharingRefresh,
   type SongPublicSharingView,
 } from "./song-public-link-controls";
 
@@ -526,7 +528,6 @@ export function SongPage({
   actions,
   publicSharing,
   publicSharingActions,
-  publicSharingRefresh,
 }: {
   data: SongPageData;
   role?: SongPageRole;
@@ -536,7 +537,6 @@ export function SongPage({
   actions: L3Actions;
   publicSharing?: SongPublicSharingView;
   publicSharingActions?: SongPublicSharingActions;
-  publicSharingRefresh?: SongPublicSharingRefresh;
 }) {
   const [songTitleOverride, setSongTitleOverride] = useState<string | undefined>();
   const [artistOverride, setArtistOverride] = useState<string | null | undefined>();
@@ -629,6 +629,10 @@ export function SongPage({
   );
   const activeVersionPlayable = activeVersion ? isSongPageVersionPlayable(activeVersion) : false;
   const activeVersionDeleted = activeVersion?.audioDeletedAtIso != null;
+
+  useEffect(() => {
+    if (activeVersionId) replaceBrowserSongPageVersion(role, activeVersionId);
+  }, [activeVersionId, role]);
 
   // App Router can preserve this client component while navigating between
   // two exact /music/[versionId] URLs. Follow that route-prop change, but do
@@ -747,13 +751,18 @@ export function SongPage({
 
   useEffect(() => {
     if (!overflowOpen || !isDesktopMoreActions) return;
+    function isDialogTarget(target: EventTarget | null): boolean {
+      return target instanceof Element && target.closest('[role="dialog"]') !== null;
+    }
     function onDown(e: PointerEvent) {
+      if (isDialogTarget(e.target)) return;
       const node = overflowRef.current;
       if (node && !node.contains(e.target as Node)) {
         setOverflowOpen(false);
       }
     }
     function onFocusIn(e: FocusEvent) {
+      if (isDialogTarget(e.target)) return;
       const node = overflowRef.current;
       if (node && !node.contains(e.target as Node)) {
         setOverflowOpen(false);
@@ -761,6 +770,7 @@ export function SongPage({
     }
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (isDialogTarget(e.target)) return;
       e.preventDefault();
       setOverflowOpen(false);
       window.requestAnimationFrame(() => {
@@ -800,9 +810,11 @@ export function SongPage({
   }, [isDesktopMoreActions, versionMenuOpen]);
 
   const [isPending, startTransition] = useTransition();
+  const [sharingAddress, setSharingAddress] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef<HTMLInputElement | null>(null);
   const online = useOnlineStatus();
+  const { toast } = useToast();
   const commentDraft = useRuntimeTextDraft({
     slot: role === "artist" ? "artist.song-comment-draft" : "producer.song-comment-draft",
     route: songCommentDraftRoute(role, activeVersionId),
@@ -1109,6 +1121,29 @@ export function SongPage({
       return;
     }
     playerPlay(activeVersionToPlayerTrack(playbackTrackData, activeVersion, role));
+  }
+
+  async function handleShareSongAddress() {
+    if (!activeVersion || role === "guest" || sharingAddress) return;
+    setSharingAddress(true);
+    try {
+      const url = canonicalSongPageAddress(role, activeVersion.id);
+      const result = await shareNative({
+        title: songTitle,
+        text: `Listen to ${songTitle} on Skitza`,
+        url,
+        fallbackText: url,
+      });
+      if (result.status === "shared") toast("Song shared", "success");
+      if (result.status === "copied") toast("Song link copied", "success");
+      if (result.status === "unavailable") {
+        toast("Could not share this song. Try again.", "error");
+      }
+    } catch {
+      toast("Could not share this song. Try again.", "error");
+    } finally {
+      setSharingAddress(false);
+    }
   }
 
   function handleVersionSelect(version: SongPageVersion) {
@@ -1786,14 +1821,14 @@ export function SongPage({
       artworkInputRef.current?.click();
     },
     publicSharingControl:
-      role !== "guest" && publicSharing ? (
+      role === "producer" && publicSharing ? (
         <SongPublicLinkControls
-          role={role}
+          role="producer"
           initialState={publicSharing}
           shareTitle={songTitle}
           triggerStyle="menu"
+          portfolioOnly
           {...(publicSharingActions ? { actions: publicSharingActions } : {})}
-          {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
         />
       ) : null,
     onDismiss: () => {
@@ -2067,6 +2102,7 @@ export function SongPage({
   }
 
   function renderMoreControl() {
+    if (role === "artist" || (role === "guest" && !canUseDownloadAction)) return null;
     return (
       <div ref={overflowRef} className="relative">
         <button
@@ -2126,6 +2162,25 @@ export function SongPage({
           </SheetContent>
         </Sheet>
       </div>
+    );
+  }
+
+  function renderShareControl() {
+    if (role === "guest") return null;
+    return (
+      <button
+        type="button"
+        aria-label="Share song"
+        aria-busy={sharingAddress}
+        data-test="share-song-address"
+        disabled={sharingAddress}
+        onClick={() => {
+          void handleShareSongAddress();
+        }}
+        className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))] disabled:opacity-50"
+      >
+        <ShareIcon />
+      </button>
     );
   }
 
@@ -2400,12 +2455,12 @@ export function SongPage({
                   <Link
                     href={projectHref}
                     aria-label={"Open " + data.track.projectTitle + " project"}
-                    className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
+                    className="inline-flex min-h-11 max-w-[calc(100%-6rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
                   >
                     <span className="truncate">{data.track.projectTitle}</span>
                   </Link>
                 ) : (
-                  <span className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
+                  <span className="inline-flex min-h-11 max-w-[calc(100%-6rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
                     <span className="truncate">{data.track.projectTitle}</span>
                   </span>
                 )}
@@ -2418,7 +2473,8 @@ export function SongPage({
                   </p>
                 ) : null}
               </div>
-              <div className="absolute top-4 right-4 sm:top-5 sm:right-5">
+              <div className="absolute top-4 right-4 flex items-center gap-2 sm:top-5 sm:right-5">
+                {renderShareControl()}
                 {renderMoreControl()}
               </div>
 
@@ -2791,31 +2847,23 @@ function SongMoreActionsPanel({
           </span>
           Download audio
         </a>
-      ) : (
+      ) : role !== "guest" ? (
         <button
           type="button"
           disabled
-          title={
-            role === "guest"
-              ? "Download is unavailable"
-              : activeVersionDeleted
-                ? "Audio was deleted"
-                : "Audio is still uploading"
-          }
+          title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}
           className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
             <DownloadIcon />
           </span>
-          {role === "guest"
-            ? "Download unavailable"
-            : activeVersionDeleted
-              ? "Audio deleted"
-              : activeVersionPlayable
-                ? activeDeliveryBadge
-                : "Download (uploading…)"}
+          {activeVersionDeleted
+            ? "Audio deleted"
+            : activeVersionPlayable
+              ? activeDeliveryBadge
+              : "Download (uploading…)"}
         </button>
-      )}
+      ) : null}
       {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (
         <button
           type="button"
@@ -3140,6 +3188,26 @@ function DownloadIcon() {
       <path d="M8 2v8" />
       <polyline points="4.5 7 8 10.5 11.5 7" />
       <line x1="2.5" y1="13.5" x2="13.5" y2="13.5" />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 10V2" />
+      <path d="m5 5 3-3 3 3" />
+      <path d="M4 7.5h-.5A1.5 1.5 0 0 0 2 9v3.5A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5V9a1.5 1.5 0 0 0-1.5-1.5H12" />
     </svg>
   );
 }
