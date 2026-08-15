@@ -56,6 +56,7 @@ export function proofConfig(origin) {
               "allow-consume-reveal-elapsed-ms",
               "allow-export-gate1-samples",
               "allow-report-session-validation",
+              "allow-hide-main-window",
             ],
           },
         ],

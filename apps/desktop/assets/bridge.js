@@ -18,6 +18,7 @@
   ]);
 
   const invoke = (command, args = {}) => tauriInternals.invoke(command, args);
+  const sessionCover = window.__SKITZA_DESKTOP_SESSION_COVER__;
   const trustedOrigin = window.__SKITZA_DESKTOP_TRUSTED_ORIGIN__;
   const localOrigins = new Set([
     "http://tauri.localhost",
@@ -79,6 +80,9 @@
     } else {
       return;
     }
+    if (event.type === "runtime-suspended" || event.type === "session-revoked") {
+      sessionCover?.show?.();
+    }
     if (listeners.size === 0) {
       if (pendingEvents.length >= MAX_PENDING_EVENTS) {
         const removable = pendingEvents.findIndex((pending) => pending.type !== "social-sign-in-ticket");
@@ -95,7 +99,6 @@
     capabilities: Object.freeze([
       "social-auth-v1",
       "performance-proof-v1",
-      "saved-screen-preview-v1",
       "session-validation-v1",
     ]),
     listen: subscribe,
@@ -103,7 +106,17 @@
     recordGate1Sample: (sample) => invoke("record_gate1_sample", { sample }),
     consumeRevealElapsedMs: () => invoke("consume_reveal_elapsed_ms"),
     exportGate1Samples: () => invoke("export_gate1_samples"),
-    reportSessionValidation: (report) => invoke("report_session_validation", { report }),
+    reportSessionValidation: (report) =>
+      Promise.resolve(invoke("report_session_validation", { report })).then(
+        (result) => {
+          sessionCover?.reportSessionValidation?.(report);
+          return result;
+        },
+        (error) => {
+          sessionCover?.show?.();
+          throw error;
+        },
+      ),
   });
 
   Object.defineProperty(window, "__SKITZA_DESKTOP_DELIVER__", {

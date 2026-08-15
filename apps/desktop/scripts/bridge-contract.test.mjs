@@ -4,11 +4,16 @@ import test from "node:test";
 import vm from "node:vm";
 
 const bridgeSource = await readFile(new URL("../assets/bridge.js", import.meta.url), "utf8");
+const sessionCoverSource = await readFile(
+  new URL("../assets/session-cover.js", import.meta.url),
+  "utf8",
+);
+const mainSource = await readFile(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
 const startupHtml = await readFile(new URL("../assets/index.html", import.meta.url), "utf8");
 const startupCss = await readFile(new URL("../assets/startup-v2.css", import.meta.url), "utf8");
 const startupSource = await readFile(new URL("../assets/startup-v2.js", import.meta.url), "utf8");
 
-function loadBridge(origin) {
+function loadBridge(origin, sessionCover) {
   const calls = [];
   const tauriInternals = {
     invoke(command, args) {
@@ -22,6 +27,7 @@ function loadBridge(origin) {
     __TAURI_INTERNALS__: tauriInternals,
     location: { origin },
   };
+  if (sessionCover) window.__SKITZA_DESKTOP_SESSION_COVER__ = sessionCover;
   vm.runInNewContext(bridgeSource, { window });
   return { calls, window };
 }
@@ -54,7 +60,6 @@ test("only the exact remote origin receives the versioned shared bridge", async 
   assert.deepEqual(Array.from(bridge.capabilities), [
     "social-auth-v1",
     "performance-proof-v1",
-    "saved-screen-preview-v1",
     "session-validation-v1",
   ]);
   assert.deepEqual(
@@ -79,6 +84,184 @@ test("only the exact remote origin receives the versioned shared bridge", async 
     args: { provider: "google" },
     command: "begin_social_sign_in",
   });
+});
+
+test("session validation controls the desktop cover without weakening the bridge", async () => {
+  const coverCalls = [];
+  const sessionCover = {
+    reportSessionValidation(report) {
+      coverCalls.push({ report: { ...report }, type: "report" });
+    },
+    show() {
+      coverCalls.push({ type: "show" });
+    },
+  };
+  const { calls, window } = loadBridge("https://proof.example", sessionCover);
+  const received = [];
+  window.__SKITZA_DESKTOP__.listen((event) => {
+    received.push(event.type);
+    coverCalls.push({ type: "listener" });
+  });
+
+  window.__SKITZA_DESKTOP_DELIVER__({ type: "runtime-suspended" });
+  assert.deepEqual(coverCalls.map((call) => call.type), ["show", "listener"]);
+
+  const report = {
+    accountMatches: true,
+    status: "valid",
+    validatedAt: 1,
+  };
+  await window.__SKITZA_DESKTOP__.reportSessionValidation(report);
+  assert.equal(calls.at(-1).command, "report_session_validation");
+  assert.deepEqual({ ...calls.at(-1).args.report }, report);
+  assert.deepEqual(coverCalls.at(-1), { report, type: "report" });
+  assert.deepEqual(received, ["runtime-suspended"]);
+});
+
+class FakeElement {
+  constructor(tagName, ownerDocument) {
+    this.tagName = tagName;
+    this.ownerDocument = ownerDocument;
+    this.id = "";
+    this.innerHTML = "";
+    this.textContent = "";
+    this.attributes = new Map();
+  }
+
+  append(...children) {
+    for (const child of children) this.ownerDocument.elements.set(child.id, child);
+  }
+
+  remove() {
+    this.ownerDocument.elements.delete(this.id);
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, value);
+  }
+}
+
+function sessionCoverHarness(pathname, origin = "https://proof.example") {
+  const elements = new Map();
+  const forbidden = new Set();
+  const frames = [];
+  const nativeCalls = [];
+  const observers = [];
+  const document = {
+    elements,
+    documentElement: null,
+    createElement(tagName) {
+      return new FakeElement(tagName, document);
+    },
+    getElementById(id) {
+      return elements.get(id) ?? null;
+    },
+    querySelector(selector) {
+      return forbidden.has(selector) ? {} : null;
+    },
+    addEventListener() {},
+  };
+  document.documentElement = new FakeElement("html", document);
+  const window = {
+    __TAURI_INTERNALS__: {
+      invoke(command) {
+        nativeCalls.push(command);
+        return Promise.resolve();
+      },
+    },
+    __SKITZA_DESKTOP_TRUSTED_ORIGIN__: "https://proof.example",
+    location: { origin, pathname },
+    addEventListener() {},
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+  };
+  class FakeMutationObserver {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    disconnect() {}
+    observe() {}
+  }
+  vm.runInNewContext(sessionCoverSource, {
+    MutationObserver: FakeMutationObserver,
+    Number,
+    URL,
+    document,
+    window,
+  });
+  const runFrames = () => {
+    while (frames.length > 0) frames.shift()();
+  };
+  return { document, forbidden, nativeCalls, observers, runFrames, window };
+}
+
+test("protected pages keep the animated cover until a clean validated screen paints", () => {
+  const harness = sessionCoverHarness("/dashboard");
+  assert.ok(harness.document.getElementById("skitza-desktop-session-cover"));
+  assert.match(
+    harness.document.getElementById("skitza-desktop-session-cover").innerHTML,
+    /skitza-192\.png/,
+  );
+
+  harness.forbidden.add('[aria-label="Checking connection"]');
+  harness.forbidden.add('[data-runtime-screen-source="cache"]');
+  harness.window.__SKITZA_DESKTOP_SESSION_COVER__.reportSessionValidation({
+    accountMatches: true,
+    status: "valid",
+    validatedAt: 1,
+  });
+  harness.runFrames();
+  assert.ok(harness.document.getElementById("skitza-desktop-session-cover"));
+
+  harness.forbidden.delete('[aria-label="Checking connection"]');
+  harness.observers.at(-1).callback();
+  harness.runFrames();
+  assert.ok(harness.document.getElementById("skitza-desktop-session-cover"));
+
+  harness.forbidden.clear();
+  harness.observers.at(-1).callback();
+  harness.runFrames();
+  assert.equal(harness.document.getElementById("skitza-desktop-session-cover"), null);
+
+  harness.forbidden.add('[data-runtime-screen-source="resume"]');
+  harness.observers.at(-1).callback();
+  assert.ok(harness.document.getElementById("skitza-desktop-session-cover"));
+
+  harness.forbidden.clear();
+  harness.observers.at(-1).callback();
+  harness.runFrames();
+  assert.equal(harness.document.getElementById("skitza-desktop-session-cover"), null);
+});
+
+test("unknown validation and atomic hide keep the cover while sign-in stays untouched", async () => {
+  const protectedPage = sessionCoverHarness("/dashboard/music");
+  protectedPage.window.__SKITZA_DESKTOP_SESSION_COVER__.reportSessionValidation({
+    accountMatches: false,
+    status: "unknown",
+    validatedAt: null,
+  });
+  assert.ok(protectedPage.document.getElementById("skitza-desktop-session-cover"));
+  await protectedPage.window.__SKITZA_DESKTOP_PREPARE_HIDE__();
+  assert.deepEqual(protectedPage.nativeCalls, ["hide_main_window"]);
+  assert.ok(protectedPage.document.getElementById("skitza-desktop-session-cover"));
+
+  const signIn = sessionCoverHarness("/sign-in");
+  assert.equal(signIn.document.getElementById("skitza-desktop-session-cover"), null);
+  await signIn.window.__SKITZA_DESKTOP_PREPARE_HIDE__();
+  assert.equal(signIn.document.getElementById("skitza-desktop-session-cover"), null);
+  assert.deepEqual(signIn.nativeCalls, ["hide_main_window"]);
+});
+
+test("close waits for the desktop cover before the native hide command", () => {
+  assert.match(
+    mainSource,
+    /CloseRequested[\s\S]*?__SKITZA_DESKTOP_PREPARE_HIDE__\?\.\(\)\.catch/,
+  );
+  assert.match(sessionCoverSource, /suspendAndShow\(\);[\s\S]*?invoke\("hide_main_window"\)/);
+  assert.match(mainSource, /fn hide_main_window[\s\S]*?window\.hide\(\)/);
 });
 
 test("buffered bridge events are validated, ordered, and delivered once", () => {

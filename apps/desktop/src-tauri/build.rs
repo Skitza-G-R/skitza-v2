@@ -38,6 +38,7 @@ fn main() {
         "consume_reveal_elapsed_ms",
         "export_gate1_samples",
         "report_session_validation",
+        "hide_main_window",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build the explicit Skitza command manifest");

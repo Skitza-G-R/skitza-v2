@@ -54,8 +54,10 @@ together with `SKITZA_DESKTOP_PROTECTION_BYPASS`.
 
 Trusted pages feature-detect `window.__SKITZA_DESKTOP__`. The frozen bridge has
 protocol version `1`, the capabilities `social-auth-v1`,
-`performance-proof-v1`, `saved-screen-preview-v1`, and
-`session-validation-v1`, and only the shared high-level methods:
+`performance-proof-v1` and `session-validation-v1`, and only the shared
+high-level methods. The desktop app deliberately does not advertise
+`saved-screen-preview-v1`: session checks stay private behind the packaged
+animated Skitza cover, and only the current live page is revealed.
 
 - `listen(callback)`
 - `startSocialSignIn(provider)`

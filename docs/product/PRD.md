@@ -219,9 +219,10 @@ not a basic wrapper, a separate interface, or a full-offline product.
   menu-bar/tray menu differ.
 - Closing the window hides it. A Mac menu-bar or Windows system-tray icon
   reopens it and shows current upload status and Quit.
-- Existing bounded, account-scoped safe-screen and recent-audio caches make
-  repeat opening and playback faster. Saved content appears first and refreshes
-  quietly online.
+- Existing bounded, account-scoped caches may warm routes and recent audio, but
+  the desktop app does not show a saved-screen preview. While a desktop session
+  is being checked, only the moving Skitza loading mark is visible; the current
+  live page appears after validation. Normal website behavior is unchanged.
 - Uploads continue while the app process is running with its window hidden,
   but are not guaranteed after Quit, crash, restart, shutdown, or sleep.
 - Full offline mode, offline drafts, native notifications, native media

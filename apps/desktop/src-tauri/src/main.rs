@@ -212,6 +212,20 @@ fn reveal_main_window(app: &AppHandle) {
     }
 }
 
+#[tauri::command]
+fn hide_main_window(window: WebviewWindow, state: State<'_, DesktopState>) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("window-unavailable".into());
+    }
+    let current_url = window.url().map_err(|_| "window-unavailable")?;
+    if !state.origin.is_trusted_remote(&current_url) {
+        return Err("window-unavailable".into());
+    }
+    window.hide().map_err(|_| "window-unavailable")?;
+    state.session.request_validation(window.app_handle());
+    Ok(())
+}
+
 fn create_main_window(
     app: &mut tauri::App,
     origin: OriginPolicy,
@@ -222,7 +236,8 @@ fn create_main_window(
     let trusted_origin =
         serde_json::to_string(origin.as_str()).expect("trusted desktop origin must serialize");
     let initialization_script = format!(
-        "Object.defineProperty(window,'__SKITZA_DESKTOP_TRUSTED_ORIGIN__',{{configurable:false,enumerable:false,writable:false,value:{trusted_origin}}});\n{}",
+        "Object.defineProperty(window,'__SKITZA_DESKTOP_TRUSTED_ORIGIN__',{{configurable:false,enumerable:false,writable:false,value:{trusted_origin}}});\n{}\n{}",
+        include_str!("../../assets/session-cover.js"),
         include_str!("../../assets/bridge.js")
     );
     let window_builder =
@@ -399,6 +414,7 @@ fn main() {
             consume_reveal_elapsed_ms,
             export_gate1_samples,
             report_session_validation,
+            hide_main_window,
         ])
         .setup(move |app| {
             create_main_window(app, origin.clone(), diagnostics)?;
@@ -424,9 +440,25 @@ fn main() {
             if window.label() == MAIN_WINDOW_LABEL {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = window.hide();
-                    if let Some(state) = window.app_handle().try_state::<DesktopState>() {
-                        state.session.request_validation(window.app_handle());
+                    if let Some(webview) = window.app_handle().get_webview_window(MAIN_WINDOW_LABEL)
+                    {
+                        let trusted_remote = webview
+                            .url()
+                            .ok()
+                            .and_then(|url| {
+                                window
+                                    .app_handle()
+                                    .try_state::<DesktopState>()
+                                    .map(|state| state.origin.is_trusted_remote(&url))
+                            })
+                            .unwrap_or(false);
+                        if trusted_remote {
+                            let _ = webview.eval(
+                                "void window.__SKITZA_DESKTOP_PREPARE_HIDE__?.().catch(() => undefined);",
+                            );
+                        } else {
+                            let _ = window.hide();
+                        }
                     }
                 }
             }

@@ -77,6 +77,22 @@ app or switch to a different design.
 The only intentional visual differences are the operating-system window frame
 and the native menu-bar/tray menu.
 
+### August 15, 2026 visible-loading decision
+
+Gili replaced the visible saved-screen behavior for the desktop app. This
+decision supersedes the saved-preview display and saved-screen Gate 1 rows
+later in this plan:
+
+- the desktop app must never show **Checking your secure session…**;
+- the desktop app must not render the old **Saved studio activity** preview;
+- the private session check still runs, but the packaged moving Skitza loader
+  covers it until the current live page is ready; and
+- this is a desktop-only presentation rule. Skitza Web is unchanged.
+
+Account-scoped storage may still support security cleanup, route warming, and
+recent-audio behavior. It is not a visible desktop screen. Gate 1 remains
+unpassed; the superseded saved-screen journey cannot be counted as evidence.
+
 ## Locked behavior
 
 ### Window, menu bar, and tray

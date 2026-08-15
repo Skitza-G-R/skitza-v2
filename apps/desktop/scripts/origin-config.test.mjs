@@ -64,4 +64,5 @@ test("local and exact-remote command grants cannot overlap", () => {
   assert.equal(remote.local, false);
   assert.equal(remote.permissions.includes("allow-retry-launch"), false);
   assert.equal(local.permissions.some((permission) => remote.permissions.includes(permission)), false);
+  assert.equal(remote.permissions.includes("allow-hide-main-window"), true);
 });
