@@ -1,8 +1,66 @@
 # SK-229 Google Calendar verification runbook
 
-Use this runbook only after the SK-229 deployment is running behind the launch
-gate with the final production Clerk instance. Use disposable Producer, Artist,
-booking, and Google Calendar data.
+Use this runbook with the final production Clerk instance and only disposable
+Producer, Artist, booking, and Google Calendar data.
+
+## Current handoff (15 August 2026)
+
+SK-229's invitation-only Producer access and supporting code are live on
+`skitza.app`. Production currently resolves to READY deployment
+`dpl_6Sy5xRJ2QiR2PoDF7dUgLifXFavj`, built from commit
+`78ff7aac8363c54cfbbb76131f48436e7ad436dc`.
+
+Completed and verified:
+
+- the homepage, Privacy Notice, and Terms are public without the old launch
+  token;
+- direct Producer signup and `?intent=create-studio` cannot grant Producer
+  access without an accepted marked invitation;
+- the Production Clerk webhook accepts correctly signed deliveries, the six
+  preserved real accounts remain unchanged, and their twelve identity bindings
+  remain active;
+- Google Calendar session-title synchronization is included in the live build;
+- Search Console ownership, the public Google URLs, the production Calendar
+  OAuth origin/callback, and the declared scopes are configured correctly; and
+- the live Google routes are healthy, with no observed Google-related 5xx or
+  error-level logs during the public-launch check.
+
+Still required before Google submission:
+
+1. Obtain explicit authorization to run the matrix below using only disposable
+   session and Google Calendar data. The earlier proof covered connect,
+   calendar selection, busy-time blocking, and disconnect, but it predates the
+   current public deployment and is not the final proof.
+2. Run the complete matrix on the exact live deployment and save timestamps,
+   non-secret identifiers, and screenshots. This must cover connection after
+   Clerk session loss, calendar selection, busy-time blocking, event creation,
+   Skitza title/time updates, Google-only guest preservation, Google-to-Skitza
+   title/time reconciliation, delete/restore/cancel behavior, attendee
+   notifications, and disconnect cleanup.
+3. Decide how the two OAuth clients in project `skitza-openclaw` are handled.
+   `Skitza Production` is the Calendar client. `Skitza Clerk Production` is a
+   second web client. Before submission, every retained client must be
+   production-ready and any Google sign-in flow in use must appear in the
+   reviewer proof; do not delete or change either client without separate
+   approval.
+4. Record and upload the continuous English reviewer video described below.
+5. In Google Auth Platform, publish the Audience from Testing to Production,
+   verify and publish Branding if requested, then use Verification Center to
+   add the scope justifications and video and submit for verification. These
+   are external provider actions and require explicit approval.
+6. Give Google's reviewer the invited-Producer login path or the exact review
+   credentials/instructions Google requests, answer any follow-up, and do not
+   call the gate complete until Google approves it.
+
+Deferred cleanup and security evidence:
+
+- The two disposable Production proof accounts must not be changed or removed
+  under the current read-only handoff. Clean them up only after the Google proof
+  is complete and Gili explicitly authorizes the exact accounts and closure
+  flow.
+- Non-secret evidence that the previously exposed Namecheap password was
+  rotated has not been recorded. Never place the old or new password in this
+  repository or a task comment.
 
 ## Verified console state (14 August 2026)
 
@@ -22,11 +80,11 @@ booking, and Google Calendar data.
 - Search Console domain ownership for `skitza.app` is verified. The Google
   account used for the matching Cloud project is shown as a verified owner.
 
-Do not publish the OAuth app while the public homepage or Privacy URL is behind
-the launch gate. Testing mode limits access to the listed test users and gives
+The public homepage, Privacy Notice, and Terms must remain reachable throughout
+verification. Testing mode limits access to the listed test users and gives
 short-lived authorizations, so it is not the final production state.
 
-## Final gated end-to-end proof
+## Final public end-to-end proof
 
 Record timestamps, account IDs (not secrets), the deployment SHA, and screenshots
 for every step.
