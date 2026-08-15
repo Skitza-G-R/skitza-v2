@@ -1,7 +1,7 @@
 # Enhanced producer desktop app — source of truth
 
 **Date:** August 13, 2026
-**Status:** Product scope and release route approved by Gili; implementation has not started
+**Status:** Implementation in progress; Gate 1 has not passed and the internal release candidate is not complete. See the [SK-231 implementation record and handoff](../plans/active/2026-08-15-sk-231-enhanced-desktop-handoff.md).
 **Decider:** Gili Asraf
 **Surface:** Producer-only Skitza app for Mac and Windows
 **Development base and PR target:** `v3-clean`
