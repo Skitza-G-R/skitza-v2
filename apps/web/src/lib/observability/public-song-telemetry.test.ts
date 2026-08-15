@@ -11,6 +11,7 @@ import {
 
 const LINK_TOKEN = "eyJsaW5rSWQiOiJsaXZlIn0.public-link-signature";
 const AUDIO_CAPABILITY = "eyJ2ZXJzaW9uSWQiOiJ2MSJ9.audio-capability-signature";
+const VERSION_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 describe("public-song telemetry privacy", () => {
   it("redacts listen bearer paths and public-audio query authorities", () => {
@@ -99,6 +100,20 @@ describe("public-song telemetry privacy", () => {
     expect(isSensitiveAuthorityLocation("/sign-up", "")).toBe(false);
   });
 
+  it("redacts normal Song address credentials and address-audio capabilities", () => {
+    const producerUrl =
+      `https://skitza.app/dashboard/music/${VERSION_ID}` +
+      `?address=${AUDIO_CAPABILITY}&from=project`;
+    const artistUrl = `https://skitza.app/artist/music/song/${VERSION_ID}`;
+
+    expect(redactPublicSongTelemetryString(producerUrl)).toBe(
+      "https://skitza.app/dashboard/music/[redacted]" + "?address=[redacted]&from=project",
+    );
+    expect(redactPublicSongTelemetryString(artistUrl)).toBe(
+      "https://skitza.app/artist/music/song/[redacted]",
+    );
+  });
+
   it("drops browser telemetry on listen pages and keeps lookalike routes", () => {
     const payload = { event: "pageview", url: `/listen/${LINK_TOKEN}` };
 
@@ -114,8 +129,12 @@ describe("public-song telemetry privacy", () => {
     ["/listen", true],
     ["/listen/", true],
     [`/listen/${LINK_TOKEN}`, true],
+    [`/dashboard/music/${VERSION_ID}`, true],
+    [`/artist/music/song/${VERSION_ID}`, true],
     ["/listener/token", false],
     ["/dashboard/listen/token", false],
+    [`/dashboard/music/${VERSION_ID}/extra`, false],
+    [`/artist/music/${VERSION_ID}`, false],
   ])("classifies %s without broad prefix matches", (pathname, expected) => {
     expect(isPublicSongListenPath(pathname)).toBe(expected);
   });

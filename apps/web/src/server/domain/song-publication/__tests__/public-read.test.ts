@@ -5,12 +5,20 @@ import type { AudioObjectRequest } from "~/server/domain/audio-delivery/service"
 import { privateVersionStreamPath } from "~/server/domain/audio-delivery/urls";
 import { computeStoredAudioIdentityFingerprint } from "~/server/domain/song-management/service";
 
-import { createPortfolioAudioCapability } from "../audio-capability";
 import {
+  createAddressAudioCapability,
+  createPortfolioAudioCapability,
+  verifyAddressAudioCapability,
+} from "../audio-capability";
+import {
+  deliverAddressSongAudio,
+  deliverAddressSongDownload,
   deliverPortfolioSongAudio,
   deliverSongLinkAudio,
   deliverSongLinkDownload,
   listPublicPortfolioSongs,
+  readAddressSharedSong,
+  readAddressSongDownloadEntitlements,
   readPublicSong,
   readSongLinkDownloadEntitlements,
   SongPublicReadError,
@@ -442,6 +450,60 @@ function commercialLinkDb(
   ]);
 }
 
+function addressDb(
+  versions: readonly PublicStoredVersionCandidate[],
+  includeSafeMetadata = false,
+): QueuedPublicReadDb {
+  const rows: unknown[][] = [
+    [{ ...scope, linkId: null }],
+    [{ id: scope.producerId }],
+    [{ id: scope.projectId, producerId: scope.producerId }],
+    [
+      {
+        id: scope.purchaseId,
+        producerId: scope.producerId,
+        projectId: scope.projectId,
+      },
+    ],
+    [{ id: scope.trackId, projectId: scope.projectId, purchaseId: scope.purchaseId }],
+    [...versions],
+  ];
+  if (includeSafeMetadata) {
+    rows.push([
+      {
+        title: "Glass Houses",
+        artist: "Maya",
+        workflowStage: "mixing",
+        projectTitle: "Glass Houses EP",
+        displayName: "North Room",
+        brand: null,
+      },
+    ]);
+  }
+  return new QueuedPublicReadDb(rows);
+}
+
+function commercialAddressDb(
+  versions: readonly PublicStoredVersionCandidate[],
+  overrides: readonly Readonly<{ versionId: string; enabled: boolean; sequence: number }>[] = [],
+): QueuedPublicReadDb {
+  return new QueuedPublicReadDb([
+    [{ ...scope, linkId: null }],
+    [{ id: scope.producerId }],
+    [{ id: scope.projectId, producerId: scope.producerId }],
+    [
+      {
+        id: scope.purchaseId,
+        producerId: scope.producerId,
+        projectId: scope.projectId,
+      },
+    ],
+    [{ id: scope.trackId, projectId: scope.projectId, purchaseId: scope.purchaseId }],
+    [...versions],
+    [...overrides],
+  ]);
+}
+
 function portfolioDb(
   versions: readonly PublicStoredVersionCandidate[],
   portfolioPublishedAt = PORTFOLIO_PUBLISHED_AT,
@@ -798,6 +860,90 @@ describe("public song reads and audio delivery", () => {
   });
 });
 
+describe("address-shared song reads and audio delivery", () => {
+  it("uses the page version as the bearer and returns only safe song metadata", async () => {
+    const older = storedVersion(OLDER_VERSION_ID, "2026-07-18T10:00:00.000Z");
+    const newer = storedVersion(NEWER_VERSION_ID, "2026-07-19T10:00:00.000Z");
+
+    const view = await readAddressSharedSong(addressDb([newer, older], true).asDb(), {
+      secret: SECRET,
+      pageVersionId: older.id,
+      now: NOW,
+    });
+
+    expect(view.selectedVersionId).toBe(older.id);
+    expect(view.versions.map((version) => version.id)).toEqual([newer.id, older.id]);
+    for (const version of view.versions) {
+      const url = new URL(version.audioUrl, "https://skitza.test");
+      expect(url.pathname).toBe(`/api/audio/public/song/${version.id}`);
+      expect([...url.searchParams.keys()]).toEqual(["address"]);
+      expect(
+        verifyAddressAudioCapability(SECRET, url.searchParams.get("address") as string, NOW),
+      ).toMatchObject({
+        pageVersionId: older.id,
+        trackId: scope.trackId,
+        versionId: version.id,
+      });
+    }
+    expect(view).toMatchObject({
+      producer: { displayName: "North Room" },
+      song: {
+        id: scope.trackId,
+        projectId: scope.projectId,
+        title: "Glass Houses",
+      },
+    });
+    expect(JSON.stringify(view)).not.toContain("audioR2Key");
+    expect(JSON.stringify(view)).not.toContain("audioObjectEtag");
+    expect(JSON.stringify(view)).not.toContain("comments");
+    expect(JSON.stringify(view)).not.toContain(`producers/${scope.producerId}`);
+  });
+
+  it("fails closed when the page bearer is not a canonical stored version", async () => {
+    const other = storedVersion(NEWER_VERSION_ID, "2026-07-19T10:00:00.000Z");
+
+    await expect(
+      readAddressSharedSong(addressDb([other]).asDb(), {
+        secret: SECRET,
+        pageVersionId: OLDER_VERSION_ID,
+        now: NOW,
+      }),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+  });
+
+  it("delivers only the requested canonical version bound to the same page and track", async () => {
+    const page = storedVersion(OLDER_VERSION_ID, "2026-07-18T10:00:00.000Z");
+    const requested = storedVersion(NEWER_VERSION_ID, "2026-07-19T10:00:00.000Z");
+    const capability = createAddressAudioCapability(
+      SECRET,
+      {
+        pageVersionId: page.id,
+        trackId: scope.trackId,
+        versionId: requested.id,
+      },
+      NOW,
+    );
+    const open = vi.fn((request: AudioObjectRequest) => Promise.resolve(request));
+
+    await expect(
+      deliverAddressSongAudio(
+        addressDb([requested, page]).asDb(),
+        { secret: SECRET, capability, versionId: requested.id, now: NOW },
+        open,
+      ),
+    ).resolves.toMatchObject({ key: requested.audioR2Key });
+
+    await expect(
+      deliverAddressSongAudio(
+        new QueuedPublicReadDb([]).asDb(),
+        { secret: SECRET, capability, versionId: page.id, now: NOW },
+        open,
+      ),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+    expect(open).toHaveBeenCalledOnce();
+  });
+});
+
 describe("guest song download entitlement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -891,6 +1037,74 @@ describe("guest song download entitlement", () => {
       deliverSongLinkDownload(
         commercialLinkDb([older, newer], token, overrides).asDb(),
         { secret: SECRET, token, versionId: older.id, now: NOW },
+        openBlocked,
+      ),
+    ).rejects.toBeInstanceOf(SongPublicReadError);
+    expect(openAllowed).toHaveBeenCalledOnce();
+    expect(openBlocked).not.toHaveBeenCalled();
+  });
+
+  it("rechecks address-share ledger and exact override before opening a download", async () => {
+    const page = storedVersion(OLDER_VERSION_ID, "2026-07-18T10:00:00.000Z");
+    const allowed = storedVersion(NEWER_VERSION_ID, "2026-07-19T10:00:00.000Z");
+    const overrides = [
+      { versionId: allowed.id, enabled: true, sequence: 2 },
+      { versionId: page.id, enabled: false, sequence: 1 },
+    ];
+    ledgerMocks.readPurchaseLedger.mockResolvedValue({
+      projection: {
+        fullyPaidForDownloads: false,
+        installments: [{ status: "overdue", remainingCents: 5_000 }],
+        remainingCents: 5_000,
+        currency: "USD",
+      },
+    });
+
+    const entitlements = await readAddressSongDownloadEntitlements(
+      commercialAddressDb([page, allowed], overrides).asDb(),
+      { secret: SECRET, pageVersionId: page.id, now: NOW },
+    );
+    const allowedEntitlement = entitlements.find((entry) => entry.versionId === allowed.id);
+    const blockedEntitlement = entitlements.find((entry) => entry.versionId === page.id);
+    expect(allowedEntitlement).toMatchObject({
+      permission: "version_override",
+      canDownload: true,
+      overdue: true,
+    });
+    expect(blockedEntitlement).toMatchObject({
+      permission: "payment_required",
+      canDownload: false,
+      downloadUrl: null,
+    });
+
+    const downloadUrl = new URL(allowedEntitlement?.downloadUrl as string, "https://skitza.test");
+    expect(downloadUrl.searchParams.get("download")).toBe("1");
+    const capability = downloadUrl.searchParams.get("address") as string;
+    expect(verifyAddressAudioCapability(SECRET, capability, NOW)).toMatchObject({
+      pageVersionId: page.id,
+      trackId: scope.trackId,
+      versionId: allowed.id,
+    });
+
+    const openAllowed = vi.fn((request: AudioObjectRequest) => Promise.resolve(request));
+    await expect(
+      deliverAddressSongDownload(
+        commercialAddressDb([page, allowed], overrides).asDb(),
+        { secret: SECRET, capability, versionId: allowed.id, now: NOW },
+        openAllowed,
+      ),
+    ).resolves.toMatchObject({ key: allowed.audioR2Key });
+
+    const blockedCapability = createAddressAudioCapability(
+      SECRET,
+      { pageVersionId: page.id, trackId: scope.trackId, versionId: page.id },
+      NOW,
+    );
+    const openBlocked = vi.fn((request: AudioObjectRequest) => Promise.resolve(request));
+    await expect(
+      deliverAddressSongDownload(
+        commercialAddressDb([page, allowed], overrides).asDb(),
+        { secret: SECRET, capability: blockedCapability, versionId: page.id, now: NOW },
         openBlocked,
       ),
     ).rejects.toBeInstanceOf(SongPublicReadError);

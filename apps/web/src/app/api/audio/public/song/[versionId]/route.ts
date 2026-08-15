@@ -8,6 +8,8 @@ import { authorizedAudioResponse } from "~/server/domain/audio-delivery/response
 import { SongPublicAudioCapabilityError } from "~/server/domain/song-publication/audio-capability";
 import { songPublicationSecret } from "~/server/domain/song-publication/config";
 import {
+  deliverAddressSongAudio,
+  deliverAddressSongDownload,
   deliverPortfolioSongAudio,
   deliverSongLinkAudio,
   deliverSongLinkDownload,
@@ -29,12 +31,18 @@ export async function GET(
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   const capability = url.searchParams.get("cap");
-  if ((token === null) === (capability === null)) return audioNotFoundResponse();
+  const addressValues = url.searchParams.getAll("address");
+  if (addressValues.length > 1) return audioNotFoundResponse();
+  const addressCapability = addressValues[0] ?? null;
+  const authorityCount = [token, capability, addressCapability].filter(
+    (value) => value !== null,
+  ).length;
+  if (authorityCount !== 1) return audioNotFoundResponse();
   const downloadValues = url.searchParams.getAll("download");
   if (
     downloadValues.length > 1 ||
     (downloadValues.length === 1 && downloadValues[0] !== "1") ||
-    (downloadValues.length === 1 && token === null)
+    (downloadValues.length === 1 && capability !== null)
   ) {
     return audioNotFoundResponse();
   }
@@ -43,8 +51,29 @@ export async function GET(
   try {
     const open = (audio: Parameters<typeof authorizedAudioResponse>[1]) =>
       authorizedAudioResponse(request, audio, download ? "attachment" : "inline");
-    return token !== null
-      ? download
+    if (addressCapability !== null) {
+      return download
+        ? await deliverAddressSongDownload(
+            db,
+            {
+              secret: songPublicationSecret(),
+              capability: addressCapability,
+              versionId,
+            },
+            open,
+          )
+        : await deliverAddressSongAudio(
+            db,
+            {
+              secret: songPublicationSecret(),
+              capability: addressCapability,
+              versionId,
+            },
+            open,
+          );
+    }
+    if (token !== null) {
+      return download
         ? await deliverSongLinkDownload(
             db,
             { secret: songPublicationSecret(), token, versionId },
@@ -54,16 +83,17 @@ export async function GET(
             db,
             { secret: songPublicationSecret(), token, versionId },
             open,
-          )
-      : await deliverPortfolioSongAudio(
-          db,
-          {
-            secret: songPublicationSecret(),
-            capability: capability as string,
-            versionId,
-          },
-          open,
-        );
+          );
+    }
+    return await deliverPortfolioSongAudio(
+      db,
+      {
+        secret: songPublicationSecret(),
+        capability: capability as string,
+        versionId,
+      },
+      open,
+    );
   } catch (error) {
     if (
       error instanceof SongPublicReadError ||

@@ -151,6 +151,7 @@ export function SongPublicLinkControls({
   actions,
   refreshLiveState,
   triggerStyle = "hero",
+  portfolioOnly = false,
 }: {
   role: "producer" | "artist";
   initialState: SongPublicSharingView;
@@ -158,6 +159,7 @@ export function SongPublicLinkControls({
   actions?: SongPublicSharingActions;
   refreshLiveState?: SongPublicSharingRefresh;
   triggerStyle?: "hero" | "menu";
+  portfolioOnly?: boolean;
 }) {
   const [state, setState] = useState(initialState);
   const [open, setOpen] = useState(false);
@@ -201,7 +203,12 @@ export function SongPublicLinkControls({
     success: string,
   ) {
     if (!online) {
-      toast("Reconnect to change this public song link.", "error");
+      toast(
+        portfolioOnly
+          ? "Reconnect to change portfolio visibility."
+          : "Reconnect to change this public song link.",
+        "error",
+      );
       return;
     }
     startTransition(async () => {
@@ -215,10 +222,60 @@ export function SongPublicLinkControls({
         setConfirmation(null);
         toast(success, "success");
       } catch {
-        toast("Could not update this public song link. Try again.", "error");
+        toast(
+          portfolioOnly
+            ? "Could not update portfolio visibility. Try again."
+            : "Could not update this public song link. Try again.",
+          "error",
+        );
       }
     });
   }
+
+  const portfolioVisibilityControl =
+    role === "producer" ? (
+      <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-bold">Show in portfolio</p>
+          <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+            Controls whether this song appears in your public portfolio.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={state.portfolioPublished}
+          aria-label="Show song in public portfolio"
+          disabled={pending || !actions?.setPortfolioPublic || !canPublish}
+          onClick={() => {
+            const setPortfolioPublic = actions?.setPortfolioPublic;
+            if (!setPortfolioPublic) return;
+            const published = !state.portfolioPublished;
+            run(
+              (operationKey) =>
+                setPortfolioPublic({
+                  trackId: state.trackId,
+                  operationKey,
+                  published,
+                }),
+              published ? "Song added to portfolio" : "Song removed from portfolio",
+            );
+          }}
+          className={`relative h-11 w-[68px] shrink-0 rounded-full border transition-colors disabled:opacity-50 motion-reduce:transition-none ${
+            state.portfolioPublished
+              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]"
+              : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.08)]"
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`absolute top-1.5 h-8 w-8 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
+              state.portfolioPublished ? "translate-x-[30px]" : "translate-x-1.5"
+            }`}
+          />
+        </button>
+      </div>
+    ) : null;
 
   return (
     <DialogPrimitive.Root
@@ -241,7 +298,7 @@ export function SongPublicLinkControls({
           <span
             aria-hidden="true"
             className={`h-2 w-2 rounded-full ${
-              status === "live"
+              (portfolioOnly ? state.portfolioPublished : status === "live")
                 ? triggerStyle === "menu"
                   ? "bg-[rgb(var(--fg-success-text))]"
                   : "bg-emerald-400 shadow-[0_0_10px_rgb(74_222_128/0.7)]"
@@ -250,7 +307,11 @@ export function SongPublicLinkControls({
                   : "bg-white/35"
             }`}
           />
-          {role === "artist" ? "Share public link" : "Public link"}
+          {portfolioOnly
+            ? "Portfolio visibility"
+            : role === "artist"
+              ? "Share public link"
+              : "Public link"}
         </button>
       </DialogPrimitive.Trigger>
 
@@ -260,19 +321,23 @@ export function SongPublicLinkControls({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="font-mono text-[10px] font-bold tracking-[0.18em] text-[rgb(var(--brand-primary-dark))] uppercase">
-                Guest listening
+                {portfolioOnly ? "Portfolio" : "Guest listening"}
               </p>
               <DialogPrimitive.Title className="font-display mt-2 text-2xl font-bold tracking-[-0.025em]">
-                Public song link
+                {portfolioOnly ? "Portfolio visibility" : "Public song link"}
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-2 text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-                Guests can listen without comments. Download appears only when it is available.
+                {portfolioOnly
+                  ? "Choose whether this song appears on your public portfolio."
+                  : "Guests can listen without comments. Download appears only when it is available."}
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
               <button
                 type="button"
-                aria-label="Close public link controls"
+                aria-label={
+                  portfolioOnly ? "Close portfolio controls" : "Close public link controls"
+                }
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.06)] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
@@ -280,40 +345,44 @@ export function SongPublicLinkControls({
             </DialogPrimitive.Close>
           </div>
 
-          <div className="mt-6 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.025)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${status === "live" ? "bg-emerald-500" : "bg-[rgb(var(--fg-muted)/0.45)]"}`}
-                  aria-hidden="true"
-                />
-                <span className="text-sm font-bold">
-                  {status === "live"
-                    ? "Link live"
-                    : status === "disabled"
-                      ? "Link disabled"
-                      : "Not published"}
-                </span>
+          {!portfolioOnly ? (
+            <div className="mt-6 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.025)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${status === "live" ? "bg-emerald-500" : "bg-[rgb(var(--fg-muted)/0.45)]"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="text-sm font-bold">
+                    {status === "live"
+                      ? "Link live"
+                      : status === "disabled"
+                        ? "Link disabled"
+                        : "Not published"}
+                  </span>
+                </div>
+                {state.linkEnabled && state.publicUrl ? (
+                  <a
+                    href={state.publicUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-xs font-bold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.1)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+                  >
+                    Preview <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  </a>
+                ) : null}
               </div>
               {state.linkEnabled && state.publicUrl ? (
-                <a
-                  href={state.publicUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-xs font-bold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.1)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-                >
-                  Preview <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                </a>
+                <p className="mt-3 font-mono text-[11px] leading-relaxed break-all text-[rgb(var(--fg-muted))]">
+                  {state.publicUrl}
+                </p>
               ) : null}
             </div>
-            {state.linkEnabled && state.publicUrl ? (
-              <p className="mt-3 font-mono text-[11px] leading-relaxed break-all text-[rgb(var(--fg-muted))]">
-                {state.publicUrl}
-              </p>
-            ) : null}
-          </div>
+          ) : null}
 
-          {confirmation ? (
+          {portfolioOnly ? (
+            <div className="mt-5">{portfolioVisibilityControl}</div>
+          ) : confirmation ? (
             <div
               role="alert"
               className="mt-5 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/10 p-4"
@@ -421,49 +490,7 @@ export function SongPublicLinkControls({
                 </button>
               ) : null}
 
-              {role === "producer" ? (
-                <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-bold">Show in portfolio</p>
-                    <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
-                      Always plays the newest stored audio. The public song link is independent.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={state.portfolioPublished}
-                    aria-label="Show song in public portfolio"
-                    disabled={pending || !actions?.setPortfolioPublic || !canPublish}
-                    onClick={() => {
-                      const setPortfolioPublic = actions?.setPortfolioPublic;
-                      if (!setPortfolioPublic) return;
-                      const published = !state.portfolioPublished;
-                      run(
-                        (operationKey) =>
-                          setPortfolioPublic({
-                            trackId: state.trackId,
-                            operationKey,
-                            published,
-                          }),
-                        published ? "Song added to portfolio" : "Song removed from portfolio",
-                      );
-                    }}
-                    className={`relative h-11 w-[68px] shrink-0 rounded-full border transition-colors disabled:opacity-50 motion-reduce:transition-none ${
-                      state.portfolioPublished
-                        ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]"
-                        : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.08)]"
-                    }`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`absolute top-1.5 h-8 w-8 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
-                        state.portfolioPublished ? "translate-x-[30px]" : "translate-x-1.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-              ) : null}
+              {portfolioVisibilityControl}
 
               {!canPublish ? (
                 <p role="status" className="text-sm text-[rgb(var(--fg-muted))]">

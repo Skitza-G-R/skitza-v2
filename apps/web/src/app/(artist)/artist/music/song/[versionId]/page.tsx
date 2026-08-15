@@ -4,29 +4,11 @@ import { notFound } from "next/navigation";
 
 import { SongPage, type SongPageData } from "~/components/music/song-page";
 import { ArtistTrackVersionAcknowledger } from "~/components/artist/artist-track-version-acknowledger";
-import type { SongPublicSharingView } from "~/components/music/song-public-link-controls";
-import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import {
-  l3AddComment,
-  l3ApproveVersion,
-  l3ResolveComment,
-  publishArtistPublicSongLink,
-  refreshArtistPublicSongLink,
-} from "./actions";
+import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
-
-const MISSING_PUBLIC_LINK_SECRET = "Missing or weak SONG_PUBLIC_LINK_SECRET";
-
-function isMissingPublicLinkSecret(error: unknown): boolean {
-  if (!(error instanceof TRPCError) || error.code !== "INTERNAL_SERVER_ERROR") return false;
-  return (
-    error.message === MISSING_PUBLIC_LINK_SECRET ||
-    (error.cause instanceof Error && error.cause.message === MISSING_PUBLIC_LINK_SECRET)
-  );
-}
 
 // L3 song page — full waveform + timestamped comments + version
 // switcher. Routed at /artist/music/song/<versionId> so we can carry
@@ -66,26 +48,6 @@ export default async function ArtistSongPage({ params }: PageProps) {
       notFound();
     }
     throw e;
-  }
-
-  let publicSharing: SongPublicSharingView | undefined;
-  try {
-    const sharing = await caller.songPublication.artistState({ trackId: data.track.id });
-    publicSharing = {
-      trackId: sharing.trackId,
-      linkEnabled: sharing.linkEnabled,
-      portfolioPublished: sharing.portfolioPublished,
-      remainingAudioCount: sharing.remainingAudioCount,
-      tokenVersion: sharing.tokenVersion,
-      publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
-    };
-  } catch (error) {
-    if (
-      (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") &&
-      !isMissingPublicLinkSecret(error)
-    ) {
-      throw error;
-    }
   }
 
   const entitlementEntries = await Promise.all(
@@ -160,11 +122,6 @@ export default async function ArtistSongPage({ params }: PageProps) {
         data={wire}
         role="artist"
         artistStudioId={data.track.producerId}
-        {...(publicSharing ? { publicSharing } : {})}
-        {...(publicSharing
-          ? { publicSharingActions: { publish: publishArtistPublicSongLink } }
-          : {})}
-        {...(publicSharing ? { publicSharingRefresh: refreshArtistPublicSongLink } : {})}
         actions={{
           addComment: l3AddComment,
           resolveComment: l3ResolveComment,

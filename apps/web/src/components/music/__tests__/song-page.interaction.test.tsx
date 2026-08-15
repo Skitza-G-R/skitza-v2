@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   playerSeek: vi.fn(),
   playerSetVolume: vi.fn(),
   playerToggle: vi.fn(),
+  shareNative: vi.fn(),
+  toast: vi.fn(),
   preserveDraft: vi.fn(),
   playbackSnapshot: {
     track: null as null | {
@@ -68,6 +70,14 @@ vi.mock("~/components/runtime-state/use-runtime-state", () => ({
     preserveDraft: mocks.preserveDraft,
     clearDraft: vi.fn(),
   }),
+}));
+
+vi.mock("~/components/ui/toast", () => ({
+  useToast: () => ({ toast: mocks.toast }),
+}));
+
+vi.mock("~/lib/native/share", () => ({
+  shareNative: mocks.shareNative,
 }));
 
 vi.mock("~/components/dashboard/song/upload-track-modal", () => ({
@@ -165,6 +175,7 @@ function songActions(): L3Actions {
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/");
   mocks.routerPush.mockReset();
   mocks.routerRefresh.mockReset();
   mocks.playerClose.mockReset();
@@ -173,6 +184,9 @@ beforeEach(() => {
   mocks.playerSeek.mockReset();
   mocks.playerSetVolume.mockReset();
   mocks.playerToggle.mockReset();
+  mocks.shareNative.mockReset();
+  mocks.shareNative.mockResolvedValue({ status: "shared", method: "native" });
+  mocks.toast.mockReset();
   mocks.preserveDraft.mockReset();
   mocks.playbackSnapshot.track = null;
   mocks.playbackSnapshot.playing = false;
@@ -230,6 +244,95 @@ describe("SongPage professional player interactions", () => {
     const download = within(actions).getByRole("link", { name: "Download" });
     expect(download.getAttribute("href")).toBe(version.downloadUrl);
     expect(within(actions).queryByText(/Share public link/i)).toBeNull();
+  });
+
+  it("shows no guest actions when download is not open", () => {
+    installMatchMedia(true);
+
+    render(<SongPage data={songData(false)} role="guest" actions={{}} />);
+
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+    expect(screen.queryByText("Download unavailable")).toBeNull();
+  });
+
+  it.each([
+    {
+      role: "producer" as const,
+      expectedUrl: "https://skitza.app/dashboard/music/version-1",
+    },
+    {
+      role: "artist" as const,
+      expectedUrl: "https://skitza.app/artist/music/song/version-1",
+    },
+  ])("shares the normal $role Song page address", async ({ role, expectedUrl }) => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/unrelated?t=secret#player");
+
+    render(<SongPage data={songData(false)} role={role} actions={songActions()} />);
+
+    const share = screen.getByRole("button", { name: "Share song" });
+    expect(share.getAttribute("data-test")).toBe("share-song-address");
+    await user.click(share);
+
+    await waitFor(() => {
+      expect(mocks.shareNative).toHaveBeenCalledWith({
+        title: "After the Rain",
+        text: "Listen to After the Rain on Skitza",
+        url: expectedUrl,
+        fallbackText: expectedUrl,
+      });
+    });
+    expect(mocks.toast).toHaveBeenCalledWith("Song shared", "success");
+  });
+
+  it("keeps portfolio visibility in producer actions without presenting a separate public link", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+
+    render(
+      <SongPage
+        data={songData(false)}
+        role="producer"
+        actions={songActions()}
+        publicSharing={{
+          trackId: "track-1",
+          linkEnabled: true,
+          portfolioPublished: false,
+          remainingAudioCount: 1,
+          tokenVersion: 1,
+          publicUrl: "https://skitza.app/listen/legacy.long-token",
+        }}
+        publicSharingActions={{
+          setPortfolioPublic: vi.fn().mockResolvedValue({
+            ok: true,
+            state: {
+              trackId: "track-1",
+              linkEnabled: true,
+              portfolioPublished: true,
+              remainingAudioCount: 1,
+              tokenVersion: 1,
+              publicUrl: "https://skitza.app/listen/legacy.long-token",
+            },
+          }),
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const actions = await screen.findByRole("group", { name: "Song actions" });
+    const portfolioVisibility = within(actions).getByRole("button", {
+      name: "Portfolio visibility",
+    });
+    expect(portfolioVisibility).not.toBeNull();
+    expect(within(actions).queryByText(/public link/i)).toBeNull();
+
+    await user.click(portfolioVisibility);
+    const dialog = await screen.findByRole("dialog", { name: "Portfolio visibility" });
+    expect(
+      within(dialog).getByRole("switch", { name: "Show song in public portfolio" }),
+    ).not.toBeNull();
+    expect(within(dialog).queryByText(/public (song )?link/i)).toBeNull();
   });
 
   it.each(["artist", "producer"] as const)(
@@ -385,6 +488,7 @@ describe("SongPage professional player interactions", () => {
       currentMs: 80_000,
       playing: false,
     });
+    expect(window.location.pathname).toBe("/dashboard/music/version-2");
   });
 
   it("selects the exact version when the route-selected version changes", async () => {
