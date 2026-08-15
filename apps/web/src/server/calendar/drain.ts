@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { Db } from "@skitza/db";
 
 import { sendSessionCalendarEmail } from "~/server/email/send";
@@ -12,6 +14,12 @@ import {
 import { processCalendarSyncJobs } from "./delivery";
 import { processGoogleCalendarSyncJobs } from "./google-delivery";
 import { processGoogleCalendarReconciliations } from "./google-reconciliation";
+import {
+  CalendarManualRetryError,
+  calendarManualRetryRepository,
+  listRetryableTerminalGoogleCalendarJobs,
+  manualRetryCalendarSyncJob,
+} from "./manual-retry";
 import { calendarDeliveryRepository } from "./repository";
 import { sessionBookingRepository } from "../domain/session-booking/db";
 import { applyGoogleCalendarSessionReconciliation } from "../domain/session-booking/service";
@@ -89,7 +97,9 @@ export async function deliverCalendarSyncJobBestEffort(
 export async function repairProducerCalendarSyncBestEffort(
   db: Db,
   producerId: string,
-  options: Readonly<{ forcePending?: boolean }> = {},
+  options:
+    | Readonly<{ forcePending?: false }>
+    | Readonly<{ forcePending: true; actorIdentity: string }> = {},
 ): Promise<boolean> {
   if (!isGoogleCalendarServerConfigured()) return false;
   try {
@@ -97,6 +107,31 @@ export async function repairProducerCalendarSyncBestEffort(
     const provider = createGoogleCalendarProvider({ config });
     const googleRepository = createGoogleCalendarRepository(db);
     const deliveryRepository = calendarDeliveryRepository(db);
+    if (options.forcePending) {
+      const terminalJobIds = await listRetryableTerminalGoogleCalendarJobs(db, {
+        producerId,
+        limit: 10,
+      });
+      const manualRetryRepository = calendarManualRetryRepository(db);
+      for (const jobId of terminalJobIds) {
+        try {
+          await manualRetryCalendarSyncJob(manualRetryRepository, {
+            jobId,
+            producerId,
+            operationKey: `google-calendar-repair:${randomUUID()}`,
+            actorIdentity: options.actorIdentity,
+          });
+        } catch (error) {
+          if (
+            error instanceof CalendarManualRetryError &&
+            (error.code === "NOT_TERMINAL" || error.code === "CONCURRENT_UPDATE")
+          ) {
+            continue;
+          }
+          throw error;
+        }
+      }
+    }
     const google = await processGoogleCalendarSyncJobs(
       {
         repository: deliveryRepository,

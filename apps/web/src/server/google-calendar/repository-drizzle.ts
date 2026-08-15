@@ -15,6 +15,7 @@ import {
   notExists,
   notInArray,
   producers,
+  projects,
   sql,
   googleCalendarConnections,
   googleCalendarOAuthStates,
@@ -1251,7 +1252,8 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             allowanceUseId: bookings.allowanceUseId,
             startsAt: bookings.startsAt,
             durationMin: bookings.durationMin,
-            title: bookings.title,
+            projectTitle: projects.title,
+            producerName: producers.displayName,
             artistName: bookings.artistName,
             artistEmail: bookings.artistEmail,
             calendarRevision: bookings.calendarRevision,
@@ -1266,6 +1268,11 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
               googleCalendarSelections.providerCalendarIdFingerprint,
           })
           .from(bookings)
+          .innerJoin(
+            projects,
+            and(eq(projects.id, bookings.projectId), eq(projects.producerId, bookings.producerId)),
+          )
+          .innerJoin(producers, eq(producers.id, bookings.producerId))
           .innerJoin(
             googleCalendarConnections,
             and(
@@ -1478,6 +1485,9 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             skitzaRevision: String(candidate.calendarRevision),
             skitzaSchema: "1" as const,
           };
+          const projectName = candidate.projectTitle.trim() || "Session";
+          const producerName = candidate.producerName?.trim() || "Skitza producer";
+          const artistName = candidate.artistName.trim() || "Artist";
           const payloadSnapshot: GoogleCalendarSyncJobPayloadSnapshot = {
             schemaVersion: 2,
             action: "upsert",
@@ -1488,7 +1498,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             endsAtUtc: new Date(
               candidate.startsAt.getTime() + candidate.durationMin * 60 * 1_000,
             ).toISOString(),
-            summary: candidate.title?.trim() || "Session",
+            summary: `${projectName} · ${producerName} & ${artistName}`,
             artistSafeUrl: `https://skitza.app/artist/sessions/${candidate.bookingId}`,
             attendee: { name: candidate.artistName, email: candidate.artistEmail },
             privateProperties,

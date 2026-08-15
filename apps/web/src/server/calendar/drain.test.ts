@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   processCalendarSyncJobs: vi.fn(),
   processGoogleCalendarSyncJobs: vi.fn(),
   processGoogleCalendarReconciliations: vi.fn(),
+  listRetryableTerminalGoogleCalendarJobs: vi.fn(),
+  calendarManualRetryRepository: vi.fn(),
+  manualRetryCalendarSyncJob: vi.fn(),
   calendarDeliveryRepository: vi.fn(),
   sessionBookingRepository: vi.fn(),
   applyGoogleCalendarSessionReconciliation: vi.fn(),
@@ -27,6 +30,11 @@ vi.mock("./google-delivery", () => ({
 }));
 vi.mock("./google-reconciliation", () => ({
   processGoogleCalendarReconciliations: mocks.processGoogleCalendarReconciliations,
+}));
+vi.mock("./manual-retry", () => ({
+  listRetryableTerminalGoogleCalendarJobs: mocks.listRetryableTerminalGoogleCalendarJobs,
+  calendarManualRetryRepository: mocks.calendarManualRetryRepository,
+  manualRetryCalendarSyncJob: mocks.manualRetryCalendarSyncJob,
 }));
 vi.mock("./repository", () => ({
   calendarDeliveryRepository: mocks.calendarDeliveryRepository,
@@ -119,7 +127,6 @@ describe("deliverCalendarSyncJobBestEffort", () => {
       fallbackEnqueued: 1,
       fallbackJobIds: ["00000000-0000-4000-8000-000000000002"],
     });
-
     await deliverCalendarSyncJobBestEffort(
       { kind: "db" } as never,
       "00000000-0000-4000-8000-000000000001",
@@ -222,6 +229,16 @@ describe("repairProducerCalendarSyncBestEffort", () => {
       fallbackEnqueued: 1,
       fallbackJobIds: ["00000000-0000-4000-8000-000000000002"],
     });
+    mocks.listRetryableTerminalGoogleCalendarJobs
+      .mockReset()
+      .mockResolvedValue([
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+      ]);
+    mocks.calendarManualRetryRepository
+      .mockReset()
+      .mockReturnValue({ kind: "manual-retry-repository" });
+    mocks.manualRetryCalendarSyncJob.mockReset().mockResolvedValue({ status: "pending" });
     mocks.calendarDeliveryRepository.mockReset().mockReturnValue({ kind: "repository" });
     mocks.createGoogleCalendarProvider.mockReset().mockReturnValue({ kind: "provider" });
     mocks.createGoogleCalendarRepository.mockReset().mockReturnValue({ kind: "google-repository" });
@@ -240,9 +257,39 @@ describe("repairProducerCalendarSyncBestEffort", () => {
     await expect(
       repairProducerCalendarSyncBestEffort({ kind: "db" } as never, producerId, {
         forcePending: true,
+        actorIdentity: "user_gili",
       }),
     ).resolves.toBe(true);
 
+    expect(mocks.listRetryableTerminalGoogleCalendarJobs).toHaveBeenCalledWith(
+      { kind: "db" },
+      { producerId, limit: 10 },
+    );
+    expect(mocks.calendarManualRetryRepository).toHaveBeenCalledWith({ kind: "db" });
+    expect(mocks.manualRetryCalendarSyncJob).toHaveBeenCalledTimes(2);
+    expect(mocks.manualRetryCalendarSyncJob).toHaveBeenNthCalledWith(
+      1,
+      { kind: "manual-retry-repository" },
+      {
+        jobId: "00000000-0000-4000-8000-000000000004",
+        producerId,
+        operationKey: expect.stringMatching(/^google-calendar-repair:/u) as unknown as string,
+        actorIdentity: "user_gili",
+      },
+    );
+    expect(mocks.manualRetryCalendarSyncJob).toHaveBeenNthCalledWith(
+      2,
+      { kind: "manual-retry-repository" },
+      {
+        jobId: "00000000-0000-4000-8000-000000000005",
+        producerId,
+        operationKey: expect.stringMatching(/^google-calendar-repair:/u) as unknown as string,
+        actorIdentity: "user_gili",
+      },
+    );
+    expect(mocks.manualRetryCalendarSyncJob.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.processGoogleCalendarSyncJobs.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
     expect(mocks.processGoogleCalendarSyncJobs).toHaveBeenCalledWith(
       {
         repository: { kind: "repository" },
