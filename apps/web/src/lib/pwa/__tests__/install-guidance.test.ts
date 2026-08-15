@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   INSTALL_DISMISS_MS,
   installGuidanceEligible,
+  isAppleMobileDevice,
   isIphoneLike,
+  isMobileInstallDevice,
+  mobileInstallGuidanceEligible,
   parseInstallActionMarker,
 } from "../install-guidance";
 
@@ -100,5 +103,76 @@ describe("SK-112 install guidance eligibility", () => {
     expect(parseInstallActionMarker("not-json")).toBeNull();
     expect(isIphoneLike("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)")).toBe(true);
     expect(isIphoneLike("Mozilla/5.0 (Linux; Android 15)")).toBe(false);
+  });
+});
+
+describe("SK-249 visible mobile install guidance", () => {
+  it("is immediately eligible for a signed-in mobile browser without a prior action", () => {
+    expect(
+      mobileInstallGuidanceEligible({
+        signedIn: true,
+        installed: false,
+        standalone: false,
+        dismissedAt: null,
+        now: NOW,
+      }),
+    ).toBe(true);
+  });
+
+  it("respects installed, standalone, signed-out, and 90-day dismissal boundaries", () => {
+    for (const state of [
+      { signedIn: false, installed: false, standalone: false, dismissedAt: null },
+      { signedIn: true, installed: true, standalone: false, dismissedAt: null },
+      { signedIn: true, installed: false, standalone: true, dismissedAt: null },
+      {
+        signedIn: true,
+        installed: false,
+        standalone: false,
+        dismissedAt: NOW - INSTALL_DISMISS_MS + 1,
+      },
+    ]) {
+      expect(mobileInstallGuidanceEligible({ ...state, now: NOW })).toBe(false);
+    }
+
+    expect(
+      mobileInstallGuidanceEligible({
+        signedIn: true,
+        installed: false,
+        standalone: false,
+        dismissedAt: NOW - INSTALL_DISMISS_MS,
+        now: NOW,
+      }),
+    ).toBe(true);
+  });
+
+  it("recognizes iPhone, touch iPadOS, and Android without treating desktop as mobile", () => {
+    expect(
+      isAppleMobileDevice({
+        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)",
+        platform: "iPhone",
+        maxTouchPoints: 5,
+      }),
+    ).toBe(true);
+    expect(
+      isAppleMobileDevice({
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)",
+        platform: "MacIntel",
+        maxTouchPoints: 5,
+      }),
+    ).toBe(true);
+    expect(
+      isMobileInstallDevice({
+        userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 9)",
+        platform: "Linux armv8l",
+        maxTouchPoints: 5,
+      }),
+    ).toBe(true);
+    expect(
+      isMobileInstallDevice({
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        platform: "MacIntel",
+        maxTouchPoints: 0,
+      }),
+    ).toBe(false);
   });
 });

@@ -155,6 +155,8 @@ beforeEach(() => {
   mocks.pathname = "/artist";
   mocks.reducedMotion = false;
   mocks.search = "studio=studio-1";
+  window.localStorage.clear();
+  window.sessionStorage.clear();
   installPointerCapture();
   vi.stubGlobal(
     "matchMedia",
@@ -197,6 +199,7 @@ describe("Artist mobile account sheet", () => {
     expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
       "/artist/settings?studio=studio-1",
     );
+    expect(screen.getByRole("button", { name: /Install Skitza/ })).not.toBeNull();
   });
 
   it("keeps Payments out of the account sheet without studio query context", () => {

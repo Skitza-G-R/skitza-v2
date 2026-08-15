@@ -1,5 +1,7 @@
 export const INSTALL_DISMISS_MS = 90 * 24 * 60 * 60 * 1000;
 export const INSTALL_PROMPT_AVAILABLE_EVENT = "skitza:native-install-prompt-available";
+export const INSTALL_GUIDANCE_OPEN_EVENT = "skitza:native-install-guidance-open";
+export const INSTALL_STATE_CHANGED_EVENT = "skitza:native-install-state-changed";
 
 const ACTION_STORAGE_KEY = "skitza:native-install-action:v1";
 const DISMISSED_STORAGE_KEY = "skitza:native-install-dismissed:v1";
@@ -32,6 +34,20 @@ function storageWrite(storage: Storage, key: string, value: string): void {
   } catch {
     // Install guidance is optional when browser storage is unavailable.
   }
+}
+
+function storageRemove(storage: Storage, key: string): void {
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Install guidance remains usable when browser storage is unavailable.
+  }
+}
+
+function dismissalExpired(dismissedAt: number | null, now: number): boolean {
+  return (
+    dismissedAt === null || !Number.isFinite(dismissedAt) || now - dismissedAt >= INSTALL_DISMISS_MS
+  );
 }
 
 export function parseInstallActionMarker(value: string | null): InstallActionMarker | null {
@@ -81,11 +97,20 @@ export function installGuidanceEligible(
   ) {
     return false;
   }
-  return (
-    input.dismissedAt === null ||
-    !Number.isFinite(input.dismissedAt) ||
-    input.now - input.dismissedAt >= INSTALL_DISMISS_MS
-  );
+  return dismissalExpired(input.dismissedAt, input.now);
+}
+
+export function mobileInstallGuidanceEligible(
+  input: Readonly<{
+    signedIn: boolean;
+    installed: boolean;
+    standalone: boolean;
+    dismissedAt: number | null;
+    now: number;
+  }>,
+): boolean {
+  if (!input.signedIn || input.installed || input.standalone) return false;
+  return dismissalExpired(input.dismissedAt, input.now);
 }
 
 export function currentInstallSessionId(): string {
@@ -119,6 +144,7 @@ export function dismissInstallGuidance(now = Date.now()): void {
 export function markNativeAppInstalled(): void {
   if (typeof window === "undefined") return;
   storageWrite(window.localStorage, INSTALLED_STORAGE_KEY, "true");
+  window.dispatchEvent(new Event(INSTALL_STATE_CHANGED_EVENT));
 }
 
 export function readInstallGuidanceState(now = Date.now()) {
@@ -140,7 +166,11 @@ export function captureNativeInstallPrompt(event: NativeInstallPromptEvent): voi
   event.preventDefault();
   capturedPrompt = event;
   if (typeof window !== "undefined") {
+    // A fresh browser prompt is stronger evidence than our prior local marker.
+    // It can reappear after uninstall, so make installation discoverable again.
+    storageRemove(window.localStorage, INSTALLED_STORAGE_KEY);
     window.dispatchEvent(new Event(INSTALL_PROMPT_AVAILABLE_EVENT));
+    window.dispatchEvent(new Event(INSTALL_STATE_CHANGED_EVENT));
   }
 }
 
@@ -150,6 +180,15 @@ export function capturedNativeInstallPrompt(): NativeInstallPromptEvent | null {
 
 export function clearCapturedNativeInstallPrompt(): void {
   capturedPrompt = null;
+}
+
+export function requestInstallGuidance(returnFocusTo?: HTMLElement): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(INSTALL_GUIDANCE_OPEN_EVENT, {
+      detail: { returnFocusTo },
+    }),
+  );
 }
 
 export function isStandaloneDisplay(): boolean {
@@ -165,4 +204,22 @@ export function isStandaloneDisplay(): boolean {
 
 export function isIphoneLike(userAgent: string): boolean {
   return /(?:iphone|ipad|ipod)/i.test(userAgent);
+}
+
+export type InstallDeviceInfo = Readonly<{
+  userAgent: string;
+  platform?: string;
+  maxTouchPoints?: number;
+}>;
+
+export function isAppleMobileDevice({
+  userAgent,
+  platform = "",
+  maxTouchPoints = 0,
+}: InstallDeviceInfo): boolean {
+  return isIphoneLike(userAgent) || (platform === "MacIntel" && maxTouchPoints > 1);
+}
+
+export function isMobileInstallDevice(device: InstallDeviceInfo): boolean {
+  return isAppleMobileDevice(device) || /(?:android|mobile)/i.test(device.userAgent);
 }
