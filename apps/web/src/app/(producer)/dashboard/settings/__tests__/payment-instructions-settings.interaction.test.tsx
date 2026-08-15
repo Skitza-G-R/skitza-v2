@@ -154,16 +154,27 @@ describe("producer payment instructions settings interaction", () => {
     expect(accountOwner.value).toBe("Touch edited owner");
   });
 
-  it("opens real payment inputs from the desktop mouse release path", () => {
+  it("opens real payment inputs from the desktop mouse press before swipe capture", () => {
     const view = renderGettingPaid();
     const editButton = screen.getByRole("button", { name: "Edit details" });
-    const mouseRelease = new Event("pointerup", { bubbles: true, cancelable: true });
-    Object.defineProperties(mouseRelease, {
+    const mousePress = new Event("pointerdown", { bubbles: true, cancelable: true });
+    Object.defineProperties(mousePress, {
       button: { value: 0 },
       pointerType: { value: "mouse" },
     });
 
-    fireEvent(editButton, mouseRelease);
+    fireEvent(editButton, mousePress);
+
+    expect(view.container.querySelector(".s-payment-editor")?.getAttribute("data-mode")).toBe(
+      "edit",
+    );
+    expect(screen.getByLabelText<HTMLInputElement>("Account owner")).toBeTruthy();
+  });
+
+  it("opens real payment inputs from the desktop keyboard path", () => {
+    const view = renderGettingPaid();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Edit details" }), { key: "Enter" });
 
     expect(view.container.querySelector(".s-payment-editor")?.getAttribute("data-mode")).toBe(
       "edit",
