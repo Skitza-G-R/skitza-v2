@@ -759,13 +759,22 @@ function IntegrationsSection({
                     type="button"
                     className="s-btn s-payment-edit-button"
                     onClick={beginEditing}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      beginEditing();
+                    }}
+                    onPointerDown={(event) => {
+                      // Desktop must enter edit mode before the Settings swipe
+                      // surface can capture the pointer and retarget its release.
+                      if (event.pointerType === "touch" || event.button !== 0) return;
+                      beginEditing();
+                    }}
                     onPointerUp={(event) => {
-                      // The Settings swipe surface can consume the follow-up
-                      // click after a native pointer gesture. Enter edit mode
-                      // on the primary release for desktop and mobile alike;
-                      // onClick remains the keyboard/synthetic fallback.
-                      if (event.button !== 0) return;
-                      if (event.pointerType === "touch") event.preventDefault();
+                      // Keep the working iPhone path on touch release so a
+                      // swipe does not open the editor on its initial press.
+                      if (event.pointerType !== "touch" || event.button !== 0) return;
+                      event.preventDefault();
                       beginEditing();
                     }}
                     disabled={disabled}
