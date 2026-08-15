@@ -16,7 +16,7 @@
 
 **Current combined/deployed source:** `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`
 
-**Current local desktop source:** `339df7eca0444ddf1e95f4080f6acd975bb66ab6`
+**Current local desktop source:** `8da6899497dd67631e0588d14bc8480769ab0730`
 
 **Target branch:** `v3-clean`
 
@@ -31,7 +31,7 @@ A large, tested foundation exists:
 - an Apple Silicon Tauri app opens the real Skitza interface;
 - the Mac menu-bar icon, Open, close-to-hide, Quit, single-instance behavior,
   secure origin boundary, and private social-auth callback are implemented;
-- the web app has the desktop bridge, safe-screen and recent-audio behavior,
+- the web app has the desktop bridge, recent-audio behavior,
   session validation, proof instrumentation, and desktop auth endpoints;
 - the one-use desktop auth-code database migration is already present in the
   canonical production database; and
@@ -95,11 +95,37 @@ origin and Clerk's exact production session-handshake path at
 `https://clerk.skitza.app/v1/client/handshake`, which is required to return the
 signed-in WebView to Skitza.
 
+## August 15 final desktop loading decision
+
+Gili reported two unwanted desktop-only surfaces: **Checking your secure
+session…** and the old **Saved studio activity** screen. Her final decision is
+that neither may be visible in the desktop app.
+
+The implementation plan and result are:
+
+- keep the live account validation for security, but cover it with the same
+  moving orange Skitza loader used at startup;
+- stop advertising the desktop saved-screen-preview capability, so the old
+  cached screen is not selected during navigation;
+- keep watching protected desktop pages after startup and put the loader back
+  before any checking, cached, resume, or scaffold surface can paint;
+- mount the loader first and only then complete Close-to-hide, preventing an
+  immediate reopen flash; and
+- change no live website file and make no website deployment.
+
+The implementation is commit `8da6899497dd67631e0588d14bc8480769ab0730`.
+Focused Node and Rust tests cover the bridge capability, loader lifecycle,
+later DOM changes, exact-origin command permission, and close ordering. The
+rebuilt Apple Silicon app showed the moving Skitza loader and then the real
+live Overview page. It did not show either reported screen. Normal desktop
+navigation showed the live website's own loading skeleton and then current
+server data, not the old saved preview.
+
 ## Immediate plan to make the local Mac app usable
 
 The Mac app is a secure window that loads `skitza.app`. It is not a separate
 copy of the website. Therefore the live website must contain the small desktop
-connection layer for login, session checks, saved screens, and social sign-in.
+connection layer for login, session checks, recent audio, and social sign-in.
 
 In simple terms:
 
@@ -351,20 +377,27 @@ For the final local-startup change at `339df7ec`, workspace typecheck and lint,
 passed. The installed app was also visually checked from the animated loader
 through the production Clerk handshake to the real signed-in dashboard.
 
+For the desktop loading fix at `8da68994`, 18 desktop Node tests, 39 debug and
+39 optimized Rust tests, 18 no-default-feature Rust tests, workspace typecheck,
+workspace lint, the full repository test suite, and the full optimized build
+passed. A real Mac check covered cold startup, live Overview navigation, and
+Close-to-hide. Neither forbidden screen appeared. No website file was changed
+or deployed for this fix.
+
 ### 10. Local Mac artifact
 
 The latest locally rebuilt app is:
 
 `apps/desktop/src-tauri/target/release/bundle/macos/Skitza.app`
 
-The identical installed copy is:
+The installed local copy is:
 
 `/Applications/Skitza.app`
 
 Recorded properties:
 
 - website source: `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
-- local desktop source: `339df7eca0444ddf1e95f4080f6acd975bb66ab6`;
+- local desktop source: `8da6899497dd67631e0588d14bc8480769ab0730`;
 - Apple Silicon `arm64` executable;
 - bundle identifier `app.skitza.desktop`;
 - version `0.1.0`;
@@ -372,9 +405,8 @@ Recorded properties:
 - locally ad-hoc signed; and
 - strict local code-signature verification passed.
 
-The final locally signed installed executable has SHA-256:
-
-`d0dbdddc16313d354fbd8edb1db7416fa22352c1e80f360f2243e588a5006d8c`
+The installed copy was rebuilt and locally signed again for the desktop loading
+fix recorded below. The earlier executable digest is therefore superseded.
 
 This is a local proof artifact, not a distributable installer. It is not
 Developer ID signed or notarized.
@@ -405,6 +437,7 @@ Developer ID signed or notarized.
 | `39d5f304` | Added the full implementation handoff.          |
 | `b108f48a` | Restored the orange Skitza desktop icon.         |
 | `339df7ec` | Finished direct Mac startup and full tray mark.  |
+| `8da68994` | Hid stale session and saved-activity screens.    |
 
 ## Deployment record
 
@@ -431,7 +464,7 @@ At the time of this handoff:
 - current combined source and PR head before this documentation update:
   `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
 - current verified local desktop source:
-  `339df7eca0444ddf1e95f4080f6acd975bb66ab6`;
+  `8da6899497dd67631e0588d14bc8480769ab0730`;
 - all 20 pre-refresh commits were retained patch-identically by range-diff;
 - the branch is directly based on current `origin/v3-clean` with no base commit
   missing;
@@ -440,8 +473,8 @@ At the time of this handoff:
   `apps/web/src/components/dashboard/clients-projects/producer-projects-list.tsx`
   keeps both the latest mobile-width fix and the desktop meaningful-content
   marker; and
-- this execution record is the only worktree change after the verified and
-  deployed source.
+- the desktop loading fix is local-only and is not deployed to the website;
+  this execution record documents that final desktop change.
 
 The desktop migration source file is on PR #351 but not yet on current
 `v3-clean`, even though its exact immutable filename is already in the live
