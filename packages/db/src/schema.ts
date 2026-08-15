@@ -1703,6 +1703,7 @@ export const bookingCalendarLinks = pgTable(
     syncStateChangedAt: timestamp("sync_state_changed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    attentionDismissedAt: timestamp("attention_dismissed_at", { withTimezone: true }),
     lastInboundReconciledAt: timestamp("last_inbound_reconciled_at", { withTimezone: true }),
     lastSyncErrorCode: googleCalendarSyncErrorCode("last_sync_error_code"),
     desiredRevision: integer("desired_revision").notNull(),
@@ -1868,6 +1869,10 @@ export const bookingCalendarLinks = pgTable(
       sql`(
         ${t.updatedAt} >= ${t.createdAt}
         AND ${t.syncStateChangedAt} >= ${t.createdAt}
+        AND (
+          ${t.attentionDismissedAt} IS NULL
+          OR ${t.attentionDismissedAt} >= ${t.createdAt}
+        )
         AND (
           ${t.lastInboundReconciledAt} IS NULL
           OR ${t.lastInboundReconciledAt} >= ${t.createdAt}

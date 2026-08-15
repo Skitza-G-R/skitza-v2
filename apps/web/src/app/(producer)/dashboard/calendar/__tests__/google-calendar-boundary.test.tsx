@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(() => Promise.resolve({ ok: true as const })),
   disconnect: vi.fn(() => Promise.resolve({ ok: true as const })),
   repair: vi.fn(() => Promise.resolve({ ok: true as const })),
+  clear: vi.fn(() => Promise.resolve({ ok: true as const })),
   routerRefresh: vi.fn(),
   toast: vi.fn(),
 }));
@@ -35,6 +36,7 @@ vi.mock("../google-calendar-actions", () => ({
   refreshGoogleCalendarCalendars: mocks.refresh,
   disconnectGoogleCalendar: mocks.disconnect,
   repairGoogleCalendarSync: mocks.repair,
+  clearGoogleCalendarSyncIssue: mocks.clear,
 }));
 
 import { GoogleCalendarControlBoundary } from "../google-calendar-control-boundary";
@@ -46,6 +48,7 @@ afterEach(() => {
   mocks.refresh.mockClear();
   mocks.disconnect.mockClear();
   mocks.repair.mockClear();
+  mocks.clear.mockClear();
   mocks.routerRefresh.mockClear();
   mocks.toast.mockClear();
   vi.restoreAllMocks();
@@ -103,11 +106,19 @@ describe("GoogleCalendarControlBoundary", () => {
     });
     await expect(actions.disconnect()).resolves.toEqual({ ok: false, reason: "offline" });
     await expect(actions.repairSync()).resolves.toEqual({ ok: false, reason: "offline" });
+    await expect(
+      actions.clearSyncIssue({
+        bookingId: "00000000-0000-4000-8000-000000000004",
+        syncState: "missing",
+        stateChangedAtIso: "2026-08-15T11:00:00.000Z",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "offline" });
     expect(navigate).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(mocks.disconnect).not.toHaveBeenCalled();
     expect(mocks.repair).not.toHaveBeenCalled();
+    expect(mocks.clear).not.toHaveBeenCalled();
   });
 
   it("forwards only opaque selection keys to the server action", async () => {
@@ -126,12 +137,19 @@ describe("GoogleCalendarControlBoundary", () => {
     await actions.refreshCalendars();
     await actions.disconnect();
     await actions.repairSync();
+    const issue = {
+      bookingId: "00000000-0000-4000-8000-000000000004",
+      syncState: "missing" as const,
+      stateChangedAtIso: "2026-08-15T11:00:00.000Z",
+    };
+    await actions.clearSyncIssue(issue);
 
     expect(mocks.save).toHaveBeenCalledWith(selection);
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     expect(mocks.disconnect).toHaveBeenCalledTimes(1);
     expect(mocks.repair).toHaveBeenCalledWith({ forcePending: true });
-    expect(mocks.routerRefresh).toHaveBeenCalledTimes(1);
+    expect(mocks.clear).toHaveBeenCalledWith(issue);
+    expect(mocks.routerRefresh).toHaveBeenCalledTimes(2);
   });
 
   it("automatically wakes due retries while a connected calendar is still syncing", async () => {

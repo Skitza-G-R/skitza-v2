@@ -1,7 +1,15 @@
 "use client";
 
-import { ArrowRight, CalendarSync, Check, CircleAlert, Loader2, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  CalendarSync,
+  Check,
+  CircleAlert,
+  Loader2,
+  Pencil,
+  ShieldCheck,
+} from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -24,6 +32,7 @@ import {
   type GoogleCalendarControlActions,
   type GoogleCalendarOption,
   type GoogleCalendarSelection,
+  type GoogleCalendarSyncIssueIdentity,
   type GoogleCalendarSyncSummary,
   type GoogleCalendarUiModel,
 } from "./google-calendar-ui-model";
@@ -31,6 +40,8 @@ import {
 export type GoogleCalendarControlView =
   | "summary"
   | "selection"
+  | "destination_selection"
+  | "busy_selection"
   | "switch_confirmation"
   | "disconnect_confirmation";
 type PendingAction = keyof GoogleCalendarControlActions;
@@ -61,6 +72,9 @@ export function GoogleCalendarControl({
   );
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [dismissedIssueKeys, setDismissedIssueKeys] = useState<readonly string[]>([]);
+  const [clearingIssueKey, setClearingIssueKey] = useState<string | null>(null);
+  const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const initialSelection = selectionFromModel(model);
   const [destinationSelectionKey, setDestinationSelectionKey] = useState<string | null>(
@@ -88,6 +102,10 @@ export function GoogleCalendarControl({
     if (shouldOpenAutomatically(model)) setDialogOpen(true);
   }, [defaultView, model, setDialogOpen]);
 
+  useLayoutEffect(() => {
+    if (dialogContentRef.current) dialogContentRef.current.scrollTop = 0;
+  }, [view]);
+
   const calendars = calendarsFromModel(model);
   const validDestination = useMemo(() => {
     const destination = findGoogleCalendarOption(calendars, destinationSelectionKey);
@@ -100,6 +118,17 @@ export function GoogleCalendarControl({
     return busySelectionKeys.filter((selectionKey) => available.has(selectionKey));
   }, [busySelectionKeys, calendars]);
   const selectionValid = validDestination !== null && validBusySelectionKeys.length > 0;
+  const locallySelectedModel: GoogleCalendarUiModel =
+    model.status === "connected" && validDestination && validBusySelectionKeys.length > 0
+      ? {
+          ...model,
+          selection: {
+            destinationSelectionKey: validDestination.selectionKey,
+            busySelectionKeys: validBusySelectionKeys,
+          },
+        }
+      : model;
+  const visibleModel = hideDismissedSyncIssues(locallySelectedModel, dismissedIssueKeys);
 
   function handleDialogOpenChange(next: boolean) {
     if (pendingAction) return;
@@ -160,7 +189,8 @@ export function GoogleCalendarControl({
       () => actions.saveSelection(selection),
       () => {
         toast("Calendar choices saved.", "success");
-        setDialogOpen(false);
+        if (model.status === "connected") setView("summary");
+        else setDialogOpen(false);
       },
     );
   }
@@ -182,6 +212,17 @@ export function GoogleCalendarControl({
     await runAction("repairSync", actions.repairSync);
   }
 
+  async function clearSyncIssue(issue: GoogleCalendarSyncIssueIdentity) {
+    const issueKey = syncIssueKey(issue);
+    setClearingIssueKey(issueKey);
+    const cleared = await runAction("clearSyncIssue", () => actions.clearSyncIssue(issue));
+    if (cleared) {
+      setDismissedIssueKeys((current) => [...new Set([...current, issueKey])]);
+      toast("Sync warning cleared.", "success");
+    }
+    setClearingIssueKey(null);
+  }
+
   const pendingMessage = pendingAction ? actionPendingCopy(pendingAction) : null;
 
   return (
@@ -191,22 +232,29 @@ export function GoogleCalendarControl({
           type="button"
           variant="secondary"
           size="icon"
-          disabled={model.status === "connecting"}
-          aria-label={triggerAriaLabel(model)}
-          aria-busy={model.status === "connecting" ? "true" : undefined}
+          disabled={visibleModel.status === "connecting"}
+          aria-label={triggerAriaLabel(visibleModel)}
+          aria-busy={visibleModel.status === "connecting" ? "true" : undefined}
           className="relative h-11 w-11 shrink-0 rounded-[var(--radius-lg)] lg:h-10 lg:w-auto lg:rounded-[var(--radius-md)] lg:px-3"
         >
-          {model.status === "connecting" ? (
+          {visibleModel.status === "connecting" ? (
             <Loader2 className="motion-reduce:animate-none" size={17} aria-hidden />
           ) : (
             <CalendarSync size={17} aria-hidden />
           )}
-          <span className="hidden lg:inline">{triggerVisibleLabel(model)}</span>
-          <TriggerStatusDot model={model} />
+          <span className="hidden lg:inline">{triggerVisibleLabel(visibleModel)}</span>
+          <TriggerStatusDot model={visibleModel} />
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="max-h-[90dvh] gap-0 overflow-y-auto p-0 sm:max-w-[620px]">
+      <DialogContent
+        ref={dialogContentRef}
+        className={`max-h-[90dvh] gap-0 overflow-y-auto p-0 ${
+          view === "destination_selection" || view === "busy_selection"
+            ? "sm:max-w-[500px]"
+            : "sm:max-w-[620px]"
+        }`}
+      >
         {view === "switch_confirmation" && canSwitchGoogleAccount(model) ? (
           <AccountSwitchConfirmation
             currentAccountLabel={model.accountLabel}
@@ -230,6 +278,32 @@ export function GoogleCalendarControl({
               setView("summary");
             }}
             onDisconnect={() => void disconnect()}
+          />
+        ) : (view === "destination_selection" || view === "busy_selection") &&
+          model.status === "connected" ? (
+          <CompactCalendarSelectionPanel
+            kind={view === "destination_selection" ? "destination" : "busy"}
+            model={model}
+            destinationSelectionKey={destinationSelectionKey}
+            busySelectionKeys={busySelectionKeys}
+            pendingAction={pendingAction}
+            feedback={feedback}
+            pendingMessage={pendingMessage}
+            onDestinationChange={setDestinationSelectionKey}
+            onBusyChange={(selectionKey, selected) => {
+              setBusySelectionKeys((current) => {
+                if (selected) return [...new Set([...current, selectionKey])];
+                return current.filter((value) => value !== selectionKey);
+              });
+            }}
+            onCancel={() => {
+              const selection = selectionFromModel(model);
+              setDestinationSelectionKey(selection?.destinationSelectionKey ?? null);
+              setBusySelectionKeys(selection?.busySelectionKeys ?? []);
+              setFeedback(null);
+              setView("summary");
+            }}
+            onSave={() => void saveSelection()}
           />
         ) : view === "selection" && hasCalendarSelection(model) ? (
           model.calendars.length === 0 ? (
@@ -272,7 +346,7 @@ export function GoogleCalendarControl({
           )
         ) : (
           <SummaryPanel
-            model={model}
+            model={visibleModel}
             pendingAction={pendingAction}
             feedback={feedback}
             pendingMessage={pendingMessage}
@@ -283,6 +357,14 @@ export function GoogleCalendarControl({
               setFeedback(null);
               setView("selection");
             }}
+            onEditDestination={() => {
+              setFeedback(null);
+              setView("destination_selection");
+            }}
+            onEditBusy={() => {
+              setFeedback(null);
+              setView("busy_selection");
+            }}
             onSwitch={() => {
               setFeedback(null);
               setView("switch_confirmation");
@@ -292,6 +374,8 @@ export function GoogleCalendarControl({
               setView("disconnect_confirmation");
             }}
             onRepair={() => void repairSync()}
+            onClearSyncIssue={(issue) => void clearSyncIssue(issue)}
+            clearingIssueKey={clearingIssueKey}
           />
         )}
       </DialogContent>
@@ -308,9 +392,13 @@ function SummaryPanel({
   onConnect,
   onReconnect,
   onEdit,
+  onEditDestination,
+  onEditBusy,
   onSwitch,
   onDisconnect,
   onRepair,
+  onClearSyncIssue,
+  clearingIssueKey,
 }: {
   model: GoogleCalendarUiModel;
   pendingAction: PendingAction | null;
@@ -320,9 +408,13 @@ function SummaryPanel({
   onConnect: () => void;
   onReconnect: () => void;
   onEdit: () => void;
+  onEditDestination: () => void;
+  onEditBusy: () => void;
   onSwitch: () => void;
   onDisconnect: () => void;
   onRepair: () => void;
+  onClearSyncIssue: (issue: GoogleCalendarSyncIssueIdentity) => void;
+  clearingIssueKey: string | null;
 }) {
   if (model.status === "not_connected" || model.status === "connecting") {
     const connecting = model.status === "connecting" || pendingAction === "connect";
@@ -471,19 +563,20 @@ function SummaryPanel({
             timeZone={timeZone}
             onRepair={onRepair}
             repairPending={pendingAction === "repairSync"}
+            actionPending={pendingAction !== null}
+            onClear={onClearSyncIssue}
+            clearingIssueKey={clearingIssueKey}
           />
-          <CalendarRoutingSummary destination={destination} busyCalendars={busyCalendars} />
+          <CalendarRoutingSummary
+            destination={destination}
+            busyCalendars={busyCalendars}
+            disabled={pendingAction !== null}
+            onEditDestination={onEditDestination}
+            onEditBusy={onEditBusy}
+          />
         </div>
         <PanelFooter feedback={feedback} pendingMessage={pendingMessage} mobileStatic>
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-row-reverse sm:items-center">
-            <Button
-              type="button"
-              className="col-span-2"
-              disabled={pendingAction !== null}
-              onClick={onEdit}
-            >
-              Edit calendars
-            </Button>
             <Button
               type="button"
               variant="secondary"
@@ -759,16 +852,113 @@ function CalendarSelectionPanel({
   );
 }
 
+function CompactCalendarSelectionPanel({
+  kind,
+  model,
+  destinationSelectionKey,
+  busySelectionKeys,
+  pendingAction,
+  feedback,
+  pendingMessage,
+  onDestinationChange,
+  onBusyChange,
+  onCancel,
+  onSave,
+}: {
+  kind: "destination" | "busy";
+  model: Extract<GoogleCalendarUiModel, { status: "connected" }>;
+  destinationSelectionKey: string | null;
+  busySelectionKeys: readonly string[];
+  pendingAction: PendingAction | null;
+  feedback: string | null;
+  pendingMessage: string | null;
+  onDestinationChange: (selectionKey: string) => void;
+  onBusyChange: (selectionKey: string, selected: boolean) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const destination = findGoogleCalendarOption(model.calendars, destinationSelectionKey);
+  const destinationValid = Boolean(
+    destination && canUseAsGoogleCalendarDestination(destination.accessRole),
+  );
+  const busySelectionValid = busySelectionKeys.some((selectionKey) =>
+    model.calendars.some((calendar) => calendar.selectionKey === selectionKey),
+  );
+  const selectionValid = kind === "destination" ? destinationValid : busySelectionValid;
+  const pending = pendingAction !== null;
+  const title = kind === "destination" ? "Events go to" : "Busy time comes from";
+  const description =
+    kind === "destination"
+      ? "Choose the one calendar where Skitza creates and updates sessions."
+      : "Choose the calendars that block unavailable booking times.";
+
+  return (
+    <>
+      <PanelHeader eyebrow="Calendar setup" title={title} description={description} />
+      <fieldset disabled={pending} className="px-5 py-4 sm:px-6">
+        <legend className="sr-only">{title}</legend>
+        <div className="max-h-[min(48dvh,360px)] space-y-2 overflow-y-auto pr-1">
+          {model.calendars.map((calendar) => (
+            <CalendarOptionRow
+              key={calendar.selectionKey}
+              calendar={calendar}
+              kind={kind}
+              checked={
+                kind === "destination"
+                  ? destinationSelectionKey === calendar.selectionKey
+                  : busySelectionKeys.includes(calendar.selectionKey)
+              }
+              compact
+              disabled={
+                kind === "destination"
+                  ? !canUseAsGoogleCalendarDestination(calendar.accessRole)
+                  : false
+              }
+              onChange={(checked) => {
+                if (kind === "destination") {
+                  if (checked) onDestinationChange(calendar.selectionKey);
+                  return;
+                }
+                onBusyChange(calendar.selectionKey, checked);
+              }}
+            />
+          ))}
+        </div>
+        {!selectionValid ? (
+          <p className="mt-3 text-[11.5px] text-[rgb(var(--fg-warning-text))]">
+            {kind === "destination"
+              ? "Choose a calendar Skitza can edit."
+              : "Choose at least one busy-time calendar."}
+          </p>
+        ) : null}
+      </fieldset>
+      <PanelFooter feedback={feedback} pendingMessage={pendingMessage} mobileStatic>
+        <Button type="button" variant="secondary" disabled={pending} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="button" disabled={pending || !selectionValid} onClick={onSave}>
+          {pendingAction === "saveSelection" ? (
+            <Loader2 className="animate-spin motion-reduce:animate-none" size={16} aria-hidden />
+          ) : null}
+          {kind === "destination" ? "Save destination" : "Save busy calendars"}
+        </Button>
+      </PanelFooter>
+    </>
+  );
+}
+
 function CalendarOptionRow({
   calendar,
   kind,
   checked,
+  compact = false,
   disabled,
   onChange,
 }: {
   calendar: GoogleCalendarOption;
   kind: "destination" | "busy";
   checked: boolean;
+  compact?: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
 }) {
@@ -776,7 +966,8 @@ function CalendarOptionRow({
   return (
     <label
       className={[
-        "grid min-h-14 cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors motion-reduce:transition-none",
+        "grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-[var(--radius-md)] border px-3 transition-colors motion-reduce:transition-none",
+        compact ? "min-h-12 py-2" : "min-h-14 py-2.5",
         checked
           ? "border-[rgb(var(--brand-primary)/0.55)] bg-[rgb(var(--brand-primary)/0.07)]"
           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] hover:border-[rgb(var(--border-strong))]",
@@ -1128,9 +1319,15 @@ function AccountCard({ label, value }: { label: string; value: string }) {
 function CalendarRoutingSummary({
   destination,
   busyCalendars,
+  disabled,
+  onEditDestination,
+  onEditBusy,
 }: {
   destination: GoogleCalendarOption | null;
   busyCalendars: readonly GoogleCalendarOption[];
+  disabled: boolean;
+  onEditDestination: () => void;
+  onEditBusy: () => void;
 }) {
   return (
     <section aria-label="Calendar setup">
@@ -1142,11 +1339,15 @@ function CalendarRoutingSummary({
           label="Events go to"
           calendars={destination ? [destination] : []}
           emptyCopy="Choose a destination calendar"
+          disabled={disabled}
+          onEdit={onEditDestination}
         />
         <CalendarRouteRow
           label="Busy time comes from"
           calendars={busyCalendars}
           emptyCopy="Choose a busy-time calendar"
+          disabled={disabled}
+          onEdit={onEditBusy}
         />
       </dl>
     </section>
@@ -1157,20 +1358,37 @@ function CalendarRouteRow({
   label,
   calendars,
   emptyCopy,
+  disabled,
+  onEdit,
 }: {
   label: string;
   calendars: readonly GoogleCalendarOption[];
   emptyCopy: string;
+  disabled: boolean;
+  onEdit: () => void;
 }) {
   return (
-    <div className="grid gap-1.5 px-3.5 py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-start sm:gap-4">
+    <div className="grid min-w-0 gap-1 px-3.5 py-2.5 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-center sm:gap-4">
       <dt className="text-[11.5px] font-medium text-[rgb(var(--fg-muted))]">{label}</dt>
-      <dd className="min-w-0 text-[12.5px] font-bold break-words text-[rgb(var(--fg-default))] sm:text-right">
-        {calendars.length > 0 ? (
-          calendars.map((calendar) => calendar.name).join(", ")
-        ) : (
-          <span className="font-medium text-[rgb(var(--fg-warning-text))]">{emptyCopy}</span>
-        )}
+      <dd className="flex min-w-0 items-center justify-between gap-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))] sm:justify-end">
+        <span className="min-w-0 break-words sm:text-right">
+          {calendars.length > 0 ? (
+            calendars.map((calendar) => calendar.name).join(", ")
+          ) : (
+            <span className="font-medium text-[rgb(var(--fg-warning-text))]">{emptyCopy}</span>
+          )}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 rounded-full text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+          aria-label={`Edit ${label}`}
+          disabled={disabled}
+          onClick={onEdit}
+        >
+          <Pencil size={14} strokeWidth={2.2} aria-hidden />
+        </Button>
       </dd>
     </div>
   );
@@ -1182,12 +1400,18 @@ function SyncHealthSummary({
   timeZone = "UTC",
   onRepair,
   repairPending = false,
+  actionPending = false,
+  onClear,
+  clearingIssueKey,
 }: {
   summary: GoogleCalendarSyncSummary;
   disconnected?: boolean;
   timeZone?: string;
   onRepair?: () => void;
   repairPending?: boolean;
+  actionPending?: boolean;
+  onClear?: (issue: GoogleCalendarSyncIssueIdentity) => void;
+  clearingIssueKey?: string | null;
 }) {
   const attention = summary.notSynced + summary.missing + summary.conflicts;
   const title = disconnected
@@ -1246,7 +1470,7 @@ function SyncHealthSummary({
         <ul className="divide-y divide-[rgb(var(--border-subtle))] border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.78)]">
           {summary.issues.map((issue) => (
             <li
-              key={issue.bookingId}
+              key={syncIssueKey(issue)}
               className="grid gap-1.5 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(170px,0.8fr)] sm:gap-5"
             >
               <div className="min-w-0">
@@ -1257,9 +1481,37 @@ function SyncHealthSummary({
                   {formatSyncIssueTime(issue.startsAtIso, issue.durationMin, timeZone)}
                 </p>
               </div>
-              <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-warning-text))] sm:text-right">
-                {syncIssueCopy(issue)}
-              </p>
+              <div className="min-w-0 sm:text-right">
+                <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-warning-text))]">
+                  {syncIssueCopy(issue)}
+                </p>
+                {!disconnected && onClear ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 h-7 rounded-[var(--radius-sm)] px-2 text-[11px] text-[rgb(var(--fg-secondary))]"
+                    aria-label={`Clear warning for ${issue.artistName}`}
+                    disabled={actionPending}
+                    onClick={() => {
+                      onClear({
+                        bookingId: issue.bookingId,
+                        syncState: issue.syncState,
+                        stateChangedAtIso: issue.stateChangedAtIso,
+                      });
+                    }}
+                  >
+                    {clearingIssueKey === syncIssueKey(issue) ? (
+                      <Loader2
+                        className="animate-spin motion-reduce:animate-none"
+                        size={13}
+                        aria-hidden
+                      />
+                    ) : null}
+                    {clearingIssueKey === syncIssueKey(issue) ? "Clearing…" : "Clear"}
+                  </Button>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>
@@ -1272,7 +1524,7 @@ function SyncHealthSummary({
             variant="secondary"
             size="sm"
             className="rounded-[var(--radius-sm)]"
-            disabled={repairPending}
+            disabled={actionPending}
             onClick={onRepair}
           >
             {repairPending ? (
@@ -1318,6 +1570,40 @@ function syncIssueCopy(issue: GoogleCalendarSyncSummary["issues"][number]): stri
     return "Google change could not be used. Skitza time was kept.";
   }
   return "Could not sync this session to Google.";
+}
+
+function syncIssueKey(issue: GoogleCalendarSyncIssueIdentity): string {
+  return `${issue.bookingId}:${issue.syncState}:${issue.stateChangedAtIso}`;
+}
+
+function hideDismissedSyncIssues(
+  model: GoogleCalendarUiModel,
+  dismissedIssueKeys: readonly string[],
+): GoogleCalendarUiModel {
+  if (model.status !== "connected" || dismissedIssueKeys.length === 0) return model;
+  const dismissed = new Set(dismissedIssueKeys);
+  const removed = model.syncSummary.issues.filter((issue) => dismissed.has(syncIssueKey(issue)));
+  if (removed.length === 0) return model;
+
+  let notSynced = model.syncSummary.notSynced;
+  let missing = model.syncSummary.missing;
+  let conflicts = model.syncSummary.conflicts;
+  for (const issue of removed) {
+    if (issue.syncState === "not_synced") notSynced = Math.max(0, notSynced - 1);
+    else if (issue.syncState === "missing") missing = Math.max(0, missing - 1);
+    else conflicts = Math.max(0, conflicts - 1);
+  }
+
+  return {
+    ...model,
+    syncSummary: {
+      ...model.syncSummary,
+      notSynced,
+      missing,
+      conflicts,
+      issues: model.syncSummary.issues.filter((issue) => !dismissed.has(syncIssueKey(issue))),
+    },
+  };
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: "success" | "warning" | "danger" }) {
@@ -1454,6 +1740,8 @@ function actionPendingCopy(action: PendingAction): string {
       return "Disconnecting Google Calendar…";
     case "repairSync":
       return "Trying calendar sync again…";
+    case "clearSyncIssue":
+      return "Clearing sync warning…";
   }
 }
 
@@ -1483,5 +1771,7 @@ function actionFailureCopy(
       return "Could not disconnect Google Calendar. Try again.";
     case "repairSync":
       return "Could not retry calendar sync. Try again.";
+    case "clearSyncIssue":
+      return "Could not clear the sync warning. Try again.";
   }
 }

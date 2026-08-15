@@ -132,6 +132,7 @@ describe("Google Calendar producer presentation", () => {
             artistName: "Lior Tansky",
             startsAt: new Date("2026-08-16T07:00:00.000Z"),
             durationMin: 240,
+            syncStateChangedAt: new Date("2026-08-15T11:00:00.000Z"),
           },
         ],
       },
@@ -146,6 +147,7 @@ describe("Google Calendar producer presentation", () => {
         artistName: "Lior Tansky",
         startsAtIso: "2026-08-16T07:00:00.000Z",
         durationMin: 240,
+        stateChangedAtIso: "2026-08-15T11:00:00.000Z",
       },
     ]);
   });

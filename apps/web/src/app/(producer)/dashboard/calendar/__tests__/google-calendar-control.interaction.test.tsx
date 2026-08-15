@@ -77,6 +77,7 @@ function actionSet(
     confirmAccountSwitch: vi.fn(success),
     disconnect: vi.fn(success),
     repairSync: vi.fn(success),
+    clearSyncIssue: vi.fn(success),
     ...overrides,
   };
 }
@@ -228,8 +229,15 @@ describe("GoogleCalendarControl", () => {
     expect(reconnect).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the configured destination and busy calendars before editing", () => {
-    render(<GoogleCalendarControl model={connectedModel()} actions={actionSet()} defaultOpen />);
+  it("opens compact row-level editors and saves only the selected calendar setting", async () => {
+    const saveSelection = vi.fn(success);
+    render(
+      <GoogleCalendarControl
+        model={connectedModel()}
+        actions={actionSet({ saveSelection })}
+        defaultOpen
+      />,
+    );
 
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: "Google Calendar" })).not.toBeNull();
@@ -240,16 +248,37 @@ describe("GoogleCalendarControl", () => {
     expect(within(dialog).getAllByText("Studio sessions").length).toBeGreaterThan(0);
     expect(within(dialog).getByText(/Studio sessions, Free busy calendar/)).not.toBeNull();
     expect(within(dialog).getByText("Calendar sync is up to date")).not.toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Edit calendars" })).toBeNull();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Edit calendars" }));
-    expect(within(dialog).getByRole("heading", { name: "Choose calendars" })).not.toBeNull();
+    dialog.scrollTop = 240;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit Events go to" }));
+    expect(dialog.scrollTop).toBe(0);
+    expect(within(dialog).getByRole("heading", { name: "Events go to" })).not.toBeNull();
+    expect(within(dialog).queryByText("Busy time comes from")).toBeNull();
     expect(
       within(dialog).getByRole<HTMLInputElement>("radio", { name: /Studio sessions/ }).checked,
     ).toBe(true);
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Writer calendar/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save destination" }));
+
+    await act(() => Promise.resolve());
+    expect(saveSelection).toHaveBeenCalledWith({
+      destinationSelectionKey: "safe-writer",
+      busySelectionKeys: ["safe-primary", "safe-free-busy"],
+    });
+    expect(within(dialog).getByRole("heading", { name: "Google Calendar" })).not.toBeNull();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit Busy time comes from" }));
+    expect(within(dialog).getByRole("heading", { name: "Busy time comes from" })).not.toBeNull();
+    expect(within(dialog).queryByText("Events go to")).toBeNull();
+    expect(within(dialog).queryAllByRole("radio")).toHaveLength(0);
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(calendars.length);
   });
 
-  it("shows the affected session in plain language and lets the producer retry", async () => {
+  it("shows the affected session and lets the producer retry or clear its warning", async () => {
     const repairSync = vi.fn(success);
+    const clearSyncIssue = vi.fn(success);
+    const stateChangedAtIso = "2026-08-15T11:00:00.000Z";
     render(
       <GoogleCalendarControl
         model={{
@@ -267,11 +296,12 @@ describe("GoogleCalendarControl", () => {
                 artistName: "Lior Tansky",
                 startsAtIso: "2026-08-16T07:00:00.000Z",
                 durationMin: 240,
+                stateChangedAtIso,
               },
             ],
           },
         }}
-        actions={actionSet({ repairSync })}
+        actions={actionSet({ clearSyncIssue, repairSync })}
         timeZone="Asia/Jerusalem"
       />,
     );
@@ -289,6 +319,17 @@ describe("GoogleCalendarControl", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Try sync again" }));
     await act(() => Promise.resolve());
     expect(repairSync).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear warning for Lior Tansky" }));
+    await act(() => Promise.resolve());
+    expect(clearSyncIssue).toHaveBeenCalledWith({
+      bookingId: "00000000-0000-4000-8000-000000000201",
+      syncState: "missing",
+      stateChangedAtIso,
+    });
+    expect(within(dialog).queryByText("Lior Tansky")).toBeNull();
+    expect(within(dialog).getByText("3 sessions need attention")).not.toBeNull();
+    expect(mocks.toast).toHaveBeenCalledWith("Sync warning cleared.", "success");
   });
 
   it("renders reconnect safely without any configured calendar", async () => {

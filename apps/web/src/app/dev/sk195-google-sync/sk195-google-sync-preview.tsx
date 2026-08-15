@@ -21,6 +21,7 @@ const MODEL: Extract<GoogleCalendarUiModel, { status: "connected" }> = {
         artistName: "Noam Levi",
         startsAtIso: "2026-08-11T12:30:00.000Z",
         durationMin: 60,
+        stateChangedAtIso: "2026-08-15T11:00:00.000Z",
       },
       {
         bookingId: "00000000-0000-4000-8000-000000000103",
@@ -29,6 +30,7 @@ const MODEL: Extract<GoogleCalendarUiModel, { status: "connected" }> = {
         artistName: "Lior Ben",
         startsAtIso: "2026-08-12T15:00:00.000Z",
         durationMin: 60,
+        stateChangedAtIso: "2026-08-15T11:01:00.000Z",
       },
       {
         bookingId: "00000000-0000-4000-8000-000000000104",
@@ -37,6 +39,7 @@ const MODEL: Extract<GoogleCalendarUiModel, { status: "connected" }> = {
         artistName: "Dana Tal",
         startsAtIso: "2026-08-13T09:00:00.000Z",
         durationMin: 120,
+        stateChangedAtIso: "2026-08-15T11:02:00.000Z",
       },
     ],
   },

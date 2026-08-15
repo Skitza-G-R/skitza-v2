@@ -83,6 +83,7 @@ export type GoogleCalendarConnectionSyncIssue = Readonly<{
   artistName: string;
   startsAt: Date;
   durationMin: number;
+  syncStateChangedAt: Date;
 }>;
 
 export type GoogleCalendarConnectionSyncSummary = Readonly<{
