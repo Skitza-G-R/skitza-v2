@@ -75,7 +75,9 @@ interface EditorShellProps {
   editorLabel?: string;
   stepLabel?: string;
   progressLabel?: string;
+  progressContent?: ReactNode;
   closeLabel?: string;
+  backLabel?: string;
   continueLabel?: string;
   finalNote?: ReactNode | null;
   showDiscard?: boolean;
@@ -114,7 +116,9 @@ export function EditorShell({
   editorLabel: editorLabelOverride,
   stepLabel: stepLabelOverride,
   progressLabel = "Product setup progress",
+  progressContent,
   closeLabel = "Close",
+  backLabel = "← Back",
   continueLabel = "Continue →",
   finalNote: finalNoteOverride,
   showDiscard = true,
@@ -233,7 +237,7 @@ export function EditorShell({
             <h2
               ref={headingRef}
               tabIndex={-1}
-              className="mt-1 leading-none font-[var(--font-syne)] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
+              className="mt-1 leading-none font-[var(--font-syne)] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] outline-none"
               style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
             >
               {title}
@@ -242,7 +246,7 @@ export function EditorShell({
             <DialogPrimitive.Title
               ref={headingRef}
               tabIndex={-1}
-              className="mt-1 leading-none font-[var(--font-syne)] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
+              className="mt-1 leading-none font-[var(--font-syne)] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] outline-none"
               style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
             >
               {title}
@@ -258,11 +262,19 @@ export function EditorShell({
                 {subtitle}
               </DialogPrimitive.Description>
             )
-          ) : null}
+          ) : embedded ? null : (
+            <DialogPrimitive.Description className="sr-only">
+              {editorLabel}
+            </DialogPrimitive.Description>
+          )}
         </div>
-        <div className="mt-4">
-          <StepBar steps={steps} current={current} ariaLabel={progressLabel} />
-        </div>
+        {progressContent === undefined ? (
+          <div className="mt-4">
+            <StepBar steps={steps} current={current} ariaLabel={progressLabel} />
+          </div>
+        ) : progressContent ? (
+          <div className="mt-4">{progressContent}</div>
+        ) : null}
       </div>
 
       <div
@@ -289,7 +301,7 @@ export function EditorShell({
                 disabled={pending}
                 className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
               >
-                ← Back
+                {backLabel}
               </button>
             )}
             {showDiscard ? (

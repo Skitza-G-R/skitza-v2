@@ -25,8 +25,16 @@ export type PrivateOfferTemplateProduct = Readonly<{
   }>;
   terms: PrivateOfferInput;
   pricing: PrivateOfferTemplatePricing;
+  agreementPdf?:
+    | Readonly<{
+        documentId: string;
+        originalFileName: string;
+        sizeBytes: number;
+      }>
+    | null
+    | undefined;
   /** True when required private rights cannot be copied canonically. */
   rightsNeedCompletion: boolean;
-  /** True when the required inline private agreement cannot be copied canonically. */
+  /** True when a legacy agreement link must be replaced or explicitly removed. */
   agreementNeedsCompletion: boolean;
 }>;

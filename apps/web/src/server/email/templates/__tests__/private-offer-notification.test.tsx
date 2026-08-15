@@ -16,16 +16,18 @@ import { ClientInvite } from "../client-invite";
 import { PrivateOfferNotification } from "../private-offer-notification";
 
 describe("private offer notification email", () => {
+  const offerId = "458c42fb-4f42-41ea-9dc3-eaeecfddc21c";
   beforeEach(() => {
     sendEmail.mockReset().mockResolvedValue({ data: { id: "email_1" }, error: null });
   });
 
-  it("contains only a private sign-in prompt and the producer join route", async () => {
+  it("contains only a private sign-in prompt and the exact-offer join route", async () => {
     const html = await render(
       <PrivateOfferNotification
         recipientName="Ada"
         producerName="Gili"
-        openUrl="https://skitza.test/sign-up/join/gili-asraf"
+        openUrl={`https://skitza.test/sign-up/join/gili-asraf/offer/${offerId}`}
+        kind="sent"
       />,
     );
 
@@ -33,17 +35,20 @@ describe("private offer notification email", () => {
     expect(html).toContain("Gili");
     expect(html).toContain("private offer");
     expect(html).toContain("same email address");
-    expect(html).toContain("https://skitza.test/sign-up/join/gili-asraf");
+    expect(html).toContain(`https://skitza.test/sign-up/join/gili-asraf/offer/${offerId}`);
+    expect(html).toContain("Review private offer");
     expect(html).not.toContain("/artist/offers/");
     expect(html).not.toMatch(/Price|Royalty|Deliverables|Agreement/);
     expect(html).toContain("color:#1A1407");
   });
 
-  it("derives a token-free join URL from the producer slug when sending", async () => {
+  it("derives a token-free exact-offer join URL when sending", async () => {
     await sendPrivateOfferNotificationEmail("ada@example.com", {
       recipientName: "Ada",
       producerName: "Gili",
       producerSlug: "gili-asraf",
+      offerId,
+      kind: "sent",
     });
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
@@ -56,7 +61,7 @@ describe("private offer notification email", () => {
       to: "ada@example.com",
       subject: "Gili sent you a private offer",
     });
-    expect(message?.html).toContain("https://skitza.test/sign-up/join/gili-asraf");
+    expect(message?.html).toContain(`https://skitza.test/sign-up/join/gili-asraf/offer/${offerId}`);
     expect(message?.html).not.toContain("/artist/offers/");
   });
 
@@ -71,6 +76,8 @@ describe("private offer notification email", () => {
         recipientName: "Ada",
         producerName: "Gili",
         producerSlug: "gili-asraf",
+        offerId,
+        kind: "sent",
       }),
     ).rejects.toEqual(new Error("Email delivery failed"));
   });

@@ -20,6 +20,12 @@ export type PrivateOfferCompositionRole =
   | "other"
   | "";
 
+export type PrivateOfferAgreementPdfDraft = Readonly<{
+  documentId: string | null;
+  originalFileName: string;
+  sizeBytes: number;
+}>;
+
 export interface PrivateOfferComposerDraft {
   presetId: PrivateOfferPresetId | null;
   recipientKind: "existing" | "new";
@@ -59,6 +65,8 @@ export interface PrivateOfferComposerDraft {
   rights: string;
   revisionMode: PrivateOfferLimitMode;
   revisionCount: string;
+  agreementMode: "none" | "text" | "pdf";
+  agreementPdf: PrivateOfferAgreementPdfDraft | null;
   agreementText: string;
   expiresAtLocal: string;
   rightsNeedCompletion: boolean;
@@ -176,6 +184,8 @@ const PRIVATE_OFFER_DRAFT_KEYS = [
   "rights",
   "revisionMode",
   "revisionCount",
+  "agreementMode",
+  "agreementPdf",
   "agreementText",
   "expiresAtLocal",
   "rightsNeedCompletion",
@@ -300,6 +310,29 @@ export function parsePrivateOfferComposerDraftJson(
       "other",
     ] as const) ||
     !isOneOf(value.revisionMode, ["none", "fixed", "unlimited"] as const)
+  ) {
+    return null;
+  }
+  if (
+    !isOneOf(value.agreementMode, ["none", "text", "pdf"] as const) ||
+    !(
+      value.agreementPdf === null ||
+      (hasExactPrivateOfferDraftKeys(value.agreementPdf, [
+        "documentId",
+        "originalFileName",
+        "sizeBytes",
+      ]) &&
+        (value.agreementPdf.documentId === null ||
+          (typeof value.agreementPdf.documentId === "string" &&
+            /^[0-9a-f-]{36}$/i.test(value.agreementPdf.documentId))) &&
+        typeof value.agreementPdf.originalFileName === "string" &&
+        value.agreementPdf.originalFileName.length > 0 &&
+        value.agreementPdf.originalFileName.length <= 200 &&
+        typeof value.agreementPdf.sizeBytes === "number" &&
+        Number.isSafeInteger(value.agreementPdf.sizeBytes) &&
+        value.agreementPdf.sizeBytes > 0 &&
+        value.agreementPdf.sizeBytes <= 15 * 1024 * 1024)
+    )
   ) {
     return null;
   }
@@ -479,6 +512,7 @@ export function seedPrivateOfferDraft(input: {
     clientContactId: string;
     targetProjectId: string | null;
     terms: PrivateOfferInput;
+    agreementPdf?: PrivateOfferAgreementPdfDraft | null;
     expiresAt: string;
   };
   templateProduct?: PrivateOfferTemplateProduct;
@@ -532,6 +566,18 @@ export function seedPrivateOfferDraft(input: {
     rights: source?.rights.join("\n") ?? "",
     revisionMode: source?.revisionRule === null ? "none" : revision.kind,
     revisionCount: revision.kind === "fixed" ? String(revision.count) : "0",
+    agreementMode:
+      source?.agreementMode ??
+      (input.initialOffer?.agreementPdf || template?.agreementPdf
+        ? "pdf"
+        : source?.agreementText || !template
+          ? "text"
+          : "none"),
+    agreementPdf: input.initialOffer?.agreementPdf
+      ? { ...input.initialOffer.agreementPdf }
+      : template?.agreementPdf
+        ? { ...template.agreementPdf }
+        : null,
     agreementText: source?.agreementText ?? "",
     expiresAtLocal: input.initialOffer
       ? isoToLocalInput(input.initialOffer.expiresAt)
@@ -829,6 +875,7 @@ function royaltyPart(
 function validateRights(draft: PrivateOfferComposerDraft): DraftResult<{
   royaltyTerms: PrivateOfferInput["royaltyTerms"];
   rights: string[];
+  agreementMode: NonNullable<PrivateOfferInput["agreementMode"]>;
   agreementText: string;
 }> {
   let royaltyTerms: PrivateOfferInput["royaltyTerms"] = null;
@@ -892,7 +939,7 @@ function validateRights(draft: PrivateOfferComposerDraft): DraftResult<{
     return draftError("rights", "rights", "Each right must be 1,000 characters or fewer.");
   }
   const agreementText = draft.agreementText.trim();
-  if (!agreementText || draft.agreementNeedsCompletion) {
+  if (draft.agreementMode === "text" && (!agreementText || draft.agreementNeedsCompletion)) {
     return draftError(
       "rights",
       "agreementText",
@@ -906,7 +953,21 @@ function validateRights(draft: PrivateOfferComposerDraft): DraftResult<{
       "Exact agreement must be 50,000 characters or fewer.",
     );
   }
-  return { value: { royaltyTerms, rights, agreementText } };
+  if (draft.agreementMode === "pdf" && draft.agreementPdf === null) {
+    return draftError(
+      "rights",
+      "agreementText",
+      "Attach a valid agreement PDF or explicitly remove the separate agreement.",
+    );
+  }
+  return {
+    value: {
+      royaltyTerms,
+      rights,
+      agreementMode: draft.agreementMode,
+      agreementText: draft.agreementMode === "text" ? agreementText : "",
+    },
+  };
 }
 
 function expiryResult(draft: PrivateOfferComposerDraft): DraftResult<Date> {
@@ -930,6 +991,7 @@ function buildSnapshot(input: {
   rights: {
     royaltyTerms: PrivateOfferInput["royaltyTerms"];
     rights: string[];
+    agreementMode: NonNullable<PrivateOfferInput["agreementMode"]>;
     agreementText: string;
   };
 }): PurchaseCommercialSnapshot {
@@ -963,6 +1025,7 @@ function buildSnapshot(input: {
     rights: rights.rights,
     selectedPaymentPlan: null,
     offeredPaymentPlans: plans,
+    agreementMode: rights.agreementMode,
     agreementText: rights.agreementText,
   };
 }
@@ -1024,6 +1087,7 @@ export function validatePrivateOfferReviewDraft(
     royaltyTerms: rights.value.royaltyTerms,
     rights: rights.value.rights,
     enabledPaymentPlans: plans.value,
+    agreementMode: rights.value.agreementMode,
     agreementText: rights.value.agreementText,
   };
   return {

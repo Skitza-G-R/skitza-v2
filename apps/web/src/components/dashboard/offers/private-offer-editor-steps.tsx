@@ -1,5 +1,8 @@
 "use client";
 
+import { Check, ChevronDown, FileText, Search } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+
 import { PaymentStep } from "~/app/(producer)/dashboard/store/editor-steps/payment-step";
 import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 
@@ -45,6 +48,75 @@ export interface PrivateOfferStepRecipient {
 export interface PrivateOfferStepProject {
   id: string;
   label: string;
+  title?: string;
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function PrivateOfferTopProgress({
+  current,
+  onSelect,
+  sourceName,
+}: {
+  current: "recipient" | "price";
+  onSelect: (step: "recipient" | "price") => void;
+  sourceName: string;
+}) {
+  const priceAvailable = current === "price";
+  return (
+    <div className="min-w-0">
+      <ol aria-label="Private offer editing steps" className="flex min-w-0 items-center">
+        <li>
+          <button
+            type="button"
+            aria-current={current === "recipient" ? "step" : undefined}
+            onClick={() => { onSelect("recipient"); }}
+            className="sk-press flex min-h-10 items-center gap-2 rounded-[var(--radius-lg)] pr-2 text-[12px] font-semibold text-[rgb(var(--fg-default))]"
+          >
+            <span
+              className={`flex h-7 w-7 items-center justify-center rounded-full border text-[11px] ${
+                priceAvailable
+                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
+                  : "border-[rgb(var(--fg-default))] bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
+              }`}
+            >
+              {priceAvailable ? <Check className="h-3.5 w-3.5" aria-hidden /> : "1"}
+            </span>
+            Recipient
+          </button>
+        </li>
+        <li aria-hidden className="mx-2 h-px min-w-5 flex-1 bg-[rgb(var(--border-strong))]" />
+        <li>
+          <button
+            type="button"
+            aria-current={current === "price" ? "step" : undefined}
+            disabled={!priceAvailable}
+            onClick={() => { onSelect("price"); }}
+            className="sk-press flex min-h-10 items-center gap-2 rounded-[var(--radius-lg)] pl-2 text-[12px] font-semibold text-[rgb(var(--fg-default))] disabled:cursor-default"
+          >
+            <span
+              className={`flex h-7 w-7 items-center justify-center rounded-full border text-[11px] ${
+                current === "price"
+                  ? "border-[rgb(var(--fg-default))] bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
+                  : "border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))]"
+              }`}
+            >
+              2
+            </span>
+            Price &amp; terms
+          </button>
+        </li>
+      </ol>
+      <div className="mt-3 min-w-0 border-t border-[rgb(var(--border-subtle))] pt-3">
+        <p className="text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+          Based on
+        </p>
+        <p className="mt-0.5 truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+          {sourceName}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function Label({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
@@ -355,6 +427,322 @@ export function RecipientProjectFields({
   );
 }
 
+function ProjectDestination({
+  idPrefix,
+  draft,
+  projects,
+  projectsStatus,
+  projectsError,
+  onRetryProjects,
+  invalidField,
+  patch,
+  onInteraction,
+  initiallyExpanded = false,
+}: {
+  idPrefix: string;
+  draft: PrivateOfferComposerDraft;
+  projects: readonly PrivateOfferStepProject[];
+  projectsStatus: "idle" | "loading" | "ready" | "error";
+  projectsError?: string;
+  onRetryProjects?: () => void;
+  invalidField: PrivateOfferDraftField | null;
+  patch: PatchDraft;
+  onInteraction?: () => void;
+  initiallyExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(initiallyExpanded || draft.targetKind === "existing");
+
+  useEffect(() => {
+    if (draft.targetKind === "existing") setExpanded(true);
+  }, [draft.targetKind]);
+
+  return (
+    <section className="border-t border-[rgb(var(--border-subtle))] pt-5">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <p className="min-w-0 text-[13px] text-[rgb(var(--fg-secondary))]">
+          <span className="font-semibold text-[rgb(var(--fg-default))]">After acceptance:</span>{" "}
+          {draft.targetKind === "new"
+            ? "A new project will be created"
+            : (projects.find((project) => project.id === draft.targetProjectId)?.title ??
+              "Add to an existing project")}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setExpanded((current) => !current);
+            onInteraction?.();
+          }}
+          className="sk-press min-h-11 shrink-0 rounded-[var(--radius-lg)] px-2.5 text-[12px] font-semibold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.08)] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+        >
+          {expanded ? "Done" : "Change"}
+        </button>
+      </div>
+      {expanded ? (
+        <fieldset
+          {...invalidFieldProps(invalidField, "targetProjectId")}
+          className="mt-4 space-y-2"
+        >
+          <legend className="mb-2 text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+            Where should the work go?
+          </legend>
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-[rgb(var(--border-subtle))] py-2.5 text-[13px] font-medium">
+            <input
+              type="radio"
+              name={`${idPrefix}-project-target`}
+              checked={draft.targetKind === "new"}
+              onChange={() => { patch({ targetKind: "new", targetProjectId: "" }); }}
+              className="h-4 w-4 accent-[rgb(var(--brand-primary))]"
+            />
+            Create a new project
+          </label>
+          {projectsStatus === "loading" || projectsStatus === "idle" ? (
+            <p role="status" className="py-2 text-[12px] text-[rgb(var(--fg-muted))]">
+              Loading this client&apos;s projects…
+            </p>
+          ) : null}
+          {projectsStatus === "ready" && projects.length === 0 ? (
+            <p className="py-2 text-[12px] text-[rgb(var(--fg-muted))]">
+              This client has no available projects.
+            </p>
+          ) : null}
+          {projects.map((project) => (
+            <label
+              key={project.id}
+              className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-[rgb(var(--border-subtle))] py-2.5 text-[13px] font-medium last:border-b-0"
+            >
+              <input
+                type="radio"
+                name={`${idPrefix}-project-target`}
+                checked={draft.targetKind === "existing" && draft.targetProjectId === project.id}
+                onChange={() => { patch({ targetKind: "existing", targetProjectId: project.id }); }}
+                className="h-4 w-4 accent-[rgb(var(--brand-primary))]"
+              />
+              <span className="min-w-0 break-words">{project.title ?? project.label}</span>
+            </label>
+          ))}
+          {projectsStatus === "error" ? (
+            <div className="flex items-center justify-between gap-3 py-2">
+              <p role="alert" className="text-[12px] text-[rgb(var(--fg-danger))]">
+                {projectsError ?? "Could not load this client's projects."}
+              </p>
+              {onRetryProjects ? (
+                <button
+                  type="button"
+                  onClick={onRetryProjects}
+                  className="sk-press min-h-10 shrink-0 rounded-[var(--radius-lg)] px-3 text-[12px] font-semibold text-[rgb(var(--brand-primary-dark))]"
+                >
+                  Retry
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </fieldset>
+      ) : null}
+    </section>
+  );
+}
+
+export function PrivateOfferRecipientStep({
+  idPrefix,
+  draft,
+  recipients,
+  projects,
+  projectsStatus,
+  projectsError,
+  onRetryProjects,
+  invalidField,
+  patch,
+  onInteraction,
+}: {
+  idPrefix: string;
+  draft: PrivateOfferComposerDraft;
+  recipients: readonly PrivateOfferStepRecipient[];
+  projects: readonly PrivateOfferStepProject[];
+  projectsStatus: "idle" | "loading" | "ready" | "error";
+  projectsError?: string;
+  onRetryProjects?: () => void;
+  invalidField: PrivateOfferDraftField | null;
+  patch: PatchDraft;
+  onInteraction?: () => void;
+}) {
+  const listId = `${useId()}-private-offer-recipients`;
+  const selected =
+    draft.recipientKind === "existing"
+      ? recipients.find((recipient) => recipient.id === draft.clientContactId)
+      : null;
+  const [query, setQuery] = useState(
+    selected
+      ? `${selected.name} · ${selected.email}`
+      : draft.recipientKind === "new"
+        ? draft.newRecipientEmail
+        : "",
+  );
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const normalized = query.trim().toLowerCase();
+  const exactEmail = recipients.find(
+    (recipient) => recipient.email.trim().toLowerCase() === normalized,
+  );
+  const filtered = recipients.filter((recipient) => {
+    if (!normalized) return true;
+    return `${recipient.name} ${recipient.email}`.toLowerCase().includes(normalized);
+  });
+  const unknownValidEmail = EMAIL_PATTERN.test(normalized) && !exactEmail;
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => { document.removeEventListener("pointerdown", close); };
+  }, []);
+
+  function chooseExisting(recipient: PrivateOfferStepRecipient) {
+    setQuery(`${recipient.name} · ${recipient.email}`);
+    setOpen(false);
+    patch({
+      recipientKind: "existing",
+      clientContactId: recipient.id,
+      newRecipientName: "",
+      newRecipientEmail: "",
+      targetKind: "new",
+      targetProjectId: "",
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <div ref={rootRef} className="relative">
+        <Label htmlFor={`${idPrefix}-recipient-combobox`}>Recipient</Label>
+        <div className="relative mt-2">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[rgb(var(--fg-faint))]"
+          />
+          <input
+            id={`${idPrefix}-recipient-combobox`}
+            {...invalidFieldProps(invalidField, "clientContactId")}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls={listId}
+            value={query}
+            placeholder="Search clients or enter an email…"
+            autoComplete="off"
+            onFocus={() => { setOpen(true); }}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setOpen(true);
+              patch({
+                recipientKind: "existing",
+                clientContactId: "",
+                newRecipientName: "",
+                newRecipientEmail: "",
+                targetKind: "new",
+                targetProjectId: "",
+              });
+            }}
+            className={`${PRIVATE_OFFER_INPUT_CLASS} pr-10 pl-10`}
+          />
+          <ChevronDown
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-[rgb(var(--fg-muted))]"
+          />
+        </div>
+        {open ? (
+          <div
+            id={listId}
+            role="listbox"
+            className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 shadow-xl"
+          >
+            {(exactEmail ? [exactEmail] : filtered).map((recipient) => (
+              <button
+                key={recipient.id}
+                type="button"
+                role="option"
+                aria-selected={draft.clientContactId === recipient.id}
+                onClick={() => { chooseExisting(recipient); }}
+                className="sk-press block min-h-11 w-full rounded-[var(--radius-md)] px-3 py-2 text-left hover:bg-[rgb(var(--bg-sunken))]"
+              >
+                <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  {recipient.name}
+                </span>
+                <span className="block text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  {recipient.email}
+                </span>
+              </button>
+            ))}
+            {unknownValidEmail ? (
+              <button
+                type="button"
+                role="option"
+                aria-selected={
+                  draft.recipientKind === "new" && draft.newRecipientEmail === normalized
+                }
+                onClick={() => {
+                  setQuery(normalized);
+                  setOpen(false);
+                  patch({
+                    recipientKind: "new",
+                    clientContactId: "",
+                    newRecipientName: "",
+                    newRecipientEmail: normalized,
+                    targetKind: "new",
+                    targetProjectId: "",
+                  });
+                }}
+                className="sk-press block min-h-11 w-full rounded-[var(--radius-md)] px-3 py-2 text-left hover:bg-[rgb(var(--bg-sunken))]"
+              >
+                <span className="block text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] uppercase">
+                  New recipient
+                </span>
+                <span className="mt-0.5 block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  {normalized}
+                </span>
+              </button>
+            ) : null}
+            {filtered.length === 0 && !unknownValidEmail && !exactEmail ? (
+              <p className="px-3 py-3 text-[12px] text-[rgb(var(--fg-muted))]">
+                Enter a complete email address to invite a new recipient.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {draft.recipientKind === "new" && draft.newRecipientEmail ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={`${idPrefix}-new-name`}>Client name</Label>
+          <input
+            id={`${idPrefix}-new-name`}
+            {...invalidFieldProps(invalidField, "newRecipientName")}
+            value={draft.newRecipientName}
+            required
+            maxLength={160}
+            autoComplete="name"
+            onChange={(event) => { patch({ newRecipientName: event.target.value }); }}
+            className={PRIVATE_OFFER_INPUT_CLASS}
+          />
+        </div>
+      ) : null}
+
+      {draft.clientContactId || draft.newRecipientEmail ? (
+        <ProjectDestination
+          idPrefix={idPrefix}
+          draft={draft}
+          projects={draft.recipientKind === "new" ? [] : projects}
+          projectsStatus={draft.recipientKind === "new" ? "ready" : projectsStatus}
+          {...(projectsError ? { projectsError } : {})}
+          {...(onRetryProjects ? { onRetryProjects } : {})}
+          invalidField={invalidField}
+          patch={patch}
+          {...(onInteraction ? { onInteraction } : {})}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function formatMoney(cents: number, currency: string): string {
   try {
     return new Intl.NumberFormat("en-US", {
@@ -380,6 +768,181 @@ function privateOfferPaymentSummary(
     ...(draft.monthlyPlan ? [`Monthly · ${draft.monthlyInstallments || "—"} payments`] : []),
   ];
   return plans.length > 0 ? plans.join(" · ") : "No payment option copied";
+}
+
+export function PrivateOfferCompactPriceStep({
+  idPrefix,
+  draft,
+  sourceName,
+  invalidField,
+  patch,
+  customized,
+  onCustomize,
+  editProject,
+}: {
+  idPrefix: string;
+  draft: PrivateOfferComposerDraft;
+  sourceName: string;
+  invalidField: PrivateOfferDraftField | null;
+  patch: PatchDraft;
+  customized: boolean;
+  onCustomize: () => void;
+  editProject?: {
+    projects: readonly PrivateOfferStepProject[];
+    projectsStatus: "idle" | "loading" | "ready" | "error";
+    projectsError?: string;
+    onRetryProjects?: () => void;
+    onInteraction?: () => void;
+  };
+}) {
+  const priceCents = privateOfferPriceCents(draft.cashPrice);
+  const rate = Number.parseInt(draft.taxRatePct, 10);
+  const tax =
+    priceCents === null
+      ? null
+      : privateOfferTaxBreakdown(priceCents, draft.taxMode, Number.isSafeInteger(rate) ? rate : 0);
+  const currencyOptions = CURRENCIES.includes(draft.currency)
+    ? CURRENCIES
+    : ([draft.currency, ...CURRENCIES].filter(Boolean) as readonly string[]);
+  const inputLabel =
+    draft.taxMode === "tax_added"
+      ? "Your price before VAT"
+      : draft.taxMode === "tax_included"
+        ? "Your price including VAT"
+        : "Your price";
+  const agreementSummary =
+    draft.agreementMode === "pdf"
+      ? "PDF attached"
+      : draft.agreementMode === "text"
+        ? "Written agreement"
+        : "No separate agreement";
+  const expiry = new Date(draft.expiresAtLocal);
+  const expirySummary = Number.isNaN(expiry.getTime())
+    ? "Choose expiry"
+    : `Expires ${new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }).format(expiry)}`;
+
+  return (
+    <div className="space-y-5">
+      {editProject ? (
+        <ProjectDestination
+          idPrefix={`${idPrefix}-edit`}
+          draft={draft}
+          projects={editProject.projects}
+          projectsStatus={editProject.projectsStatus}
+          {...(editProject.projectsError ? { projectsError: editProject.projectsError } : {})}
+          {...(editProject.onRetryProjects ? { onRetryProjects: editProject.onRetryProjects } : {})}
+          invalidField={invalidField}
+          patch={patch}
+          {...(editProject.onInteraction ? { onInteraction: editProject.onInteraction } : {})}
+        />
+      ) : null}
+
+      <section className={editProject ? "border-t border-[rgb(var(--border-subtle))] pt-5" : ""}>
+        <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-end gap-3">
+          <div className="flex min-w-0 flex-col gap-2">
+            <Label htmlFor={`${idPrefix}-compact-price`}>{inputLabel}</Label>
+            <input
+              id={`${idPrefix}-compact-price`}
+              {...invalidFieldProps(invalidField, "cashPrice")}
+              value={draft.cashPrice}
+              required
+              inputMode="decimal"
+              onChange={(event) => {
+                const cashPrice = event.target.value;
+                const next = privateOfferPriceCents(cashPrice);
+                patch({
+                  cashPrice,
+                  ...(next === 0
+                    ? { fullPlan: false, splitPlan: false, monthlyPlan: false }
+                    : next !== null && !draft.fullPlan && !draft.splitPlan && !draft.monthlyPlan
+                      ? { fullPlan: true }
+                      : {}),
+                });
+              }}
+              className={`${PRIVATE_OFFER_INPUT_CLASS} font-amount text-[22px] font-bold tabular-nums`}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${idPrefix}-compact-currency`}>Currency</Label>
+            <select
+              id={`${idPrefix}-compact-currency`}
+              {...invalidFieldProps(invalidField, "currency")}
+              value={draft.currency}
+              onChange={(event) => { patch({ currency: event.target.value }); }}
+              className={PRIVATE_OFFER_INPUT_CLASS}
+            >
+              {currencyOptions.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <dl className="mt-4 space-y-1.5">
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">Client pays</dt>
+            <dd className="font-amount text-[22px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
+              {tax ? formatMoney(tax.totalCents, draft.currency) : "—"}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-4 text-[11.5px] text-[rgb(var(--fg-muted))]">
+            <dt>
+              {draft.taxMode === "tax_added"
+                ? "VAT added"
+                : draft.taxMode === "tax_included"
+                  ? "VAT included"
+                  : "VAT"}
+            </dt>
+            <dd>
+              {draft.taxMode === "tax_free"
+                ? "No VAT added"
+                : tax
+                  ? `${formatMoney(tax.taxCents, draft.currency)} · ${String(rate)}%`
+                  : "—"}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="border-t border-[rgb(var(--border-subtle))] pt-5">
+        <div className="flex items-start gap-2.5">
+          <Check
+            className="mt-0.5 h-4 w-4 shrink-0 text-[rgb(var(--brand-primary-dark))]"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+              {customized ? `Terms based on ${sourceName}` : `Terms copied from ${sourceName}`}
+            </p>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              {privateOfferPaymentSummary(draft, priceCents)} · {agreementSummary} · {expirySummary}
+            </p>
+            {draft.agreementMode === "pdf" && draft.agreementPdf ? (
+              <p className="mt-2 flex min-w-0 items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-secondary))]">
+                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="truncate">{draft.agreementPdf.originalFileName}</span>
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={onCustomize}
+            className="sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.08)] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+          >
+            Customize
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export function PrivateOfferQuickStep({
@@ -1141,11 +1704,19 @@ export function PrivateOfferRightsStep({
   draft,
   invalidField,
   patch,
+  enablePdfAgreement = false,
+  pdfUploadPending = false,
+  onAgreementPdfSelect,
+  onAgreementPdfRemove,
 }: {
   idPrefix: string;
   draft: PrivateOfferComposerDraft;
   invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
+  enablePdfAgreement?: boolean;
+  pdfUploadPending?: boolean;
+  onAgreementPdfSelect?: (file: File) => void;
+  onAgreementPdfRemove?: () => void;
 }) {
   return (
     <div className="space-y-5">
@@ -1280,8 +1851,10 @@ export function PrivateOfferRightsStep({
           className={TEXTAREA_CLASS}
         />
       </div>
-      <div className="flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] pt-5">
-        <Label htmlFor={`${idPrefix}-agreement`}>Exact agreement</Label>
+      <div className="flex flex-col gap-3 border-t border-[rgb(var(--border-subtle))] pt-5">
+        <p className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+          Agreement
+        </p>
         {draft.agreementNeedsCompletion ? (
           <p
             role="alert"
@@ -1291,21 +1864,127 @@ export function PrivateOfferRightsStep({
             sending.
           </p>
         ) : null}
-        <textarea
-          id={`${idPrefix}-agreement`}
-          {...invalidFieldProps(invalidField, "agreementText")}
-          value={draft.agreementText}
-          required
-          maxLength={MAX_AGREEMENT_LENGTH}
-          rows={10}
-          onChange={(event) => {
-            patch({ agreementText: event.target.value, agreementNeedsCompletion: false });
-          }}
-          className={TEXTAREA_CLASS}
-        />
-        <p className="text-right text-[11px] text-[rgb(var(--fg-faint))]">
-          {draft.agreementText.length.toLocaleString()} / {MAX_AGREEMENT_LENGTH.toLocaleString()}
-        </p>
+        {enablePdfAgreement ? (
+          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Agreement type">
+            {(
+              [
+                ["none", "No agreement"],
+                ["pdf", "Upload PDF"],
+                ["text", "Write terms"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={draft.agreementMode === mode}
+                onClick={() => {
+                  if (mode !== "pdf") onAgreementPdfRemove?.();
+                  patch({
+                    agreementMode: mode,
+                    ...(mode === "text" ? {} : { agreementText: "" }),
+                    ...(mode === "pdf" ? {} : { agreementPdf: null }),
+                    agreementNeedsCompletion: false,
+                  });
+                }}
+                className={`sk-press min-h-11 rounded-[var(--radius-lg)] border px-2 text-[12px] font-semibold sm:rounded-[var(--radius-md)] ${
+                  draft.agreementMode === mode
+                    ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
+                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {!enablePdfAgreement || draft.agreementMode === "text" ? (
+          <>
+            <Label htmlFor={`${idPrefix}-agreement`}>Exact agreement</Label>
+            <textarea
+              id={`${idPrefix}-agreement`}
+              {...invalidFieldProps(invalidField, "agreementText")}
+              value={draft.agreementText}
+              required
+              maxLength={MAX_AGREEMENT_LENGTH}
+              rows={10}
+              onChange={(event) => {
+                patch({
+                  agreementMode: "text",
+                  agreementText: event.target.value,
+                  agreementNeedsCompletion: false,
+                });
+              }}
+              className={TEXTAREA_CLASS}
+            />
+            <p className="text-right text-[11px] text-[rgb(var(--fg-faint))]">
+              {draft.agreementText.length.toLocaleString()} /{" "}
+              {MAX_AGREEMENT_LENGTH.toLocaleString()}
+            </p>
+          </>
+        ) : null}
+        {enablePdfAgreement && draft.agreementMode === "pdf" ? (
+          <label
+            onDragOver={(event) => { event.preventDefault(); }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const file = event.dataTransfer.files[0];
+              if (file) onAgreementPdfSelect?.(file);
+            }}
+            className="sk-press flex min-h-36 cursor-pointer flex-col justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-4 text-center hover:border-[rgb(var(--brand-primary))]"
+          >
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              disabled={pdfUploadPending}
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) onAgreementPdfSelect?.(file);
+                event.target.value = "";
+              }}
+            />
+            <FileText
+              className="mx-auto h-5 w-5 text-[rgb(var(--brand-primary-dark))]"
+              aria-hidden
+            />
+            {draft.agreementPdf ? (
+              <>
+                <span className="mt-2 text-[13px] font-semibold break-words text-[rgb(var(--fg-default))]">
+                  {draft.agreementPdf.originalFileName}
+                </span>
+                <span className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  PDF · {(draft.agreementPdf.sizeBytes / 1024 / 1024).toFixed(1)} MB
+                </span>
+                <span className="mt-2 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  {pdfUploadPending
+                    ? "Uploading replacement…"
+                    : "Drop a new PDF here to replace it"}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="mt-2 text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  {pdfUploadPending ? "Uploading…" : "Drop your agreement PDF here"}
+                </span>
+                <span className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  or tap to choose a file
+                </span>
+                <span className="mt-2 text-[11px] text-[rgb(var(--fg-faint))]">
+                  PDF only · up to 15 MB
+                </span>
+              </>
+            )}
+          </label>
+        ) : null}
+        {enablePdfAgreement && draft.agreementMode === "pdf" && draft.agreementPdf ? (
+          <button
+            type="button"
+            onClick={onAgreementPdfRemove}
+            className="sk-press min-h-10 self-start rounded-[var(--radius-lg)] px-2.5 text-[12px] font-semibold text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
+          >
+            Remove agreement
+          </button>
+        ) : null}
       </div>
     </div>
   );

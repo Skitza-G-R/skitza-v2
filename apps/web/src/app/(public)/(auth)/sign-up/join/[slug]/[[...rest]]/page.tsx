@@ -22,6 +22,8 @@ type Props = {
   searchParams: Promise<{ intent?: string | string[] }>;
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default async function JoinSignUpPage({ params, searchParams }: Props) {
   const [{ slug, rest }, query] = await Promise.all([params, searchParams]);
   const explicitAction =
@@ -31,13 +33,17 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
         ? "unlock"
         : rest?.[0] === "home"
           ? "home"
-          : null;
+          : rest?.[0] === "offer"
+            ? "offer"
+            : null;
   // Before Home had its own route marker, normal client invitations used the
   // bare dedicated signup URL. Keep those already-issued links useful by
   // treating the unmarked route as Home. Public Book now carries /book.
   const action = explicitAction ?? "home";
-  const clerkRouteSegments = explicitAction ? rest?.slice(1) : rest;
-  const continuationHref = joinContinuationHref(slug, action);
+  const offerId = action === "offer" && UUID_PATTERN.test(rest?.[1] ?? "") ? rest?.[1] : undefined;
+  if (action === "offer" && !offerId) notFound();
+  const clerkRouteSegments = explicitAction ? rest?.slice(action === "offer" ? 2 : 1) : rest;
+  const continuationHref = joinContinuationHref(slug, action, offerId);
   const postSignUpContinuationHref = continuationHref;
   if (continuationHref === "/") notFound();
 
@@ -60,7 +66,7 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
       routeSegments: clerkRouteSegments,
     })
   ) {
-    redirect(joinSignInHref(slug, action));
+    redirect(joinSignInHref(slug, action, offerId));
   }
 
   const signUpPath = `/sign-up/join/${slug}${
@@ -70,9 +76,11 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
         ? "/unlock"
         : explicitAction === "home"
           ? "/home"
-          : ""
+          : explicitAction === "offer" && offerId
+            ? `/offer/${offerId}`
+            : ""
   }`;
-  const signInHref = joinSignInHref(slug, action);
+  const signInHref = joinSignInHref(slug, action, offerId);
 
   // `path` must NOT be URL-encoded — Clerk uses it as-is for
   // navigation. Slugs are validated before lookup as kebab-case ASCII

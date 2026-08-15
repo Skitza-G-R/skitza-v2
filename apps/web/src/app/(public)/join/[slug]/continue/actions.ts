@@ -27,8 +27,16 @@ import {
 } from "~/server/contacts/join-recovery";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
-function requireJoinAction(action: string): JoinIntentAction {
-  if (action !== "book" && action !== "unlock" && action !== "home" && action !== "store") {
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function requireJoinAction(action: string): JoinContinuationAction {
+  if (
+    action !== "book" &&
+    action !== "unlock" &&
+    action !== "home" &&
+    action !== "store" &&
+    action !== "offer"
+  ) {
     notFound();
   }
   return action === "store" ? "home" : action;
@@ -40,11 +48,15 @@ function requireTrustedJoinAction(action: string): JoinIntentAction {
 }
 
 function completedJoinHref(
-  action: JoinIntentAction,
+  action: JoinContinuationAction,
   target: Parameters<typeof joinArtistHref>[0],
   bookingHref: string,
+  offerId?: string,
 ): string {
   if (action === "book") return bookingHref;
+  if (action === "offer" && offerId && UUID_PATTERN.test(offerId)) {
+    return `/artist/offers/${offerId}`;
+  }
   return joinArtistHref(target);
 }
 
@@ -52,27 +64,33 @@ function redirectForKnownJoinError(
   error: unknown,
   slug: string,
   action: JoinContinuationAction,
+  offerId?: string,
 ): never {
   if (error instanceof JoinContinuationError && error.code === "SELF_JOIN") {
     redirect(`/join/${encodeURIComponent(slug)}`);
   }
   const retryProblem = joinRetryProblem(error);
   if (retryProblem) {
-    redirect(joinRetryHref(slug, action, retryProblem));
+    redirect(joinRetryHref(slug, action, retryProblem, offerId));
   }
   if (isJoinAccountConflict(error)) {
-    redirect(joinAccountConflictHref(slug, action));
+    redirect(joinAccountConflictHref(slug, action, offerId));
   }
   throw error;
 }
 
-export async function continueAsArtist(slug: string, rawAction: string): Promise<never> {
+export async function continueAsArtist(
+  slug: string,
+  rawAction: string,
+  offerId?: string,
+): Promise<never> {
   const action = requireJoinAction(rawAction);
+  if (action === "offer" && (!offerId || !UUID_PATTERN.test(offerId))) notFound();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
   const { userId, providerUserId } = await auth();
-  if (!userId) redirect(joinSignInHref(slug, action));
+  if (!userId) redirect(joinSignInHref(slug, action, offerId));
 
   const target = await findJoinTargetProducer(dbUrl, slug);
   if (!target) notFound();
@@ -80,9 +98,9 @@ export async function continueAsArtist(slug: string, rawAction: string): Promise
   try {
     const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, providerUserId, target });
     clearJoinIntentCookie(await cookies(), process.env.NODE_ENV === "production");
-    redirect(completedJoinHref(action, target, bookingHref));
+    redirect(completedJoinHref(action, target, bookingHref, offerId));
   } catch (error) {
-    redirectForKnownJoinError(error, slug, action);
+    redirectForKnownJoinError(error, slug, action, offerId);
   }
 }
 

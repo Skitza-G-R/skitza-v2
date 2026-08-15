@@ -28,6 +28,7 @@ const SNAPSHOT_KEYS = [
   "selectedPaymentPlan",
   "offeredPaymentPlans",
   "agreementText",
+  "agreementMode",
   "agreementPdf",
 ] as const;
 
@@ -36,6 +37,7 @@ const REQUIRED_SNAPSHOT_KEYS = SNAPSHOT_KEYS.filter(
     key !== "tagline" &&
     key !== "service" &&
     key !== "bookingEnabled" &&
+    key !== "agreementMode" &&
     key !== "agreementPdf",
 );
 
@@ -336,9 +338,7 @@ export function assertCommercialSnapshotMatchesAcceptance(
       throw new Error("commercialSnapshot.bookingEnabled must be a boolean");
     }
     if ((candidate.session !== null) !== candidate.bookingEnabled) {
-      throw new Error(
-        "commercialSnapshot.session must be present exactly when booking is enabled",
-      );
+      throw new Error("commercialSnapshot.session must be present exactly when booking is enabled");
     }
   }
   stringValue(candidate.productOrOfferName, "commercialSnapshot.productOrOfferName", true);
@@ -356,11 +356,7 @@ export function assertCommercialSnapshotMatchesAcceptance(
     "commercialSnapshot.listSubtotalCents",
     0,
   );
-  const discountCents = safeInteger(
-    candidate.discountCents,
-    "commercialSnapshot.discountCents",
-    0,
-  );
+  const discountCents = safeInteger(candidate.discountCents, "commercialSnapshot.discountCents", 0);
   const subtotalCents = safeInteger(candidate.subtotalCents, "commercialSnapshot.subtotalCents", 0);
   if (lineItemTotals.listSubtotalCents !== listSubtotalCents) {
     throw new Error("Commercial snapshot line items must sum to listSubtotalCents");
@@ -384,10 +380,31 @@ export function assertCommercialSnapshotMatchesAcceptance(
   stringArray(candidate.rights, "commercialSnapshot.rights");
   stringValue(candidate.agreementText, "commercialSnapshot.agreementText", true);
   if (
+    Object.prototype.hasOwnProperty.call(candidate, "agreementMode") &&
+    candidate.agreementMode !== "none" &&
+    candidate.agreementMode !== "text" &&
+    candidate.agreementMode !== "pdf"
+  ) {
+    throw new Error("commercialSnapshot.agreementMode is unsupported");
+  }
+  if (
     Object.prototype.hasOwnProperty.call(candidate, "agreementPdf") &&
     parseAgreementPdfClientSnapshot(candidate.agreementPdf) === null
   ) {
     throw new Error("commercialSnapshot.agreementPdf must contain exact private PDF metadata");
+  }
+  if (
+    candidate.agreementMode === "pdf" &&
+    !Object.prototype.hasOwnProperty.call(candidate, "agreementPdf")
+  ) {
+    throw new Error("PDF agreement snapshots must include exact PDF metadata");
+  }
+  if (
+    candidate.agreementMode !== undefined &&
+    candidate.agreementMode !== "pdf" &&
+    Object.prototype.hasOwnProperty.call(candidate, "agreementPdf")
+  ) {
+    throw new Error("Only PDF agreement snapshots may include PDF metadata");
   }
 
   const offeredPlans = denseArray(

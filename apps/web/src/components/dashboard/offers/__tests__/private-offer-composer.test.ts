@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 const OFFERS_DIR = path.resolve(__dirname, "..");
 const COMPOSER = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-composer.tsx"), "utf8");
+const PRODUCT_COMPOSER = fs.readFileSync(
+  path.join(OFFERS_DIR, "product-private-offer-composer.tsx"),
+  "utf8",
+);
 const MODEL = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-editor-model.ts"), "utf8");
 const STEPS = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-editor-steps.tsx"), "utf8");
 const REVIEW = fs.readFileSync(path.join(OFFERS_DIR, "private-offer-review.tsx"), "utf8");
@@ -27,18 +31,17 @@ describe("PrivateOfferComposer shared-product-editor contract", () => {
   });
 
   it("provides the two-step product quick path and the full shared path", () => {
-    expect(COMPOSER).toContain('const QUICK_STEPS = ["quick", "review"] as const');
-    expect(COMPOSER).toContain('"recipient",\n  "type",\n  "details"');
-    expect(COMPOSER).toContain(
-      'label: completeMissing ? "Complete missing terms" : "Customize terms"',
+    expect(PRODUCT_COMPOSER).toContain('type QuickStep = "recipient" | "price" | "review"');
+    expect(PRODUCT_COMPOSER).toContain("<PrivateOfferTopProgress");
+    expect(PRODUCT_COMPOSER).toContain(
+      'const CUSTOMIZE_STEPS: readonly CustomizeStep[] = [\n  "details",\n  "custom-price",\n  "payment",\n  "delivery",\n  "rights",\n];',
     );
   });
 
   it("requires full validation before exact Review", () => {
-    expect(COMPOSER).toMatch(
-      /flow === "quick" && currentStep === "quick"[\s\S]*validatePrivateOfferDraft/,
-    );
-    expect(REVIEW).toMatch(/<PrivateOfferTerms snapshot=\{snapshot\} targetLabel=\{targetLabel\}/);
+    expect(PRODUCT_COMPOSER).toContain("validatePrivateOfferReviewDraft(");
+    expect(PRODUCT_COMPOSER).toContain("<ProductPrivateOfferReview");
+    expect(REVIEW).toContain("export function ProductPrivateOfferReview");
   });
 
   it("does not seed the first recipient", () => {
@@ -47,10 +50,14 @@ describe("PrivateOfferComposer shared-product-editor contract", () => {
   });
 
   it("uses one stable create id for retries and carries template provenance", () => {
-    expect(COMPOSER).toContain("submissionOfferIdRef.current ?? crypto.randomUUID()");
-    expect(COMPOSER).toContain("persistLatestDraft({ submissionOfferId: createOfferId })");
-    expect(COMPOSER).toContain("sourceProductId: templateProduct.source.productId");
-    expect(COMPOSER).toContain("clearLogicalDraftAndClose()");
+    expect(PRODUCT_COMPOSER).toContain(
+      "initialOffer?.id ?? submissionOfferId ?? crypto.randomUUID()",
+    );
+    expect(PRODUCT_COMPOSER).toContain("setSubmissionOfferId(offerId)");
+    expect(PRODUCT_COMPOSER).toContain("sourceProductId");
+    expect(PRODUCT_COMPOSER).toContain("finishAndClose()");
+    expect(PRODUCT_COMPOSER).toContain("showDiscard={false}");
+    expect(PRODUCT_COMPOSER).not.toContain("persistLatestDraft");
   });
 
   it("passes the sent recipient identity into edit fallback state", () => {

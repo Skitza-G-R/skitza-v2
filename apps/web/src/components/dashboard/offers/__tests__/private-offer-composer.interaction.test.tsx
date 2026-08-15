@@ -1,24 +1,27 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+type MockSendOffer = (input: {
+  offerId: string;
+}) => Promise<
+  { ok: false; error: string } | { ok: true; data: { id: string; emailDelivered: boolean | null } }
+>;
+
 const mocks = vi.hoisted(() => ({
-  clearDraft: vi.fn(),
-  draftLoaded: true,
-  draftRecord: null as unknown,
+  cancelPdf: vi.fn(),
   loadProjects: vi.fn(),
+  preparePdf: vi.fn(),
   refresh: vi.fn(),
-  saveDraft: vi.fn(),
-  sendOffer: vi.fn(),
+  sendOffer: vi.fn<MockSendOffer>(),
   toast: vi.fn(),
   updateOffer: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/dashboard/store",
   useRouter: () => ({ refresh: mocks.refresh }),
 }));
 
@@ -28,21 +31,17 @@ vi.mock("~/app/(producer)/dashboard/store/private-offer-actions", () => ({
   updatePrivateOfferAction: mocks.updateOffer,
 }));
 
+vi.mock("~/app/(producer)/dashboard/booking/actions", () => ({
+  cancelAgreementPdfUpload: mocks.cancelPdf,
+  prepareAgreementPdfUpload: mocks.preparePdf,
+}));
+
 vi.mock("~/components/dashboard/tax-mode-segmented", () => ({
   TaxModeSegmented: () => null,
 }));
 
 vi.mock("~/components/runtime-state/online-required-link", () => ({
   useOnlineStatus: () => true,
-}));
-
-vi.mock("~/components/runtime-state/use-runtime-state", () => ({
-  useProducerPrivateOfferDraft: () => ({
-    record: mocks.draftRecord,
-    loaded: mocks.draftLoaded,
-    save: mocks.saveDraft,
-    clear: mocks.clearDraft,
-  }),
 }));
 
 vi.mock("~/components/ui/toast", () => ({
@@ -55,26 +54,19 @@ import {
   type PrivateOfferComposerRecipient,
   type PrivateOfferTemplateProduct,
 } from "../private-offer-composer";
-import { seedPrivateOfferDraft } from "../private-offer-editor-model";
+
+const PRODUCT_ID = "11111111-1111-4111-8111-111111111111";
+const OFFER_ID = "22222222-2222-4222-8222-222222222222";
+const DOCUMENT_ID = "33333333-3333-4333-8333-333333333333";
 
 const RECIPIENTS: PrivateOfferComposerRecipient[] = [
-  {
-    id: "client-1",
-    name: "Maya Stone",
-    email: "maya@example.test",
-    projects: [],
-  },
-  {
-    id: "client-2",
-    name: "Noah Reed",
-    email: "noah@example.test",
-    projects: [],
-  },
+  { id: "client-1", name: "Maya Stone", email: "maya@example.test", projects: [] },
+  { id: "client-2", name: "Noah Reed", email: "noah@example.test", projects: [] },
 ];
 
 const VALID_TEMPLATE: PrivateOfferTemplateProduct = {
   source: {
-    productId: "product-single-production",
+    productId: PRODUCT_ID,
     productName: "Single production",
     productKind: "production",
   },
@@ -103,27 +95,28 @@ const VALID_TEMPLATE: PrivateOfferTemplateProduct = {
   agreementNeedsCompletion: false,
 };
 
-const PER_SONG_TEMPLATE: PrivateOfferTemplateProduct = {
+const PDF_TEMPLATE: PrivateOfferTemplateProduct = {
   ...VALID_TEMPLATE,
-  source: {
-    productId: "product-per-song-production",
-    productName: "Production by song",
-    productKind: "production",
+  terms: {
+    ...VALID_TEMPLATE.terms,
+    agreementMode: "pdf",
+    agreementText: "",
   },
-  pricing: {
-    kind: "per_song",
-    initialQuantity: 1,
-    volumeTiers: [
-      { minQty: 1, pricePerUnitCents: 10_000 },
-      { minQty: 3, pricePerUnitCents: 8_000 },
-    ],
+  agreementPdf: {
+    documentId: DOCUMENT_ID,
+    originalFileName: "Single Production Agreement.pdf",
+    sizeBytes: 1_024,
   },
 };
 
 const INITIAL_OFFER: PrivateOfferComposerInitialOffer = {
-  id: "offer-existing",
+  id: OFFER_ID,
   clientContactId: "client-1",
   targetProjectId: null,
+  productId: PRODUCT_ID,
+  sourceProductName: "Single production",
+  recipientName: "Maya Stone",
+  recipientEmail: "maya@example.test",
   terms: VALID_TEMPLATE.terms,
   expiresAt: "2099-09-01T00:00:00.000Z",
   expectedUpdatedAt: "2026-08-11T12:00:00.000Z",
@@ -135,56 +128,6 @@ function commonProps() {
     defaultCurrency: "USD" as const,
     taxMode: "tax_added" as const,
     taxRatePct: 18,
-  };
-}
-
-function persistedTemplateDraft(
-  draftOverrides: Partial<ReturnType<typeof seedPrivateOfferDraft>> = {},
-  recordOverrides: Record<string, unknown> = {},
-) {
-  const draft = {
-    ...seedPrivateOfferDraft({
-      defaultCurrency: "USD",
-      taxMode: "tax_added",
-      taxRatePct: 18,
-      templateProduct: VALID_TEMPLATE,
-    }),
-    clientContactId: "client-1",
-    ...draftOverrides,
-  };
-  return {
-    version: 1,
-    entryKey: "template:product-single-production",
-    mode: "new",
-    existingOfferId: null,
-    expectedUpdatedAt: null,
-    currentStep: "quick:quick",
-    draftJson: JSON.stringify(draft),
-    submissionOfferId: null,
-    ...recordOverrides,
-  };
-}
-
-function persistedEditDraft(recordOverrides: Record<string, unknown> = {}) {
-  const draft = {
-    ...seedPrivateOfferDraft({
-      defaultCurrency: "USD",
-      taxMode: "tax_added",
-      taxRatePct: 18,
-      initialOffer: INITIAL_OFFER,
-    }),
-    name: "Restored correction",
-  };
-  return {
-    version: 1,
-    entryKey: `edit:${INITIAL_OFFER.id}:${INITIAL_OFFER.expectedUpdatedAt}`,
-    mode: "edit",
-    existingOfferId: INITIAL_OFFER.id,
-    expectedUpdatedAt: INITIAL_OFFER.expectedUpdatedAt,
-    currentStep: "full:details",
-    draftJson: JSON.stringify(draft),
-    submissionOfferId: null,
-    ...recordOverrides,
   };
 }
 
@@ -204,7 +147,6 @@ function ControlledTemplateComposer({
       <button
         ref={returnFocusRef}
         type="button"
-        data-testid="return-focus"
         onClick={() => {
           setOpen(true);
         }}
@@ -227,65 +169,33 @@ function ControlledTemplateComposer({
   );
 }
 
-function ControlledEditComposer({
-  onCreated = vi.fn(),
-  onOpenChange = vi.fn(),
-}: {
-  onCreated?: (offerId: string) => void;
-  onOpenChange?: (open: boolean) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  return (
-    <PrivateOfferComposer
-      {...commonProps()}
-      initialOffer={INITIAL_OFFER}
-      open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen);
-        setOpen(nextOpen);
-      }}
-      onCreated={onCreated}
-      trigger={null}
-    />
-  );
+async function selectMaya(user: ReturnType<typeof userEvent.setup>) {
+  const recipient = screen.getByRole("combobox", { name: "Recipient" });
+  await user.click(recipient);
+  await user.click(screen.getByRole("option", { name: /Maya Stone/ }));
 }
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
+async function reachPrice(user: ReturnType<typeof userEvent.setup>) {
+  await selectMaya(user);
+  await user.click(screen.getByRole("button", { name: "Continue →" }));
+  await screen.findByRole("heading", { name: "Price & terms" });
 }
 
-async function chooseRecipientAndReview(user: ReturnType<typeof userEvent.setup>) {
-  const dialog = screen.getByRole("dialog");
-  await user.selectOptions(within(dialog).getByLabelText("Recipient"), "client-1");
-  await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
-  return dialog;
+async function reachReview(user: ReturnType<typeof userEvent.setup>) {
+  await reachPrice(user);
+  await user.click(screen.getByRole("button", { name: "Review offer →" }));
+  await screen.findByRole("heading", { name: "Review private offer" });
 }
 
 beforeEach(() => {
-  mocks.clearDraft.mockReset();
-  mocks.draftLoaded = true;
-  mocks.draftRecord = null;
-  mocks.loadProjects.mockReset();
+  mocks.cancelPdf.mockReset().mockResolvedValue({ ok: true, data: { cancelled: true } });
+  mocks.loadProjects.mockReset().mockResolvedValue({ ok: true, data: [] });
+  mocks.preparePdf.mockReset();
   mocks.refresh.mockReset();
-  mocks.saveDraft.mockReset();
   mocks.sendOffer.mockReset();
   mocks.toast.mockReset();
   mocks.updateOffer.mockReset();
-  mocks.clearDraft.mockImplementation(() => {
-    mocks.draftRecord = null;
-  });
-  mocks.saveDraft.mockImplementation((record: unknown) => {
-    mocks.draftRecord = record;
-    return true;
-  });
-  mocks.loadProjects.mockResolvedValue({ ok: true, data: [] });
-  vi.spyOn(globalThis.crypto, "randomUUID")
-    .mockReturnValueOnce("11111111-1111-4111-8111-111111111111")
-    .mockReturnValue("22222222-2222-4222-8222-222222222222");
+  vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(OFFER_ID);
 });
 
 afterEach(() => {
@@ -293,884 +203,217 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("PrivateOfferComposer shared editor", () => {
-  it("restores only the exact matching template draft after runtime storage loads", async () => {
-    mocks.draftRecord = persistedTemplateDraft({ cashPrice: "145.00" });
-    mocks.draftLoaded = false;
-    const view = render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByLabelText<HTMLInputElement>("Cash price").value).toBe("100.00");
-    expect(mocks.saveDraft).not.toHaveBeenCalled();
-
-    mocks.draftLoaded = true;
-    view.rerender(<ControlledTemplateComposer />);
-    await waitFor(() => {
-      expect(within(dialog).getByLabelText<HTMLSelectElement>("Recipient").value).toBe("client-1");
-      expect(within(dialog).getByLabelText<HTMLInputElement>("Cash price").value).toBe("145.00");
-    });
-  });
-
-  it("ignores a draft for a different entry and ignores tampered partial JSON", async () => {
-    mocks.draftRecord = persistedTemplateDraft(
-      { cashPrice: "145.00" },
-      { entryKey: "template:another-product" },
-    );
-    const first = render(<ControlledTemplateComposer />);
-    await waitFor(() => {
-      expect(screen.getByLabelText<HTMLSelectElement>("Recipient").value).toBe("");
-      expect(screen.getByLabelText<HTMLInputElement>("Cash price").value).toBe("100.00");
-    });
-    first.unmount();
-
-    mocks.draftRecord = persistedTemplateDraft({}, { draftJson: '{"clientContactId":"client-1"}' });
-    render(<ControlledTemplateComposer />);
-    await waitFor(() => {
-      expect(screen.getByLabelText<HTMLSelectElement>("Recipient").value).toBe("");
-      expect(screen.getByLabelText<HTMLInputElement>("Cash price").value).toBe("100.00");
-    });
-  });
-
-  it("restores Review only after full validation and otherwise opens the missing full step", async () => {
-    mocks.draftRecord = persistedTemplateDraft({ rights: "" }, { currentStep: "quick:review" });
-    render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    expect(
-      await within(dialog).findByRole("heading", { name: "Rights & agreement" }),
-    ).not.toBeNull();
-    expect(within(dialog).getByRole("alert").textContent).toContain(
-      "Write the rights included in this offer.",
-    );
-  });
-
-  it("keeps an existing-project Review restored while that client's projects load", async () => {
-    const projects = deferred<{
-      ok: true;
-      data: Array<{
-        id: string;
-        title: string;
-        createdAtIso: string;
-        lifecycleStatus: "active";
-        songCount: number;
-        balances: never[];
-      }>;
-    }>();
-    mocks.loadProjects.mockReturnValue(projects.promise);
-    mocks.draftRecord = persistedTemplateDraft(
-      {
-        targetKind: "existing",
-        targetProjectId: "project-client-1",
-      },
-      { currentStep: "quick:review" },
-    );
-    render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "Review & send" })).not.toBeNull();
-    expect(mocks.loadProjects).toHaveBeenCalledOnce();
-    expect(mocks.loadProjects).toHaveBeenCalledWith("client-1");
-
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 300));
-    });
-    expect(
-      mocks.saveDraft.mock.calls.some(
-        ([record]) => (record as { currentStep?: string }).currentStep === "full:recipient",
-      ),
-    ).toBe(false);
-
-    await act(async () => {
-      projects.resolve({
-        ok: true,
-        data: [
-          {
-            id: "project-client-1",
-            title: "Maya's album",
-            createdAtIso: "2026-08-01T00:00:00.000Z",
-            lifecycleStatus: "active",
-            songCount: 2,
-            balances: [],
-          },
-        ],
-      });
-      await projects.promise;
-    });
-
-    expect(await within(dialog).findAllByText("Maya's album")).not.toHaveLength(0);
-    expect(within(dialog).getByRole("heading", { name: "Review & send" })).not.toBeNull();
-    expect(
-      within(dialog).queryByRole("heading", { name: "Recipient & project", level: 2 }),
-    ).toBeNull();
-  });
-
-  it("restores an expired draft on Review and requires a future expiry before sending", async () => {
-    mocks.draftRecord = persistedTemplateDraft(
-      { expiresAtLocal: "2020-01-01T12:00" },
-      { currentStep: "quick:review" },
-    );
-    mocks.sendOffer.mockResolvedValue({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
-    const onCreated = vi.fn();
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer onCreated={onCreated} />);
-
-    const dialog = screen.getByRole("dialog");
-    expect(await within(dialog).findByRole("heading", { name: "Review & send" })).not.toBeNull();
-    const expiry = within(dialog).getByLabelText<HTMLInputElement>("Offer expires");
-    expect(expiry.value).toBe("2020-01-01T12:00");
-    expect(expiry.getAttribute("aria-invalid")).toBe("true");
-    expect(within(dialog).getByRole("alert").textContent).toContain(
-      "Choose a future expiry date and time.",
-    );
-
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-    expect(mocks.sendOffer).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog")).not.toBeNull();
-    expect(mocks.clearDraft).not.toHaveBeenCalled();
-    expect(
-      within(dialog)
-        .getAllByRole("alert")
-        .some((alert) => alert.textContent.includes("Choose an expiry date in the future.")),
-    ).toBe(true);
-
-    fireEvent.change(expiry, { target: { value: "2099-09-01T12:00" } });
-    expect(expiry.getAttribute("aria-invalid")).toBe("false");
-    expect(within(dialog).queryByText("Choose a future expiry date and time.")).toBeNull();
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-    expect(mocks.sendOffer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expiresAt: new Date("2099-09-01T12:00").toISOString(),
-      }),
-    );
-    expect(onCreated).toHaveBeenCalledWith("offer-created");
-    expect(mocks.clearDraft).toHaveBeenCalledOnce();
-  });
-
-  it("restores an edit only for the same offer id and expected update version", async () => {
-    mocks.draftRecord = persistedEditDraft({
-      expectedUpdatedAt: "2026-08-10T12:00:00.000Z",
-    });
-    const first = render(
-      <PrivateOfferComposer
-        {...commonProps()}
-        initialOffer={INITIAL_OFFER}
-        open
-        onOpenChange={vi.fn()}
-        trigger={null}
-      />,
-    );
-    expect(screen.getByRole("heading", { name: "Recipient & project" })).not.toBeNull();
-    first.unmount();
-
-    mocks.draftRecord = persistedEditDraft();
-    render(
-      <PrivateOfferComposer
-        {...commonProps()}
-        initialOffer={INITIAL_OFFER}
-        open
-        onOpenChange={vi.fn()}
-        trigger={null}
-      />,
-    );
-    expect(await screen.findByRole("heading", { name: "Details & deliverables" })).not.toBeNull();
-    expect(screen.getByLabelText<HTMLInputElement>("Offer title").value).toBe(
-      "Restored correction",
-    );
-  });
-
-  it("does not auto-select the first recipient", () => {
-    render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Step 1 of 2 · PRIVATE OFFER")).not.toBeNull();
-    expect(within(dialog).getByLabelText<HTMLSelectElement>("Recipient").value).toBe("");
-    expect(within(dialog).getByRole("button", { name: "Review offer →" })).not.toBeNull();
-  });
-
-  it("focuses and marks the missing recipient instead of the general alert", async () => {
+describe("product-based Private Offer composer", () => {
+  it("uses exactly two labeled editing steps and advances only through Continue", async () => {
     const user = userEvent.setup();
     render(<ControlledTemplateComposer />);
 
-    const dialog = screen.getByRole("dialog");
-    const recipient = within(dialog).getByLabelText<HTMLSelectElement>("Recipient");
-    await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
+    expect(screen.getByRole("heading", { name: "Recipient" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Recipient$/ }).getAttribute("aria-current")).toBe(
+      "step",
+    );
+    expect(screen.getByRole("button", { name: /Price & terms$/ })).toHaveProperty("disabled", true);
+    expect(screen.queryByText(/Step 3/)).toBeNull();
 
-    await waitFor(() => {
-      expect(document.activeElement).toBe(recipient);
-    });
-    expect(recipient.getAttribute("aria-invalid")).toBe("true");
-    expect(within(dialog).getByRole("alert").textContent).toContain("Choose a recipient.");
+    await selectMaya(user);
+    expect(screen.getByRole("heading", { name: "Recipient" })).not.toBeNull();
+    expect(screen.getByText(/A new project will be created/)).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Continue →" }));
+    expect(await screen.findByRole("heading", { name: "Price & terms" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Recipient$/ }).querySelector("svg")).not.toBeNull();
   });
 
-  it("keeps a new project safe after a project-load failure and retries only on request", async () => {
-    const staleRetry = deferred<{
-      ok: true;
-      data: Array<{
-        id: string;
-        title: string;
-        createdAtIso: string;
-        lifecycleStatus: "active";
-        songCount: number;
-        balances: never[];
-      }>;
-    }>();
-    mocks.loadProjects
-      .mockResolvedValueOnce({ ok: false, error: "Projects are temporarily unavailable." })
-      .mockReturnValueOnce(staleRetry.promise)
-      .mockResolvedValueOnce({
-        ok: true,
-        data: [
-          {
-            id: "project-client-2",
-            title: "Noah's active project",
-            createdAtIso: "2026-08-01T00:00:00.000Z",
-            lifecycleStatus: "active",
-            songCount: 1,
-            balances: [],
-          },
-        ],
-      });
+  it("uses a writable combobox, normalizes existing email matches, and requires a new client name", async () => {
     const user = userEvent.setup();
-    const view = render(<ControlledTemplateComposer />);
+    render(<ControlledTemplateComposer />);
 
-    const dialog = screen.getByRole("dialog");
-    await user.selectOptions(within(dialog).getByLabelText("Recipient"), "client-1");
-    expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "Projects are temporarily unavailable.",
-    );
-    expect(mocks.loadProjects).toHaveBeenCalledOnce();
-    expect(mocks.loadProjects).toHaveBeenLastCalledWith("client-1");
+    const recipient = screen.getByRole("combobox", { name: "Recipient" });
+    await user.type(recipient, "MAYA@EXAMPLE.TEST");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: /Maya Stone/ })).not.toBeNull();
 
-    const newProject = within(dialog).getByRole("button", { name: "Create a new project" });
-    const existingProject = within(dialog).getByRole<HTMLButtonElement>("button", {
-      name: "Add to an existing project",
+    await user.clear(recipient);
+    await user.type(recipient, "noa@example.test");
+    await user.click(screen.getByRole("option", { name: /noa@example.test/i }));
+    const name = screen.getByLabelText("Client name");
+    expect((name as HTMLInputElement).required).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Continue →" }));
+    expect(screen.getByRole("alert").textContent).toContain("Add the new recipient’s name.");
+    await user.type(name, "Noa Levi");
+    await user.click(screen.getByRole("button", { name: "Continue →" }));
+    expect(await screen.findByRole("heading", { name: "Price & terms" })).not.toBeNull();
+  });
+
+  it("keeps new project usable during project failure and retries only on request", async () => {
+    mocks.loadProjects.mockResolvedValueOnce({ ok: false, error: "Projects are unavailable." });
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer />);
+    await selectMaya(user);
+    await user.click(screen.getByRole("button", { name: "Change" }));
+    await waitFor(() => {
+      expect(screen.getByText("Projects are unavailable.")).not.toBeNull();
     });
-    expect(newProject.getAttribute("aria-pressed")).toBe("true");
-    expect(existingProject.disabled).toBe(true);
-
-    view.rerender(<ControlledTemplateComposer />);
-    await within(dialog).findByText("Saved");
+    expect(screen.getByText(/A new project will be created/)).not.toBeNull();
     expect(mocks.loadProjects).toHaveBeenCalledOnce();
-
-    await user.click(within(dialog).getByRole("button", { name: "Try again" }));
+    mocks.loadProjects.mockResolvedValueOnce({ ok: true, data: [] });
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => {
       expect(mocks.loadProjects).toHaveBeenCalledTimes(2);
     });
-    expect(mocks.loadProjects).toHaveBeenNthCalledWith(2, "client-1");
-    expect(newProject.getAttribute("aria-pressed")).toBe("true");
-
-    await user.selectOptions(within(dialog).getByLabelText("Recipient"), "client-2");
-    await waitFor(() => {
-      expect(mocks.loadProjects).toHaveBeenCalledTimes(3);
-    });
-    expect(mocks.loadProjects).toHaveBeenNthCalledWith(3, "client-2");
-    await waitFor(() => {
-      expect(
-        within(dialog).getByRole<HTMLButtonElement>("button", {
-          name: "Add to an existing project",
-        }).disabled,
-      ).toBe(false);
-    });
-
-    await act(async () => {
-      staleRetry.resolve({
-        ok: true,
-        data: [
-          {
-            id: "stale-project-client-1",
-            title: "Maya's stale project",
-            createdAtIso: "2026-07-01T00:00:00.000Z",
-            lifecycleStatus: "active",
-            songCount: 3,
-            balances: [],
-          },
-        ],
-      });
-      await staleRetry.promise;
-    });
-
-    await user.click(within(dialog).getByRole("button", { name: "Add to an existing project" }));
-    const projectSelect = within(dialog).getByLabelText<HTMLSelectElement>("Existing project");
-    expect(projectSelect.textContent).toContain("Noah's active project");
-    expect(projectSelect.textContent).not.toContain("Maya's stale project");
-    expect(mocks.loadProjects).toHaveBeenCalledTimes(3);
+    await user.click(screen.getByRole("button", { name: "Continue →" }));
+    expect(await screen.findByRole("heading", { name: "Price & terms" })).not.toBeNull();
   });
 
-  it("runs full validation before quick Review and routes missing terms into Customize", async () => {
+  it("keeps only price expanded and shows accurate copied terms and tax", async () => {
     const user = userEvent.setup();
-    const incompleteTemplate: PrivateOfferTemplateProduct = {
-      ...VALID_TEMPLATE,
-      terms: { ...VALID_TEMPLATE.terms, deliverables: [] },
-    };
-    render(<ControlledTemplateComposer templateProduct={incompleteTemplate} />);
+    render(<ControlledTemplateComposer />);
+    await reachPrice(user);
 
-    const dialog = await chooseRecipientAndReview(user);
-    expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "Add at least one deliverable.",
-    );
-    expect(
-      within(dialog).getAllByRole("button", { name: "Complete missing terms" }),
-    ).not.toHaveLength(0);
-
-    const completeButton = within(dialog).getAllByRole("button", {
-      name: "Complete missing terms",
-    })[0];
-    expect(completeButton).toBeDefined();
-    if (!completeButton) throw new Error("Missing Complete missing terms action");
-    await user.click(completeButton);
-    expect(within(dialog).getByRole("heading", { name: "Details & deliverables" })).not.toBeNull();
-    const deliverables = within(dialog).getByLabelText<HTMLTextAreaElement>(
-      "Deliverables · one per line",
-    );
-    await waitFor(() => {
-      expect(document.activeElement).toBe(deliverables);
-    });
-    expect(deliverables.getAttribute("aria-invalid")).toBe("true");
-    fireEvent.change(deliverables, { target: { value: "Final master" } });
-    expect(
-      within(dialog).getByLabelText<HTMLTextAreaElement>("Deliverables · one per line").value,
-    ).toBe("Final master");
-    const continueButton = within(dialog).getByRole<HTMLButtonElement>("button", {
-      name: "Continue →",
-    });
-    expect(continueButton.disabled).toBe(false);
-    await user.click(continueButton);
-    expect((await within(dialog).findByLabelText<HTMLInputElement>("Cash price")).value).toBe(
-      "100.00",
-    );
+    expect(screen.getByLabelText("Your price before VAT")).toHaveProperty("value", "100.00");
+    expect(screen.getByText("$118.00")).not.toBeNull();
+    expect(screen.getByText(/\$18\.00 · 18%/)).not.toBeNull();
+    expect(screen.getByText("Terms copied from Single production")).not.toBeNull();
+    expect(screen.getByText(/Pay in full · Written agreement · Expires/)).not.toBeNull();
+    expect(screen.queryByLabelText("Songs")).toBeNull();
+    expect(screen.queryByText(/number of hours/i)).toBeNull();
+    expect(screen.queryByText(/View terms/i)).toBeNull();
   });
 
-  it("shows the exact artist-facing terms and sends the copied source provenance", async () => {
-    mocks.sendOffer.mockResolvedValue({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
+  it("runs the five-step Customize flow and returns to the compact price screen", async () => {
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer />);
+    await reachPrice(user);
+    await user.click(screen.getByRole("button", { name: "Customize" }));
+
+    for (const heading of ["Product details", "Price", "Payment options", "Delivery"]) {
+      expect(screen.getByRole("heading", { name: heading })).not.toBeNull();
+      await user.click(screen.getByRole("button", { name: "Continue →" }));
+    }
+    expect(screen.getByRole("heading", { name: "Rights & agreement" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save customizations" }));
+    expect(await screen.findByRole("heading", { name: "Price & terms" })).not.toBeNull();
+    expect(screen.getByText("Terms based on Single production")).not.toBeNull();
+  });
+
+  it("shows one read-only Review and Edit offer preserves in-memory price", async () => {
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer />);
+    await reachPrice(user);
+    const price = screen.getByLabelText("Your price before VAT");
+    fireEvent.change(price, { target: { value: "145.00" } });
+    await user.click(screen.getByRole("button", { name: "Review offer →" }));
+
+    expect(await screen.findByRole("heading", { name: "Review private offer" })).not.toBeNull();
+    expect(screen.getByText("To:").parentElement?.textContent).toContain(
+      "To: Maya Stone · maya@example.test",
+    );
+    expect(screen.getByText("$145")).not.toBeNull();
+    expect(screen.getByText("$171.10")).not.toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText(/Step 3/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Edit offer" }));
+    expect(await screen.findByLabelText("Your price before VAT")).toHaveProperty("value", "145.00");
+  });
+
+  it("inherits the exact product PDF and exposes its authorized Review link", async () => {
+    const user = userEvent.setup();
+    render(<ControlledTemplateComposer templateProduct={PDF_TEMPLATE} />);
+    await reachReview(user);
+
+    const view = screen.getByRole("link", { name: /View/ });
+    expect(view.getAttribute("href")).toBe(
+      `/api/agreement-pdfs/evidence?productId=${PRODUCT_ID}&documentId=${DOCUMENT_ID}`,
+    );
+    expect(screen.getByText("Single Production Agreement.pdf")).not.toBeNull();
+  });
+
+  it("reuses one logical send id after failure and closes on persisted success", async () => {
+    mocks.sendOffer
+      .mockResolvedValueOnce({ ok: false, error: "Try again." })
+      .mockResolvedValueOnce({ ok: true, data: { id: OFFER_ID, emailDelivered: true } });
     const onCreated = vi.fn();
     const user = userEvent.setup();
     render(<ControlledTemplateComposer onCreated={onCreated} />);
+    await reachReview(user);
 
-    const dialog = await chooseRecipientAndReview(user);
-    expect(await within(dialog).findByTestId("private-offer-terms")).not.toBeNull();
-    expect(within(dialog).getAllByText("$118")).not.toHaveLength(0);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
+    await user.click(screen.getByRole("button", { name: "Send private offer →" }));
     await waitFor(() => {
       expect(mocks.sendOffer).toHaveBeenCalledOnce();
     });
-    expect(mocks.sendOffer).toHaveBeenCalledWith({
-      offerId: "11111111-1111-4111-8111-111111111111",
-      sourceProductId: "product-single-production",
-      recipient: { kind: "existing", clientContactId: "client-1" },
-      target: { kind: "new" },
-      terms: VALID_TEMPLATE.terms,
-      expiresAt: expect.any(String) as unknown as string,
-    });
-    expect(onCreated).toHaveBeenCalledWith("offer-created");
-    expect(mocks.clearDraft).toHaveBeenCalled();
-  });
-
-  it("changes only the private cash price while preserving the source and copied terms", async () => {
-    mocks.sendOffer.mockResolvedValue({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    const cashPrice = within(dialog).getByLabelText<HTMLInputElement>("Cash price");
-    await user.clear(cashPrice);
-    await user.type(cashPrice, "135.00");
-    await chooseRecipientAndReview(user);
-
-    expect(within(dialog).getAllByText("$159.30")).not.toHaveLength(0);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-    expect(mocks.sendOffer).toHaveBeenCalledWith({
-      offerId: "11111111-1111-4111-8111-111111111111",
-      sourceProductId: "product-single-production",
-      recipient: { kind: "existing", clientContactId: "client-1" },
-      target: { kind: "new" },
-      terms: {
-        ...VALID_TEMPLATE.terms,
-        cashPriceCents: 13_500,
-      },
-      expiresAt: expect.any(String) as unknown as string,
-    });
-  });
-
-  it("lets the quick flow change currency and shows its copied payment summary", async () => {
-    mocks.sendOffer.mockResolvedValue({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByLabelText("Payment summary").textContent).toContain("Pay in full");
-    await user.selectOptions(within(dialog).getByLabelText("Currency"), "EUR");
-    await chooseRecipientAndReview(user);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-    expect(mocks.sendOffer).toHaveBeenCalledWith({
-      offerId: "11111111-1111-4111-8111-111111111111",
-      sourceProductId: "product-single-production",
-      recipient: { kind: "existing", clientContactId: "client-1" },
-      target: { kind: "new" },
-      terms: {
-        ...VALID_TEMPLATE.terms,
-        currency: "EUR",
-      },
-      expiresAt: expect.any(String) as unknown as string,
-    });
-  });
-
-  it("requires per-song quantity but allows an independent private subtotal", async () => {
-    mocks.sendOffer.mockResolvedValue({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer templateProduct={PER_SONG_TEMPLATE} />);
-
-    const dialog = screen.getByRole("dialog");
-    await user.selectOptions(within(dialog).getByLabelText("Recipient"), "client-1");
-    const songs = within(dialog).getByLabelText<HTMLInputElement>("Songs");
-    const cashPrice = within(dialog).getByLabelText<HTMLInputElement>("Cash price");
-    expect(songs.value).toBe("1");
-    expect(cashPrice.value).toBe("100.00");
-
-    for (const [index, invalidQuantity] of ["2.5", "", "1001"].entries()) {
-      fireEvent.change(songs, { target: { value: invalidQuantity } });
-      expect(within(dialog).getByLabelText<HTMLInputElement>("Cash price").value).toBe("100.00");
-      expect(
-        within(dialog).getByText((_, element) =>
-          Boolean(
-            element?.tagName === "P" &&
-            element.textContent.match(/Subtotal\s+—\s+·\s+18% tax added/),
-          ),
-        ),
-      ).not.toBeNull();
-      const artistPaysValue = within(dialog).getByText("Artist pays").nextElementSibling;
-      expect(artistPaysValue).not.toBeNull();
-      if (!artistPaysValue) throw new Error("Missing Artist pays value");
-      expect(artistPaysValue.textContent).toBe("—");
-      await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
-      const alert = await within(dialog).findByRole("alert");
-      expect(alert.textContent).toContain("Choose a whole number of songs from 1 to 1,000.");
-      if (index === 0) {
-        await waitFor(() => {
-          expect(document.activeElement).toBe(songs);
-        });
-      }
-      expect(songs.getAttribute("aria-invalid")).toBe("true");
-      expect(within(dialog).getByRole("heading", { name: "Recipient & price" })).not.toBeNull();
-      expect(within(dialog).queryByRole("heading", { name: "Review & send" })).toBeNull();
-      expect(mocks.sendOffer).not.toHaveBeenCalled();
-    }
-
-    fireEvent.change(songs, { target: { value: "3" } });
-    expect(within(dialog).getByLabelText<HTMLInputElement>("Cash price").value).toBe("240.00");
-    await user.clear(cashPrice);
-    await user.type(cashPrice, "210.00");
-    await user.click(within(dialog).getByRole("button", { name: "Review offer →" }));
-    expect(await within(dialog).findByRole("heading", { name: "Review & send" })).not.toBeNull();
-    expect(within(dialog).getAllByText("$247.80")).not.toHaveLength(0);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-    expect(mocks.sendOffer).toHaveBeenCalledWith({
-      offerId: "11111111-1111-4111-8111-111111111111",
-      sourceProductId: "product-per-song-production",
-      recipient: { kind: "existing", clientContactId: "client-1" },
-      target: { kind: "new" },
-      terms: {
-        ...VALID_TEMPLATE.terms,
-        cashPriceCents: 21_000,
-        includedSongSpaces: 3,
-      },
-      expiresAt: expect.any(String) as unknown as string,
-    });
-  });
-
-  it("keeps a failed send open without callbacks or draft clearing and reuses its id", async () => {
-    mocks.sendOffer.mockResolvedValue({ ok: false, error: "Could not save the offer." });
-    const onCreated = vi.fn();
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
-
-    const dialog = await chooseRecipientAndReview(user);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-    expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "Could not save the offer.",
-    );
-
-    expect(screen.getByRole("dialog")).not.toBeNull();
-    expect(onCreated).not.toHaveBeenCalled();
-    expect(onOpenChange).not.toHaveBeenCalled();
-    expect(mocks.clearDraft).not.toHaveBeenCalled();
-    expect(mocks.saveDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        submissionOfferId: "11111111-1111-4111-8111-111111111111",
-      }),
-    );
-
-    const retryButton = await within(dialog).findByRole("button", {
-      name: "Send private offer",
-    });
-    await user.click(retryButton);
+    await user.click(screen.getByRole("button", { name: "Send private offer →" }));
     await waitFor(() => {
       expect(mocks.sendOffer).toHaveBeenCalledTimes(2);
     });
-    expect(mocks.sendOffer).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ offerId: "11111111-1111-4111-8111-111111111111" }),
+    expect(mocks.sendOffer.mock.calls[0]?.[0].offerId).toBe(OFFER_ID);
+    expect(mocks.sendOffer.mock.calls[1]?.[0].offerId).toBe(OFFER_ID);
+    expect(onCreated).toHaveBeenCalledWith(OFFER_ID);
+    expect(mocks.toast).toHaveBeenLastCalledWith(
+      "Private offer sent to maya@example.test.",
+      "success",
     );
-    expect(mocks.sendOffer).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ offerId: "11111111-1111-4111-8111-111111111111" }),
-    );
-    expect(onCreated).not.toHaveBeenCalled();
-    expect(onOpenChange).not.toHaveBeenCalled();
-    expect(mocks.clearDraft).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("does not send until its stable operation id is safely persisted", async () => {
-    mocks.sendOffer.mockResolvedValue({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
+  it("confirms changed close, removes drafts, and reopens a fresh flow", async () => {
     const user = userEvent.setup();
     render(<ControlledTemplateComposer />);
-
-    const dialog = await chooseRecipientAndReview(user);
-    // Reserve the first result for the synchronous operation-id write before send.
-    mocks.saveDraft.mockReset();
-    mocks.saveDraft.mockReturnValueOnce(false).mockImplementation((record: unknown) => {
-      mocks.draftRecord = record;
-      return true;
-    });
-
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
-    expect(mocks.sendOffer).not.toHaveBeenCalled();
-    expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "couldn’t safely save this send",
-    );
-    expect(mocks.saveDraft).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        submissionOfferId: "11111111-1111-4111-8111-111111111111",
-      }),
-    );
-
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-    expect(mocks.sendOffer).toHaveBeenCalledWith(
-      expect.objectContaining({ offerId: "11111111-1111-4111-8111-111111111111" }),
-    );
+    await selectMaya(user);
+    await user.click(screen.getByRole("button", { name: "Close private offer editor" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "Close this offer?" });
+    expect(confirmation.textContent).toContain("Your changes will be lost.");
+    expect(screen.queryByText("Discard draft")).toBeNull();
+    await user.click(within(confirmation).getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close private offer editor" }));
+    await user.click(screen.getByRole("button", { name: "Close offer" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Product action" }));
+    expect(await screen.findByRole("combobox", { name: "Recipient" })).toHaveProperty("value", "");
   });
 
-  it("uses the sent offer identity when an archived recipient is absent from current options", async () => {
-    const archivedOffer = {
-      ...INITIAL_OFFER,
-      recipientName: "Frozen Artist",
-      recipientEmail: "frozen@example.test",
-    };
+  it("edits a sent product offer directly from Price and uses the update mutation", async () => {
+    mocks.updateOffer.mockResolvedValue({
+      ok: true,
+      data: {
+        id: OFFER_ID,
+        updatedAt: "2026-08-15T10:00:00.000Z",
+        changed: true,
+        emailDelivered: true,
+      },
+    });
+    const onCreated = vi.fn();
     const user = userEvent.setup();
     render(
       <PrivateOfferComposer
         {...commonProps()}
-        recipients={[]}
-        initialOffer={archivedOffer}
+        initialOffer={INITIAL_OFFER}
         open
         onOpenChange={vi.fn()}
+        onCreated={onCreated}
         trigger={null}
       />,
     );
 
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Frozen Artist")).not.toBeNull();
-    expect(within(dialog).getByText("frozen@example.test")).not.toBeNull();
-
-    for (const heading of [
-      "Details & deliverables",
-      "Price & tax",
-      "Payment options",
-      "Delivery & sessions",
-      "Rights & agreement",
-      "Review & send",
-    ]) {
-      await user.click(within(dialog).getByRole("button", { name: "Continue →" }));
-      expect(await within(dialog).findByRole("heading", { name: heading })).not.toBeNull();
-    }
-    expect(within(dialog).getByText("Frozen Artist")).not.toBeNull();
-    expect(within(dialog).getByText("frozen@example.test")).not.toBeNull();
-  });
-
-  it("blocks duplicate submits and closing while a send is pending, then closes once", async () => {
-    const pendingSend = deferred<{
-      ok: true;
-      data: { id: string; emailDelivered: boolean };
-    }>();
-    mocks.sendOffer.mockReturnValue(pendingSend.promise);
-    const onCreated = vi.fn();
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
-
-    const dialog = await chooseRecipientAndReview(user);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-
-    const pendingButton = within(dialog).getByRole("button", { name: "Sending…" });
-    const closeButton = within(dialog).getByRole("button", {
-      name: "Close private offer editor",
-    });
-    expect(pendingButton.hasAttribute("disabled")).toBe(true);
-    expect(closeButton.hasAttribute("disabled")).toBe(true);
-    await user.click(pendingButton);
-    await user.click(closeButton);
-    expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    expect(screen.getByRole("dialog")).not.toBeNull();
-    expect(onOpenChange).not.toHaveBeenCalled();
-
-    pendingSend.resolve({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-    expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    expect(onCreated).toHaveBeenCalledOnce();
-    expect(onCreated).toHaveBeenCalledWith("offer-created");
-    expect(onOpenChange).toHaveBeenCalledOnce();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(mocks.clearDraft).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the exact Review inert and unchanged while its send is pending", async () => {
-    const pendingSend = deferred<{
-      ok: true;
-      data: { id: string; emailDelivered: boolean };
-    }>();
-    mocks.sendOffer.mockReturnValue(pendingSend.promise);
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer />);
-
-    const dialog = await chooseRecipientAndReview(user);
-    const expiry = within(dialog).getByLabelText<HTMLInputElement>("Offer expires");
-    const initialExpiry = expiry.value;
-    const editPrice = within(dialog).getByRole("button", { name: "Edit price" });
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    });
-
-    const inertBody = dialog.querySelector<HTMLElement>("[inert]");
-    expect(inertBody).not.toBeNull();
-    expect(inertBody?.contains(expiry)).toBe(true);
-    expect(inertBody?.contains(editPrice)).toBe(true);
-
-    fireEvent.change(expiry, { target: { value: "2099-12-31T23:59" } });
-    fireEvent.click(editPrice);
-    expect(expiry.value).toBe(initialExpiry);
-    expect(within(dialog).getByRole("heading", { name: "Review & send" })).not.toBeNull();
-    expect(within(dialog).queryByRole("heading", { name: "Price & tax" })).toBeNull();
-    expect(mocks.sendOffer).toHaveBeenCalledWith(
-      expect.objectContaining({ expiresAt: new Date(initialExpiry).toISOString() }),
-    );
-
-    pendingSend.resolve({
-      ok: true,
-      data: { id: "offer-created", emailDelivered: true },
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-  });
-
-  it.each([
-    {
-      emailDelivered: null,
-      message: "Offer was already saved. No duplicate or second email was sent.",
-    },
-    {
-      emailDelivered: false,
-      message:
-        "Offer sent, but the notification email could not be delivered. It is still available in the app.",
-    },
-  ])(
-    "treats emailDelivered=$emailDelivered as a persisted success",
-    async ({ emailDelivered, message }) => {
-      mocks.sendOffer.mockResolvedValue({
-        ok: true,
-        data: { id: "offer-created", emailDelivered },
-      });
-      const onCreated = vi.fn();
-      const onOpenChange = vi.fn();
-      const user = userEvent.setup();
-      render(<ControlledTemplateComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
-
-      const dialog = await chooseRecipientAndReview(user);
-      await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-
-      await waitFor(() => {
-        expect(screen.queryByRole("dialog")).toBeNull();
-      });
-      expect(mocks.toast).toHaveBeenCalledWith(message, "info");
-      expect(onCreated).toHaveBeenCalledWith("offer-created");
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-      expect(mocks.clearDraft).toHaveBeenCalledOnce();
-      expect(mocks.refresh).not.toHaveBeenCalled();
-    },
-  );
-
-  it("updates an existing offer with its exact version and refreshes without onCreated", async () => {
-    mocks.updateOffer.mockResolvedValue({ ok: true, data: { id: INITIAL_OFFER.id } });
-    const onCreated = vi.fn();
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(<ControlledEditComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
-
-    const dialog = screen.getByRole("dialog");
-    for (const heading of [
-      "Details & deliverables",
-      "Price & tax",
-      "Payment options",
-      "Delivery & sessions",
-      "Rights & agreement",
-      "Review & send",
-    ]) {
-      await user.click(within(dialog).getByRole("button", { name: "Continue →" }));
-      expect(await within(dialog).findByRole("heading", { name: heading })).not.toBeNull();
-    }
-    await user.click(within(dialog).getByRole("button", { name: "Save corrections" }));
-
+    expect(screen.getByRole("heading", { name: "Edit private offer" })).not.toBeNull();
+    expect(screen.getByText("Editing offer for Maya Stone · maya@example.test")).not.toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Recipient" })).toBeNull();
+    expect(screen.queryByLabelText("Private offer editing steps")).toBeNull();
+    expect(screen.getByText(/After acceptance:/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Review offer →" }));
+    expect(await screen.findByRole("heading", { name: "Review changes" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => {
       expect(mocks.updateOffer).toHaveBeenCalledOnce();
     });
-    expect(mocks.updateOffer).toHaveBeenCalledWith({
-      offerId: INITIAL_OFFER.id,
-      expectedUpdatedAt: INITIAL_OFFER.expectedUpdatedAt,
-      recipient: { kind: "existing", clientContactId: "client-1" },
-      target: { kind: "new" },
-      terms: VALID_TEMPLATE.terms,
-      expiresAt: expect.any(String) as unknown as string,
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-    expect(onCreated).not.toHaveBeenCalled();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(mocks.clearDraft).toHaveBeenCalledOnce();
-    expect(mocks.refresh).toHaveBeenCalledOnce();
-  });
-
-  it("keeps one create id through failure, close, restore, and retry", async () => {
-    mocks.sendOffer
-      .mockResolvedValueOnce({ ok: false, error: "Could not save the offer." })
-      .mockResolvedValueOnce({
-        ok: true,
-        data: { id: "offer-created", emailDelivered: true },
-      });
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer />);
-
-    const dialog = await chooseRecipientAndReview(user);
-    await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
-    expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "Could not save the offer.",
-    );
-    await within(dialog).findByRole("button", { name: "Send private offer" });
-    await user.click(within(dialog).getByRole("button", { name: "Close private offer editor" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-    expect(mocks.draftRecord).toEqual(
+    expect(mocks.updateOffer).toHaveBeenCalledWith(
       expect.objectContaining({
-        currentStep: "quick:review",
-        submissionOfferId: "11111111-1111-4111-8111-111111111111",
+        offerId: OFFER_ID,
+        expectedUpdatedAt: INITIAL_OFFER.expectedUpdatedAt,
+        recipient: { kind: "existing", clientContactId: "client-1" },
       }),
     );
-
-    await user.click(screen.getByTestId("return-focus"));
-    const restoredDialog = await screen.findByRole("dialog");
-    expect(within(restoredDialog).getByRole("heading", { name: "Review & send" })).not.toBeNull();
-    await user.click(within(restoredDialog).getByRole("button", { name: "Send private offer" }));
-
-    await waitFor(() => {
-      expect(mocks.sendOffer).toHaveBeenCalledTimes(2);
-    });
-    expect(mocks.sendOffer).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ offerId: "11111111-1111-4111-8111-111111111111" }),
-    );
-    expect(mocks.sendOffer).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ offerId: "11111111-1111-4111-8111-111111111111" }),
-    );
-    expect(mocks.clearDraft).toHaveBeenCalled();
-  });
-
-  it("flushes an ordinary close and clears only an explicit Discard draft", async () => {
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer />);
-
-    const dialog = screen.getByRole("dialog");
-    await user.selectOptions(within(dialog).getByLabelText("Recipient"), "client-1");
-    await user.click(within(dialog).getByRole("button", { name: "Close private offer editor" }));
-    expect(mocks.saveDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entryKey: "template:product-single-production",
-        currentStep: "quick:quick",
-        draftJson: expect.stringContaining('"clientContactId":"client-1"') as unknown as string,
-      }),
-    );
-    expect(mocks.clearDraft).not.toHaveBeenCalled();
-
-    await user.click(screen.getByTestId("return-focus"));
-    const reopened = await screen.findByRole("dialog");
-    await user.click(within(reopened).getByRole("button", { name: "Discard draft" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-    expect(mocks.clearDraft).toHaveBeenCalledOnce();
-    expect(mocks.draftRecord).toBeNull();
-  });
-
-  it("closes a controlled headless editor and restores focus without sending", async () => {
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(<ControlledTemplateComposer onOpenChange={onOpenChange} />);
-
-    await user.click(screen.getByRole("button", { name: "Close private offer editor" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-      expect(document.activeElement).toBe(screen.getByTestId("return-focus"));
-    });
-    expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mocks.sendOffer).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
   });
 });

@@ -5,8 +5,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   authorizeAcceptedAgreementPdf,
   authorizeCurrentRequestAgreementPdf,
+  authorizePrivateOfferAgreementPdf,
+  authorizeProducerProductAgreementPdf,
 } from "~/server/domain/agreement-pdfs/evidence";
 import { readPrivateAgreementPdf } from "~/server/domain/agreement-pdfs/storage";
+import { currentVerifiedEmailHashes } from "~/server/auth/verified-email";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +34,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const purchaseRequestId = request.nextUrl.searchParams.get("purchaseRequestId");
   const purchaseId = request.nextUrl.searchParams.get("purchaseId");
+  const productId = request.nextUrl.searchParams.get("productId");
+  const offerId = request.nextUrl.searchParams.get("offerId");
   const documentId = request.nextUrl.searchParams.get("documentId");
-  if ((purchaseRequestId === null) === (purchaseId === null)) return unavailable();
+  const ownerIds = [purchaseRequestId, purchaseId, productId, offerId].filter(
+    (value): value is string => value !== null,
+  );
+  if (ownerIds.length !== 1) return unavailable();
   if (purchaseRequestId !== null && !UUID_PATTERN.test(purchaseRequestId)) return unavailable();
   if (purchaseId !== null && !UUID_PATTERN.test(purchaseId)) return unavailable();
-  if (purchaseRequestId !== null && (documentId === null || !UUID_PATTERN.test(documentId))) {
+  if (productId !== null && !UUID_PATTERN.test(productId)) return unavailable();
+  if (offerId !== null && !UUID_PATTERN.test(offerId)) return unavailable();
+  if (purchaseId === null && (documentId === null || !UUID_PATTERN.test(documentId))) {
     return unavailable();
   }
   if (purchaseId !== null && documentId !== null) return unavailable();
@@ -48,10 +58,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           purchaseRequestId,
           expectedDocumentId: documentId ?? "",
         })
-      : await authorizeAcceptedAgreementPdf(db, {
-          clerkUserId: userId,
-          purchaseId: purchaseId ?? "",
-        });
+      : productId
+        ? await authorizeProducerProductAgreementPdf(db, {
+            clerkUserId: userId,
+            productId,
+            expectedDocumentId: documentId ?? "",
+          })
+        : offerId
+          ? await authorizePrivateOfferAgreementPdf(db, {
+              clerkUserId: userId,
+              verifiedEmailHashes: await currentVerifiedEmailHashes(userId),
+              offerId,
+              expectedDocumentId: documentId ?? "",
+            })
+          : await authorizeAcceptedAgreementPdf(db, {
+              clerkUserId: userId,
+              purchaseId: purchaseId ?? "",
+            });
     const bytes = await readPrivateAgreementPdf(document);
     return new NextResponse(Buffer.from(bytes), {
       status: 200,

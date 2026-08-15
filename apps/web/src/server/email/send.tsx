@@ -200,6 +200,7 @@ export async function sendClientInviteEmail(to: string, props: ClientInviteProps
 
 export type PrivateOfferNotificationSendProps = Omit<PrivateOfferNotificationProps, "openUrl"> & {
   producerSlug: string;
+  offerId: string;
 };
 
 /**
@@ -211,18 +212,22 @@ export async function sendPrivateOfferNotificationEmail(
   to: string,
   props: PrivateOfferNotificationSendProps,
 ): Promise<void> {
-  const openUrl = `${SITE_URL}/sign-up/join/${encodeURIComponent(props.producerSlug)}`;
+  const openUrl = `${SITE_URL}/sign-up/join/${encodeURIComponent(props.producerSlug)}/offer/${encodeURIComponent(props.offerId)}`;
   const html = await render(
     <PrivateOfferNotification
       recipientName={props.recipientName}
       producerName={props.producerName}
       openUrl={openUrl}
+      kind={props.kind}
     />,
   );
   const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
-    subject: `${props.producerName} sent you a private offer`,
+    subject:
+      props.kind === "updated"
+        ? "Your private offer was updated"
+        : `${props.producerName} sent you a private offer`,
     html,
   });
 

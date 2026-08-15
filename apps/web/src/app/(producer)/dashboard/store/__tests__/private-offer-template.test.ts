@@ -193,19 +193,25 @@ describe("buildPrivateOfferTemplateProduct", () => {
     expect(template.agreementNeedsCompletion).toBe(false);
   });
 
-  it("marks PDF-only or agreement-free products for completion without inventing text", () => {
+  it("inherits a PDF-only product agreement without inventing text", () => {
     const template = buildPrivateOfferTemplateProduct(
       source({
         description: "A focused production package.",
         agreementText: null,
-        agreementPdf: { documentId: "458c42fb-4f42-41ea-9dc3-eaeecfddc21c" },
+        agreementPdf: {
+          documentId: "458c42fb-4f42-41ea-9dc3-eaeecfddc21c",
+          originalFileName: "Full Production Agreement.pdf",
+          sizeBytes: 1_800_000,
+        },
       }),
       SETTINGS,
     );
 
     expect(template.terms.agreementText).toBe("");
     expect(template.rightsNeedCompletion).toBe(false);
-    expect(template.agreementNeedsCompletion).toBe(true);
+    expect(template.terms.agreementMode).toBe("pdf");
+    expect(template.agreementPdf?.originalFileName).toBe("Full Production Agreement.pdf");
+    expect(template.agreementNeedsCompletion).toBe(false);
   });
 
   it("treats missing canonical rights as incomplete instead of inventing rights text", () => {

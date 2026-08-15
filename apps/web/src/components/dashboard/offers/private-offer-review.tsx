@@ -1,9 +1,13 @@
 "use client";
 
 import type { PurchaseCommercialSnapshot } from "@skitza/db";
+import { ExternalLink, FileText } from "lucide-react";
 import { useId, useMemo } from "react";
 
 import { PrivateOfferTerms } from "~/components/artist/offers/private-offer-terms";
+import { formatPurchaseMoney } from "~/components/artist/purchase/purchase-data";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
+import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 
 import type { PrivateOfferDraftField } from "./private-offer-editor-model";
 
@@ -214,6 +218,201 @@ export function PrivateOfferReview({
         </div>
         <PrivateOfferTerms snapshot={snapshot} targetLabel={targetLabel} embedded />
       </section>
+    </div>
+  );
+}
+
+function paymentPlanLabel(plan: PurchaseCommercialSnapshot["offeredPaymentPlans"][number]): string {
+  if (plan.kind === "full") return "Pay in full";
+  if (plan.kind === "split_50_50") return "50 / 50";
+  return `${String(plan.installments)} monthly payments`;
+}
+
+function CompactSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="border-t border-[rgb(var(--border-subtle))] py-4 first:border-t-0 first:pt-0">
+      <h3 className="text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+        {title}
+      </h3>
+      <div className="mt-2 text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+export function ProductPrivateOfferReview({
+  snapshot,
+  targetLabel,
+  recipientName,
+  recipientEmail,
+  expiresAtLocal,
+  sourceTemplateName,
+  agreementHref,
+  agreementPdfPreview,
+}: {
+  snapshot: PurchaseCommercialSnapshot;
+  targetLabel: string;
+  recipientName: string;
+  recipientEmail: string;
+  expiresAtLocal: string;
+  sourceTemplateName: string;
+  agreementHref?: string;
+  agreementPdfPreview?: Readonly<{
+    documentId: string | null;
+    originalFileName: string;
+    sizeBytes: number;
+  }> | null;
+}) {
+  const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
+  const frozenAgreementPdf = agreementPdfFromCommercialSnapshot(snapshot);
+  const agreementPdf = frozenAgreementPdf ?? agreementPdfPreview ?? null;
+  const agreementMode =
+    snapshot.agreementMode ?? (agreementPdf ? "pdf" : snapshot.agreementText ? "text" : "none");
+  const expiry = new Date(expiresAtLocal);
+  const expiryLabel = Number.isNaN(expiry.getTime())
+    ? "—"
+    : new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }).format(expiry);
+  const session = snapshot.session;
+  const revision = snapshot.revisionRule;
+
+  return (
+    <div className="min-w-0">
+      <p className="text-[13px] text-[rgb(var(--fg-secondary))]">
+        <span className="font-semibold text-[rgb(var(--fg-default))]">To:</span> {recipientName} ·{" "}
+        <span className="break-all">{recipientEmail}</span>
+      </p>
+
+      <div className="mt-5 border-b border-[rgb(var(--border-subtle))] pb-5">
+        <h2 className="font-display text-[20px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          {snapshot.productOrOfferName}
+        </h2>
+        <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+          Based on {sourceTemplateName}; customized terms are shown below
+        </p>
+      </div>
+
+      <dl className="py-4 text-[13px]">
+        <div className="flex items-baseline justify-between gap-4 py-1.5">
+          <dt className="text-[rgb(var(--fg-muted))]">Your price</dt>
+          <dd className="font-semibold tabular-nums">
+            {formatPurchaseMoney(snapshot.subtotalCents, snapshot.currency)}
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-4 py-1.5">
+          <dt className="text-[rgb(var(--fg-muted))]">
+            {snapshot.tax.mode === "tax_free" ? "VAT" : "VAT"}
+          </dt>
+          <dd className="font-semibold tabular-nums">
+            {snapshot.tax.mode === "tax_free"
+              ? "Not added"
+              : formatPurchaseMoney(snapshot.tax.amountCents, snapshot.currency)}
+          </dd>
+        </div>
+        <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-[rgb(var(--border-subtle))] pt-3">
+          <dt className="font-semibold text-[rgb(var(--fg-default))]">Client pays</dt>
+          <dd className="font-amount text-[20px] font-bold tabular-nums">
+            {formatPurchaseMoney(snapshot.totalCents, snapshot.currency)}
+          </dd>
+        </div>
+      </dl>
+
+      <dl className="border-y border-[rgb(var(--border-subtle))] py-3 text-[12.5px]">
+        <div className="flex items-start justify-between gap-4 py-2">
+          <dt className="text-[rgb(var(--fg-muted))]">Payment</dt>
+          <dd className="max-w-[65%] text-right font-semibold">
+            {snapshot.offeredPaymentPlans.length
+              ? snapshot.offeredPaymentPlans.map(paymentPlanLabel).join(" · ")
+              : "No payment required"}
+          </dd>
+        </div>
+        <div className="flex items-start justify-between gap-4 py-2">
+          <dt className="text-[rgb(var(--fg-muted))]">After acceptance</dt>
+          <dd className="max-w-[65%] text-right font-semibold">{targetLabel}</dd>
+        </div>
+        <div className="flex items-start justify-between gap-4 py-2">
+          <dt className="text-[rgb(var(--fg-muted))]">Valid until</dt>
+          <dd className="text-right font-semibold">{expiryLabel}</dd>
+        </div>
+        <div className="flex items-start justify-between gap-4 py-2">
+          <dt className="text-[rgb(var(--fg-muted))]">Agreement</dt>
+          <dd className="max-w-[68%] text-right font-semibold">
+            {agreementPdf ? (
+              <span className="inline-flex min-w-0 items-center justify-end gap-2">
+                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="min-w-0 break-words">{agreementPdf.originalFileName}</span>
+                {agreementHref ? (
+                  <a
+                    href={agreementHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="sk-press inline-flex shrink-0 items-center gap-1 text-[rgb(var(--brand-primary-dark))] underline underline-offset-2"
+                  >
+                    View <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                ) : null}
+              </span>
+            ) : agreementMode === "text" ? (
+              "Written agreement"
+            ) : (
+              "No separate agreement"
+            )}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="pt-5">
+        <CompactSection title="Product details & deliverables">
+          {snapshot.tagline ? <p className="mb-2">{snapshot.tagline}</p> : null}
+          <ul className="space-y-1">
+            {snapshot.deliverables.map((deliverable, index) => (
+              <li key={`${deliverable}-${String(index)}`}>· {deliverable}</li>
+            ))}
+          </ul>
+        </CompactSection>
+        {snapshot.includedSongSpaces > 0 || session || revision ? (
+          <CompactSection title="Delivery, sessions & revisions">
+            <ul className="space-y-1">
+              {snapshot.includedSongSpaces > 0 ? (
+                <li>{String(snapshot.includedSongSpaces)} song spaces</li>
+              ) : null}
+              {session ? (
+                <li>
+                  {session.limit.kind === "unlimited"
+                    ? "Unlimited sessions"
+                    : `${String(session.limit.count)} sessions`}{" "}
+                  · {String(session.durationMin)} minutes · {session.locationType}
+                </li>
+              ) : null}
+              {revision ? (
+                <li>
+                  {revision.kind === "unlimited"
+                    ? "Unlimited revisions"
+                    : `${String(revision.count)} revisions`}
+                </li>
+              ) : null}
+            </ul>
+          </CompactSection>
+        ) : null}
+        <CompactSection title="Rights & royalties">
+          <p>Master: {royalty.master}</p>
+          <p>Composition: {royalty.composition}</p>
+          <ul className="mt-2 space-y-1">
+            {snapshot.rights.map((right, index) => (
+              <li key={`${right}-${String(index)}`}>· {right}</li>
+            ))}
+          </ul>
+        </CompactSection>
+        {agreementMode === "text" && snapshot.agreementText ? (
+          <CompactSection title="Written agreement">
+            <p className="whitespace-pre-wrap">{snapshot.agreementText}</p>
+          </CompactSection>
+        ) : null}
+      </div>
     </div>
   );
 }

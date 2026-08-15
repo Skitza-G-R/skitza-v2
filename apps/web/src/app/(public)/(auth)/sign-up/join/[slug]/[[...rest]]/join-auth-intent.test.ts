@@ -17,13 +17,13 @@ const signInSource = readFileSync(
 
 describe("join-aware Clerk authentication", () => {
   it("preserves the producer slug and booking action when switching to sign-in", () => {
-    expect(source).toContain("joinSignInHref(slug, action)");
+    expect(source).toContain("joinSignInHref(slug, action, offerId)");
     expect(source).toContain("signInUrl={signInHref}");
     expect(source).not.toContain('signInUrl="/sign-in"');
   });
 
   it("forces every Clerk verification and OAuth completion back to the join continuation", () => {
-    expect(source).toContain("joinContinuationHref(slug, action)");
+    expect(source).toContain("joinContinuationHref(slug, action, offerId)");
     expect(source).not.toContain('action === "home" ? "store" : action');
     expect(source).toContain("forceRedirectUrl={postSignUpContinuationHref}");
   });
@@ -38,6 +38,8 @@ describe("join-aware Clerk authentication", () => {
     expect(source).toContain('? "/unlock"');
     expect(source).toContain('explicitAction === "home"');
     expect(source).toContain('? "/home"');
+    expect(source).toContain('rest?.[0] === "offer"');
+    expect(source).toContain('`/offer/${offerId}`');
   });
 
   it("preserves the Artist slug through Sign up → Sign in → Sign up", () => {

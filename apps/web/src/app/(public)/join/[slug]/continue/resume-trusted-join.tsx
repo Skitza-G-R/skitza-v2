@@ -33,7 +33,7 @@ export function ResumeTrustedJoin({ slug, action }: { slug: string; action: Join
     );
   }
 
-  const fallbackAction = continueAsArtist.bind(null, slug, action);
+  const fallbackAction = continueAsArtist.bind(null, slug, action, undefined);
   return (
     <form action={fallbackAction}>
       <Button

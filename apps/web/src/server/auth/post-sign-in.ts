@@ -12,6 +12,7 @@ const AUTH_TARGET_ORIGIN = "https://post-sign-in.skitza.invalid";
 const MAX_AUTH_TARGET_LENGTH = 2048;
 const JOIN_SLUG_PATTERN = /^[a-z0-9-]{3,48}$/;
 const DESKTOP_AUTH_VALUE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function matchesRouteFamily(pathname: string, root: string): boolean {
   return pathname === root || pathname.startsWith(`${root}/`);
@@ -21,6 +22,13 @@ function isJoinContinuationUrl(url: URL): boolean {
   const match = /^\/join\/([^/]+)\/continue$/.exec(url.pathname);
   if (!match || !JOIN_SLUG_PATTERN.test(match[1] ?? "")) return false;
   const entries = Array.from(url.searchParams.entries());
+  if (url.searchParams.get("action") === "offer") {
+    return (
+      entries.length === 2 &&
+      entries.every(([key]) => key === "action" || key === "offerId") &&
+      UUID_PATTERN.test(url.searchParams.get("offerId") ?? "")
+    );
+  }
   if (entries.length !== 1) return false;
   return (
     entries[0]?.[0] === "action" &&
@@ -103,13 +111,22 @@ export function sanitizePostSignInTarget(
 export function joinContinuationHref(
   slug: string,
   action: JoinContinuationAction = "book",
+  offerId?: string,
 ): string {
   if (!JOIN_SLUG_PATTERN.test(slug)) return "/";
+  if (action === "offer") {
+    if (!offerId || !UUID_PATTERN.test(offerId)) return "/";
+    return `/join/${slug}/continue?${new URLSearchParams({ action, offerId }).toString()}`;
+  }
   return `/join/${slug}/continue?action=${action}`;
 }
 
-export function joinSignInHref(slug: string, action: JoinContinuationAction = "book"): string {
-  const continuationHref = joinContinuationHref(slug, action);
+export function joinSignInHref(
+  slug: string,
+  action: JoinContinuationAction = "book",
+  offerId?: string,
+): string {
+  const continuationHref = joinContinuationHref(slug, action, offerId);
   if (continuationHref === "/") return "/sign-in";
   return `/sign-in?${new URLSearchParams({
     redirect_url: continuationHref,
@@ -122,6 +139,7 @@ export function joinSignUpHrefFromTarget(rawTarget: string | null | undefined): 
   const url = new URL(target?.href ?? "/", AUTH_TARGET_ORIGIN);
   const match = /^\/join\/([^/]+)\/continue$/.exec(url.pathname);
   const action = url.searchParams.get("action");
+  const offerId = url.searchParams.get("offerId");
   return match?.[1]
     ? `/sign-up/join/${encodeURIComponent(match[1])}${
         action === "book"
@@ -130,7 +148,9 @@ export function joinSignUpHrefFromTarget(rawTarget: string | null | undefined): 
             ? "/unlock"
             : action === "home" || action === "store"
               ? "/home"
-              : ""
+              : action === "offer" && offerId
+                ? `/offer/${offerId}`
+                : ""
       }?intent=signup`
     : null;
 }
