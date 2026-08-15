@@ -10,7 +10,9 @@
 
 **Pull request:** #351, draft
 
-**Desktop implementation head:** `ce4a67856255ada9f3cd504bc87fc42f2562879f`
+**Last pre-refresh implementation head:** `ce4a67856255ada9f3cd504bc87fc42f2562879f`
+
+**Current combined base:** `d239e439f0c6870dabf47975e5ce426dd21049d5`
 
 **Target branch:** `v3-clean`
 
@@ -45,6 +47,44 @@ The required real-world proof is still missing:
 
 The old staged desktop deployment must not be promoted. A new candidate must
 first combine the desktop work with the latest `v3-clean`.
+
+## Immediate plan to make the local Mac app usable
+
+The Mac app is a secure window that loads `skitza.app`. It is not a separate
+copy of the website. Therefore the live website must contain the small desktop
+connection layer for login, session checks, saved screens, and social sign-in.
+
+In simple terms:
+
+- **Combine** means keeping the newest website work and the desktop connection
+  work in the same code.
+- **Candidate** means a private online test copy. It does not change
+  `skitza.app`.
+- **Switch `skitza.app`** means making the approved candidate the live website.
+  It does not publish the Mac installer or make the desktop app public.
+- **Smoke test** means opening the local Mac app and quickly proving sign-in,
+  close/reopen, session restoration, music, and one upload.
+
+Execution checklist:
+
+- [x] Refresh the desktop branch onto exact current `v3-clean`.
+- [x] Preserve both the newest website changes and the desktop speed marker in
+      the only shared file.
+- [ ] Run focused tests, full `skitza-verify`, and optimized builds on the new
+      combined source.
+- [ ] Create a fresh production-config candidate without switching the live
+      domain.
+- [ ] Smoke-test the candidate's website, Clerk, desktop APIs, build ID, newer
+      website behavior, and logs.
+- [ ] Ask Gili to approve that exact deployment ID.
+- [ ] After approval, switch only `skitza.app` to the approved candidate and
+      watch health/errors.
+- [ ] Open the existing local Mac app and complete the real user smoke test.
+
+The existing Mac binary does not need to be rebuilt merely because the website
+code was refreshed: its native code is patch-identical and it already targets
+`https://skitza.app`. Rebuild only if verification causes a native-code change
+or the exact artifact check fails.
 
 ## Locked decisions kept throughout the work
 
@@ -279,25 +319,26 @@ Developer ID signed or notarized.
 
 | Commit     | Work                                            |
 | ---------- | ----------------------------------------------- |
-| `15345a6b` | Aligned the desktop product source and PRD.     |
-| `1b206619` | Encoded Gate 1 pass criteria.                   |
-| `b357c68c` | Enforced exact Gate 1 evidence.                 |
-| `546eb0a8` | Added the Gate 1 Tauri shell.                   |
-| `5460945c` | Integrated the shared Gate 1 runtime.           |
-| `7be58add` | Added isolated private-proof access.            |
-| `3accc298` | Secured private-proof entry and social handoff. |
-| `87e6e024` | Rejected production-equivalent proof hosts.     |
-| `1a7ef17b` | Allowed only Tauri's local IPC CSP sources.     |
-| `40ce89f0` | Added native proof-cookie seeding.              |
-| `c8efa2ca` | Hardened protected proof launch.                |
-| `fd16c459` | Used a verified WebView cookie-store launch.    |
-| `51bd538d` | Added runtime-only private production access.   |
-| `1a1bc3a8` | Resolved the live migration filename collision. |
-| `a9f156ed` | Excluded local build artifacts from deployment. |
-| `0a7d614f` | Scoped Vercel ignores to the web project.       |
-| `03796b68` | Integrated canonical Clerk account identity.    |
-| `4d82abde` | Added Linux Tauri dependencies to CI.           |
-| `ce4a6785` | Fixed signed-out desktop startup routing.       |
+| `25fd34aa` | Aligned the desktop product source and PRD.     |
+| `b3c3643a` | Encoded Gate 1 pass criteria.                   |
+| `c37aa7fa` | Enforced exact Gate 1 evidence.                 |
+| `f1a0bb2a` | Added the Gate 1 Tauri shell.                   |
+| `23996f3d` | Integrated the shared Gate 1 runtime.           |
+| `49390c9c` | Added isolated private-proof access.            |
+| `004ffe65` | Secured private-proof entry and social handoff. |
+| `2856453f` | Rejected production-equivalent proof hosts.     |
+| `89cee5e4` | Allowed only Tauri's local IPC CSP sources.     |
+| `d3c02e96` | Added native proof-cookie seeding.              |
+| `2bec7e00` | Hardened protected proof launch.                |
+| `8275382b` | Used a verified WebView cookie-store launch.    |
+| `e9e909e4` | Added runtime-only private production access.   |
+| `2e10380f` | Resolved the live migration filename collision. |
+| `f7c823f0` | Excluded local build artifacts from deployment. |
+| `5b911dbb` | Scoped Vercel ignores to the web project.       |
+| `1e5e623d` | Integrated canonical Clerk account identity.    |
+| `2dc1b71b` | Added Linux Tauri dependencies to CI.           |
+| `d954664f` | Fixed signed-out desktop startup routing.       |
+| `39d5f304` | Added the full implementation handoff.          |
 
 ## Deployment record
 
@@ -318,14 +359,18 @@ At the time of this handoff:
 
 - implementation branch:
   `giasraf/sk-231-prove-and-build-the-enhanced-speed-first-producer-desktop`;
-- implementation head: `ce4a67856255ada9f3cd504bc87fc42f2562879f`;
-- worktree: clean before this documentation update and equal to its remote;
-- PR #351: open, draft, CI green, and reported mergeable;
-- current `origin/v3-clean`: `c9f8c767de0d73a01e23682f465db7a893f612b4`;
-- branch relationship: 19 desktop commits ahead and 9 newer base commits
-  behind; and
-- one path changed on both lines and needs semantic review during refresh:
-  `apps/web/src/components/dashboard/clients-projects/producer-projects-list.tsx`.
+- pre-refresh implementation head:
+  `ce4a67856255ada9f3cd504bc87fc42f2562879f`;
+- refreshed base: `d239e439f0c6870dabf47975e5ce426dd21049d5`;
+- all 20 pre-refresh commits were retained patch-identically by range-diff;
+- the branch is directly based on current `origin/v3-clean` with no base commit
+  missing;
+- PR #351 remains open and draft;
+- the shared
+  `apps/web/src/components/dashboard/clients-projects/producer-projects-list.tsx`
+  keeps both the latest mobile-width fix and the desktop meaningful-content
+  marker; and
+- this execution update is the only worktree change after the clean refresh.
 
 The desktop migration source file is on PR #351 but not yet on current
 `v3-clean`, even though its exact immutable filename is already in the live
@@ -360,12 +405,12 @@ migration ledger.
 
 ## What is left, in order
 
-### 1. Reconcile source before any more desktop deployment
+### 1. Reconcile source before any more desktop deployment — complete
 
-Refresh PR #351 onto current `v3-clean` `c9f8c767`, preserve all newer website
-work, semantically review the shared Clients & Projects file, and keep both
-immutable 0050 migration files. Rerun focused tests, full `skitza-verify`, and
-the optimized builds on the exact combined head.
+The branch was refreshed onto current `v3-clean` `d239e439`. Range-diff proved
+all 20 commits were retained patch-identically. The shared Clients & Projects
+file keeps both changes, and both immutable 0050 migration files remain. Full
+verification and optimized builds are the next step.
 
 ### 2. Create a fresh combined production candidate
 
@@ -463,5 +508,6 @@ After the internal release candidate passes:
 The engineering foundation is substantial and automated verification is
 strong, but the approved plan is not complete. Today the project has a tested
 Mac proof shell and shared enhanced runtime, not a finished private release
-candidate. The next safe milestone is a refreshed combined candidate followed
-by the exact live Mac authentication and Gate 1 proof.
+candidate. The source refresh is complete. The next safe milestone is a fresh
+combined candidate followed by the exact live Mac authentication and Gate 1
+proof.
