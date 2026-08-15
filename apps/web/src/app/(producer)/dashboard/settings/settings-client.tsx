@@ -759,7 +759,17 @@ function IntegrationsSection({
                     type="button"
                     className="s-btn s-payment-edit-button"
                     onClick={beginEditing}
+                    onPointerUp={(event) => {
+                      // A real iPhone tap travels through the Settings swipe
+                      // surface as a touch pointer before Safari emits click.
+                      // Enter edit mode on that native release as well so an
+                      // ancestor click guard cannot leave this action inert.
+                      if (event.pointerType !== "touch") return;
+                      event.preventDefault();
+                      beginEditing();
+                    }}
                     disabled={disabled}
+                    data-tab-swipe-ignore
                   >
                     <PencilLine size={15} strokeWidth={2} aria-hidden />
                     Edit details

@@ -102,9 +102,12 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
-  it("removes the producer tab bar while the mobile software keyboard is open", () => {
+  it("removes the shared app tab bar for measured and focused mobile keyboards", () => {
     expect(GLOBALS).toMatch(
-      /body\[data-sk-keyboard="open"\]\s+\.producer-bottom-nav-frame\s*\{[^}]*display:\s*none;/,
+      /body\[data-sk-keyboard="open"\]\s+\.liquid-glass-bottom-nav-frame/,
+    );
+    expect(GLOBALS).toMatch(
+      /body:has\([\s\S]*?input:is\([\s\S]*?:focus[\s\S]*?textarea:focus[\s\S]*?\)\s+\.liquid-glass-bottom-nav-frame\s*\{[^}]*display:\s*none;/,
     );
   });
 

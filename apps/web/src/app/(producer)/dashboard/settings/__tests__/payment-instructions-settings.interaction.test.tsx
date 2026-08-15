@@ -135,6 +135,22 @@ describe("producer payment instructions settings interaction", () => {
     expect(screen.getByRole("button", { name: "Save details" })).toBeTruthy();
   });
 
+  it("opens real payment inputs from the iPhone touch release path", () => {
+    const view = renderGettingPaid();
+    const editButton = screen.getByRole("button", { name: "Edit details" });
+    const touchRelease = new Event("pointerup", { bubbles: true, cancelable: true });
+    Object.defineProperty(touchRelease, "pointerType", { value: "touch" });
+
+    fireEvent(editButton, touchRelease);
+
+    expect(view.container.querySelector(".s-payment-editor")?.getAttribute("data-mode")).toBe(
+      "edit",
+    );
+    const accountOwner = screen.getByLabelText<HTMLInputElement>("Account owner");
+    fireEvent.change(accountOwner, { target: { value: "Touch edited owner" } });
+    expect(accountOwner.value).toBe("Touch edited owner");
+  });
+
   it("keeps a payment draft out of the global savebar, guards role switches, and Cancels locally", async () => {
     const view = renderGettingPaid();
 
