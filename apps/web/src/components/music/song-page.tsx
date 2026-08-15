@@ -30,6 +30,7 @@ import {
 } from "~/components/audio/persistent-player";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { RuntimeStateDisabledProvider } from "~/components/runtime-state/runtime-state-provider";
 import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
 import { Card } from "~/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
@@ -519,16 +520,7 @@ function SongDeletionRedirect({ href }: { href: string }) {
   return null;
 }
 
-export function SongPage({
-  data,
-  role = "producer",
-  artistStudioId,
-  producerProjectHref,
-  versionUpload,
-  actions,
-  publicSharing,
-  publicSharingActions,
-}: {
+export type SongPageProps = {
   data: SongPageData;
   role?: SongPageRole;
   artistStudioId?: string | undefined;
@@ -537,7 +529,30 @@ export function SongPage({
   actions: L3Actions;
   publicSharing?: SongPublicSharingView;
   publicSharingActions?: SongPublicSharingActions;
-}) {
+};
+
+export function SongPage(props: SongPageProps) {
+  if (props.role === "guest") {
+    return (
+      <RuntimeStateDisabledProvider>
+        <SongPageContent {...props} />
+      </RuntimeStateDisabledProvider>
+    );
+  }
+
+  return <SongPageContent {...props} />;
+}
+
+function SongPageContent({
+  data,
+  role = "producer",
+  artistStudioId,
+  producerProjectHref,
+  versionUpload,
+  actions,
+  publicSharing,
+  publicSharingActions,
+}: SongPageProps) {
   const [songTitleOverride, setSongTitleOverride] = useState<string | undefined>();
   const [artistOverride, setArtistOverride] = useState<string | null | undefined>();
   const [artworkUrlOverride, setArtworkUrlOverride] = useState<string | null | undefined>();
