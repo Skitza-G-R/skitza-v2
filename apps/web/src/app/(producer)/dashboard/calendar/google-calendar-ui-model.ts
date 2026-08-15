@@ -38,7 +38,13 @@ export type GoogleCalendarSyncIssue = Readonly<{
   artistName: string;
   startsAtIso: string;
   durationMin: number;
+  stateChangedAtIso: string;
 }>;
+
+export type GoogleCalendarSyncIssueIdentity = Pick<
+  GoogleCalendarSyncIssue,
+  "bookingId" | "syncState" | "stateChangedAtIso"
+>;
 
 export type GoogleCalendarSyncSummary = Readonly<{
   syncing: number;
@@ -106,6 +112,7 @@ export type GoogleCalendarControlActions = Readonly<{
   confirmAccountSwitch: () => Promise<GoogleCalendarActionResult>;
   disconnect: () => Promise<GoogleCalendarActionResult>;
   repairSync: () => Promise<GoogleCalendarActionResult>;
+  clearSyncIssue: (issue: GoogleCalendarSyncIssueIdentity) => Promise<GoogleCalendarActionResult>;
 }>;
 
 export function canUseAsGoogleCalendarDestination(role: GoogleCalendarAccessRole): boolean {

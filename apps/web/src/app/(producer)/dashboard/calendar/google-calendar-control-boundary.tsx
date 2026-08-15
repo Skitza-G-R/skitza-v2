@@ -7,6 +7,7 @@ import { useToast } from "~/components/ui/toast";
 
 import { GoogleCalendarControl } from "./google-calendar-control";
 import {
+  clearGoogleCalendarSyncIssue,
   disconnectGoogleCalendar,
   refreshGoogleCalendarCalendars,
   repairGoogleCalendarSync,
@@ -133,6 +134,12 @@ export function GoogleCalendarControlBoundary({
       repairSync: async () => {
         if (!navigator.onLine) return { ok: false, reason: "offline" };
         const result = await repairGoogleCalendarSync({ forcePending: true });
+        if (result.ok) router.refresh();
+        return result;
+      },
+      clearSyncIssue: async (issue) => {
+        if (!navigator.onLine) return { ok: false, reason: "offline" };
+        const result = await clearGoogleCalendarSyncIssue(issue);
         if (result.ok) router.refresh();
         return result;
       },

@@ -12,7 +12,10 @@ import {
   loadGoogleCalendarServerConfig,
 } from "~/server/google-calendar/config";
 import { createGoogleCalendarProvider } from "~/server/google-calendar/provider";
-import { createGoogleCalendarRepository } from "~/server/google-calendar/repository-drizzle";
+import {
+  createGoogleCalendarRepository,
+  dismissGoogleCalendarSyncWarning,
+} from "~/server/google-calendar/repository-drizzle";
 import { isGoogleCalendarOAuthBrowserBinding } from "~/server/google-calendar/oauth";
 import {
   createGoogleCalendarService,
@@ -37,6 +40,11 @@ const selectionInput = z.object({
 });
 const busyWeekInput = z.object({
   weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+});
+const dismissWarningInput = z.object({
+  bookingId: z.string().uuid(),
+  syncState: z.enum(["not_synced", "missing", "conflict"]),
+  stateChangedAtIso: z.string().datetime(),
 });
 
 function serviceForDatabase(
@@ -145,6 +153,19 @@ export const googleCalendarRouter = router({
         return { ok: true as const };
       }),
     ),
+  }),
+
+  warning: router({
+    clear: producerProcedure.input(dismissWarningInput).mutation(async ({ ctx, input }) => {
+      await dismissGoogleCalendarSyncWarning(ctx.db, {
+        producerId: ctx.producerId,
+        bookingId: input.bookingId,
+        syncState: input.syncState,
+        syncStateChangedAt: new Date(input.stateChangedAtIso),
+        dismissedAt: new Date(),
+      });
+      return { ok: true as const };
+    }),
   }),
 
   disconnect: producerProcedure.mutation(({ ctx }) =>

@@ -40,9 +40,10 @@ function syncSummary(
 ): GoogleCalendarSyncSummary {
   return {
     ...summary,
-    issues: summary.issues.map(({ startsAt, ...issue }) => ({
+    issues: summary.issues.map(({ startsAt, syncStateChangedAt, ...issue }) => ({
       ...issue,
       startsAtIso: startsAt.toISOString(),
+      stateChangedAtIso: syncStateChangedAt.toISOString(),
     })),
   };
 }

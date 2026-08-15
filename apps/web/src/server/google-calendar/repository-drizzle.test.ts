@@ -139,10 +139,28 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(summary).toContain("eq(bookings.producerId, bookingCalendarLinks.producerId)");
     expect(summary).toContain("artistName: bookings.artistName");
     expect(summary).toContain("startsAt: bookings.startsAt");
+    expect(summary).toContain("syncStateChangedAt: bookingCalendarLinks.syncStateChangedAt");
+    expect(summary).toContain("attentionDismissedAt");
     expect(summary).toContain('["not_synced", "missing", "conflict"]');
     expect(summary).toContain(".limit(25)");
     expect(summary).not.toContain("providerEventId:");
     expect(summary).not.toContain("artistEmail:");
+  });
+
+  it("dismisses only the producer-scoped warning version the producer saw", () => {
+    const dismissalStart = source.indexOf("export async function dismissGoogleCalendarSyncWarning");
+    const dismissalEnd = source.indexOf(
+      "export function createGoogleCalendarRepository",
+      dismissalStart,
+    );
+    const dismissal = source.slice(dismissalStart, dismissalEnd);
+
+    expect(dismissal).toContain("eq(bookingCalendarLinks.producerId, command.producerId)");
+    expect(dismissal).toContain("eq(bookingCalendarLinks.currentBookingId, command.bookingId)");
+    expect(dismissal).toContain("eq(bookingCalendarLinks.syncState, command.syncState)");
+    expect(dismissal).toContain("bookingCalendarLinks.syncStateChangedAt");
+    expect(dismissal).toContain("attentionDismissedAt");
+    expect(dismissal).toContain(".returning({ id: bookingCalendarLinks.id })");
   });
 
   it("removes provider handles and all credential envelope fields on disconnect", () => {

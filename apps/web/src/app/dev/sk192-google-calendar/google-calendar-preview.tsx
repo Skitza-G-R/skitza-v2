@@ -68,6 +68,7 @@ const PREVIEW_ACTIONS: GoogleCalendarControlActions = {
   confirmAccountSwitch: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
   disconnect: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
   repairSync: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
+  clearSyncIssue: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
 };
 
 const MANUAL_OPTIONS = { studioTimeZone: "Asia/Jerusalem", clients: [] } as const;

@@ -10,6 +10,7 @@ import type { GoogleCalendarBusyWeekView } from "~/server/google-calendar/busy-w
 import type {
   GoogleCalendarActionResult,
   GoogleCalendarSelection,
+  GoogleCalendarSyncIssueIdentity,
 } from "./google-calendar-ui-model";
 
 const CALENDAR_PATH = "/dashboard/calendar";
@@ -106,6 +107,20 @@ export async function repairGoogleCalendarSync(input: {
   if (!caller) return { ok: false, reason: "permission_required" };
   try {
     await caller.googleCalendar.repair(input);
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (error) {
+    return safeFailure(error);
+  }
+}
+
+export async function clearGoogleCalendarSyncIssue(
+  issue: GoogleCalendarSyncIssueIdentity,
+): Promise<GoogleCalendarActionResult> {
+  const caller = await producerCaller();
+  if (!caller) return { ok: false, reason: "permission_required" };
+  try {
+    await caller.googleCalendar.warning.clear(issue);
     revalidatePath(CALENDAR_PATH);
     return { ok: true };
   } catch (error) {

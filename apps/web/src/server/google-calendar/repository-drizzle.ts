@@ -237,6 +237,45 @@ async function lockedProducerAuthorizationState(
   return row ?? null;
 }
 
+export async function dismissGoogleCalendarSyncWarning(
+  db: Db,
+  command: Readonly<{
+    producerId: string;
+    bookingId: string;
+    syncState: "not_synced" | "missing" | "conflict";
+    syncStateChangedAt: Date;
+    dismissedAt: Date;
+  }>,
+): Promise<boolean> {
+  const attentionVisible = sql<boolean>`(
+    ${bookingCalendarLinks.attentionDismissedAt} IS NULL
+    OR ${bookingCalendarLinks.attentionDismissedAt} < ${bookingCalendarLinks.syncStateChangedAt}
+  )`;
+  const dismissedAt = sql<Date>`greatest(
+    ${command.dismissedAt}::timestamptz,
+    ${bookingCalendarLinks.syncStateChangedAt},
+    ${bookingCalendarLinks.updatedAt} + interval '1 millisecond'
+  )`;
+  const rows = await db
+    .update(bookingCalendarLinks)
+    .set({
+      attentionDismissedAt: dismissedAt,
+      updatedAt: dismissedAt,
+    })
+    .where(
+      and(
+        eq(bookingCalendarLinks.producerId, command.producerId),
+        eq(bookingCalendarLinks.currentBookingId, command.bookingId),
+        eq(bookingCalendarLinks.syncState, command.syncState),
+        sql`date_trunc('milliseconds', ${bookingCalendarLinks.syncStateChangedAt}) =
+          date_trunc('milliseconds', ${command.syncStateChangedAt}::timestamptz)`,
+        attentionVisible,
+      ),
+    )
+    .returning({ id: bookingCalendarLinks.id });
+  return rows.length === 1;
+}
+
 export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository {
   return {
     async getConnection(producerId) {
@@ -656,13 +695,17 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
         eq(bookingCalendarLinks.connectionId, command.connectionId),
         eq(bookingCalendarLinks.accountVersion, command.accountVersion),
       );
+      const attentionVisible = sql<boolean>`(
+        ${bookingCalendarLinks.attentionDismissedAt} IS NULL
+        OR ${bookingCalendarLinks.attentionDismissedAt} < ${bookingCalendarLinks.syncStateChangedAt}
+      )`;
       const [[row], issues] = await Promise.all([
         db
           .select({
             syncing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'pending')::integer`,
-            notSynced: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'not_synced')::integer`,
-            missing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'missing')::integer`,
-            conflicts: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'conflict')::integer`,
+            notSynced: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'not_synced' AND ${attentionVisible})::integer`,
+            missing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'missing' AND ${attentionVisible})::integer`,
+            conflicts: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'conflict' AND ${attentionVisible})::integer`,
           })
           .from(bookingCalendarLinks)
           .where(scope),
@@ -674,6 +717,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             artistName: bookings.artistName,
             startsAt: bookings.startsAt,
             durationMin: bookings.durationMin,
+            syncStateChangedAt: bookingCalendarLinks.syncStateChangedAt,
           })
           .from(bookingCalendarLinks)
           .innerJoin(
@@ -687,6 +731,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             and(
               scope,
               inArray(bookingCalendarLinks.syncState, ["not_synced", "missing", "conflict"]),
+              attentionVisible,
             ),
           )
           .orderBy(desc(bookingCalendarLinks.syncStateChangedAt), desc(bookings.startsAt))
