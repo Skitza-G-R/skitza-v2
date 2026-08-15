@@ -4,18 +4,22 @@ import test from "node:test";
 import vm from "node:vm";
 
 const bridgeSource = await readFile(new URL("../assets/bridge.js", import.meta.url), "utf8");
-const startupSource = await readFile(new URL("../assets/startup.js", import.meta.url), "utf8");
+const startupHtml = await readFile(new URL("../assets/index.html", import.meta.url), "utf8");
+const startupCss = await readFile(new URL("../assets/startup-v2.css", import.meta.url), "utf8");
+const startupSource = await readFile(new URL("../assets/startup-v2.js", import.meta.url), "utf8");
 
 function loadBridge(origin) {
   const calls = [];
+  const tauriInternals = {
+    invoke(command, args) {
+      assert.equal(this, tauriInternals);
+      calls.push({ args, command });
+      return Promise.resolve();
+    },
+  };
   const window = {
     __SKITZA_DESKTOP_TRUSTED_ORIGIN__: "https://proof.example",
-    __TAURI_INTERNALS__: {
-      invoke(command, args) {
-        calls.push({ args, command });
-        return Promise.resolve();
-      },
-    },
+    __TAURI_INTERNALS__: tauriInternals,
     location: { origin },
   };
   vm.runInNewContext(bridgeSource, { window });
@@ -125,7 +129,7 @@ test("the bounded FIFO never evicts a pending one-use ticket for status events",
   );
 });
 
-function startupHarness(retryLaunch) {
+function startupHarness(retryLaunch, { useBridge = true } = {}) {
   const status = { textContent: "" };
   const retry = {
     hidden: false,
@@ -139,9 +143,16 @@ function startupHarness(retryLaunch) {
       return selector === "#status" ? status : retry;
     },
   };
-  const window = { __SKITZA_DESKTOP_LOCAL__: { retryLaunch } };
+  const window = {
+    location: {},
+  };
+  if (useBridge) {
+    window.__SKITZA_DESKTOP_LOCAL__ = { retryLaunch };
+  } else {
+    window.__TAURI_INTERNALS__ = { invoke: retryLaunch };
+  }
   vm.runInNewContext(startupSource, { document, window });
-  return { retry, status };
+  return { retry, status, window };
 }
 
 test("startup asset invokes only local retry and exposes a recoverable error", async () => {
@@ -149,6 +160,8 @@ test("startup asset invokes only local retry and exposes a recoverable error", a
   const success = startupHarness(async () => {
     calls += 1;
   });
+  assert.equal(calls, 0);
+  await success.retry.listener();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 1);
   assert.equal(success.retry.hidden, true);
@@ -156,8 +169,40 @@ test("startup asset invokes only local retry and exposes a recoverable error", a
   const failure = startupHarness(async () => {
     throw new Error("offline");
   });
+  await failure.retry.listener();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(failure.retry.hidden, false);
   assert.match(failure.status.textContent, /could not connect/i);
   assert.equal(typeof failure.retry.listener, "function");
+
+  const nativeFailure = startupHarness(async () => undefined);
+  nativeFailure.window.__SKITZA_DESKTOP_STARTUP_FAILED__();
+  assert.equal(nativeFailure.retry.hidden, false);
+  assert.match(nativeFailure.status.textContent, /could not connect/i);
+
+  const fallback = startupHarness(
+    async (command) => {
+      assert.equal(command, "retry_launch");
+    },
+    { useBridge: false },
+  );
+  await fallback.retry.listener();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fallback.retry.hidden, true);
+});
+
+test("desktop startup mirrors the animated mobile Skitza launch cover", () => {
+  assert.match(startupHtml, /href="\.\/startup-v2\.css"/);
+  assert.match(startupHtml, /src="\.\/startup-v2\.js"/);
+  assert.match(startupHtml, /class="sk-pwa-startup__pulse"/);
+  assert.match(startupHtml, /src="\.\/skitza-192\.png"/);
+  assert.match(startupHtml, /class="sk-pwa-startup__wordmark"/);
+  assert.match(startupHtml, /Opening Skitza…/);
+  assert.doesNotMatch(startupHtml, /Opening your studio/);
+
+  assert.match(startupCss, /@keyframes skitza-pwa-startup-float/);
+  assert.match(startupCss, /@keyframes skitza-pwa-startup-pulse/);
+  assert.match(startupCss, /prefers-reduced-motion: no-preference/);
+  assert.match(startupCss, /animation: skitza-pwa-startup-float/);
+  assert.match(startupCss, /animation: skitza-pwa-startup-pulse/);
 });

@@ -47,8 +47,20 @@ impl OriginPolicy {
             && url.password().is_none()
     }
 
+    pub fn is_trusted_production_clerk_handshake(&self, url: &Url) -> bool {
+        self.origin == "https://skitza.app"
+            && url.scheme() == "https"
+            && url.host_str() == Some("clerk.skitza.app")
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.path() == "/v1/client/handshake"
+            && url.fragment().is_none()
+    }
+
     pub fn allows_navigation(&self, url: &Url) -> bool {
         self.is_trusted_remote(url)
+            || self.is_trusted_production_clerk_handshake(url)
             || (matches!(url.scheme(), "http" | "https")
                 && url.host_str() == Some("tauri.localhost")
                 && url.port().is_none()
@@ -95,6 +107,31 @@ mod tests {
         assert!(policy.is_external_web_url(&Url::parse("http://localhost:3000/help").unwrap()));
         assert!(!policy
             .is_external_web_url(&Url::parse("skitza://auth/callback?code=x&state=y").unwrap()));
+    }
+
+    #[test]
+    fn production_allows_only_the_exact_clerk_session_handshake() {
+        let production = OriginPolicy::parse("https://skitza.app").unwrap();
+        assert!(production.allows_navigation(
+            &Url::parse(
+                "https://clerk.skitza.app/v1/client/handshake?redirect_url=https%3A%2F%2Fskitza.app%2Fdashboard"
+            )
+            .unwrap()
+        ));
+
+        for denied in [
+            "http://clerk.skitza.app/v1/client/handshake",
+            "https://clerk.skitza.app/v1/client",
+            "https://evil.clerk.skitza.app/v1/client/handshake",
+            "https://clerk.skitza.app/v1/client/handshake#fragment",
+        ] {
+            assert!(!production.allows_navigation(&Url::parse(denied).unwrap()));
+        }
+
+        let proof = OriginPolicy::parse("https://proof.example").unwrap();
+        assert!(!proof.allows_navigation(
+            &Url::parse("https://clerk.skitza.app/v1/client/handshake").unwrap()
+        ));
     }
 
     #[test]

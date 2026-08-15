@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  const internalInvoke = window.__TAURI_INTERNALS__?.invoke;
-  if (typeof internalInvoke !== "function") return;
+  const tauriInternals = window.__TAURI_INTERNALS__;
+  if (typeof tauriInternals?.invoke !== "function") return;
 
   const listeners = new Set();
   const pendingEvents = [];
@@ -17,7 +17,7 @@
     "ticket-delivery-failed",
   ]);
 
-  const invoke = (command, args = {}) => internalInvoke(command, args);
+  const invoke = (command, args = {}) => tauriInternals.invoke(command, args);
   const trustedOrigin = window.__SKITZA_DESKTOP_TRUSTED_ORIGIN__;
   const localOrigins = new Set([
     "http://tauri.localhost",

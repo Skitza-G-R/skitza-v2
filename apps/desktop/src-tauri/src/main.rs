@@ -23,6 +23,7 @@ use session::{report_session_validation, start_validation_loop, SessionValidatio
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::PageLoadEvent,
     AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -138,9 +139,7 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
                 return Err("connection-unavailable".into());
             }
 
-            return window
-                .navigate(launch_url)
-                .map_err(|_| "navigation-failed".to_string());
+            return navigate_to_desktop_home(&window, &state.origin);
         }
     }
 
@@ -159,9 +158,45 @@ async fn retry_launch(window: WebviewWindow, state: State<'_, DesktopState>) -> 
             .seed_cookie(&window, &launch_url, &state.origin)
             .map_err(|_| "connection-unavailable".to_string())?;
     }
+    navigate_to_desktop_home(&window, &state.origin)
+}
+
+fn desktop_home_url(origin: &OriginPolicy) -> Result<Url, String> {
+    origin.endpoint("/dashboard")
+}
+
+fn desktop_home_navigation_script(origin: &OriginPolicy) -> Result<String, String> {
+    let home_url = desktop_home_url(origin)?;
+    let target = serde_json::to_string(home_url.as_str()).map_err(|_| "navigation-failed")?;
+    Ok(format!(
+        "window.setTimeout(() => window.location.replace({target}), 0);"
+    ))
+}
+
+fn navigate_to_desktop_home(window: &WebviewWindow, origin: &OriginPolicy) -> Result<(), String> {
     window
-        .navigate(launch_url)
+        .eval(desktop_home_navigation_script(origin)?)
         .map_err(|_| "navigation-failed".to_string())
+}
+
+fn is_local_startup_url(url: &Url) -> bool {
+    let local_origin = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    local_origin
+        && url.port().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(url.path(), "" | "/" | "/index.html")
+}
+
+fn start_native_launch(window: WebviewWindow) {
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<DesktopState>();
+        if retry_launch(window.clone(), state).await.is_err() {
+            let _ = window.eval("window.__SKITZA_DESKTOP_STARTUP_FAILED__?.();");
+        }
+    });
 }
 
 fn reveal_main_window(app: &AppHandle) {
@@ -196,7 +231,13 @@ fn create_main_window(
             .inner_size(1280.0, 800.0)
             .min_inner_size(960.0, 600.0)
             .center()
-            .initialization_script(initialization_script);
+            .initialization_script(initialization_script)
+            .on_page_load(|window, payload| {
+                if payload.event() == PageLoadEvent::Finished && is_local_startup_url(payload.url())
+                {
+                    start_native_launch(window);
+                }
+            });
     let window_builder = if diagnostics.disable_webview_devtools() {
         window_builder.devtools(false)
     } else {
@@ -245,7 +286,7 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
     let menu = menu_builder.item(&quit).build()?;
 
     #[cfg(target_os = "macos")]
-    let icon = tauri::include_image!("icons/tray-template.png");
+    let icon = tauri::include_image!("icons/tray-icon.png");
     #[cfg(not(target_os = "macos"))]
     let icon = app
         .default_window_icon()
@@ -256,8 +297,6 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
         .tooltip("Skitza")
         .menu(&menu)
         .show_menu_on_left_click(false);
-    #[cfg(target_os = "macos")]
-    let builder = builder.icon_as_template(true);
     let builder = builder
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open-skitza" => reveal_main_window(app),
@@ -398,7 +437,51 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::DesktopDiagnosticsPolicy;
+    use super::{
+        desktop_home_navigation_script, desktop_home_url, is_local_startup_url,
+        DesktopDiagnosticsPolicy,
+    };
+    use crate::origin::OriginPolicy;
+    use url::Url;
+
+    #[test]
+    fn cold_start_opens_the_live_producer_home() {
+        let origin = OriginPolicy::parse("https://skitza.app").expect("trusted origin");
+
+        assert_eq!(
+            desktop_home_url(&origin)
+                .expect("desktop home URL")
+                .as_str(),
+            "https://skitza.app/dashboard"
+        );
+        assert_eq!(
+            desktop_home_navigation_script(&origin).expect("desktop navigation script"),
+            "window.setTimeout(() => window.location.replace(\"https://skitza.app/dashboard\"), 0);"
+        );
+    }
+
+    #[test]
+    fn native_launch_starts_only_for_the_packaged_startup_page() {
+        for local in [
+            "tauri://localhost",
+            "tauri://localhost/",
+            "tauri://localhost/index.html",
+            "https://tauri.localhost/index.html",
+        ] {
+            assert!(is_local_startup_url(&Url::parse(local).expect("local URL")));
+        }
+
+        for remote_or_broad in [
+            "https://skitza.app/dashboard",
+            "https://tauri.localhost/other.html",
+            "https://tauri.localhost:444/index.html",
+            "https://tauri.localhost/index.html?again=1",
+        ] {
+            assert!(!is_local_startup_url(
+                &Url::parse(remote_or_broad).expect("non-startup URL")
+            ));
+        }
+    }
 
     #[test]
     fn protected_runtime_disables_webview_inspection() {
