@@ -1,4 +1,5 @@
 import { auth } from "~/server/auth/clerk-identity";
+import { createDb } from "@skitza/db";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -7,18 +8,21 @@ import { AuthHero } from "~/components/auth/auth-hero";
 import { Button } from "~/components/ui/button";
 import {
   JOIN_INTENT_COOKIE,
+  type JoinContinuationAction,
   type JoinIntentAction,
   joinIntentVerificationSecrets,
   verifyJoinIntentToken,
 } from "~/server/auth/join-intent";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
+import { currentVerifiedEmailHashes } from "~/server/auth/verified-email";
 import { findJoinTargetProducer, isSelfJoin } from "~/server/contacts/join-continuation";
 import {
   JOIN_ACCOUNT_CONFLICT,
   JOIN_CONNECTION_PENDING,
   JOIN_UNVERIFIED_EMAIL,
 } from "~/server/contacts/join-recovery";
+import { getPrivateOfferJoinAccess } from "~/server/domain/private-offers/db";
 
 import { continueAsArtist } from "./actions";
 import { JoinAccountSwitchButton } from "./join-account-switch-button";
@@ -29,9 +33,12 @@ type Props = {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{
     action?: string | string[];
+    offerId?: string | string[];
     problem?: string | string[];
   }>;
 };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function hasProducerProfile(
   memberships: Awaited<ReturnType<typeof fetchUserAccountMemberships>>,
@@ -45,12 +52,20 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
     query.action !== "book" &&
     query.action !== "unlock" &&
     query.action !== "home" &&
-    query.action !== "store"
+    query.action !== "store" &&
+    query.action !== "offer"
   ) {
     notFound();
   }
-  const requestedAction: JoinIntentAction = query.action === "store" ? "home" : query.action;
-  if (!session.userId) redirect(joinSignInHref(slug, requestedAction));
+  const requestedAction: JoinContinuationAction = query.action === "store" ? "home" : query.action;
+  const offerId =
+    requestedAction === "offer" &&
+    typeof query.offerId === "string" &&
+    UUID_PATTERN.test(query.offerId)
+      ? query.offerId
+      : undefined;
+  if (requestedAction === "offer" && !offerId) notFound();
+  if (!session.userId) redirect(joinSignInHref(slug, requestedAction, offerId));
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -60,14 +75,41 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
     fetchUserAccountMemberships({ dbUrl, userId: session.userId }),
   ]);
   if (!target) notFound();
+  if (requestedAction === "offer" && offerId) {
+    const access = await getPrivateOfferJoinAccess(createDb(dbUrl), {
+      clerkUserId: session.userId,
+      verifiedEmailHashes: await currentVerifiedEmailHashes(session.userId),
+      producerId: target.id,
+      offerId,
+      now: new Date(),
+    });
+    if (access === "unavailable") notFound();
+    if (access === "authorized") redirect(`/artist/offers/${offerId}`);
+    if (access === "wrong_account") {
+      return (
+        <JoinContinuationShell>
+          <div data-auth-page="private-offer-account-recovery">
+            <AuthHero
+              eyebrow="Private offer"
+              title="This offer was sent to another email"
+              blurb="Switch accounts and sign in with the verified email that received it."
+            />
+            <JoinAccountSwitchButton slug={slug} action="offer" offerId={offerId} />
+          </div>
+        </JoinContinuationShell>
+      );
+    }
+  }
   if (isSelfJoin(session.userId, target)) {
     redirect(`/join/${encodeURIComponent(slug)}`);
   }
 
   const producerConfirmation = hasProducerProfile(memberships);
   const cookieStore = await cookies();
-  const trustedAction = requestedAction;
+  const trustedAction: JoinIntentAction | null =
+    requestedAction === "offer" ? null : requestedAction;
   const trustedIntent =
+    trustedAction !== null &&
     !producerConfirmation &&
     verifyJoinIntentToken({
       token: cookieStore.get(JOIN_INTENT_COOKIE)?.value,
@@ -79,11 +121,29 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
     memberships.producer.status === "incomplete" ? "/onboarding" : "/dashboard";
   const studioName = target.displayName ?? "this studio";
   const publicStudioHref = `/join/${encodeURIComponent(slug)}`;
-  const action = continueAsArtist.bind(null, slug, requestedAction);
+  const action = continueAsArtist.bind(null, slug, requestedAction, offerId);
   const retryProblem =
     query.problem === JOIN_UNVERIFIED_EMAIL || query.problem === JOIN_CONNECTION_PENDING
       ? query.problem
       : null;
+
+  if (
+    requestedAction === "offer" &&
+    (query.problem === JOIN_ACCOUNT_CONFLICT || query.problem === JOIN_UNVERIFIED_EMAIL)
+  ) {
+    return (
+      <JoinContinuationShell>
+        <div data-auth-page="private-offer-account-recovery">
+          <AuthHero
+            eyebrow="Private offer"
+            title="This offer was sent to another email"
+            blurb="Switch accounts and sign in with the verified email that received it."
+          />
+          <JoinAccountSwitchButton slug={slug} action="offer" {...(offerId ? { offerId } : {})} />
+        </div>
+      </JoinContinuationShell>
+    );
+  }
 
   if (query.problem === JOIN_ACCOUNT_CONFLICT) {
     return (
@@ -100,7 +160,11 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
             }
           />
           <div className="space-y-3">
-            <JoinAccountSwitchButton slug={slug} action={requestedAction} />
+            <JoinAccountSwitchButton
+              slug={slug}
+              action={requestedAction}
+              {...(offerId ? { offerId } : {})}
+            />
             <Button
               asChild
               variant="outline"
@@ -142,7 +206,11 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
               </Button>
             </form>
             {needsVerifiedEmail ? (
-              <JoinAccountSwitchButton slug={slug} action={requestedAction} />
+              <JoinAccountSwitchButton
+                slug={slug}
+                action={requestedAction}
+                {...(offerId ? { offerId } : {})}
+              />
             ) : null}
             <Button
               asChild
@@ -168,7 +236,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
                 ? "Booking"
                 : requestedAction === "unlock"
                   ? "Your music"
-                  : "Artist Home"
+                  : requestedAction === "offer"
+                    ? "Private offer"
+                    : "Artist Home"
             }
             title={`Opening ${studioName}…`}
             blurb={
@@ -206,7 +276,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
                 ? "Continue to booking"
                 : requestedAction === "unlock"
                   ? `Continue to ${studioName}`
-                  : "Continue to Artist Home"
+                  : requestedAction === "offer"
+                    ? "Review private offer"
+                    : "Continue to Artist Home"
           }
           blurb={
             producerConfirmation
@@ -215,7 +287,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
                 ? "Your original booking intent expired. Continue to reconnect and open booking."
                 : requestedAction === "unlock"
                   ? "Your unlock request expired. Continue to open this studio in your Artist workspace."
-                  : `Continue to connect with ${studioName} and open your Artist Home.`
+                  : requestedAction === "offer"
+                    ? "Continue with the verified account that received this private offer."
+                    : `Continue to connect with ${studioName} and open your Artist Home.`
           }
           showAccentPeriod={!producerConfirmation}
         />
@@ -232,7 +306,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
                   ? "Continue to booking"
                   : requestedAction === "unlock"
                     ? "Continue to your studio"
-                    : "Continue to Artist Home"}
+                    : requestedAction === "offer"
+                      ? "Review private offer"
+                      : "Continue to Artist Home"}
             </Button>
           </form>
           {producerConfirmation ? (

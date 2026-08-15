@@ -374,47 +374,72 @@ export function RightsAgreementStep({
         ) : null}
 
         {agreementMode === "pdf" ? (
-          <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:rounded-[var(--radius-md)]">
+          <div className="flex flex-col gap-3">
+            <label
+              onDragOver={(event) => {
+                event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (pdfUploadPending) return;
+                const file = event.dataTransfer.files[0];
+                if (file) onAgreementPdfSelect?.(file);
+              }}
+              className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-6 text-center sm:rounded-[var(--radius-md)]"
+            >
+              {pdfUploadPending ? (
+                <span className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  Uploading…
+                </span>
+              ) : agreementPdf ? (
+                <>
+                  <span className="max-w-full truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                    {agreementPdf.originalFileName}
+                  </span>
+                  <span className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                    PDF · {formatFileSize(agreementPdf.sizeBytes)}
+                  </span>
+                  <span className="mt-3 text-[12px] font-medium text-[rgb(var(--fg-default))]">
+                    Drop a new PDF here to replace it
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                    Drop your agreement PDF here
+                  </span>
+                  <span className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+                    or tap to choose a file
+                  </span>
+                  <span className="mt-3 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                    PDF only · up to 15 MB
+                  </span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                disabled={pdfUploadPending}
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) onAgreementPdfSelect?.(file);
+                }}
+              />
+            </label>
             {agreementPdf ? (
-              <div className="flex min-w-0 flex-col gap-1">
-                <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                  {agreementPdf.originalFileName}
-                </p>
-                <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
-                  PDF · {formatFileSize(agreementPdf.sizeBytes)}
-                </p>
-              </div>
-            ) : (
-              <p className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                PDF only, up to 15 MB. It stays private and is opened through Skitza.
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <label className="sk-press inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]">
-                {pdfUploadPending ? "Uploading…" : agreementPdf ? "Replace PDF" : "Choose PDF"}
-                <input
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  disabled={pdfUploadPending}
-                  className="sr-only"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.currentTarget.value = "";
-                    if (file) onAgreementPdfSelect?.(file);
-                  }}
-                />
-              </label>
-              {agreementPdf ? (
+              <div className="flex justify-end">
                 <button
                   type="button"
                   disabled={pdfUploadPending}
                   onClick={onAgreementPdfRemove}
-                  className="sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                  className="sk-press min-h-11 shrink-0 rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
                 >
                   Remove
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

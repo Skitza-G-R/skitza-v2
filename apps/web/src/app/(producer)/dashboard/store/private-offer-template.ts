@@ -21,7 +21,11 @@ export type PrivateOfferTemplateSource = Readonly<{
   locationType: string;
   bufferMinutes: number;
   minLeadHours: number;
-  agreementPdf: { documentId: string } | null;
+  agreementPdf: {
+    documentId: string;
+    originalFileName: string;
+    sizeBytes: number;
+  } | null;
   legacyAgreementLinkPresent: boolean;
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementText: string | null;
@@ -69,6 +73,7 @@ export function buildPrivateOfferTemplateProduct(
       ? (product.hourlyRateCents ?? 0)
       : product.priceCents;
   const agreementText = (product.agreementText ?? decoded.contractText).trim();
+  const agreementMode = product.agreementPdf ? "pdf" : agreementText ? "text" : "none";
   const royaltyTerms = product.royaltyTerms
     ? {
         ...product.royaltyTerms,
@@ -121,6 +126,7 @@ export function buildPrivateOfferTemplateProduct(
       royaltyTerms,
       rights,
       enabledPaymentPlans: product.paymentPlans.map((plan) => ({ ...plan })),
+      agreementMode,
       agreementText,
     },
     pricing: perSong
@@ -132,7 +138,8 @@ export function buildPrivateOfferTemplateProduct(
       : hourly
         ? { kind: "hourly", hourlyRateCents: product.hourlyRateCents ?? 0 }
         : { kind: "fixed" },
+    agreementPdf: product.agreementPdf ? { ...product.agreementPdf } : null,
     rightsNeedCompletion: rights.length === 0,
-    agreementNeedsCompletion: agreementText.length === 0,
+    agreementNeedsCompletion: product.legacyAgreementLinkPresent,
   };
 }

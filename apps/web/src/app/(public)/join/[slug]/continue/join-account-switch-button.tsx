@@ -10,9 +10,11 @@ import { joinSignInHref } from "~/server/auth/post-sign-in";
 export function JoinAccountSwitchButton({
   slug,
   action,
+  offerId,
 }: {
   slug: string;
   action: JoinContinuationAction;
+  offerId?: string;
 }) {
   const signOut = useSafeSignOut();
   const [pending, setPending] = useState(false);
@@ -23,7 +25,7 @@ export function JoinAccountSwitchButton({
     setFailed(false);
     setPending(true);
     try {
-      await signOut({ redirectUrl: joinSignInHref(slug, action) });
+      await signOut({ redirectUrl: joinSignInHref(slug, action, offerId) });
     } catch {
       setPending(false);
       setFailed(true);
@@ -40,7 +42,11 @@ export function JoinAccountSwitchButton({
         aria-describedby={failed ? "join-account-switch-error" : undefined}
         onClick={() => void onClick()}
       >
-        {pending ? "Signing out…" : "Sign out and choose account"}
+        {pending
+          ? "Signing out…"
+          : action === "offer"
+            ? "Switch account"
+            : "Sign out and choose account"}
       </Button>
       {failed ? (
         <p

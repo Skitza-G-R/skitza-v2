@@ -1,6 +1,8 @@
 import type { PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
+import { ExternalLink, FileText } from "lucide-react";
 
 import { formatPurchaseMoney } from "~/components/artist/purchase/purchase-data";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 
 function planLabel(plan: PaymentPlan): string {
@@ -64,15 +66,20 @@ export function PrivateOfferTerms({
   snapshot,
   targetLabel,
   embedded = false,
+  agreementHref,
 }: {
   snapshot: PurchaseCommercialSnapshot;
   targetLabel: string;
   embedded?: boolean;
+  agreementHref?: string;
 }) {
   const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
   const selectedPlan = snapshot.selectedPaymentPlan;
   const OfferHeading = embedded ? "h4" : "h1";
   const sectionHeading = embedded ? "h4" : "h2";
+  const agreementPdf = agreementPdfFromCommercialSnapshot(snapshot);
+  const agreementMode =
+    snapshot.agreementMode ?? (agreementPdf ? "pdf" : snapshot.agreementText ? "text" : "none");
 
   return (
     <div className="min-w-0 space-y-5" data-testid="private-offer-terms">
@@ -314,14 +321,48 @@ export function PrivateOfferTerms({
         </TermsCard>
       </section>
 
-      <section className="min-w-0" aria-label="Exact agreement">
-        <TermsHeading as={sectionHeading}>Exact agreement</TermsHeading>
-        <div className="min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-4">
-          <p className="min-w-0 text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
-            {snapshot.agreementText || "No additional agreement text."}
-          </p>
-        </div>
-      </section>
+      {agreementPdf ? (
+        <section className="min-w-0" aria-label="Agreement PDF">
+          <TermsHeading as={sectionHeading}>Agreement</TermsHeading>
+          <TermsCard>
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <FileText
+                  className="h-4 w-4 shrink-0 text-[rgb(var(--brand-primary-dark))]"
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                    {agreementPdf.originalFileName}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">PDF</p>
+                </div>
+              </div>
+              {agreementHref ? (
+                <a
+                  href={agreementHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="sk-press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-[12px] font-semibold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.08)]"
+                >
+                  Open PDF <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              ) : null}
+            </div>
+          </TermsCard>
+        </section>
+      ) : null}
+
+      {agreementMode === "text" ? (
+        <section className="min-w-0" aria-label="Exact agreement">
+          <TermsHeading as={sectionHeading}>Written agreement</TermsHeading>
+          <div className="min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-4">
+            <p className="min-w-0 text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
+              {snapshot.agreementText || "No additional agreement text."}
+            </p>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

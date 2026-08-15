@@ -8,6 +8,7 @@ import { cancelPrivateOfferAction } from "~/app/(producer)/dashboard/store/priva
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import type { PrivateOfferInput } from "~/server/domain/private-offers/service";
 import {
   PrivateOfferComposer,
@@ -28,6 +29,8 @@ export type ProducerPrivateOfferItem = Readonly<{
   recipientEmail: string;
   targetProjectId: string | null;
   targetProjectTitle: string | null;
+  productId?: string | null;
+  sourceProductName?: string | null;
   purchaseId: string | null;
   purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled" | null;
 }>;
@@ -58,6 +61,9 @@ function snapshotToInput(snapshot: PurchaseCommercialSnapshot): PrivateOfferInpu
           },
     rights: [...snapshot.rights],
     enabledPaymentPlans: snapshot.offeredPaymentPlans.map((plan) => ({ ...plan })),
+    agreementMode:
+      snapshot.agreementMode ??
+      (snapshot.agreementPdf ? "pdf" : snapshot.agreementText ? "text" : "none"),
     agreementText: snapshot.agreementText,
   };
 }
@@ -194,6 +200,18 @@ export function PrivateOfferManager({
                             expectedUpdatedAt: offer.updatedAt.toISOString(),
                             recipientName: offer.recipientName,
                             recipientEmail: offer.recipientEmail,
+                            productId: offer.productId ?? null,
+                            sourceProductName: offer.sourceProductName ?? null,
+                            agreementPdf: (() => {
+                              const pdf = agreementPdfFromCommercialSnapshot(offer.commercialDraft);
+                              return pdf
+                                ? {
+                                    documentId: pdf.documentId,
+                                    originalFileName: pdf.originalFileName,
+                                    sizeBytes: pdf.sizeBytes,
+                                  }
+                                : null;
+                            })(),
                           }}
                         />
                         <button

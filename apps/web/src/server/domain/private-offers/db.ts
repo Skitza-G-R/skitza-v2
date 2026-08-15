@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   and,
   clientContacts,
@@ -21,7 +23,14 @@ import {
   type PurchaseCommercialSnapshot,
 } from "@skitza/db";
 
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import { emailHashFor } from "~/server/artist/identity";
+import {
+  agreementPdfClientSnapshot,
+  appendAgreementPdfRevision,
+  findAgreementPdfRevision,
+  type AgreementPdfDocument,
+} from "~/server/domain/agreement-pdfs/contract";
 import { clientMoneyRepository } from "~/server/domain/client-money/db";
 import { getClientMoneyLedger } from "~/server/domain/client-money/service";
 import { loadArtistPurchaseGuard } from "~/server/domain/purchase-requests/active-guard";
@@ -46,9 +55,17 @@ export type PrivateOfferTarget =
   | Readonly<{ kind: "new" }>
   | Readonly<{ kind: "existing"; projectId: string }>;
 
+export type PrivateOfferAgreementPdfChange =
+  | Readonly<{ kind: "inherit"; documentId: string }>
+  | Readonly<{ kind: "keep"; documentId: string }>
+  | Readonly<{ kind: "replace"; document: AgreementPdfDocument }>
+  | Readonly<{ kind: "remove" }>;
+
 export type PrivateOfferPersistenceErrorCode =
   | "NOT_FOUND"
   | "UNAVAILABLE"
+  | "SOURCE_UNAVAILABLE"
+  | "INVALID_AGREEMENT"
   | "STALE"
   | "ACTIVE_PURCHASE"
   | "INTEGRITY";
@@ -79,6 +96,98 @@ function normalizeRecipientEmail(raw: string): string {
 }
 
 type PrivateOfferRow = typeof privateOffers.$inferSelect;
+
+function inheritedAgreementPdf(
+  contractUrl: string | null,
+  documentId: string,
+): Readonly<{
+  contractUrl: string;
+  snapshot: NonNullable<ReturnType<typeof agreementPdfClientSnapshot>>;
+}> {
+  const revision = findAgreementPdfRevision(contractUrl, documentId);
+  const snapshot = agreementPdfClientSnapshot(revision);
+  if (!revision?.document || !snapshot) {
+    throw new PrivateOfferPersistenceError(
+      "INVALID_AGREEMENT",
+      "The copied agreement PDF is no longer available. Replace it or explicitly remove it.",
+    );
+  }
+  return {
+    contractUrl: appendAgreementPdfRevision(null, revision),
+    snapshot,
+  };
+}
+
+function replacedAgreementPdf(
+  contractUrl: string | null,
+  document: AgreementPdfDocument,
+  now: Date,
+): Readonly<{
+  contractUrl: string;
+  snapshot: NonNullable<ReturnType<typeof agreementPdfClientSnapshot>>;
+}> {
+  const revision = {
+    revisionId: randomUUID(),
+    effectiveAt: now.toISOString(),
+    document,
+  };
+  const snapshot = agreementPdfClientSnapshot(revision);
+  if (!snapshot) {
+    throw new PrivateOfferPersistenceError(
+      "INVALID_AGREEMENT",
+      "The replacement agreement PDF is unavailable. Try uploading it again.",
+    );
+  }
+  return {
+    contractUrl: appendAgreementPdfRevision(contractUrl, revision),
+    snapshot,
+  };
+}
+
+function keptAgreementPdf(
+  contractUrl: string | null,
+  documentId: string,
+): Readonly<{
+  contractUrl: string;
+  snapshot: NonNullable<ReturnType<typeof agreementPdfClientSnapshot>>;
+}> {
+  const revision = findAgreementPdfRevision(contractUrl, documentId);
+  const snapshot = agreementPdfClientSnapshot(revision);
+  if (!revision?.document || !snapshot) {
+    throw new PrivateOfferPersistenceError(
+      "INVALID_AGREEMENT",
+      "The offer agreement PDF is unavailable. Replace it or explicitly remove it.",
+    );
+  }
+  return { contractUrl: contractUrl ?? "", snapshot };
+}
+
+function replaySnapshot(
+  existing: PrivateOfferRow,
+  terms: PrivateOfferInput,
+): PurchaseCommercialSnapshot {
+  const agreementPdf = agreementPdfFromCommercialSnapshot(existing.commercialDraft);
+  return buildPrivateOfferSnapshot(terms, agreementPdf);
+}
+
+function agreementChangeMatchesExisting(
+  existing: PrivateOfferRow,
+  change: PrivateOfferAgreementPdfChange | undefined,
+): boolean {
+  const snapshot = agreementPdfFromCommercialSnapshot(existing.commercialDraft);
+  if (!change) return snapshot === null;
+  if (change.kind === "remove") return snapshot === null;
+  if (change.kind === "inherit" || change.kind === "keep") {
+    return snapshot?.documentId === change.documentId;
+  }
+  return Boolean(
+    snapshot &&
+    snapshot.originalFileName === change.document.originalFileName &&
+    snapshot.sizeBytes === change.document.sizeBytes &&
+    snapshot.objectEtag === change.document.objectEtag &&
+    snapshot.sha256 === change.document.sha256,
+  );
+}
 
 function assertExactPrivateOfferReplay(
   existing: PrivateOfferRow,
@@ -238,11 +347,11 @@ export async function createPrivateOffer(
     recipient: PrivateOfferRecipient;
     target: PrivateOfferTarget;
     terms: PrivateOfferInput;
+    agreementPdf?: PrivateOfferAgreementPdfChange;
     now: Date;
     expiresAt?: Date;
   },
 ) {
-  const snapshot = buildPrivateOfferSnapshot(input.terms);
   const expiresAt = input.expiresAt ?? defaultPrivateOfferExpiry(input.now);
   assertPrivateOfferActionAllowed({
     status: "draft",
@@ -258,12 +367,18 @@ export async function createPrivateOffer(
       .where(eq(privateOffers.id, input.offerId))
       .limit(1);
     if (existing) {
+      if (!agreementChangeMatchesExisting(existing, input.agreementPdf)) {
+        throw new PrivateOfferPersistenceError(
+          "STALE",
+          "This send was already used with a different agreement PDF.",
+        );
+      }
       assertExactPrivateOfferReplay(existing, {
         producerId: input.producerId,
         ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
         recipient: input.recipient,
         target: input.target,
-        snapshot,
+        snapshot: replaySnapshot(existing, input.terms),
         expiresAt,
       });
       return { created: false as const, offer: existing };
@@ -275,9 +390,10 @@ export async function createPrivateOffer(
     const producer = await lockOpenProducer(tx, input.producerId);
 
     let sourceProductId: string | null = null;
+    let sourceContractUrl: string | null = null;
     if (input.sourceProductId) {
       const [sourceProduct] = await tx
-        .select({ id: products.id })
+        .select({ id: products.id, contractUrl: products.contractUrl })
         .from(products)
         .where(
           and(
@@ -288,9 +404,31 @@ export async function createPrivateOffer(
         )
         .limit(1)
         .for("share");
-      if (!sourceProduct) notFound();
+      if (!sourceProduct) {
+        throw new PrivateOfferPersistenceError(
+          "SOURCE_UNAVAILABLE",
+          "The source product is no longer available. Close this offer and restart from an available product.",
+        );
+      }
       sourceProductId = sourceProduct.id;
+      sourceContractUrl = sourceProduct.contractUrl;
     }
+
+    let agreementPdfContract: string | null = null;
+    let agreementPdf: ReturnType<typeof agreementPdfFromCommercialSnapshot> = null;
+    if (input.agreementPdf?.kind === "inherit") {
+      if (!sourceProductId) unavailable();
+      const inherited = inheritedAgreementPdf(sourceContractUrl, input.agreementPdf.documentId);
+      agreementPdfContract = inherited.contractUrl;
+      agreementPdf = inherited.snapshot;
+    } else if (input.agreementPdf?.kind === "replace") {
+      const replacement = replacedAgreementPdf(null, input.agreementPdf.document, input.now);
+      agreementPdfContract = replacement.contractUrl;
+      agreementPdf = replacement.snapshot;
+    } else if (input.agreementPdf?.kind === "keep") {
+      unavailable();
+    }
+    const snapshot = buildPrivateOfferSnapshot(input.terms, agreementPdf);
 
     const recipient = await resolveRecipientForUpdate(tx, input);
     const targetProjectId = await resolveTargetForShare(tx, {
@@ -308,6 +446,7 @@ export async function createPrivateOffer(
         recipientEmailHash: emailHashFor(recipient.email),
         targetProjectId,
         productId: sourceProductId,
+        agreementPdfContract,
         status: "sent",
         commercialDraft: snapshot,
         expiresAt,
@@ -328,12 +467,15 @@ export async function createPrivateOffer(
       .where(eq(privateOffers.id, input.offerId))
       .limit(1);
     if (!replayed) throw new PrivateOfferPersistenceError("INTEGRITY");
+    if (!agreementChangeMatchesExisting(replayed, input.agreementPdf)) {
+      throw new PrivateOfferPersistenceError("STALE");
+    }
     assertExactPrivateOfferReplay(replayed, {
       producerId: input.producerId,
       ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
       recipient: input.recipient,
       target: input.target,
-      snapshot,
+      snapshot: replaySnapshot(replayed, input.terms),
       expiresAt,
     });
     return { created: false as const, offer: replayed };
@@ -372,6 +514,8 @@ export async function listProducerPrivateOffers(db: Db, input: { producerId: str
       recipientEmail: privateOffers.recipientEmail,
       targetProjectId: privateOffers.targetProjectId,
       targetProjectTitle: projects.title,
+      productId: privateOffers.productId,
+      sourceProductName: products.name,
       purchaseId: purchases.id,
       purchaseLifecycleStatus: purchases.lifecycleStatus,
     })
@@ -392,6 +536,13 @@ export async function listProducerPrivateOffers(db: Db, input: { producerId: str
       ),
     )
     .leftJoin(purchases, eq(purchases.privateOfferId, privateOffers.id))
+    .leftJoin(
+      products,
+      and(
+        eq(products.id, privateOffers.productId),
+        eq(products.producerId, privateOffers.producerId),
+      ),
+    )
     .where(eq(privateOffers.producerId, input.producerId))
     .orderBy(desc(privateOffers.createdAt));
 }
@@ -501,11 +652,11 @@ export async function updatePrivateOffer(
     expectedUpdatedAt: Date;
     target: PrivateOfferTarget;
     terms: PrivateOfferInput;
+    agreementPdf?: PrivateOfferAgreementPdfChange;
     expiresAt: Date;
     now: Date;
   },
 ) {
-  const snapshot = buildPrivateOfferSnapshot(input.terms);
   assertPrivateOfferActionAllowed({
     status: "draft",
     expiresAt: input.expiresAt,
@@ -514,7 +665,7 @@ export async function updatePrivateOffer(
   });
   const outcome = await db.transaction(async (tx) => {
     const offer = await lockProducerOffer(tx, input);
-    await lockOpenProducer(tx, offer.producerId);
+    const producer = await lockOpenProducer(tx, offer.producerId);
     if (isPrivateOfferExpired(offer.expiresAt, input.now) && offer.status === "sent") {
       await tx
         .update(privateOffers)
@@ -539,11 +690,51 @@ export async function updatePrivateOffer(
       clientContactId: offer.clientContactId,
       target: input.target,
     });
+    let agreementPdfContract = offer.agreementPdfContract;
+    let agreementPdf: ReturnType<typeof agreementPdfFromCommercialSnapshot> = null;
+    if (input.agreementPdf?.kind === "keep") {
+      const kept = keptAgreementPdf(offer.agreementPdfContract, input.agreementPdf.documentId);
+      agreementPdfContract = kept.contractUrl;
+      agreementPdf = kept.snapshot;
+    } else if (input.agreementPdf?.kind === "replace") {
+      const replacement = replacedAgreementPdf(
+        offer.agreementPdfContract,
+        input.agreementPdf.document,
+        input.now,
+      );
+      agreementPdfContract = replacement.contractUrl;
+      agreementPdf = replacement.snapshot;
+    } else if (input.agreementPdf?.kind === "remove") {
+      agreementPdfContract = null;
+    } else if (input.agreementPdf?.kind === "inherit") {
+      unavailable();
+    }
+    const snapshot = buildPrivateOfferSnapshot(input.terms, agreementPdf);
+    const changed =
+      offer.targetProjectId !== targetProjectId ||
+      digestCommercialSnapshot(offer.commercialDraft) !== digestCommercialSnapshot(snapshot) ||
+      !sameInstant(offer.expiresAt, input.expiresAt) ||
+      offer.agreementPdfContract !== agreementPdfContract;
+    const [recipient] = await tx
+      .select({ name: clientContacts.name, email: clientContacts.email })
+      .from(clientContacts)
+      .where(
+        and(
+          eq(clientContacts.id, offer.clientContactId),
+          eq(clientContacts.producerId, offer.producerId),
+        ),
+      )
+      .limit(1);
+    if (!recipient) throw new PrivateOfferPersistenceError("INTEGRITY");
+    if (!changed) {
+      return { kind: "updated" as const, offer, changed: false, recipient, producer };
+    }
     const [updated] = await tx
       .update(privateOffers)
       .set({
         targetProjectId,
         commercialDraft: snapshot,
+        agreementPdfContract,
         expiresAt: input.expiresAt,
         updatedAt: input.now,
       })
@@ -557,10 +748,15 @@ export async function updatePrivateOffer(
       )
       .returning();
     if (!updated) unavailable();
-    return { kind: "updated" as const, offer: updated };
+    return { kind: "updated" as const, offer: updated, changed: true, recipient, producer };
   });
   if (outcome.kind === "expired") unavailable();
-  return outcome.offer;
+  return {
+    ...outcome.offer,
+    changed: outcome.changed,
+    recipient: outcome.recipient,
+    producer: outcome.producer,
+  };
 }
 
 export async function cancelPrivateOffer(
@@ -695,6 +891,47 @@ export async function getArtistPrivateOffer(
     .limit(1);
   if (!row || isPrivateOfferExpired(row.expiresAt, input.now)) notFound();
   return row;
+}
+
+export async function getPrivateOfferJoinAccess(
+  db: Db,
+  input: {
+    clerkUserId: string;
+    verifiedEmailHashes: string[];
+    producerId: string;
+    offerId: string;
+    now: Date;
+  },
+): Promise<"authorized" | "connect" | "wrong_account" | "unavailable"> {
+  const [row] = await db
+    .select({
+      recipientEmailHash: privateOffers.recipientEmailHash,
+      linkedClerkUserId: clientContacts.clerkUserId,
+    })
+    .from(privateOffers)
+    .innerJoin(
+      clientContacts,
+      and(
+        eq(clientContacts.id, privateOffers.clientContactId),
+        eq(clientContacts.producerId, privateOffers.producerId),
+        isNull(clientContacts.archivedAt),
+      ),
+    )
+    .innerJoin(producers, eq(producers.id, privateOffers.producerId))
+    .where(
+      and(
+        eq(privateOffers.id, input.offerId),
+        eq(privateOffers.producerId, input.producerId),
+        eq(privateOffers.status, "sent"),
+        gt(privateOffers.expiresAt, input.now),
+        isNull(producers.closedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return "unavailable";
+  if (!input.verifiedEmailHashes.includes(row.recipientEmailHash)) return "wrong_account";
+  if (row.linkedClerkUserId === null) return "connect";
+  return row.linkedClerkUserId === input.clerkUserId ? "authorized" : "wrong_account";
 }
 
 async function lockArtistOffer(

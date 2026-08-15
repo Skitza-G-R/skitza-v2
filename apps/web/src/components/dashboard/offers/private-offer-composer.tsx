@@ -1,14 +1,12 @@
 "use client";
 
 import { Pencil, Plus } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   type ReactElement,
   type RefObject,
-  useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,15 +22,11 @@ import {
 } from "~/app/(producer)/dashboard/store/private-offer-actions";
 import { getPreset, type PresetId } from "~/app/(producer)/dashboard/store/type-presets";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
-import { useProducerPrivateOfferDraft } from "~/components/runtime-state/use-runtime-state";
-import type { SaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
-import type { ProducerPrivateOfferDraft } from "~/lib/runtime-state/runtime-state";
 import type { TaxMode } from "~/lib/tax-mode";
 import type { PrivateOfferInput } from "~/server/domain/private-offers/service";
 
 import {
-  parsePrivateOfferComposerDraftJson,
   privateOfferRecipientEmail,
   seedPrivateOfferDraft,
   validatePrivateOfferDraft,
@@ -56,6 +50,7 @@ import {
 } from "./private-offer-editor-steps";
 import { PrivateOfferReview, type PrivateOfferReviewEditStep } from "./private-offer-review";
 import type { PrivateOfferTemplateProduct } from "./private-offer-template-types";
+import { ProductPrivateOfferComposer } from "./product-private-offer-composer";
 
 export type { PrivateOfferCurrency } from "./private-offer-editor-model";
 export type { PrivateOfferTemplateProduct } from "./private-offer-template-types";
@@ -89,6 +84,13 @@ export interface PrivateOfferComposerInitialOffer {
   expectedUpdatedAt: string;
   recipientName?: string;
   recipientEmail?: string;
+  productId?: string | null;
+  sourceProductName?: string | null;
+  agreementPdf?: Readonly<{
+    documentId: string | null;
+    originalFileName: string;
+    sizeBytes: number;
+  }> | null;
 }
 
 export interface SendPrivateOfferComposerPayload {
@@ -167,43 +169,6 @@ const EXISTING_FULL_STEPS = [
   "review",
 ] as const;
 const QUICK_STEPS = ["quick", "review"] as const;
-const PRIVATE_OFFER_DRAFT_VERSION = 1 as const;
-const PRIVATE_OFFER_AUTOSAVE_DELAY_MS = 250;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function privateOfferDraftEntryKey(input: {
-  initialOffer?: PrivateOfferComposerInitialOffer;
-  templateProduct?: PrivateOfferTemplateProduct;
-  lockedClientId?: string;
-}): string {
-  if (input.initialOffer) {
-    return `edit:${input.initialOffer.id}:${input.initialOffer.expectedUpdatedAt}`;
-  }
-  if (input.templateProduct) {
-    const templateKey = `template:${input.templateProduct.source.productId}`;
-    return input.lockedClientId ? `${templateKey}:client:${input.lockedClientId}` : templateKey;
-  }
-  if (input.lockedClientId) return `client:${input.lockedClientId}`;
-  return "custom";
-}
-
-function decodePersistedComposerStep(
-  value: string,
-  allowedFullSteps: readonly ComposerStep[],
-  quickAvailable: boolean,
-): { flow: ComposerFlow; step: ComposerStep } | null {
-  const separator = value.indexOf(":");
-  if (separator <= 0) return null;
-  const flow = value.slice(0, separator);
-  const step = value.slice(separator + 1) as ComposerStep;
-  if (flow === "quick" && quickAvailable && QUICK_STEPS.includes(step as QuickStep)) {
-    return { flow, step };
-  }
-  if (flow === "full" && allowedFullSteps.includes(step) && step !== "quick") {
-    return { flow, step };
-  }
-  return null;
-}
 
 const STEP_COPY: Record<ComposerStep, Readonly<{ title: string; subtitle: string }>> = {
   quick: {
@@ -343,6 +308,29 @@ function defaultTrigger(editing: boolean): ReactElement {
 }
 
 export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
+  const initialOffer = "initialOffer" in props ? props.initialOffer : undefined;
+  const templateProduct = "templateProduct" in props ? props.templateProduct : undefined;
+  if (templateProduct || initialOffer?.productId) {
+    return (
+      <ProductPrivateOfferComposer
+        recipients={props.recipients}
+        taxMode={props.taxMode}
+        taxRatePct={props.taxRatePct}
+        defaultCurrency={props.defaultCurrency}
+        {...(templateProduct ? { templateProduct } : {})}
+        {...(initialOffer ? { initialOffer } : {})}
+        {...(props.open !== undefined ? { open: props.open } : {})}
+        {...(props.onOpenChange ? { onOpenChange: props.onOpenChange } : {})}
+        {...(props.onCreated ? { onCreated: props.onCreated } : {})}
+        {...(props.trigger !== undefined ? { trigger: props.trigger } : {})}
+        {...(props.returnFocusRef ? { returnFocusRef: props.returnFocusRef } : {})}
+      />
+    );
+  }
+  return <LegacyPrivateOfferComposer {...props} />;
+}
+
+function LegacyPrivateOfferComposer(props: PrivateOfferComposerProps) {
   const {
     recipients,
     lockedClientId: lockedClientIdProp,
@@ -361,20 +349,8 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const lockedClientId = lockedClientIdProp ?? initialOffer?.clientContactId;
   const { toast } = useToast();
   const router = useRouter();
-  const pathname = usePathname();
   const online = useOnlineStatus();
-  const {
-    record: runtimeDraftRecord,
-    loaded: runtimeDraftLoaded,
-    save: saveRuntimeDraft,
-    clear: clearRuntimeDraft,
-  } = useProducerPrivateOfferDraft({ route: pathname });
   const idPrefix = useId().replace(/:/g, "");
-  const entryKey = privateOfferDraftEntryKey({
-    ...(initialOffer ? { initialOffer } : {}),
-    ...(templateProduct ? { templateProduct } : {}),
-    ...(lockedClientIdProp ? { lockedClientId: lockedClientIdProp } : {}),
-  });
   const initialFlow: ComposerFlow = templateProduct ? "quick" : "full";
   const initialStep: ComposerStep = templateProduct ? "quick" : "recipient";
   const seededDraft = useMemo(
@@ -408,31 +384,13 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const [projectLoadErrorsByClient, setProjectLoadErrorsByClient] = useState<
     Record<string, string>
   >({});
-  const [submissionOfferId, setSubmissionOfferId] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [persistenceReady, setPersistenceReady] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const submissionOfferIdRef = useRef<string | null>(null);
   const submitInFlightRef = useRef(false);
   const projectLoadRequestRef = useRef<{ clientId: string; token: symbol } | null>(null);
-  const initializedEntryRef = useRef<string | null>(null);
-  const suppressPersistenceRef = useRef(false);
-  const persistenceReadyRef = useRef(false);
-  const autosaveTimerRef = useRef<number | null>(null);
-  const saveStatusTimerRef = useRef<number | null>(null);
+  const previousOpenRef = useRef(false);
   const errorAlertRef = useRef<HTMLDivElement>(null);
-  const latestDraftRef = useRef(draft);
-  const latestFlowRef = useRef(flow);
-  const latestStepRef = useRef(currentStep);
-  const latestSubmissionOfferIdRef = useRef(submissionOfferId);
-  const persistLatestDraftRef = useRef<
-    ((override?: { submissionOfferId: string | null }, quiet?: boolean) => boolean) | null
-  >(null);
-
-  latestDraftRef.current = draft;
-  latestFlowRef.current = flow;
-  latestStepRef.current = currentStep;
-  latestSubmissionOfferIdRef.current = submissionOfferId;
-  submissionOfferIdRef.current = submissionOfferId;
 
   const fullSteps = useMemo<readonly ComposerStep[]>(
     () => (templateProduct || editing ? EXISTING_FULL_STEPS : CUSTOM_FULL_STEPS),
@@ -481,45 +439,6 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const validReview = "value" in validated ? validated.value : reviewValue;
   const copy = STEP_COPY[currentStep];
 
-  const finishDraftSave = useCallback((written: boolean) => {
-    setSaveStatus(written ? "saved" : "error");
-    if (saveStatusTimerRef.current !== null) {
-      window.clearTimeout(saveStatusTimerRef.current);
-    }
-    if (written) {
-      saveStatusTimerRef.current = window.setTimeout(() => {
-        setSaveStatus("idle");
-      }, 2_000);
-    }
-  }, []);
-
-  const persistLatestDraft = useCallback(
-    (override?: { submissionOfferId: string | null }, quiet = false) => {
-      if (!persistenceReadyRef.current || suppressPersistenceRef.current) return false;
-      if (autosaveTimerRef.current !== null) {
-        window.clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
-      const nextSubmissionOfferId =
-        override?.submissionOfferId ?? latestSubmissionOfferIdRef.current;
-      const record: ProducerPrivateOfferDraft = {
-        version: PRIVATE_OFFER_DRAFT_VERSION,
-        entryKey,
-        mode: editing ? "edit" : "new",
-        existingOfferId: initialOffer?.id ?? null,
-        expectedUpdatedAt: initialOffer?.expectedUpdatedAt ?? null,
-        currentStep: `${latestFlowRef.current}:${latestStepRef.current}`,
-        draftJson: JSON.stringify(latestDraftRef.current),
-        submissionOfferId: editing ? null : nextSubmissionOfferId,
-      };
-      const written = saveRuntimeDraft(record);
-      if (!quiet) finishDraftSave(written);
-      return written;
-    },
-    [editing, entryKey, finishDraftSave, initialOffer, saveRuntimeDraft],
-  );
-  persistLatestDraftRef.current = persistLatestDraft;
-
   function resetLogicalDraft() {
     setFlow(initialFlow);
     setCurrentStep(initialStep);
@@ -529,186 +448,37 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     setMissingStep(null);
     setReturnToReview(false);
     setReviewValue(null);
-    setSubmissionOfferId(null);
     submissionOfferIdRef.current = null;
-    latestSubmissionOfferIdRef.current = null;
     submitInFlightRef.current = false;
     setPending(false);
+    setDirty(false);
+    setConfirmClose(false);
   }
 
   function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen && (pending || submitInFlightRef.current)) return;
-    if (!nextOpen) persistLatestDraft();
-    if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
-    onOpenChange?.(nextOpen);
+    if (nextOpen) {
+      if (controlledOpen === undefined) setUncontrolledOpen(true);
+      onOpenChange?.(true);
+      return;
+    }
+    if (pending || submitInFlightRef.current) return;
+    if (dirty) {
+      setConfirmClose(true);
+      return;
+    }
+    clearLogicalDraftAndClose();
   }
 
   function clearLogicalDraftAndClose() {
-    suppressPersistenceRef.current = true;
-    persistenceReadyRef.current = false;
-    if (autosaveTimerRef.current !== null) {
-      window.clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = null;
-    }
-    clearRuntimeDraft();
-    setSaveStatus("idle");
     resetLogicalDraft();
     if (controlledOpen === undefined) setUncontrolledOpen(false);
     onOpenChange?.(false);
   }
 
-  useLayoutEffect(() => {
-    if (!open) {
-      initializedEntryRef.current = null;
-      persistenceReadyRef.current = false;
-      setPersistenceReady(false);
-      return;
-    }
-    if (!runtimeDraftLoaded || initializedEntryRef.current === entryKey) return;
-
-    suppressPersistenceRef.current = true;
-    persistenceReadyRef.current = false;
-    setPersistenceReady(false);
-    initializedEntryRef.current = entryKey;
-    submitInFlightRef.current = false;
-
-    const expectedMode = editing ? "edit" : "new";
-    const matchingRecord =
-      runtimeDraftRecord?.version === PRIVATE_OFFER_DRAFT_VERSION &&
-      runtimeDraftRecord.entryKey === entryKey &&
-      runtimeDraftRecord.mode === expectedMode &&
-      runtimeDraftRecord.existingOfferId === (initialOffer?.id ?? null) &&
-      runtimeDraftRecord.expectedUpdatedAt === (initialOffer?.expectedUpdatedAt ?? null);
-    const restoredDraft = matchingRecord
-      ? parsePrivateOfferComposerDraftJson(runtimeDraftRecord.draftJson)
-      : null;
-    const restoredLocation = matchingRecord
-      ? decodePersistedComposerStep(
-          runtimeDraftRecord.currentStep,
-          fullSteps,
-          templateProduct !== undefined,
-        )
-      : null;
-
-    setError(null);
-    setInvalidField(null);
-    setMissingStep(null);
-    setReturnToReview(false);
-    setReviewValue(null);
-
-    if (restoredDraft && restoredLocation) {
-      let nextFlow = restoredLocation.flow;
-      let nextStep = restoredLocation.step;
-      if (nextStep === "review") {
-        const quantityError =
-          nextFlow === "quick" ? quickTemplateQuantityError(restoredDraft, templateProduct) : null;
-        const restoredClientId =
-          lockedClientId ??
-          (restoredDraft.recipientKind === "existing" ? restoredDraft.clientContactId : "");
-        const restoredProjects = restoredClientId
-          ? (projectOptionsByClient[restoredClientId] ?? [])
-          : [];
-        const waitingForRestoredProjects =
-          restoredDraft.targetKind === "existing" &&
-          restoredClientId.length > 0 &&
-          !loadedProjectClientIds.includes(restoredClientId);
-        if (quantityError) {
-          nextStep = "quick";
-          setError(quantityError.message);
-          setInvalidField(quantityError.field);
-        } else if (!waitingForRestoredProjects) {
-          const restoredValidation = validatePrivateOfferReviewDraft(
-            restoredDraft,
-            lockedClientId,
-            restoredProjects,
-          );
-          if ("value" in restoredValidation) {
-            setReviewValue(restoredValidation.value);
-          } else {
-            nextFlow = "full";
-            nextStep = stepFromValidationError(restoredValidation.error.step);
-            setError(restoredValidation.error.message);
-            setInvalidField(restoredValidation.error.field);
-            setMissingStep(nextStep as FullStep);
-          }
-        }
-      }
-      setFlow(nextFlow);
-      setCurrentStep(nextStep);
-      setDraft(restoredDraft);
-      const candidateSubmissionOfferId = runtimeDraftRecord?.submissionOfferId ?? null;
-      const restoredSubmissionOfferId =
-        !editing && candidateSubmissionOfferId && UUID_PATTERN.test(candidateSubmissionOfferId)
-          ? candidateSubmissionOfferId
-          : null;
-      setSubmissionOfferId(restoredSubmissionOfferId);
-      submissionOfferIdRef.current = restoredSubmissionOfferId;
-      latestSubmissionOfferIdRef.current = restoredSubmissionOfferId;
-    } else {
-      resetLogicalDraft();
-    }
-
-    suppressPersistenceRef.current = false;
-    persistenceReadyRef.current = true;
-    setPersistenceReady(true);
-  }, [
-    editing,
-    entryKey,
-    fullSteps,
-    initialOffer,
-    initialFlow,
-    initialStep,
-    loadedProjectClientIds,
-    lockedClientId,
-    open,
-    projectOptionsByClient,
-    runtimeDraftLoaded,
-    runtimeDraftRecord,
-    seededDraft,
-    templateProduct,
-  ]);
-
   useEffect(() => {
-    if (!open || !persistenceReady || suppressPersistenceRef.current) return;
-    if (autosaveTimerRef.current !== null) {
-      window.clearTimeout(autosaveTimerRef.current);
-    }
-    setSaveStatus("saving");
-    autosaveTimerRef.current = window.setTimeout(() => {
-      autosaveTimerRef.current = null;
-      persistLatestDraft();
-    }, PRIVATE_OFFER_AUTOSAVE_DELAY_MS);
-    return () => {
-      if (autosaveTimerRef.current !== null) {
-        window.clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
-    };
-  }, [currentStep, draft, flow, open, persistLatestDraft, persistenceReady, submissionOfferId]);
-
-  useEffect(() => {
-    if (!open || !persistenceReady) return;
-    const flush = () => {
-      persistLatestDraft();
-    };
-    const flushWhenHidden = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", flushWhenHidden);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", flushWhenHidden);
-    };
-  }, [open, persistLatestDraft, persistenceReady]);
-
-  useEffect(() => {
-    return () => {
-      persistLatestDraftRef.current?.(undefined, true);
-      if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
-      if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
-    };
-  }, []);
+    if (open && !previousOpenRef.current) resetLogicalDraft();
+    previousOpenRef.current = open;
+  }, [open, seededDraft]);
 
   useEffect(() => {
     if (!open || !error) return;
@@ -784,7 +554,6 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
       .finally(() => {
         if (projectLoadRequestRef.current?.token !== token) return;
         projectLoadRequestRef.current = null;
-        setLoadingProjectClientId((current) => (current === selectedClientId ? null : current));
       });
     return () => {
       active = false;
@@ -849,6 +618,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
 
   function patch(next: Partial<PrivateOfferComposerDraft>) {
     if (pending || submitInFlightRef.current) return;
+    setDirty(true);
     setDraft((current) => ({ ...current, ...next }));
     setError(null);
     setInvalidField(null);
@@ -856,6 +626,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   }
 
   function moveToStep(step: ComposerStep) {
+    setDirty(true);
     setCurrentStep(step);
     setError(null);
     setInvalidField(null);
@@ -998,20 +769,6 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
       createOfferId = submissionOfferIdRef.current ?? crypto.randomUUID();
       if (submissionOfferIdRef.current === null) {
         submissionOfferIdRef.current = createOfferId;
-        latestSubmissionOfferIdRef.current = createOfferId;
-        setSubmissionOfferId(createOfferId);
-      }
-      // This write is intentionally synchronous and must succeed before the
-      // action. If browser storage is unavailable, sending would make an
-      // ambiguous response unsafe to recover after reload. Keep the same id
-      // in memory and let a later retry persist that exact logical send.
-      if (!persistLatestDraft({ submissionOfferId: createOfferId })) {
-        const message =
-          "Your browser couldn’t safely save this send. Nothing was sent. Check site storage and try again.";
-        setError(message);
-        setInvalidField(null);
-        toast(message, "error");
-        return;
       }
     }
     submitInFlightRef.current = true;
@@ -1231,88 +988,132 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const productName = initialOffer?.terms.name ?? templateProduct?.source.productName;
 
   return (
-    <EditorShell
-      open={open}
-      onOpenChange={handleOpenChange}
-      trigger={shellTrigger}
-      {...(returnFocusRef ? { returnFocusRef } : {})}
-      mode={editing ? "edit" : "new"}
-      {...(productName ? { productName } : {})}
-      steps={steps}
-      current={currentStep}
-      title={copy.title}
-      subtitle={copy.subtitle}
-      canContinue={!pending && (currentStep !== "type" || draft.presetId !== null)}
-      onBack={handleBack}
-      onContinue={handleContinue}
-      onSave={handleSubmit}
-      onPublish={handleSubmit}
-      onSaveHidden={handleSubmit}
-      onDiscard={() => {
-        clearLogicalDraftAndClose();
-      }}
-      isLastStep={isLastStep}
-      isFirstStep={isFirstStep}
-      pending={pending}
-      pendingAction={editing ? "edit" : "publish"}
-      saveStatus={saveStatus}
-      editorLabel={editing ? "Edit private offer" : "Send a private offer"}
-      stepLabel={`Step ${String(stepIndex + 1)} of ${String(steps.length)} · ${
-        editing ? "EDITING PRIVATE OFFER" : "PRIVATE OFFER"
-      }`}
-      progressLabel="Private offer setup progress"
-      closeLabel="Close private offer editor"
-      continueLabel={currentStep === "quick" ? "Review offer →" : "Continue →"}
-      finalNote={
-        editing
-          ? "The artist sees these corrections immediately. Accepted offers stay locked."
-          : "Sending notifies the invited artist and locks the offer to their verified email."
-      }
-      showDiscard
-      discardLabel="Discard draft"
-      {...(templateProduct && flow === "quick"
-        ? {
-            utilityAction: {
-              label: completeMissing ? "Complete missing terms" : "Customize terms",
-              onClick: completeMissing
-                ? () => {
-                    completeMissingTerms();
-                  }
-                : customizeTerms,
-            },
-          }
-        : {})}
-      finalActions={[
-        {
-          label: editing ? "Save corrections" : "Send private offer",
-          pendingLabel: editing ? "Saving…" : "Sending…",
-          onClick: handleSubmit,
-          variant: "primary",
-        },
-      ]}
-    >
-      {error ? (
-        <div
-          ref={errorAlertRef}
-          role="alert"
-          tabIndex={-1}
-          className="mb-4 flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2.5 text-[12.5px] font-medium text-[rgb(var(--fg-danger))] sm:flex-row sm:items-center sm:justify-between"
-        >
-          <span>{error}</span>
-          {completeMissing ? (
-            <button
-              type="button"
-              onClick={() => {
-                completeMissingTerms();
-              }}
-              className="sk-press shrink-0 self-start rounded-[var(--radius-md)] bg-[rgb(var(--fg-default))] px-3 py-2 text-[12px] font-semibold text-[rgb(var(--bg-elevated))] sm:self-auto"
+    <>
+      <EditorShell
+        open={open}
+        onOpenChange={handleOpenChange}
+        trigger={shellTrigger}
+        {...(returnFocusRef ? { returnFocusRef } : {})}
+        mode={editing ? "edit" : "new"}
+        {...(productName ? { productName } : {})}
+        steps={steps}
+        current={currentStep}
+        title={copy.title}
+        subtitle={copy.subtitle}
+        canContinue={!pending && (currentStep !== "type" || draft.presetId !== null)}
+        onBack={handleBack}
+        onContinue={handleContinue}
+        onSave={handleSubmit}
+        onPublish={handleSubmit}
+        onSaveHidden={handleSubmit}
+        onDiscard={() => {
+          clearLogicalDraftAndClose();
+        }}
+        isLastStep={isLastStep}
+        isFirstStep={isFirstStep}
+        pending={pending}
+        pendingAction={editing ? "edit" : "publish"}
+        editorLabel={editing ? "Edit private offer" : "Send a private offer"}
+        stepLabel={`Step ${String(stepIndex + 1)} of ${String(steps.length)} · ${
+          editing ? "EDITING PRIVATE OFFER" : "PRIVATE OFFER"
+        }`}
+        progressLabel="Private offer setup progress"
+        closeLabel="Close private offer editor"
+        continueLabel={currentStep === "quick" ? "Review offer →" : "Continue →"}
+        finalNote={
+          editing
+            ? "The artist sees these corrections immediately. Accepted offers stay locked."
+            : "Sending notifies the invited artist and locks the offer to their verified email."
+        }
+        showDiscard={false}
+        {...(templateProduct && flow === "quick"
+          ? {
+              utilityAction: {
+                label: completeMissing ? "Complete missing terms" : "Customize terms",
+                onClick: completeMissing
+                  ? () => {
+                      completeMissingTerms();
+                    }
+                  : customizeTerms,
+              },
+            }
+          : {})}
+        finalActions={[
+          {
+            label: editing ? "Save corrections" : "Send private offer",
+            pendingLabel: editing ? "Saving…" : "Sending…",
+            onClick: handleSubmit,
+            variant: "primary",
+          },
+        ]}
+      >
+        {error ? (
+          <div
+            ref={errorAlertRef}
+            role="alert"
+            tabIndex={-1}
+            className="mb-4 flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2.5 text-[12.5px] font-medium text-[rgb(var(--fg-danger))] sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>{error}</span>
+            {completeMissing ? (
+              <button
+                type="button"
+                onClick={() => {
+                  completeMissingTerms();
+                }}
+                className="sk-press shrink-0 self-start rounded-[var(--radius-md)] bg-[rgb(var(--fg-default))] px-3 py-2 text-[12px] font-semibold text-[rgb(var(--bg-elevated))] sm:self-auto"
+              >
+                Complete missing terms
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {body}
+        {confirmClose ? (
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4"
+            role="presentation"
+          >
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby={`${idPrefix}-close-title`}
+              aria-describedby={`${idPrefix}-close-description`}
+              className="w-full max-w-sm rounded-[var(--radius-xl)] bg-[rgb(var(--bg-elevated))] p-5 shadow-2xl"
             >
-              Complete missing terms
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {body}
-    </EditorShell>
+              <h2
+                id={`${idPrefix}-close-title`}
+                className="font-display text-[20px] font-extrabold"
+              >
+                Close this offer?
+              </h2>
+              <p
+                id={`${idPrefix}-close-description`}
+                className="mt-2 text-[13px] text-[rgb(var(--fg-muted))]"
+              >
+                Your changes will be lost.
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-2">
+                <button
+                  autoFocus
+                  type="button"
+                  onClick={() => { setConfirmClose(false); }}
+                  className="sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[13px] font-semibold"
+                >
+                  Keep editing
+                </button>
+                <button
+                  type="button"
+                  onClick={clearLogicalDraftAndClose}
+                  className="sk-press min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-3 text-[13px] font-semibold text-[rgb(var(--bg-elevated))]"
+                >
+                  Close offer
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </EditorShell>
+    </>
   );
 }

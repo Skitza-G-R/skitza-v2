@@ -1,5 +1,7 @@
 import type { PaymentPlan, ProductRoyaltyTerms, PurchaseCommercialSnapshot } from "@skitza/db";
 
+import type { AgreementPdfClientSnapshot } from "~/lib/agreement-pdf";
+
 import { assertCommercialSnapshotMatchesAcceptance } from "../purchases/commercial-snapshot";
 import {
   createInstallmentSchedule,
@@ -70,6 +72,7 @@ export type PrivateOfferInput = Readonly<{
   royaltyTerms: PrivateOfferRoyaltyTermsInput | null;
   rights: string[];
   enabledPaymentPlans: PaymentPlan[];
+  agreementMode?: "none" | "text" | "pdf" | undefined;
   agreementText: string;
 }>;
 
@@ -501,7 +504,10 @@ function assertFeasiblePlans(plans: readonly PaymentPlan[], totalCents: number):
  * Build a normalized private-offer draft. Paid drafts deliberately do not
  * select a plan yet; selection belongs to the artist's final acceptance.
  */
-export function buildPrivateOfferSnapshot(input: PrivateOfferInput): PurchaseCommercialSnapshot {
+export function buildPrivateOfferSnapshot(
+  input: PrivateOfferInput,
+  agreementPdf: AgreementPdfClientSnapshot | null = null,
+): PurchaseCommercialSnapshot {
   const raw = plainRecord(input, "privateOffer");
   const name = normalizeRequiredText(raw.name, "name", 200);
   const tagline = normalizeOptionalText(raw.tagline, "tagline", 300);
@@ -516,7 +522,32 @@ export function buildPrivateOfferSnapshot(input: PrivateOfferInput): PurchaseCom
   const royaltyTerms = normalizeRoyaltyTerms(raw.royaltyTerms);
   const rights = normalizeTextList(raw.rights, "rights", 1, 20, 1_000);
   const offeredPaymentPlans = normalizePaymentPlans(raw.enabledPaymentPlans);
-  const agreementText = normalizeRequiredText(raw.agreementText, "agreementText", 50_000);
+  if (
+    raw.agreementMode !== undefined &&
+    raw.agreementMode !== "none" &&
+    raw.agreementMode !== "text" &&
+    raw.agreementMode !== "pdf"
+  ) {
+    fail("INVALID_INPUT", "agreementMode is unsupported", "agreementMode");
+  }
+  const writtenAgreement = normalizeOptionalText(raw.agreementText, "agreementText", 50_000);
+  const agreementMode =
+    raw.agreementMode ?? (agreementPdf ? "pdf" : writtenAgreement ? "text" : "none");
+  if (agreementMode === "text" && !writtenAgreement) {
+    fail("INVALID_INPUT", "Write the exact agreement the artist will accept.", "agreementText");
+  }
+  if (agreementMode === "pdf" && !agreementPdf) {
+    fail("INVALID_INPUT", "Attach a valid agreement PDF before sending.", "agreementPdf");
+  }
+  if (agreementMode !== "pdf" && agreementPdf) {
+    fail("INVALID_INPUT", "Only PDF agreements may include PDF metadata.", "agreementPdf");
+  }
+  const agreementText =
+    agreementMode === "text"
+      ? (writtenAgreement ?? "")
+      : agreementMode === "pdf"
+        ? "The attached agreement PDF and the displayed private-offer terms are the complete agreement."
+        : "The displayed private-offer terms are the complete agreement.";
 
   if (tax.totalCents === 0 && offeredPaymentPlans.length > 0) {
     fail(
@@ -564,6 +595,8 @@ export function buildPrivateOfferSnapshot(input: PrivateOfferInput): PurchaseCom
     selectedPaymentPlan: null,
     offeredPaymentPlans,
     agreementText,
+    agreementMode,
+    ...(agreementPdf ? { agreementPdf } : {}),
   };
   assertValidPrivateOfferDraft(snapshot);
   return deepFreeze(snapshot);
@@ -681,6 +714,7 @@ function cloneSnapshot(
     rights: [...draft.rights],
     selectedPaymentPlan: selectedPaymentPlan === null ? null : { ...selectedPaymentPlan },
     offeredPaymentPlans: draft.offeredPaymentPlans.map((plan) => ({ ...plan })),
+    ...(draft.agreementPdf ? { agreementPdf: { ...draft.agreementPdf } } : {}),
     agreementText,
   };
 }

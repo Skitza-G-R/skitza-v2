@@ -115,6 +115,7 @@ describe("private-offer commercial terms", () => {
         { kind: "split_50_50" },
         { kind: "monthly", installments: 4 },
       ],
+      agreementMode: "text",
       agreementText: "These are the exact additional terms.\nThey survive acceptance.",
     });
   });
@@ -195,7 +196,9 @@ describe("private-offer commercial terms", () => {
 
   it("validates required agreement, currency, allowances, terms, and duplicate plan kinds", () => {
     expect(
-      domainError(() => buildPrivateOfferSnapshot(offerInput({ agreementText: "  " }))).field,
+      domainError(() =>
+        buildPrivateOfferSnapshot(offerInput({ agreementMode: "text", agreementText: "  " })),
+      ).field,
     ).toBe("agreementText");
     expect(
       domainError(() => buildPrivateOfferSnapshot(offerInput({ currency: "shekel" }))).field,
@@ -230,6 +233,37 @@ describe("private-offer commercial terms", () => {
         ),
       ).code,
     ).toBe("INVALID_PAYMENT_PLANS");
+  });
+
+  it("freezes explicit PDF metadata and supports no separate agreement", () => {
+    const agreementPdf = {
+      documentId: "33333333-3333-4333-8333-333333333333",
+      originalFileName: "Exact Agreement.pdf",
+      contentType: "application/pdf" as const,
+      sizeBytes: 1_024,
+      objectEtag: "etag-1",
+      sha256: "a".repeat(64),
+    };
+    const pdf = buildPrivateOfferSnapshot(
+      offerInput({ agreementMode: "pdf", agreementText: "" }),
+      agreementPdf,
+    );
+    const none = buildPrivateOfferSnapshot(
+      offerInput({ agreementMode: "none", agreementText: "" }),
+    );
+
+    expect(pdf).toMatchObject({ agreementMode: "pdf", agreementPdf });
+    expect(pdf.agreementText).toContain("attached agreement PDF");
+    expect(none.agreementMode).toBe("none");
+    expect(none.agreementPdf).toBeUndefined();
+    expect(none.agreementText).toBe(
+      "The displayed private-offer terms are the complete agreement.",
+    );
+    expect(
+      domainError(() =>
+        buildPrivateOfferSnapshot(offerInput({ agreementMode: "pdf", agreementText: "" })),
+      ).field,
+    ).toBe("agreementPdf");
   });
 });
 

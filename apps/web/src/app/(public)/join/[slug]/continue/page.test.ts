@@ -64,9 +64,11 @@ describe("join confirmation and continuation", () => {
   });
 
   it("renders every continuation state inside a centered bounded shell", () => {
-    expect(page.match(/<JoinContinuationShell/g)).toHaveLength(4);
+    expect(page.match(/<JoinContinuationShell/g)).toHaveLength(6);
     expect(page).toContain('data-auth-page="join-account-conflict"');
-    expect(accountSwitch).toContain("Sign out and choose account");
+    expect(accountSwitch).toContain('action === "offer"');
+    expect(accountSwitch).toContain('"Switch account"');
+    expect(page).toContain("This offer was sent to another email");
     expect(page).toContain("Back to {studioName}");
     expect(shell).toContain("max-w-[440px]");
     expect(shell).toContain("px-4");
@@ -78,12 +80,22 @@ describe("join confirmation and continuation", () => {
   it("turns only the expected account ownership conflict into recovery UX", () => {
     expect(action.match(/redirectForKnownJoinError\(/g)).toHaveLength(3);
     expect(action).toContain("isJoinAccountConflict(error)");
-    expect(action).toContain("joinAccountConflictHref(slug, action)");
+    expect(action).toContain("joinAccountConflictHref(slug, action, offerId)");
+  });
+
+  it("checks offer identity before metadata and routes an authorized artist directly", () => {
+    expect(page).toContain("getPrivateOfferJoinAccess");
+    expect(page).toContain('if (access === "authorized") redirect(`/artist/offers/${offerId}`)');
+    expect(page).toContain('if (access === "wrong_account")');
+    expect(page.indexOf('if (access === "wrong_account")')).toBeLessThan(
+      page.indexOf("const studioName"),
+    );
+    expect(page).not.toContain("invited address");
   });
 
   it("renders allowlisted verification retry states through the explicit POST action", () => {
-    expect(page).toContain('query.problem === JOIN_UNVERIFIED_EMAIL');
-    expect(page).toContain('query.problem === JOIN_CONNECTION_PENDING');
+    expect(page).toContain("query.problem === JOIN_UNVERIFIED_EMAIL");
+    expect(page).toContain("query.problem === JOIN_CONNECTION_PENDING");
     expect(page).toContain("Verify your email, then retry");
     expect(page).toContain("Connection is still finishing");
     expect(page).toContain("<form action={action}>");

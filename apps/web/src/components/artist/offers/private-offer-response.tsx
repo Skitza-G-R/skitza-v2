@@ -11,6 +11,7 @@ import {
 } from "~/app/(artist)/artist/offers/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import {
   createInstallmentSchedule,
   purchaseInstallmentDueLabel,
@@ -72,6 +73,8 @@ export function PrivateOfferResponse({
     () => (selectedPlan ? createInstallmentSchedule(selectedPlan, snapshot.totalCents) : []),
     [selectedPlan, snapshot.totalCents],
   );
+  const hasSeparateAgreement =
+    Boolean(agreementPdfFromCommercialSnapshot(snapshot)) || snapshot.agreementMode === "text";
 
   if (result) {
     return (
@@ -192,7 +195,11 @@ export function PrivateOfferResponse({
             setAgreed(event.target.checked);
           }}
         />
-        <span>I reviewed and agree to the exact offer, project target, and selected schedule.</span>
+        <span>
+          {hasSeparateAgreement
+            ? "I reviewed and agree to this offer and agreement"
+            : "I reviewed and agree to this offer"}
+        </span>
       </label>
 
       {error ? (

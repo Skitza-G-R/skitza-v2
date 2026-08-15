@@ -8,6 +8,7 @@ export interface PrivateOfferNotificationProps {
   recipientName: string;
   producerName: string;
   openUrl: string;
+  kind: "sent" | "updated";
 }
 
 export function PrivateOfferNotification(props: PrivateOfferNotificationProps) {
@@ -41,12 +42,15 @@ export function PrivateOfferNotification(props: PrivateOfferNotificationProps) {
               color: "#A25A28",
             }}
           >
-            A private offer is waiting
+            {props.kind === "updated"
+              ? "Your private offer was updated"
+              : "A private offer is waiting"}
           </Heading>
           <Text>Hi {props.recipientName},</Text>
           <Text>
-            <strong>{props.producerName}</strong> sent you a private offer in Skitza. Open Skitza to
-            review it privately and choose what to do next.
+            <strong>{props.producerName}</strong>{" "}
+            {props.kind === "updated" ? "updated your private offer" : "sent you a private offer"}{" "}
+            in Skitza. Review it privately and choose what to do next.
           </Text>
           <Text>
             Sign in or create your account with the same email address that received this message.
@@ -64,7 +68,7 @@ export function PrivateOfferNotification(props: PrivateOfferNotificationProps) {
               marginTop: 16,
             }}
           >
-            Open Skitza
+            Review private offer
           </Button>
           <Hr style={{ margin: "24px 0", borderColor: "#E8E2D9" }} />
           <Text style={{ fontSize: 12, color: "#6B6158" }}>

@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { PrivateOfferResponse } from "~/components/artist/offers/private-offer-response";
 import { PrivateOfferTerms } from "~/components/artist/offers/private-offer-terms";
 import { withArtistStudio } from "~/lib/artist-studio-context";
+import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ offerId: string }> };
@@ -27,6 +28,7 @@ export default async function PrivateOfferPage({ params }: PageProps) {
   const targetLabel = offer.targetProjectId
     ? (offer.targetProjectTitle ?? "Existing project")
     : "Start a new project";
+  const agreementPdf = agreementPdfFromCommercialSnapshot(offer.commercialDraft);
 
   return (
     <main className="mx-auto w-full max-w-[760px] space-y-5 px-4 py-6 sm:px-7">
@@ -57,7 +59,18 @@ export default async function PrivateOfferPage({ params }: PageProps) {
         </time>
       </header>
 
-      <PrivateOfferTerms snapshot={offer.commercialDraft} targetLabel={targetLabel} />
+      <PrivateOfferTerms
+        snapshot={offer.commercialDraft}
+        targetLabel={targetLabel}
+        {...(agreementPdf
+          ? {
+              agreementHref: `/api/agreement-pdfs/evidence?${new URLSearchParams({
+                offerId: offer.id,
+                documentId: agreementPdf.documentId,
+              }).toString()}`,
+            }
+          : {})}
+      />
       <PrivateOfferResponse
         offerId={offer.id}
         studioId={offer.producerId}

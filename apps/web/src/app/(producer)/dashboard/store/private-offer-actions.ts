@@ -11,6 +11,12 @@ import { appRouter } from "~/server/trpc/routers/_app";
 type ActionFailure = { ok: false; error: string };
 type ActionSuccess<T> = { ok: true; data: T };
 
+export type PrivateOfferAgreementPdfPayload =
+  | { kind: "inherit"; documentId: string }
+  | { kind: "keep"; documentId: string }
+  | { kind: "replace"; uploadToken: string }
+  | { kind: "remove" };
+
 export type SendPrivateOfferPayload = {
   /** Generate once per logical send and reuse unchanged for every retry. */
   offerId: string;
@@ -19,6 +25,7 @@ export type SendPrivateOfferPayload = {
   recipient: PrivateOfferRecipient;
   target: PrivateOfferTarget;
   terms: PrivateOfferInput;
+  agreementPdf?: PrivateOfferAgreementPdfPayload;
   expiresAt: string;
 };
 
@@ -134,6 +141,7 @@ export async function sendPrivateOfferAction(
       recipient: input.recipient,
       target: input.target,
       terms: input.terms,
+      ...(input.agreementPdf ? { agreementPdf: input.agreementPdf } : {}),
       expiresAt,
     });
     revalidateOfferSurfaces(
@@ -150,7 +158,9 @@ export async function sendPrivateOfferAction(
 
 export async function updatePrivateOfferAction(
   input: UpdatePrivateOfferPayload,
-): Promise<ActionSuccess<{ id: string }> | ActionFailure> {
+): Promise<
+  ActionSuccess<{ id: string; changed: boolean; emailDelivered: boolean | null }> | ActionFailure
+> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };
   const expiresAt = safeDate(input.expiresAt);
@@ -166,12 +176,20 @@ export async function updatePrivateOfferAction(
       expectedUpdatedAt,
       target: input.target,
       terms: input.terms,
+      ...(input.agreementPdf ? { agreementPdf: input.agreementPdf } : {}),
       expiresAt,
     });
     revalidateOfferSurfaces(
       input.recipient.kind === "existing" ? input.recipient.clientContactId : undefined,
     );
-    return { ok: true, data: { id: result.offerId } };
+    return {
+      ok: true,
+      data: {
+        id: result.offerId,
+        changed: result.changed,
+        emailDelivered: result.emailDelivered,
+      },
+    };
   } catch (error) {
     return actionFailure(error);
   }

@@ -3745,6 +3745,15 @@ type PurchaseCommercialSnapshotBody = {
   selectedPaymentPlan: PaymentPlan | null;
   offeredPaymentPlans: PaymentPlan[];
   agreementText: string;
+  agreementMode?: "none" | "text" | "pdf";
+  agreementPdf?: {
+    documentId: string;
+    originalFileName: string;
+    contentType: "application/pdf";
+    sizeBytes: number;
+    objectEtag: string;
+    sha256: string;
+  };
 };
 
 export type PurchaseCommercialSnapshot = PurchaseCommercialSnapshotBody & {
@@ -3951,6 +3960,7 @@ export const privateOffers = pgTable(
     productId: uuid("product_id"),
     status: privateOfferStatus("status").notNull().default("draft"),
     commercialDraft: jsonb("commercial_draft").$type<PurchaseCommercialSnapshot>().notNull(),
+    agreementPdfContract: text("agreement_pdf_contract"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

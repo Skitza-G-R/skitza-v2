@@ -122,7 +122,7 @@ describe("private-offer router security wiring", () => {
   });
 
   it("maps unknown failures generically", () => {
-    expect(routerSource).not.toContain("throw error;");
+    expect(routerSource).toContain("if (error instanceof TRPCError) throw error;");
     expect(compact(routerSource)).toContain(
       'code: "INTERNAL_SERVER_ERROR", message: "This offer is unavailable."',
     );

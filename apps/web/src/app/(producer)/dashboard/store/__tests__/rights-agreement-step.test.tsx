@@ -119,4 +119,49 @@ describe("RightsAgreementStep", () => {
     expect(html).toContain('maxLength="4000"');
     expect(html).toContain("Rights notes must be 4,000 characters or fewer.");
   });
+
+  it("renders the complete empty PDF dropzone", () => {
+    const html = renderToStaticMarkup(
+      <RightsAgreementStep
+        royalty={royaltyTermsToDraft(null)}
+        agreementMode="pdf"
+        agreementText=""
+        errors={{}}
+        onRoyaltyChange={() => undefined}
+        onAgreementChange={() => undefined}
+        onAgreementPdfSelect={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Drop your agreement PDF here");
+    expect(html).toContain("or tap to choose a file");
+    expect(html).toContain("PDF only · up to 15 MB");
+    expect(html).toContain('accept="application/pdf,.pdf"');
+  });
+
+  it("keeps the dropzone after upload and offers explicit removal", () => {
+    const html = renderToStaticMarkup(
+      <RightsAgreementStep
+        royalty={royaltyTermsToDraft(null)}
+        agreementMode="pdf"
+        agreementText=""
+        agreementPdf={{
+          documentId: "document-1",
+          originalFileName: "producer-terms.pdf",
+          sizeBytes: 2_097_152,
+        }}
+        errors={{}}
+        onRoyaltyChange={() => undefined}
+        onAgreementChange={() => undefined}
+        onAgreementPdfSelect={() => undefined}
+        onAgreementPdfRemove={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("producer-terms.pdf");
+    expect(html).toContain("PDF · 2.0 MB");
+    expect(html).toContain("Drop a new PDF here to replace it");
+    expect(html).toContain(">Remove</button>");
+    expect(html).toContain('accept="application/pdf,.pdf"');
+  });
 });
