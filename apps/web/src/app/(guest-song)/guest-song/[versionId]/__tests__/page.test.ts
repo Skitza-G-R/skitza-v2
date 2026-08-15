@@ -25,11 +25,13 @@ describe("normal-address guest Song page", () => {
     expect(source).not.toContain("artist.music.detail");
   });
 
-  it("accepts only the trusted normal Song path and offers an optional login", () => {
+  it("accepts only the trusted normal Song path and links guests to the homepage", () => {
     expect(source).toContain('"x-skitza-original-song-path"');
     expect(source).toContain("`/dashboard/music/${versionId}`");
     expect(source).toContain("`/artist/music/song/${versionId}`");
-    expect(source).toContain("redirect_url");
-    expect(source).toContain("Log in");
+    expect(source).toMatch(/<Link\s+href="\/"/);
+    expect(source).toContain("Join now!");
+    expect(source).not.toContain("loginHref");
+    expect(source).not.toContain("Log in");
   });
 });
