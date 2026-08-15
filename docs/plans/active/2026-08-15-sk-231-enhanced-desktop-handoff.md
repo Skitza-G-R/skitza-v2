@@ -14,11 +14,14 @@
 
 **Current combined base:** `d239e439f0c6870dabf47975e5ce426dd21049d5`
 
+**Current combined/deployed source:** `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`
+
 **Target branch:** `v3-clean`
 
 ## Plain-English status
 
-The desktop app is **not finished** and Gate 1 has **not passed**.
+The local Apple Silicon app is built and installed, but the full desktop plan
+is **not finished** and Gate 1 has **not passed**.
 
 A large, tested foundation exists:
 
@@ -41,12 +44,46 @@ The required real-world proof is still missing:
 - tray upload progress and the Quit-during-upload warning are not built;
 - Intel Mac, Windows 11 x64, installers, signing, notarization, and updater
   tests are not complete; and
-- the desktop branch is not merged. The current live website no longer
-  contains the desktop routes because later `v3-clean` releases superseded the
-  temporary combined desktop deployment.
+- the desktop branch is not merged.
 
-The old staged desktop deployment must not be promoted. A new candidate must
-first combine the desktop work with the latest `v3-clean`.
+The latest website and desktop connection code are now combined and live on
+`skitza.app`. This makes the local Mac app usable without publishing it as a
+download. The remaining live user actions and speed evidence are listed below.
+
+## August 15 local-use execution result
+
+The immediate local-use plan was executed through the safe user-interaction
+boundary:
+
+- all 20 desktop commits were rebased patch-identically onto current
+  `v3-clean` `d239e439f0c6870dabf47975e5ce426dd21049d5d`;
+- the only shared product file keeps both the latest website behavior and the
+  desktop meaningful-content marker;
+- focused tests, full tests, typecheck, lint, optimized builds, desktop Rust
+  and Node tests, and GitHub CI passed on exact source `3a6bf33c`;
+- the rebuilt Mac app is Apple Silicon arm64, targets exactly
+  `https://skitza.app`, and passes strict local ad-hoc signature verification;
+- private candidate `dpl_E5KbE8JfqEE6tTkN5qdPzcsL8R2k` passed health,
+  database, production-Clerk, desktop-API, exact-build, Gate-proof, error-log,
+  and 5xx-log checks;
+- Gili explicitly approved that exact deployment and it is now live on
+  `skitza.app`;
+- Gili clarified that the website is intentionally open. An initial smoke
+  incorrectly treated the open homepage as a gate failure, so the deployment
+  was briefly rolled back. After the clarification, the approved deployment
+  was restored. No access token was created, rotated, or saved;
+- the final open-site smoke passed: homepage 200, signed-out protected routes
+  redirect normally, `/launch` 200, database health 200, desktop session 401
+  when signed out, production Clerk only, exact build ID present, all three
+  Gate journeys present, and no observed runtime error or 5xx cluster; and
+- the exact verified app was copied to `/Applications/Skitza.app`. Its binary
+  hash matches the verified build exactly and its strict signature check
+  passes.
+
+One older Skitza process is still running from the build folder and started on
+August 14. It was not force-quit because doing so could interrupt an unknown
+hidden upload. The next safe action is a manual **Quit Skitza**, followed by
+opening `/Applications/Skitza.app` and completing the user smoke.
 
 ## Immediate plan to make the local Mac app usable
 
@@ -70,21 +107,19 @@ Execution checklist:
 - [x] Refresh the desktop branch onto exact current `v3-clean`.
 - [x] Preserve both the newest website changes and the desktop speed marker in
       the only shared file.
-- [ ] Run focused tests, full `skitza-verify`, and optimized builds on the new
+- [x] Run focused tests, full `skitza-verify`, and optimized builds on the new
       combined source.
-- [ ] Create a fresh production-config candidate without switching the live
+- [x] Create a fresh production-config candidate without switching the live
       domain.
-- [ ] Smoke-test the candidate's website, Clerk, desktop APIs, build ID, newer
+- [x] Smoke-test the candidate's website, Clerk, desktop APIs, build ID, newer
       website behavior, and logs.
-- [ ] Ask Gili to approve that exact deployment ID.
-- [ ] After approval, switch only `skitza.app` to the approved candidate and
+- [x] Ask Gili to approve that exact deployment ID.
+- [x] After approval, switch only `skitza.app` to the approved candidate and
       watch health/errors.
 - [ ] Open the existing local Mac app and complete the real user smoke test.
 
-The existing Mac binary does not need to be rebuilt merely because the website
-code was refreshed: its native code is patch-identical and it already targets
-`https://skitza.app`. Rebuild only if verification causes a native-code change
-or the exact artifact check fails.
+The Mac binary was rebuilt from the exact combined source, strictly verified,
+and copied to `/Applications/Skitza.app`.
 
 ## Locked decisions kept throughout the work
 
@@ -277,7 +312,7 @@ Ubuntu CI initially failed because Tauri needed native GLib, GTK, WebKit, and
 tray development packages. CI now installs the official WebKitGTK and
 Ayatana AppIndicator development packages before running Cargo tests.
 
-At implementation head `ce4a6785`, the following passed:
+At combined source `3a6bf33c`, the following passed:
 
 - workspace typecheck;
 - workspace lint;
@@ -286,7 +321,7 @@ At implementation head `ce4a6785`, the following passed:
 - desktop Rust tests: 36 passed;
 - database tests: 275 passed, 14 skipped;
 - admin tests: 406 passed;
-- web tests: 7,181 passed, 86 skipped;
+- web tests: 7,190 passed, 86 skipped;
 - full optimized web and admin builds;
 - optimized Apple Silicon Tauri build; and
 - GitHub CI, including Linux Cargo compilation.
@@ -302,15 +337,23 @@ The latest locally rebuilt app is:
 
 `apps/desktop/src-tauri/target/release/bundle/macos/Skitza.app`
 
+The identical installed copy is:
+
+`/Applications/Skitza.app`
+
 Recorded properties:
 
-- implementation source: `ce4a67856255ada9f3cd504bc87fc42f2562879f`;
+- implementation source: `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
 - Apple Silicon `arm64` executable;
 - bundle identifier `app.skitza.desktop`;
 - version `0.1.0`;
 - exact compiled origin `https://skitza.app`;
 - locally ad-hoc signed; and
 - strict local code-signature verification passed.
+
+The installed executable and build executable have the same recorded SHA-256:
+
+`2761ba07e2d85df18d16cbf3cc3d8fb86960014fd89c259dd50f55a27fac8434`
 
 This is a local proof artifact, not a distributable installer. It is not
 Developer ID signed or notarized.
@@ -348,10 +391,10 @@ Developer ID signed or notarized.
 | Production candidate `dpl_6zGNiYxDDd1Lp5SiKjrmq74Aeys9`                     | Promoted after explicit approval and passed immediate health, launch, Clerk, and negative desktop-route smoke; later superseded.                                                                                         |
 | Combined candidate `dpl_AecSbfZ1Sjhf9DhecjgDBkvxT9Tu` at `4d82abde`         | Promoted after explicit approval; health, database, access gate, Clerk, desktop route negatives, build ID, proof markers, and logs passed. The first Mac smoke then exposed the signed-out startup deadlock.             |
 | Fixed candidate `dpl_2HUXP98jhC7qFi7VMdrUk67uzwBo` at `ce4a6785`            | Ready and independently smoke-tested. It contains the signed-out fix. It was **not promoted** and is now older than current `v3-clean`.                                                                                  |
-| Current live `skitza.app`: `dpl_3uArMjR2owDR8n37V1YrEN3qwLEn` at `c9f8c767` | Ready current website deployment. Anonymous `/`, `/launch`, and `/api/health` return 200. `/api/desktop/session` returns 404, and the production build contains no desktop API routes because PR #351 is still unmerged. |
+| Current live `skitza.app`: `dpl_E5KbE8JfqEE6tTkN5qdPzcsL8R2k` at `3a6bf33c` | Explicitly approved and promoted. Open-site smoke, health/database, production Clerk, desktop route negatives, exact build, Gate markers, and logs passed. The website intentionally remains open. |
 
-Do not promote `dpl_2HUXP98jhC7qFi7VMdrUk67uzwBo`: doing so would roll
-back newer `v3-clean` website work. Build a new combined candidate instead.
+Do not promote an older desktop deployment over the current combined live
+deployment.
 
 ## Current repository and PR state
 
@@ -362,6 +405,8 @@ At the time of this handoff:
 - pre-refresh implementation head:
   `ce4a67856255ada9f3cd504bc87fc42f2562879f`;
 - refreshed base: `d239e439f0c6870dabf47975e5ce426dd21049d5`;
+- current combined source and PR head before this documentation update:
+  `3a6bf33c7e4ce7455f308aae684c91d5d64ce518`;
 - all 20 pre-refresh commits were retained patch-identically by range-diff;
 - the branch is directly based on current `origin/v3-clean` with no base commit
   missing;
@@ -370,7 +415,8 @@ At the time of this handoff:
   `apps/web/src/components/dashboard/clients-projects/producer-projects-list.tsx`
   keeps both the latest mobile-width fix and the desktop meaningful-content
   marker; and
-- this execution update is the only worktree change after the clean refresh.
+- this execution record is the only worktree change after the verified and
+  deployed source.
 
 The desktop migration source file is on PR #351 but not yet on current
 `v3-clean`, even though its exact immutable filename is already in the live
@@ -410,19 +456,20 @@ migration ledger.
 The branch was refreshed onto current `v3-clean` `d239e439`. Range-diff proved
 all 20 commits were retained patch-identically. The shared Clients & Projects
 file keeps both changes, and both immutable 0050 migration files remain. Full
-verification and optimized builds are the next step.
+verification and optimized builds passed.
 
-### 2. Create a fresh combined production candidate
+### 2. Create and promote a fresh combined production candidate — complete
 
-Deploy the exact refreshed head as an unpromoted production-config candidate.
-Check health/database, production Clerk, `/launch`, all three desktop API
-routes, exact build ID, proof controller, access rules, logs, and the newer
-website behavior. Promotion still needs Gili's approval naming that exact
-deployment.
+Exact source `3a6bf33c` was deployed as candidate
+`dpl_E5KbE8JfqEE6tTkN5qdPzcsL8R2k`, checked, explicitly approved by Gili, and
+promoted. The website is intentionally open. The candidate is the current
+`skitza.app` deployment.
 
-### 3. Complete the final Mac authentication and lifecycle smoke
+### 3. Complete the final Mac authentication and lifecycle smoke — in progress
 
-On the exact fresh candidate and exact rebuilt Mac app:
+The exact verified app is installed at `/Applications/Skitza.app`. A stale
+process from the build folder remains alive, so the installed copy still needs
+one clean manual Quit/relaunch before the following user checks:
 
 1. Start signed out and confirm the app reaches Sign in.
 2. Complete email/password sign-in and confirm the correct Producer.
@@ -505,9 +552,9 @@ After the internal release candidate passes:
 
 ## Final completion statement
 
-The engineering foundation is substantial and automated verification is
-strong, but the approved plan is not complete. Today the project has a tested
-Mac proof shell and shared enhanced runtime, not a finished private release
-candidate. The source refresh is complete. The next safe milestone is a fresh
-combined candidate followed by the exact live Mac authentication and Gate 1
-proof.
+The combined website and desktop connection are live, and the exact verified
+Apple Silicon app is installed locally. The approved full desktop plan is not
+complete: the installed copy still needs a clean manual Quit/relaunch and live
+user smoke, Mac Gate 1 timing evidence is missing, post-Gate upload-tray and
+updater work is not built, Windows remains deferred, and no public installer
+has been published.
