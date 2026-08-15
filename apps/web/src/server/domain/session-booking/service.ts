@@ -619,7 +619,10 @@ function confirmedGoogleCalendarSummary(
   context: SessionBookingCreateContext,
   booking: SessionBookingRecord,
 ): string {
-  return booking.title?.trim() || context.purchase.defaultSessionTitle;
+  const projectName = context.project.title.trim() || "Session";
+  const producerName = context.producer.name.trim() || "Skitza producer";
+  const artistName = booking.artistName.trim() || context.artist.name.trim() || "Artist";
+  return `${projectName} · ${producerName} & ${artistName}`;
 }
 
 function googleCalendarSyncPayload(input: {
@@ -987,18 +990,13 @@ export async function applyGoogleCalendarSessionReconciliation(
       }
 
       const rsvp = rsvpProjection(booking, event.artistRsvp, event.updatedAt);
-      const canonicalTitle = confirmedGoogleCalendarSummary(context, booking);
-      const providerTitle = event.summary?.trim() || null;
-      const providerTitleValid =
-        providerTitle !== null && providerTitle.length <= SESSION_BOOKING_TITLE_MAX_LENGTH;
-      const providerTitleChanged = providerTitleValid && providerTitle !== canonicalTitle;
-      const providerTitleInvalid = !providerTitleValid;
+      const titleNeedsCorrection =
+        event.summary !== confirmedGoogleCalendarSummary(context, booking);
 
       const correctBooking = async (
         correction: Readonly<{
           syncState: "pending" | "conflict" | "not_synced";
           errorCode: BookingCalendarLinkRecord["lastSyncErrorCode"];
-          title?: string | null;
         }>,
       ) => {
         const updated = await transaction.updateBookingCalendarProjection({
@@ -1006,9 +1004,6 @@ export async function applyGoogleCalendarSessionReconciliation(
           producerId: booking.producerId,
           expectedCalendarRevision: booking.calendarRevision,
           nextCalendarRevision: booking.calendarRevision + 1,
-          ...(Object.prototype.hasOwnProperty.call(correction, "title")
-            ? { title: correction.title ?? null }
-            : {}),
           ...(rsvp.changed
             ? {
                 artistRsvpStatus: rsvp.artistRsvpStatus,
@@ -1037,7 +1032,6 @@ export async function applyGoogleCalendarSessionReconciliation(
         await correctBooking({
           syncState: "not_synced",
           errorCode: "invalid_provider_event",
-          ...(providerTitleChanged ? { title: providerTitle } : {}),
         });
         return { outcome: "corrected" };
       }
@@ -1065,12 +1059,11 @@ export async function applyGoogleCalendarSessionReconciliation(
           return { outcome: "conflict" };
         }
 
-        const replacementTitle = providerTitleChanged ? providerTitle : booking.title;
         const operationKey = `google-reconcile:${prepared.job.id}`;
         const digest = operationDigest("google-calendar-move", {
           bookingId: booking.id,
           startsAt: event.timing.startsAt.toISOString(),
-          title: replacementTitle,
+          title: booking.title,
           providerUpdatedAt: event.updatedAt.toISOString(),
         });
         const replacement = await transaction.insertBooking({
@@ -1078,7 +1071,7 @@ export async function applyGoogleCalendarSessionReconciliation(
           projectId: booking.projectId,
           purchaseId: booking.purchaseId,
           sessionAllowanceId: booking.sessionAllowanceId,
-          title: replacementTitle,
+          title: booking.title,
           origin: booking.origin,
           billingTreatment: booking.billingTreatment,
           artistName: booking.artistName,
@@ -1159,11 +1152,10 @@ export async function applyGoogleCalendarSessionReconciliation(
         return { outcome: "corrected" };
       }
 
-      if (resized || providerTitleChanged || providerTitleInvalid) {
+      if (resized || titleNeedsCorrection) {
         await correctBooking({
           syncState: "pending",
           errorCode: null,
-          ...(providerTitleChanged ? { title: providerTitle } : {}),
         });
         return { outcome: "corrected" };
       }
@@ -1249,7 +1241,7 @@ export async function setProducerSessionTitle(
       if (title === null || title.length > SESSION_BOOKING_TITLE_MAX_LENGTH) {
         throw new SessionBookingDomainError("INVALID_SLOT", "The session title is invalid");
       }
-      if (confirmedGoogleCalendarSummary(context, context.booking) === title) {
+      if (context.booking.title?.trim() === title) {
         return { booking: context.booking, changed: false, calendarSyncJobId: null };
       }
 

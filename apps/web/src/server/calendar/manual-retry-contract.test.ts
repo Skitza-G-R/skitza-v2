@@ -5,7 +5,31 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(fileURLToPath(new URL("./manual-retry.ts", import.meta.url)), "utf8");
 
+function between(start: string, end: string): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
+  expect(from).toBeGreaterThanOrEqual(0);
+  expect(to).toBeGreaterThan(from);
+  return source.slice(from, to);
+}
+
 describe("manual calendar retry Postgres contract", () => {
+  it("lists only current terminal Google deliveries behind visible producer issues", () => {
+    const listing = between(
+      "export async function listRetryableTerminalGoogleCalendarJobs(",
+      "export function calendarManualRetryRepository(",
+    );
+
+    expect(listing).toContain("eq(calendarSyncJobs.producerId, input.producerId)");
+    expect(listing).toContain('eq(calendarSyncJobs.deliveryChannel, "google")');
+    expect(listing).toContain('eq(calendarSyncJobs.status, "terminal")');
+    expect(listing).toContain(
+      "eq(calendarSyncJobs.desiredRevision, bookingCalendarLinks.desiredRevision)",
+    );
+    expect(listing).toContain('["not_synced", "missing", "conflict"]');
+    expect(listing).toContain(".limit(input.limit)");
+  });
+
   it("locks and targets the exact tenant job before inspecting retry state", () => {
     expect(source).toContain("eq(calendarSyncJobs.id, input.jobId)");
     expect(source).toContain("eq(calendarSyncJobs.producerId, input.producerId)");

@@ -2,9 +2,12 @@ import { createHash } from "node:crypto";
 
 import {
   and,
+  asc,
+  bookingCalendarLinks,
   calendarSyncJobManualRetries,
   calendarSyncJobs,
   eq,
+  inArray,
   type CalendarSyncJob,
   type Db,
 } from "@skitza/db";
@@ -120,6 +123,40 @@ export async function manualRetryCalendarSyncJob(
     actorIdentity: input.actorIdentity,
     requestedAt,
   });
+}
+
+export async function listRetryableTerminalGoogleCalendarJobs(
+  db: Db,
+  input: Readonly<{ producerId: string; limit: number }>,
+): Promise<readonly string[]> {
+  if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+    throw new Error("Invalid terminal Google Calendar retry batch");
+  }
+
+  const rows = await db
+    .select({ id: calendarSyncJobs.id })
+    .from(calendarSyncJobs)
+    .innerJoin(
+      bookingCalendarLinks,
+      and(
+        eq(calendarSyncJobs.bookingCalendarLinkId, bookingCalendarLinks.id),
+        eq(calendarSyncJobs.producerId, bookingCalendarLinks.producerId),
+        eq(calendarSyncJobs.bookingId, bookingCalendarLinks.currentBookingId),
+        eq(calendarSyncJobs.desiredRevision, bookingCalendarLinks.desiredRevision),
+      ),
+    )
+    .where(
+      and(
+        eq(calendarSyncJobs.producerId, input.producerId),
+        eq(calendarSyncJobs.deliveryChannel, "google"),
+        inArray(calendarSyncJobs.operation, ["upsert_google_event", "delete_google_event"]),
+        eq(calendarSyncJobs.status, "terminal"),
+        inArray(bookingCalendarLinks.syncState, ["not_synced", "missing", "conflict"]),
+      ),
+    )
+    .orderBy(asc(calendarSyncJobs.updatedAt), asc(calendarSyncJobs.id))
+    .limit(input.limit);
+  return rows.map((row) => row.id);
 }
 
 export function calendarManualRetryRepository(db: Db): CalendarManualRetryRepository {
