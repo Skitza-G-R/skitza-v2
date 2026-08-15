@@ -6,6 +6,8 @@
 
   const COVER_ID = "skitza-desktop-session-cover";
   const STYLE_ID = "skitza-desktop-session-cover-style";
+  const COVER_STATE_KEY = "skitza.desktop.cover-state.v1";
+  const COVER_READY = "ready";
   const FORBIDDEN_VALID_SURFACES = [
     '[aria-label="Checking connection"]',
     '[aria-label="Secure launch"]',
@@ -15,8 +17,43 @@
     '[data-runtime-screen-source="scaffold"]',
   ];
   let releaseGeneration = 0;
-  let validationState = "unknown";
+  let coverRequired = !runtimeWasValidated();
+  let validationState = coverRequired ? "unknown" : "valid";
   let surfaceObserver = null;
+
+  function runtimeWasValidated() {
+    try {
+      return window.sessionStorage.getItem(COVER_STATE_KEY) === COVER_READY;
+    } catch {
+      return false;
+    }
+  }
+
+  function rememberRuntimeReady() {
+    try {
+      window.sessionStorage.setItem(COVER_STATE_KEY, COVER_READY);
+    } catch {
+      // A later document will fail closed if session storage is unavailable.
+    }
+  }
+
+  function forgetRuntimeReady() {
+    try {
+      window.sessionStorage.removeItem(COVER_STATE_KEY);
+    } catch {
+      // The current document still stays covered through coverRequired.
+    }
+  }
+
+  function requireCover() {
+    coverRequired = true;
+    forgetRuntimeReady();
+  }
+
+  function releaseCoverRequirement() {
+    coverRequired = false;
+    rememberRuntimeReady();
+  }
 
   function isProtectedPath() {
     const { pathname } = window.location;
@@ -161,7 +198,10 @@
     if (!predicate()) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        if (generation === releaseGeneration && predicate()) removeCover();
+        if (generation === releaseGeneration && predicate()) {
+          releaseCoverRequirement();
+          removeCover();
+        }
       });
     });
   }
@@ -172,6 +212,12 @@
 
   function reconcileCover() {
     if (!isProtectedPath()) {
+      requireCover();
+      removeCover();
+      return;
+    }
+
+    if (!coverRequired) {
       removeCover();
       return;
     }
@@ -212,16 +258,19 @@
 
     if (report?.status === "invalid") {
       validationState = "invalid";
+      requireCover();
       reconcileCover();
       return;
     }
 
     validationState = "unknown";
+    requireCover();
     reconcileCover();
   }
 
   function suspendAndShow() {
     validationState = "unknown";
+    requireCover();
     mountCover();
   }
 
