@@ -760,12 +760,12 @@ function IntegrationsSection({
                     className="s-btn s-payment-edit-button"
                     onClick={beginEditing}
                     onPointerUp={(event) => {
-                      // A real iPhone tap travels through the Settings swipe
-                      // surface as a touch pointer before Safari emits click.
-                      // Enter edit mode on that native release as well so an
-                      // ancestor click guard cannot leave this action inert.
-                      if (event.pointerType !== "touch") return;
-                      event.preventDefault();
+                      // The Settings swipe surface can consume the follow-up
+                      // click after a native pointer gesture. Enter edit mode
+                      // on the primary release for desktop and mobile alike;
+                      // onClick remains the keyboard/synthetic fallback.
+                      if (event.button !== 0) return;
+                      if (event.pointerType === "touch") event.preventDefault();
                       beginEditing();
                     }}
                     disabled={disabled}
