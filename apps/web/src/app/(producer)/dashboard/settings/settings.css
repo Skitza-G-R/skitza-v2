@@ -866,6 +866,7 @@
   color: rgb(var(--bg-elevated));
   font-size: 11.5px;
   box-shadow: 0 8px 18px -14px rgb(var(--bg-sidebar) / 0.72);
+  touch-action: manipulation;
 }
 .s-payment-edit-fields {
   min-inline-size: 0;

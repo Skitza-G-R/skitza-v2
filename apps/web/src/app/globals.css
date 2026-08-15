@@ -2094,10 +2094,26 @@
     top: 0;
   }
 
-  /* iOS already keeps the focused control inside the visual viewport. Keeping
-   * the in-flow producer dock visible compresses the shell a second time and
-   * leaves the navigation floating above the keyboard. */
-  body[data-sk-keyboard="open"] .producer-bottom-nav-frame {
+  /* iOS already keeps the focused control inside the visual viewport. Hide
+   * the shared app tabs whenever either Visual Viewport detects the keyboard
+   * or a text-entry control has focus. The focus fallback is important in a
+   * Home Screen app, where some routes shrink innerHeight and visualViewport
+   * together and therefore report no measurable keyboard inset. */
+  body[data-sk-keyboard="open"] .liquid-glass-bottom-nav-frame,
+  body:has(
+    input:is(
+      :not([type]),
+      [type="text"],
+      [type="search"],
+      [type="email"],
+      [type="url"],
+      [type="tel"],
+      [type="password"],
+      [type="number"]
+    ):focus,
+    textarea:focus,
+    [contenteditable]:not([contenteditable="false"]):focus
+  ) .liquid-glass-bottom-nav-frame {
     display: none;
   }
 
