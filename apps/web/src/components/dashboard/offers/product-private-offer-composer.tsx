@@ -139,6 +139,7 @@ export function ProductPrivateOfferComposer({
     initialOffer?.sourceProductName ??
     initialOffer?.terms.name ??
     "Store product";
+  const sourceKind = templateProduct?.source.productKind ?? initialOffer?.terms.service ?? "other";
   const sourceProductId = templateProduct?.source.productId ?? initialOffer?.productId;
   const seededDraft = useMemo(
     () =>
@@ -625,6 +626,7 @@ export function ProductPrivateOfferComposer({
         idPrefix={idPrefix}
         draft={draft}
         sourceName={sourceName}
+        sourceKind={sourceKind}
         invalidField={invalidField}
         patch={patch}
         customized={customized}
@@ -708,6 +710,7 @@ export function ProductPrivateOfferComposer({
         recipientEmail={recipientEmail}
         expiresAtLocal={draft.expiresAtLocal}
         sourceTemplateName={sourceName}
+        sourceTemplateKind={sourceKind}
         agreementPdfPreview={draft.agreementPdf}
         {...(agreementHref ? { agreementHref } : {})}
       />
@@ -784,6 +787,7 @@ export function ProductPrivateOfferComposer({
             <PrivateOfferTopProgress
               current={step === "recipient" ? "recipient" : "price"}
               sourceName={sourceName}
+              sourceKind={sourceKind}
               onSelect={(next) => {
                 if (next === "recipient" || step === "price") move(next);
               }}

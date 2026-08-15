@@ -38,6 +38,13 @@ describe("PrivateOfferComposer shared-product-editor contract", () => {
     );
   });
 
+  it("carries the Store product visual identity through the quick path and review", () => {
+    expect(PRODUCT_COMPOSER).toContain("sourceKind={sourceKind}");
+    expect(STEPS).toContain("<TypeTile type={tile}");
+    expect(REVIEW).toContain("<TypeTile type={tile}");
+    expect(STEPS).toContain("Store product template");
+  });
+
   it("requires full validation before exact Review", () => {
     expect(PRODUCT_COMPOSER).toContain("validatePrivateOfferReviewDraft(");
     expect(PRODUCT_COMPOSER).toContain("<ProductPrivateOfferReview");

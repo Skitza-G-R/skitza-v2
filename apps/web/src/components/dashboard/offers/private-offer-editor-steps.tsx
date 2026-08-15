@@ -3,7 +3,10 @@
 import { Check, ChevronDown, FileText, Search } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { kindToTile } from "~/app/(producer)/dashboard/store/kind-to-tile";
 import { PaymentStep } from "~/app/(producer)/dashboard/store/editor-steps/payment-step";
+import { TILE_THEME } from "~/app/(producer)/dashboard/store/tile-theme";
+import { TypeTile } from "~/app/(producer)/dashboard/store/type-tile";
 import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 
 import {
@@ -57,12 +60,16 @@ export function PrivateOfferTopProgress({
   current,
   onSelect,
   sourceName,
+  sourceKind,
 }: {
   current: "recipient" | "price";
   onSelect: (step: "recipient" | "price") => void;
   sourceName: string;
+  sourceKind: string;
 }) {
   const priceAvailable = current === "price";
+  const tile = kindToTile(sourceKind);
+  const accent = TILE_THEME[tile].accent;
   return (
     <div className="min-w-0">
       <ol aria-label="Private offer editing steps" className="flex min-w-0 items-center">
@@ -107,14 +114,25 @@ export function PrivateOfferTopProgress({
           </button>
         </li>
       </ol>
-      <div className="mt-3 min-w-0 border-t border-[rgb(var(--border-subtle))] pt-3">
-        <p className="text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
-          Based on
-        </p>
-        <p className="mt-0.5 truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-          {sourceName}
-        </p>
-      </div>
+      <article className="group relative mt-3 grid min-w-0 grid-cols-[60px_minmax(0,1fr)] items-center gap-3 overflow-hidden rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 shadow-[0_12px_30px_-24px_rgba(17,16,9,0.38),0_1px_3px_rgba(17,16,9,0.05)]">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full"
+          style={{ background: accent }}
+        />
+        <TypeTile type={tile} />
+        <div className="min-w-0">
+          <p className="font-mono text-[9.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+            Store product template
+          </p>
+          <p className="font-display mt-1 line-clamp-2 text-[16px] leading-tight font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+            {sourceName}
+          </p>
+          <p className="mt-1 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+            Product terms stay unchanged unless you customize them.
+          </p>
+        </div>
+      </article>
     </div>
   );
 }
@@ -756,6 +774,13 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
+const CURRENCY_SYMBOL: Readonly<Record<string, string>> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  ILS: "₪",
+};
+
 function privateOfferPaymentSummary(
   draft: PrivateOfferComposerDraft,
   cashPriceCents: number | null,
@@ -774,6 +799,7 @@ export function PrivateOfferCompactPriceStep({
   idPrefix,
   draft,
   sourceName,
+  sourceKind,
   invalidField,
   patch,
   customized,
@@ -783,6 +809,7 @@ export function PrivateOfferCompactPriceStep({
   idPrefix: string;
   draft: PrivateOfferComposerDraft;
   sourceName: string;
+  sourceKind: string;
   invalidField: PrivateOfferDraftField | null;
   patch: PatchDraft;
   customized: boolean;
@@ -804,6 +831,9 @@ export function PrivateOfferCompactPriceStep({
   const currencyOptions = CURRENCIES.includes(draft.currency)
     ? CURRENCIES
     : ([draft.currency, ...CURRENCIES].filter(Boolean) as readonly string[]);
+  const tile = kindToTile(sourceKind);
+  const accent = TILE_THEME[tile].accent;
+  const currencySymbol = CURRENCY_SYMBOL[draft.currency] ?? draft.currency;
   const inputLabel =
     draft.taxMode === "tax_added"
       ? "Your price before VAT"
@@ -824,9 +854,10 @@ export function PrivateOfferCompactPriceStep({
         month: "short",
         year: "numeric",
       }).format(expiry)}`;
+  const paymentSummary = privateOfferPaymentSummary(draft, priceCents);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {editProject ? (
         <ProjectDestination
           idPrefix={`${idPrefix}-edit`}
@@ -841,101 +872,151 @@ export function PrivateOfferCompactPriceStep({
         />
       ) : null}
 
-      <section className={editProject ? "border-t border-[rgb(var(--border-subtle))] pt-5" : ""}>
-        <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-end gap-3">
-          <div className="flex min-w-0 flex-col gap-2">
-            <Label htmlFor={`${idPrefix}-compact-price`}>{inputLabel}</Label>
-            <input
-              id={`${idPrefix}-compact-price`}
-              {...invalidFieldProps(invalidField, "cashPrice")}
-              value={draft.cashPrice}
-              required
-              inputMode="decimal"
-              onChange={(event) => {
-                const cashPrice = event.target.value;
-                const next = privateOfferPriceCents(cashPrice);
-                patch({
-                  cashPrice,
-                  ...(next === 0
-                    ? { fullPlan: false, splitPlan: false, monthlyPlan: false }
-                    : next !== null && !draft.fullPlan && !draft.splitPlan && !draft.monthlyPlan
-                      ? { fullPlan: true }
-                      : {}),
-                });
-              }}
-              className={`${PRIVATE_OFFER_INPUT_CLASS} font-amount text-[22px] font-bold tabular-nums`}
-            />
-          </div>
+      <section className="relative overflow-hidden rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[0_12px_30px_-24px_rgba(17,16,9,0.36),0_1px_3px_rgba(17,16,9,0.05)] sm:p-5">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-3 bottom-3 left-0 w-[3px] rounded-r-full"
+          style={{ background: accent }}
+        />
+        <div className="max-w-[440px]">
           <div className="flex flex-col gap-2">
-            <Label htmlFor={`${idPrefix}-compact-currency`}>Currency</Label>
-            <select
-              id={`${idPrefix}-compact-currency`}
-              {...invalidFieldProps(invalidField, "currency")}
-              value={draft.currency}
-              onChange={(event) => { patch({ currency: event.target.value }); }}
-              className={PRIVATE_OFFER_INPUT_CLASS}
-            >
-              {currencyOptions.map((currency) => (
-                <option key={currency} value={currency}>
-                  {currency}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor={`${idPrefix}-compact-price`}>{inputLabel}</Label>
+            <div className="flex h-[54px] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-[border-color,box-shadow] focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-12">
+              <span
+                aria-hidden
+                className="font-display pl-3.5 text-[20px] font-bold text-[rgb(var(--fg-muted))]"
+              >
+                {currencySymbol}
+              </span>
+              <input
+                id={`${idPrefix}-compact-price`}
+                {...invalidFieldProps(invalidField, "cashPrice")}
+                value={draft.cashPrice}
+                required
+                inputMode="decimal"
+                onChange={(event) => {
+                  const cashPrice = event.target.value;
+                  const next = privateOfferPriceCents(cashPrice);
+                  patch({
+                    cashPrice,
+                    ...(next === 0
+                      ? { fullPlan: false, splitPlan: false, monthlyPlan: false }
+                      : next !== null && !draft.fullPlan && !draft.splitPlan && !draft.monthlyPlan
+                        ? { fullPlan: true }
+                        : {}),
+                  });
+                }}
+                className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[21px] font-extrabold text-[rgb(var(--fg-default))] tabular-nums [--sk-mobile-control-font-size:21px] outline-none"
+              />
+              <label htmlFor={`${idPrefix}-compact-currency`} className="sr-only">
+                Currency
+              </label>
+              <div className="flex h-8 shrink-0 items-center border-l border-[rgb(var(--border-subtle))] px-2.5">
+                <select
+                  id={`${idPrefix}-compact-currency`}
+                  {...invalidFieldProps(invalidField, "currency")}
+                  value={draft.currency}
+                  onChange={(event) => {
+                    patch({ currency: event.target.value });
+                  }}
+                  className="h-full w-[64px] border-none bg-transparent text-[12px] font-bold tracking-[0.02em] text-[rgb(var(--fg-muted))] outline-none"
+                >
+                  {currencyOptions.map((currency) => (
+                    <option key={currency} value={currency}>
+                      {currency}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
-        <dl className="mt-4 space-y-1.5">
-          <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">Client pays</dt>
-            <dd className="font-amount text-[22px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
-              {tax ? formatMoney(tax.totalCents, draft.currency) : "—"}
-            </dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-4 text-[11.5px] text-[rgb(var(--fg-muted))]">
-            <dt>
-              {draft.taxMode === "tax_added"
-                ? "VAT added"
-                : draft.taxMode === "tax_included"
-                  ? "VAT included"
-                  : "VAT"}
+        <dl className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-4 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3.5 py-3">
+          <div>
+            <dt className="font-mono text-[9.5px] font-bold tracking-[0.13em] text-[rgb(var(--fg-muted))] uppercase">
+              Client pays
             </dt>
-            <dd>
+            <dd className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
               {draft.taxMode === "tax_free"
                 ? "No VAT added"
-                : tax
-                  ? `${formatMoney(tax.taxCents, draft.currency)} · ${String(rate)}%`
-                  : "—"}
+                : draft.taxMode === "tax_added"
+                  ? `Includes ${String(rate)}% VAT added`
+                  : `Includes ${String(rate)}% VAT`}
             </dd>
+          </div>
+          <div className="text-right">
+            <dd className="font-display text-[25px] leading-none font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] tabular-nums sm:text-[28px]">
+              {tax ? formatMoney(tax.totalCents, draft.currency) : "—"}
+            </dd>
+            {draft.taxMode !== "tax_free" && tax ? (
+              <dd className="mt-1 text-[10.5px] text-[rgb(var(--fg-muted))] tabular-nums">
+                {formatMoney(tax.taxCents, draft.currency)} · {String(rate)}%
+              </dd>
+            ) : null}
           </div>
         </dl>
       </section>
 
-      <section className="border-t border-[rgb(var(--border-subtle))] pt-5">
-        <div className="flex items-start gap-2.5">
-          <Check
-            className="mt-0.5 h-4 w-4 shrink-0 text-[rgb(var(--brand-primary-dark))]"
-            aria-hidden
-          />
+      <section className="relative overflow-hidden rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[0_12px_30px_-24px_rgba(17,16,9,0.32)]">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-3 bottom-3 left-0 w-[3px] rounded-r-full"
+          style={{ background: accent }}
+        />
+        <div className="flex items-start gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
+            <Check className="h-4 w-4" aria-hidden />
+          </span>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+            <p className="font-display text-[15px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
               {customized ? `Terms based on ${sourceName}` : `Terms copied from ${sourceName}`}
             </p>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-              {privateOfferPaymentSummary(draft, priceCents)} · {agreementSummary} · {expirySummary}
+            <p className="mt-0.5 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              {paymentSummary} · {agreementSummary} · {expirySummary}
             </p>
-            {draft.agreementMode === "pdf" && draft.agreementPdf ? (
-              <p className="mt-2 flex min-w-0 items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-secondary))]">
-                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                <span className="truncate">{draft.agreementPdf.originalFileName}</span>
-              </p>
-            ) : null}
           </div>
         </div>
+
+        <dl className="mt-4 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="py-3 sm:py-2 sm:pr-3">
+            <dt className="font-mono text-[9px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
+              Payment
+            </dt>
+            <dd className="mt-1 text-[12px] leading-snug font-semibold text-[rgb(var(--fg-default))]">
+              {paymentSummary}
+            </dd>
+          </div>
+          <div className="py-3 sm:px-3 sm:py-2">
+            <dt className="font-mono text-[9px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
+              Agreement
+            </dt>
+            <dd className="mt-1 text-[12px] leading-snug font-semibold text-[rgb(var(--fg-default))]">
+              {agreementSummary}
+            </dd>
+          </div>
+          <div className="py-3 sm:py-2 sm:pl-3">
+            <dt className="font-mono text-[9px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
+              Availability
+            </dt>
+            <dd className="mt-1 text-[12px] leading-snug font-semibold text-[rgb(var(--fg-default))]">
+              {expirySummary}
+            </dd>
+          </div>
+        </dl>
+
+        {draft.agreementMode === "pdf" && draft.agreementPdf ? (
+          <p className="mt-3 flex min-w-0 items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-secondary))]">
+            <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{draft.agreementPdf.originalFileName}</span>
+          </p>
+        ) : null}
+
         <div className="mt-3 flex justify-end">
           <button
             type="button"
             onClick={onCustomize}
-            className="sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.08)] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+            className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.08)] px-4 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))] transition-[border-color,background-color] hover:border-[rgb(var(--brand-primary)/0.58)] hover:bg-[rgb(var(--brand-primary)/0.13)] sm:min-h-9 sm:rounded-[var(--radius-md)]"
           >
             Customize
           </button>
