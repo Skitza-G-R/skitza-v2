@@ -114,8 +114,6 @@ export default async function AddressGuestSongPage({
     comments: [],
     selectedVersionId: data.selectedVersionId,
   };
-  const loginHref = `/sign-in?${new URLSearchParams({ redirect_url: originalPath }).toString()}`;
-
   return (
     <div className="min-h-dvh bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]">
       <PublicConnectivityNotice />
@@ -125,10 +123,10 @@ export default async function AddressGuestSongPage({
             <Wordmark size={30} lowercase />
           </span>
           <Link
-            href={loginHref}
-            className="inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 text-[15px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--fg-default)/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
+            href="/"
+            className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary-dark)/0.16)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-primary))] shadow-[0_8px_20px_-12px_rgb(var(--brand-primary-dark)/0.75)] transition-[transform,filter,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[0_12px_24px_-12px_rgb(var(--brand-primary-dark)/0.9)] hover:brightness-[1.03] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary-dark))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none active:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none sm:min-h-12 sm:px-6 sm:text-[15px]"
           >
-            Log in
+            Join now!
           </Link>
         </div>
       </header>
