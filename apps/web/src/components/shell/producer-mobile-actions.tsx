@@ -16,6 +16,7 @@ import {
 
 import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
 import { Icon } from "~/components/nav/icons";
+import { MobileInstallMenuItem } from "~/components/pwa/mobile-install-menu-item";
 import {
   renderAccountRoleMenuItems,
   useAccountRoleMenuModel,
@@ -452,6 +453,7 @@ export function ProducerMobileActions({
                   </span>
                   Settings
                 </Link>
+                <MobileInstallMenuItem onBeforeOpen={requestAccountSheetClose} />
               </nav>
               <div className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain p-4 pt-2">
                 <UserButton.__experimental_Outlet

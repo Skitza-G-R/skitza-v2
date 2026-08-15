@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
+import { MobileInstallMenuItem } from "~/components/pwa/mobile-install-menu-item";
 import {
   announceRuntimeMainNavigationIntent,
   captureRuntimeMainNavigationTarget,
@@ -351,6 +352,7 @@ export function ArtistMobileUserButton({
                 </span>
                 Settings
               </Link>
+              <MobileInstallMenuItem onBeforeOpen={requestAccountSheetClose} />
             </nav>
             <div className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain p-4 pt-2">
               <UserButton.__experimental_Outlet

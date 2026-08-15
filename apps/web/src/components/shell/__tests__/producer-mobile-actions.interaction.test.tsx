@@ -184,6 +184,8 @@ beforeEach(() => {
   mocks.pathname = "/dashboard";
   mocks.reducedMotion = false;
   mocks.search = "";
+  window.localStorage.clear();
+  window.sessionStorage.clear();
   window.history.replaceState(null, "", "/dashboard");
   installPointerCapture();
   vi.stubGlobal(
@@ -285,6 +287,7 @@ describe("ProducerMobileActions account sheet interaction", () => {
     ]);
     expect(links[0]?.textContent).toContain("Store");
     expect(links[0]?.textContent).toContain("Products and private offers");
+    expect(screen.getByRole("button", { name: /Install Skitza/ })).not.toBeNull();
     const profileLinks = screen.getByTestId("producer-mobile-profile-links");
     expect(profileLinks.classList.contains("grid-cols-1")).toBe(true);
     expect(profileLinks.classList.contains("grid-cols-2")).toBe(false);
