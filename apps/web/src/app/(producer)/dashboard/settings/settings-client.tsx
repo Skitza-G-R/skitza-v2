@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Eye, Landmark, ShieldCheck, Smartphone } from "lucide-react";
+import { Eye, Landmark, PencilLine, ShieldCheck, Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -738,7 +738,9 @@ function IntegrationsSection({
         <div className="s-card s-payment-editor" data-mode={editing ? "edit" : "read"}>
           <div className="s-payment-editor-head">
             <div>
-              <span className="s-payment-kicker">Manual payment setup</span>
+              <span className="s-payment-kicker">
+                {editing ? "Editing payment details" : "Manual payment setup"}
+              </span>
               <h3>Bank &amp; Bit</h3>
               <p>Only approved artists see these details when payment is due.</p>
             </div>
@@ -755,11 +757,12 @@ function IntegrationsSection({
                   </span>
                   <button
                     type="button"
-                    className="s-btn s-btn-subtle"
+                    className="s-btn s-payment-edit-button"
                     onClick={beginEditing}
                     disabled={disabled}
                   >
-                    Edit
+                    <PencilLine size={15} strokeWidth={2} aria-hidden />
+                    Edit details
                   </button>
                 </>
               ) : (
@@ -778,7 +781,7 @@ function IntegrationsSection({
                     className="s-btn s-btn-primary"
                     disabled={busy}
                   >
-                    {submitting ? "Saving…" : "Save payment details"}
+                    {submitting ? "Saving…" : "Save details"}
                   </button>
                 </>
               )}
@@ -847,7 +850,7 @@ function IntegrationsSection({
                           <span className="s-payment-field-label">{label}</span>
                           <input
                             id={id}
-                            className="s-input"
+                            className="s-input sk-native-field"
                             value={draft.bankFields[key]}
                             placeholder={placeholder}
                             maxLength={maxLength}
@@ -877,7 +880,7 @@ function IntegrationsSection({
                     </label>
                     <input
                       id="settings-bit-phone"
-                      className="s-input"
+                      className="s-input sk-native-field"
                       type="tel"
                       inputMode="tel"
                       autoComplete="tel"
@@ -901,7 +904,7 @@ function IntegrationsSection({
                   </label>
                   <textarea
                     id="settings-payment-note"
-                    className="s-input s-textarea s-textarea-compact"
+                    className="s-input s-textarea s-textarea-compact sk-native-field"
                     rows={2}
                     maxLength={500}
                     value={draft.note}

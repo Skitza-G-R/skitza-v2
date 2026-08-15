@@ -71,8 +71,9 @@ describe("producer payment instructions settings", () => {
     expect(clientSource).not.toMatch(/publicly visible/i);
   });
 
-  it("uses local Edit, Save, and Cancel while retaining the global savebar", () => {
-    expect(clientSource).toMatch(/Save payment details/);
+  it("uses clear local Edit, Save, and Cancel actions while retaining the global savebar", () => {
+    expect(clientSource).toMatch(/Edit details/);
+    expect(clientSource).toMatch(/Save details/);
     expect(clientSource).toMatch(/Cancel/);
     expect(clientSource).toMatch(/data-mode=\{editing \? "edit" : "read"\}/);
     expect(clientSource).toMatch(/s-payment-local-actions" data-tab-swipe-ignore/);
