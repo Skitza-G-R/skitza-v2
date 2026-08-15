@@ -309,6 +309,7 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
         .ok_or_else(|| tauri::Error::AssetNotFound("Skitza app icon".into()))?;
     let builder = TrayIconBuilder::new()
         .icon(icon)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Skitza")
         .menu(&menu)
         .show_menu_on_left_click(false);
