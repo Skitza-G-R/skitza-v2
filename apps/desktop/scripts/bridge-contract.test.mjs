@@ -141,7 +141,11 @@ class FakeElement {
   }
 }
 
-function sessionCoverHarness(pathname, origin = "https://proof.example") {
+function sessionCoverHarness(
+  pathname,
+  origin = "https://proof.example",
+  sessionValues = new Map(),
+) {
   const elements = new Map();
   const forbidden = new Set();
   const frames = [];
@@ -171,6 +175,17 @@ function sessionCoverHarness(pathname, origin = "https://proof.example") {
     },
     __SKITZA_DESKTOP_TRUSTED_ORIGIN__: "https://proof.example",
     location: { origin, pathname },
+    sessionStorage: {
+      getItem(key) {
+        return sessionValues.get(key) ?? null;
+      },
+      removeItem(key) {
+        sessionValues.delete(key);
+      },
+      setItem(key, value) {
+        sessionValues.set(key, String(value));
+      },
+    },
     addEventListener() {},
     requestAnimationFrame(callback) {
       frames.push(callback);
@@ -195,7 +210,15 @@ function sessionCoverHarness(pathname, origin = "https://proof.example") {
   const runFrames = () => {
     while (frames.length > 0) frames.shift()();
   };
-  return { document, forbidden, nativeCalls, observers, runFrames, window };
+  return {
+    document,
+    forbidden,
+    nativeCalls,
+    observers,
+    runFrames,
+    sessionValues,
+    window,
+  };
 }
 
 test("protected pages keep the animated cover until a clean validated screen paints", () => {
@@ -228,12 +251,10 @@ test("protected pages keep the animated cover until a clean validated screen pai
 
   harness.forbidden.add('[data-runtime-screen-source="resume"]');
   harness.observers.at(-1).callback();
-  assert.ok(harness.document.getElementById("skitza-desktop-session-cover"));
-
-  harness.forbidden.clear();
-  harness.observers.at(-1).callback();
-  harness.runFrames();
   assert.equal(harness.document.getElementById("skitza-desktop-session-cover"), null);
+
+  harness.window.__SKITZA_DESKTOP_SESSION_COVER__.show();
+  assert.ok(harness.document.getElementById("skitza-desktop-session-cover"));
 });
 
 test("unknown validation and atomic hide keep the cover while sign-in stays untouched", async () => {
@@ -255,13 +276,56 @@ test("unknown validation and atomic hide keep the cover while sign-in stays unto
   assert.deepEqual(signIn.nativeCalls, ["hide_main_window"]);
 });
 
-test("close waits for the desktop cover before the native hide command", () => {
+test("validated full-document navigation never remounts the opening cover", () => {
+  const sessionValues = new Map();
+  const initialPage = sessionCoverHarness(
+    "/dashboard",
+    "https://proof.example",
+    sessionValues,
+  );
+  initialPage.window.__SKITZA_DESKTOP_SESSION_COVER__.reportSessionValidation({
+    accountMatches: true,
+    status: "valid",
+    validatedAt: 1,
+  });
+  initialPage.runFrames();
+  assert.equal(initialPage.document.getElementById("skitza-desktop-session-cover"), null);
+
+  const nextPage = sessionCoverHarness(
+    "/dashboard/music",
+    "https://proof.example",
+    sessionValues,
+  );
+  nextPage.forbidden.add('[data-runtime-screen-source="scaffold"]');
+  nextPage.observers.at(-1).callback();
+  assert.equal(nextPage.document.getElementById("skitza-desktop-session-cover"), null);
+
+  nextPage.window.__SKITZA_DESKTOP_SESSION_COVER__.reportSessionValidation({
+    accountMatches: false,
+    status: "unknown",
+    validatedAt: null,
+  });
+  assert.ok(nextPage.document.getElementById("skitza-desktop-session-cover"));
+});
+
+test("close and macOS Quit finish through native lifecycle paths", () => {
   assert.match(
     mainSource,
-    /CloseRequested[\s\S]*?__SKITZA_DESKTOP_PREPARE_HIDE__\?\.\(\)\.catch/,
+    /CloseRequested[\s\S]*?api\.prevent_close\(\)[\s\S]*?show\?\.\(\)[\s\S]*?webview\.hide\(\)/,
   );
-  assert.match(sessionCoverSource, /suspendAndShow\(\);[\s\S]*?invoke\("hide_main_window"\)/);
-  assert.match(mainSource, /fn hide_main_window[\s\S]*?window\.hide\(\)/);
+  assert.doesNotMatch(
+    mainSource,
+    /CloseRequested[\s\S]*?__SKITZA_DESKTOP_PREPARE_HIDE__/,
+  );
+  assert.match(
+    mainSource,
+    /fn quit_app[\s\S]*?window\.hide\(\)[\s\S]*?app\.exit\(0\)/,
+  );
+  assert.match(
+    mainSource,
+    /APP_QUIT_MENU_ID[\s\S]*?CmdOrCtrl\+Q[\s\S]*?on_menu_event[\s\S]*?quit_app\(app\)/,
+  );
+  assert.match(mainSource, /"quit-skitza" => quit_app\(app\)/);
 });
 
 test("buffered bridge events are validated, ordered, and delivered once", () => {

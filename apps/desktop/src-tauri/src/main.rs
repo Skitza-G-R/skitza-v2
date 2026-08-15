@@ -20,6 +20,8 @@ use protection_bypass::{
     protection_cookie_from_redirect, protection_cookie_matches, ProtectionBypass,
 };
 use session::{report_session_validation, start_validation_loop, SessionValidationState};
+#[cfg(target_os = "macos")]
+use tauri::menu::Menu;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -34,6 +36,8 @@ use zeroize::Zeroizing;
 
 const BRIDGE_PROTOCOL_VERSION: u16 = 1;
 const MAIN_WINDOW_LABEL: &str = "main";
+#[cfg(target_os = "macos")]
+const APP_QUIT_MENU_ID: &str = "quit-skitza-app";
 
 struct DesktopState {
     auth: AuthState,
@@ -212,6 +216,30 @@ fn reveal_main_window(app: &AppHandle) {
     }
 }
 
+fn quit_app(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.hide();
+    }
+    app.exit(0);
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    let menu_items = menu.items()?;
+    if let Some(app_menu) = menu_items.first().and_then(|item| item.as_submenu()) {
+        let item_count = app_menu.items()?.len();
+        if item_count > 0 {
+            app_menu.remove_at(item_count - 1)?;
+            let quit = MenuItemBuilder::with_id(APP_QUIT_MENU_ID, "Quit Skitza")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
+            app_menu.append(&quit)?;
+        }
+    }
+    Ok(menu)
+}
+
 #[tauri::command]
 fn hide_main_window(window: WebviewWindow, state: State<'_, DesktopState>) -> Result<(), String> {
     if window.label() != MAIN_WINDOW_LABEL {
@@ -323,7 +351,7 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
                     window.open_devtools();
                 }
             }
-            "quit-skitza" => app.exit(0),
+            "quit-skitza" => quit_app(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -390,13 +418,21 @@ fn main() {
         .build()
         .expect("failed to build the HTTPS client");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             for argument in args {
                 handle_callback_argument(app.clone(), &argument);
             }
         }))
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_deep_link::init());
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(macos_app_menu).on_menu_event(|app, event| {
+        if event.id().as_ref() == APP_QUIT_MENU_ID {
+            quit_app(app);
+        }
+    });
+
+    builder
         .manage(DesktopState {
             auth: AuthState::default(),
             client,
@@ -454,12 +490,15 @@ fn main() {
                             })
                             .unwrap_or(false);
                         if trusted_remote {
-                            let _ = webview.eval(
-                                "void window.__SKITZA_DESKTOP_PREPARE_HIDE__?.().catch(() => undefined);",
-                            );
-                        } else {
-                            let _ = window.hide();
+                            let _ =
+                                webview.eval("window.__SKITZA_DESKTOP_SESSION_COVER__?.show?.();");
                         }
+                        let _ = webview.hide();
+                        if let Some(state) = window.app_handle().try_state::<DesktopState>() {
+                            state.session.request_validation(window.app_handle());
+                        }
+                    } else {
+                        let _ = window.hide();
                     }
                 }
             }
