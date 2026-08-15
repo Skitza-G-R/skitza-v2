@@ -85,13 +85,20 @@ describe("producer payment instructions settings", () => {
     expect(clientSource).toMatch(/wallet:\s*\(\)\s*=>/);
   });
 
-  it("keeps the structured Bank and Bit setup compact on desktop and mobile", () => {
+  it("keeps the structured Bank and Bit setup compact and visually complete", () => {
     expect(clientSource).toContain('className="s-reveal s-payment-section"');
     expect(clientSource).toMatch(/className="s-payment-bank-grid"/);
     expect(clientSource).toMatch(/id="settings-payment-note"[\s\S]{0,160}rows=\{2\}/);
     expect(cssSource).toMatch(/\.s-payment-method\s*{[^}]*padding:\s*14px 16px/);
     expect(cssSource).toMatch(
-      /@media \(max-width: 640px\)[\s\S]*?\.s-payment-bank-grid\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+      /\.s-payment-readonly \.s-payment-method-bit \.s-payment-readonly-field\s*\{[^}]*background:\s*rgb\(var\(--bg-elevated\)\)/,
+    );
+    expect(cssSource).toMatch(/\.s-payment-edit-button\s*\{[^}]*height:\s*34px/);
+    expect(cssSource).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.s-payment-section \.s-section-head h2\s*\{[^}]*font-size:\s*22px/,
+    );
+    expect(cssSource).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.s-payment-local-actions \.s-btn\s*\{[^}]*height:\s*44px/,
     );
   });
 });
