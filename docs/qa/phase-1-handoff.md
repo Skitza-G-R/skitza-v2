@@ -172,7 +172,7 @@ The brief said: don't touch layouts, pages, tRPC, DB, auth.
 | `apps/web/src/components/ui/input.tsx` | +12 / -11 |
 | `apps/web/src/components/ui/toast.tsx` | +91 / -87 |
 | `pnpm-lock.yaml` | +30 |
-| `docs/qa/phase-1-design-system/*.png` | 8 screenshots |
+| `docs/qa/phase-1-design-system/*.png` | 7 screenshots |
 
 Foundation + Dialog primitive. Out-of-scope discipline held: zero changes to (producer)/(artist)/server/db.
 
@@ -197,7 +197,6 @@ Captured locally — v3-clean (port 3001) before, v3-ui-design (port 3000) after
 - `phase-1-before-landing.png` ↔ `phase-1-after-landing.png` — `/` landing (Button + Syne hero typography).
 - `phase-1-after-landing-cards.png` — `/` pain-card section (Card grid on dark sidebar surface).
 - `phase-1-after-input-zoom.png` — closer view of Card + Input + Button cluster.
-- `phase-1-after-onboarding-studio.png` — real producer route after sign-in (`/onboarding/studio`). Demonstrates Input primitive in production with amber focus ring + uppercase tracking-widest label + Syne hero ("Name your studio.").
 - `phase-1-after-dialog.png` — Dialog primitive rendered on the same authenticated route. Shows desktop centered modal with `bg-elevated` surface, `border-subtle` hairline, `shadow-lg` elevation, Syne `<DialogTitle>`, muted Outfit `<DialogDescription>`, two action buttons (outline + destructive), backdrop blur over `bg-sidebar/0.45` overlay.
 
 The Dialog screenshot was captured by mounting the React primitive's exact class string as a static DOM injection on `/onboarding/studio` — proves the design tokens render correctly via the live Tailwind CSS build. No public route currently mounts `<Dialog>` (it's brand-new); first screen migrations in Phase 2-3 will exercise it in real React.
