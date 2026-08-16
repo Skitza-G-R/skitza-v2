@@ -36,6 +36,7 @@ use zeroize::Zeroizing;
 
 const BRIDGE_PROTOCOL_VERSION: u16 = 1;
 const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_ICON_ID: &str = "skitza-tray";
 #[cfg(target_os = "macos")]
 const APP_QUIT_MENU_ID: &str = "quit-skitza-app";
 
@@ -329,15 +330,15 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
     let menu = menu_builder.item(&quit).build()?;
 
     #[cfg(target_os = "macos")]
-    let icon = tauri::include_image!("icons/tray-icon.png");
+    let icon = tauri::include_image!("icons/32x32.png");
     #[cfg(not(target_os = "macos"))]
     let icon = app
         .default_window_icon()
         .cloned()
         .ok_or_else(|| tauri::Error::AssetNotFound("Skitza app icon".into()))?;
-    let builder = TrayIconBuilder::new()
+    let builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
         .icon(icon)
-        .icon_as_template(cfg!(target_os = "macos"))
+        .icon_as_template(false)
         .tooltip("Skitza")
         .menu(&menu)
         .show_menu_on_left_click(false);
@@ -365,7 +366,8 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
             }
         });
 
-    builder.build(app)?;
+    let tray = builder.build(app)?;
+    tray.set_visible(true)?;
     Ok(())
 }
 
@@ -420,6 +422,7 @@ fn main() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            reveal_main_window(app);
             for argument in args {
                 handle_callback_argument(app.clone(), &argument);
             }
@@ -432,7 +435,7 @@ fn main() {
         }
     });
 
-    builder
+    let app = builder
         .manage(DesktopState {
             auth: AuthState::default(),
             client,
@@ -503,8 +506,23 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Skitza desktop failed to run");
+
+    app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } = event
+        {
+            if !has_visible_windows {
+                reveal_main_window(app);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    });
 }
 
 #[cfg(test)]

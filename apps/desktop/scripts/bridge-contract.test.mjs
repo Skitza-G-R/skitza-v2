@@ -328,6 +328,30 @@ test("close and macOS Quit finish through native lifecycle paths", () => {
   assert.match(mainSource, /"quit-skitza" => quit_app\(app\)/);
 });
 
+test("macOS activation and a second launch restore the hidden window", () => {
+  assert.match(
+    mainSource,
+    /tauri_plugin_single_instance::init\(\|app, args, _cwd\|[\s\S]*?reveal_main_window\(app\)[\s\S]*?for argument in args/,
+  );
+  assert.match(
+    mainSource,
+    /\.build\(tauri::generate_context!\(\)\)[\s\S]*?app\.run\(\|app, event\|[\s\S]*?RunEvent::Reopen[\s\S]*?!has_visible_windows[\s\S]*?reveal_main_window\(app\)/,
+  );
+});
+
+test("the Mac menu-bar icon has a stable visible tray registration", () => {
+  assert.match(mainSource, /const TRAY_ICON_ID: &str = "skitza-tray"/);
+  assert.match(mainSource, /include_image!\("icons\/32x32\.png"\)/);
+  assert.match(
+    mainSource,
+    /TrayIconBuilder::with_id\(TRAY_ICON_ID\)[\s\S]*?icon\(icon\)[\s\S]*?icon_as_template\(false\)/,
+  );
+  assert.match(
+    mainSource,
+    /let tray = builder\.build\(app\)\?[\s\S]*?tray\.set_visible\(true\)\?/,
+  );
+});
+
 test("buffered bridge events are validated, ordered, and delivered once", () => {
   const { window } = loadBridge("https://proof.example");
   const deliver = window.__SKITZA_DESKTOP_DELIVER__;
