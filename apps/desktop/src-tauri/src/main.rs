@@ -330,7 +330,7 @@ fn create_tray(app: &mut tauri::App, diagnostics: DesktopDiagnosticsPolicy) -> t
     let menu = menu_builder.item(&quit).build()?;
 
     #[cfg(target_os = "macos")]
-    let icon = tauri::include_image!("icons/32x32.png");
+    let icon = tauri::include_image!("icons/tray-icon.png");
     #[cfg(not(target_os = "macos"))]
     let icon = app
         .default_window_icon()

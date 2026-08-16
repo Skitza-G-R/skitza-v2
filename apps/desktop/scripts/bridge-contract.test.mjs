@@ -341,7 +341,7 @@ test("macOS activation and a second launch restore the hidden window", () => {
 
 test("the Mac menu-bar icon has a stable visible tray registration", () => {
   assert.match(mainSource, /const TRAY_ICON_ID: &str = "skitza-tray"/);
-  assert.match(mainSource, /include_image!\("icons\/32x32\.png"\)/);
+  assert.match(mainSource, /include_image!\("icons\/tray-icon\.png"\)/);
   assert.match(
     mainSource,
     /TrayIconBuilder::with_id\(TRAY_ICON_ID\)[\s\S]*?icon\(icon\)[\s\S]*?icon_as_template\(false\)/,
