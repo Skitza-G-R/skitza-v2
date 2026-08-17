@@ -34,7 +34,6 @@ function acceptedInvitation(overrides: Record<string, unknown> = {}) {
     revoked: false,
     createdAt: CUTOFF_MS + 1_000,
     updatedAt: CUTOFF_MS + 2_000,
-    publicMetadata: { skitzaProducerInvitation: true },
     ...overrides,
   };
 }
@@ -234,7 +233,7 @@ describe("syncAcceptedProducerInvitation", () => {
     expect(mocks.claimProducerInvitationGrant).not.toHaveBeenCalled();
   });
 
-  it("does not grant from an unrelated accepted Clerk app invitation", async () => {
+  it("grants from an accepted Clerk Dashboard invitation without custom metadata", async () => {
     getUser.mockResolvedValue({
       id: "user_artist",
       emailAddresses: [
@@ -245,11 +244,7 @@ describe("syncAcceptedProducerInvitation", () => {
       ],
     });
     getInvitationList.mockResolvedValue({
-      data: [
-        acceptedInvitation({
-          publicMetadata: { anotherInvitationFlow: true },
-        }),
-      ],
+      data: [acceptedInvitation()],
     });
 
     await expect(
@@ -259,8 +254,8 @@ describe("syncAcceptedProducerInvitation", () => {
         providerUserId: "user_artist",
         environment,
       }),
-    ).resolves.toEqual({ status: "not_invited" });
-    expect(mocks.claimProducerInvitationGrant).not.toHaveBeenCalled();
+    ).resolves.toEqual({ status: "created" });
+    expect(mocks.claimProducerInvitationGrant).toHaveBeenCalledOnce();
   });
 
   it("fails closed when Clerk cannot load the signed-in user", async () => {

@@ -89,7 +89,6 @@ export async function syncAcceptedProducerInvitation(input: {
       createdAt: invitation.createdAt,
       updatedAt: invitation.updatedAt,
       revoked: invitation.revoked,
-      publicMetadata: invitation.publicMetadata,
     })),
   );
 

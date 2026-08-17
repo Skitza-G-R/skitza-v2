@@ -28,7 +28,6 @@ function invitation(
     status: "accepted",
     createdAt: CUTOFF_MS,
     updatedAt: CUTOFF_MS + 1_000,
-    publicMetadata: { skitzaProducerInvitation: true },
     ...overrides,
   };
 }
@@ -125,28 +124,18 @@ describe("selectAcceptedProducerInvitation", () => {
     ).toEqual({ status: "no_match" });
   });
 
-  it("rejects unrelated accepted app invitations without the exact trusted marker", () => {
-    for (const publicMetadata of [
-      undefined,
-      null,
-      {},
-      { anotherInvitationFlow: true },
-      { skitzaProducerInvitation: false },
-      { skitzaProducerInvitation: "true" },
-      ["skitzaProducerInvitation"],
-    ]) {
-      expect(
-        selectAcceptedProducerInvitation({
-          clerkUser: verifiedUser,
-          expectedClerkUserId: "user_artist",
-          invitations: [invitation({ publicMetadata })],
-          cutoff: CUTOFF,
-        }),
-      ).toEqual({ status: "no_match" });
-    }
+  it("accepts a Clerk Dashboard invitation without custom metadata", () => {
+    const result = selectAcceptedProducerInvitation({
+      clerkUser: verifiedUser,
+      expectedClerkUserId: "user_artist",
+      invitations: [invitation()],
+      cutoff: CUTOFF,
+    });
+
+    expect(result.status).toBe("matched");
   });
 
-  it("ignores a newer unrelated invitation and uses the newest trusted invitation", () => {
+  it("uses the newest accepted application invitation", () => {
     const result = selectAcceptedProducerInvitation({
       clerkUser: verifiedUser,
       expectedClerkUserId: "user_artist",
@@ -155,7 +144,6 @@ describe("selectAcceptedProducerInvitation", () => {
           id: "inv_unrelated_newer",
           createdAt: CUTOFF_MS + 20_000,
           updatedAt: CUTOFF_MS + 21_000,
-          publicMetadata: { anotherInvitationFlow: true },
         }),
         invitation({
           id: "inv_trusted",
@@ -168,7 +156,7 @@ describe("selectAcceptedProducerInvitation", () => {
 
     expect(result.status).toBe("matched");
     if (result.status === "matched") {
-      expect(result.invitation.invitationId).toBe("inv_trusted");
+      expect(result.invitation.invitationId).toBe("inv_unrelated_newer");
     }
   });
 
