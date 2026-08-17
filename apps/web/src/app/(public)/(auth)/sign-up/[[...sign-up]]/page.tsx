@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { SignIn, SignUp } from "@clerk/nextjs";
 import { auth } from "~/server/auth/clerk-identity";
 import { cookies } from "next/headers";
@@ -5,7 +7,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AuthHero } from "~/components/auth/auth-hero";
+import { InvitationSignupMarker } from "~/components/auth/invitation-signup-marker";
 import {
+  invitationSignInHandoffHref,
   RETURNING_DEVICE_COOKIE,
   shouldRedirectReturningDeviceToSignIn,
   signInSwitchHref,
@@ -101,6 +105,13 @@ export default async function Page({ params, searchParams }: Props) {
   }
 
   const signInHref = signInSwitchHref(requestedHref);
+  const invitationHandoffToken = invitationTicket
+    ? createHash("sha256").update(invitationTicket).digest("base64url")
+    : "";
+  const invitationHandoffHref = invitationSignInHandoffHref(
+    invitationHandoffToken,
+    requestedHref,
+  );
 
   if (!invitationTicket) {
     return (
@@ -160,11 +171,14 @@ export default async function Page({ params, searchParams }: Props) {
       {invitationStatus === "sign_in" ? (
         <SignIn fallbackRedirectUrl={resolverHref} forceRedirectUrl={resolverHref} />
       ) : (
-        <SignUp
-          signInUrl={signInHref}
-          fallbackRedirectUrl={resolverHref}
-          forceRedirectUrl={resolverHref}
-        />
+        <>
+          <InvitationSignupMarker handoffToken={invitationHandoffToken} />
+          <SignUp
+            signInUrl={signInHref}
+            fallbackRedirectUrl={invitationHandoffHref}
+            forceRedirectUrl={invitationHandoffHref}
+          />
+        </>
       )}
     </div>
   );

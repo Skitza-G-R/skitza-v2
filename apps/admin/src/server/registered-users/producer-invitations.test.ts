@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   sendProducerInvitation,
+  sendProducerInvitationToEmail,
   SKITZA_PRODUCER_INVITATION_METADATA_KEY,
   ProducerInvitationError,
   type ProducerInvitationProvider,
@@ -52,6 +53,16 @@ function send(redirectUrl = "https://skitza-test.example/sign-up") {
   });
 }
 
+function sendEmail(emailAddress = " New.Producer@Example.com ") {
+  return sendProducerInvitationToEmail({
+    clerkInstanceId: "ins_test",
+    emailAddress,
+    operationKey: "producer-invite-email:request-1",
+    provider,
+    redirectUrl: "https://skitza-test.example/sign-up",
+  });
+}
+
 describe("founder Producer invitations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,6 +98,42 @@ describe("founder Producer invitations", () => {
     expect(getInstanceId.mock.invocationCallOrder[0]).toBeLessThan(
       getUser.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY,
     );
+  });
+
+  it("sends a marked Producer invitation directly to a new email", async () => {
+    createInvitation.mockResolvedValueOnce({
+      ...invitation,
+      emailAddress: "new.producer@example.com",
+    });
+
+    await expect(sendEmail()).resolves.toEqual({
+      invitationId: "inv_new",
+      reused: false,
+      status: "pending",
+    });
+
+    expect(getUser).not.toHaveBeenCalled();
+    expect(listInvitations).toHaveBeenCalledWith({
+      emailAddress: "new.producer@example.com",
+      limit: 100,
+    });
+    expect(createInvitation).toHaveBeenCalledWith({
+      emailAddress: "new.producer@example.com",
+      expiresInDays: 7,
+      ignoreExisting: true,
+      notify: true,
+      redirectUrl: "https://skitza-test.example/sign-up",
+      publicMetadata: { skitzaProducerInvitation: true },
+    });
+  });
+
+  it("rejects malformed direct-email invitations before Clerk is called", async () => {
+    await expect(sendEmail("not-an-email")).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+    });
+    expect(getInstanceId).not.toHaveBeenCalled();
+    expect(listInvitations).not.toHaveBeenCalled();
+    expect(createInvitation).not.toHaveBeenCalled();
   });
 
   it.each([

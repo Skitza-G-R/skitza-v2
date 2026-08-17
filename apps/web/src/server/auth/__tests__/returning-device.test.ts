@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  invitationSignInHandoffHref,
   RETURNING_DEVICE_COOKIE,
   returningDeviceCookieOptions,
   shouldRedirectReturningDeviceToSignIn,
@@ -48,6 +49,15 @@ describe("returning-device marker", () => {
 });
 
 describe("auth page switch URLs", () => {
+  it("hands a completed Producer invitation to a fresh sign-in and preserves a safe target", () => {
+    expect(invitationSignInHandoffHref("handoff-token", "/dashboard/calendar?tab=availability")).toBe(
+      "/sign-in?invitation_complete=1&invitation_handoff=handoff-token&redirect_url=%2Fdashboard%2Fcalendar%3Ftab%3Davailability",
+    );
+    expect(invitationSignInHandoffHref("handoff-token", "https://attacker.example/steal")).toBe(
+      "/sign-in?invitation_complete=1&invitation_handoff=handoff-token",
+    );
+  });
+
   it("marks an explicit switch from sign-in to account creation", () => {
     expect(signUpSwitchHref()).toBe("/sign-up?intent=signup");
     expect(signUpSwitchHref("/artist/music?studio=studio-a&mode=songs")).toBe(
