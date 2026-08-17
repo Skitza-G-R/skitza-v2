@@ -126,8 +126,10 @@ describe("invitation-only Producer sign-up entry", () => {
     expect(html).not.toContain("data-clerk-sign-in");
     expect(mocks.signUp).toHaveBeenCalledWith({
       signInUrl: "/sign-in?redirect_url=%2Fdashboard%2Fcalendar",
-      fallbackRedirectUrl: "/auth/resolve?next=%2Fdashboard%2Fcalendar",
-      forceRedirectUrl: "/auth/resolve?next=%2Fdashboard%2Fcalendar",
+      fallbackRedirectUrl:
+        "/sign-in?invitation_complete=1&invitation_handoff=AF85tnFAkNrE1Z9xNNhH3cdU34tOFGYUYah325ehvt8&redirect_url=%2Fdashboard%2Fcalendar",
+      forceRedirectUrl:
+        "/sign-in?invitation_complete=1&invitation_handoff=AF85tnFAkNrE1Z9xNNhH3cdU34tOFGYUYah325ehvt8&redirect_url=%2Fdashboard%2Fcalendar",
     });
     expect(mocks.signIn).not.toHaveBeenCalled();
   });

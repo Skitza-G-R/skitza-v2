@@ -7,7 +7,7 @@ import type {
   RegisteredUserDirectoryStatus,
   RegisteredUserSummary,
 } from "~/server/registered-users/service";
-import { ReconcileRegisteredUsers } from "./client-controls";
+import { NewProducerInvitationControl, ReconcileRegisteredUsers } from "./client-controls";
 import styles from "./registered-users.module.css";
 import {
   buildUsersDirectoryHref,
@@ -259,8 +259,9 @@ export function RegisteredUsersDirectory({
         <div className={styles.headerTools}>
           <span className={styles.realData}>
             <span aria-hidden="true" />
-            Real data · Read only
+            Real data · Founder only
           </span>
+          <NewProducerInvitationControl environment={environment} />
           <ReconcileRegisteredUsers environment={environment} />
         </div>
       </header>

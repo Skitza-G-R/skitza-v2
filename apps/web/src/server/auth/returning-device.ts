@@ -61,6 +61,26 @@ export function signInSwitchHref(rawTarget?: string | null): string {
   }).toString()}`;
 }
 
+export function invitationSignInHandoffHref(
+  handoffToken: string,
+  rawTarget?: string | null,
+): string {
+  const target = sanitizePostSignInTarget(rawTarget);
+  const query = new URLSearchParams({
+    invitation_complete: "1",
+    invitation_handoff: handoffToken,
+  });
+
+  // Keep the same safe destination for the explicit sign-in that follows the
+  // invitation handoff. `/onboarding` remains the default for a newly granted
+  // Producer, so it does not need to be serialized into the URL.
+  if (target && target.href !== "/onboarding") {
+    query.set("redirect_url", target.href);
+  }
+
+  return `/sign-in?${query.toString()}`;
+}
+
 export function signUpSwitchHref(rawTarget?: string | null): string {
   const joinSignUpHref = joinSignUpHrefFromTarget(rawTarget);
   if (joinSignUpHref) return joinSignUpHref;

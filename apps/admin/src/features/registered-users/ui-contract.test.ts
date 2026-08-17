@@ -48,7 +48,7 @@ describe("registered-users page and control safety", () => {
     expect(controls).not.toContain('"idempotency-key": operationKey("support-note-reveal")');
   });
 
-  it("keeps Producer invitations two-step, environment-bound, and free of client email input", () => {
+  it("keeps profile invitations server-bound and adds a two-step marked email sender", () => {
     const controls = source("src/features/registered-users/client-controls.tsx");
     const profile = source("src/features/registered-users/profile-view.tsx");
 
@@ -56,7 +56,10 @@ describe("registered-users page and control safety", () => {
     expect(controls).toContain("Send a real {environmentLabel} invitation?");
     expect(controls).toContain("?environment=${environment}");
     expect(controls).toContain('body: "{}"');
-    expect(controls).not.toMatch(/body:\s*JSON\.stringify\([^)]*email/i);
+    expect(controls).toContain("Invite Producer by email");
+    expect(controls).toContain("Review invitation");
+    expect(controls).toContain("includes the Skitza Producer marker");
+    expect(controls).toContain("JSON.stringify({ emailAddress: confirmedEmail })");
     expect(profile).toContain('header.roles.includes("Artist")');
     expect(profile).toContain('!header.roles.includes("Producer")');
   });

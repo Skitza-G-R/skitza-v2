@@ -85,6 +85,34 @@ function normalizedEmail(value: string): string {
   return email;
 }
 
+function requestedEmail(value: string): string {
+  try {
+    return normalizedEmail(value);
+  } catch {
+    return stop("INVALID_REQUEST");
+  }
+}
+
+function invitationRedirect(value: string): string {
+  let redirectUrl: URL;
+  try {
+    redirectUrl = new URL(value);
+  } catch {
+    return stop("INVALID_REQUEST");
+  }
+  if (
+    redirectUrl.protocol !== "https:" ||
+    redirectUrl.username ||
+    redirectUrl.password ||
+    redirectUrl.search ||
+    redirectUrl.hash ||
+    redirectUrl.pathname !== "/sign-up"
+  ) {
+    return stop("INVALID_REQUEST");
+  }
+  return redirectUrl.toString();
+}
+
 function exactVerifiedPrimaryEmail(user: ProducerInvitationProviderUser): string {
   if (user.banned || user.locked || !user.primaryEmailAddressId) {
     return stop("TARGET_NOT_ELIGIBLE");
@@ -113,6 +141,66 @@ function validateInvitation(
     return stop("UNAVAILABLE");
   }
   return invitation;
+}
+
+async function createOrReuseMarkedInvitation(
+  input: Readonly<{
+    emailAddress: string;
+    provider: ProducerInvitationProvider;
+    redirectUrl: string;
+  }>,
+): Promise<
+  Readonly<{
+    invitationId: string;
+    reused: boolean;
+    status: "accepted" | "pending";
+  }>
+> {
+  const candidates = await input.provider.listInvitations({
+    emailAddress: input.emailAddress,
+    limit: INVITATION_PAGE_LIMIT,
+  });
+  if (candidates.length > INVITATION_PAGE_LIMIT) return stop("UNAVAILABLE");
+
+  for (const rawCandidate of candidates) {
+    const candidate = validateInvitation(rawCandidate);
+    if (
+      normalizedEmail(candidate.emailAddress) === input.emailAddress &&
+      isMarkedInvitation(candidate) &&
+      (candidate.status === "pending" || candidate.status === "accepted")
+    ) {
+      return {
+        invitationId: candidate.id,
+        reused: true,
+        status: candidate.status,
+      };
+    }
+  }
+
+  const created = validateInvitation(
+    await input.provider.createInvitation({
+      emailAddress: input.emailAddress,
+      expiresInDays: 7,
+      ignoreExisting: true,
+      notify: true,
+      redirectUrl: input.redirectUrl,
+      publicMetadata: {
+        [SKITZA_PRODUCER_INVITATION_METADATA_KEY]: true,
+      },
+    }),
+  );
+  if (
+    normalizedEmail(created.emailAddress) !== input.emailAddress ||
+    !isMarkedInvitation(created) ||
+    (created.status !== "pending" && created.status !== "accepted")
+  ) {
+    return stop("UNAVAILABLE");
+  }
+  return {
+    invitationId: created.id,
+    reused: false,
+    status: created.status,
+  };
 }
 
 export function createClerkProducerInvitationProvider(
@@ -190,22 +278,7 @@ export async function sendProducerInvitation(
   requiredIdentifier(input.targetClerkUserId);
   const targetProviderClerkUserId = requiredIdentifier(input.targetProviderClerkUserId);
   requiredIdentifier(input.operationKey);
-  let redirectUrl: URL;
-  try {
-    redirectUrl = new URL(input.redirectUrl);
-  } catch {
-    return stop("INVALID_REQUEST");
-  }
-  if (
-    redirectUrl.protocol !== "https:" ||
-    redirectUrl.username ||
-    redirectUrl.password ||
-    redirectUrl.search ||
-    redirectUrl.hash ||
-    redirectUrl.pathname !== "/sign-up"
-  ) {
-    return stop("INVALID_REQUEST");
-  }
+  const redirectUrl = invitationRedirect(input.redirectUrl);
 
   try {
     const actualInstanceId = await input.provider.getInstanceId();
@@ -216,51 +289,51 @@ export async function sendProducerInvitation(
     if (user.id !== targetProviderClerkUserId) return stop("UNAVAILABLE");
     const emailAddress = exactVerifiedPrimaryEmail(user);
 
-    const candidates = await input.provider.listInvitations({
+    return await createOrReuseMarkedInvitation({
       emailAddress,
-      limit: INVITATION_PAGE_LIMIT,
+      provider: input.provider,
+      redirectUrl,
     });
-    if (candidates.length > INVITATION_PAGE_LIMIT) return stop("UNAVAILABLE");
+  } catch (error) {
+    if (error instanceof ProducerInvitationError) throw error;
+    throw new ProducerInvitationError("UNAVAILABLE");
+  }
+}
 
-    for (const rawCandidate of candidates) {
-      const candidate = validateInvitation(rawCandidate);
-      if (
-        normalizedEmail(candidate.emailAddress) === emailAddress &&
-        isMarkedInvitation(candidate) &&
-        (candidate.status === "pending" || candidate.status === "accepted")
-      ) {
-        return {
-          invitationId: candidate.id,
-          reused: true,
-          status: candidate.status,
-        };
-      }
-    }
+/**
+ * Sends the same server-marked Producer invitation to an email that may not
+ * have a Clerk account yet. This is the safe founder entry for brand-new
+ * Producers; direct Clerk Dashboard invitations cannot carry our marker.
+ */
+export async function sendProducerInvitationToEmail(
+  input: Readonly<{
+    clerkInstanceId: string;
+    emailAddress: string;
+    operationKey: string;
+    provider: ProducerInvitationProvider;
+    redirectUrl: string;
+  }>,
+): Promise<
+  Readonly<{
+    invitationId: string;
+    reused: boolean;
+    status: "accepted" | "pending";
+  }>
+> {
+  const clerkInstanceId = requiredIdentifier(input.clerkInstanceId);
+  requiredIdentifier(input.operationKey);
+  const emailAddress = requestedEmail(input.emailAddress);
+  const redirectUrl = invitationRedirect(input.redirectUrl);
 
-    const created = validateInvitation(
-      await input.provider.createInvitation({
-        emailAddress,
-        expiresInDays: 7,
-        ignoreExisting: true,
-        notify: true,
-        redirectUrl: redirectUrl.toString(),
-        publicMetadata: {
-          [SKITZA_PRODUCER_INVITATION_METADATA_KEY]: true,
-        },
-      }),
-    );
-    if (
-      normalizedEmail(created.emailAddress) !== emailAddress ||
-      !isMarkedInvitation(created) ||
-      (created.status !== "pending" && created.status !== "accepted")
-    ) {
-      return stop("UNAVAILABLE");
-    }
-    return {
-      invitationId: created.id,
-      reused: false,
-      status: created.status,
-    };
+  try {
+    const actualInstanceId = await input.provider.getInstanceId();
+    if (actualInstanceId !== clerkInstanceId) return stop("UNAVAILABLE");
+
+    return await createOrReuseMarkedInvitation({
+      emailAddress,
+      provider: input.provider,
+      redirectUrl,
+    });
   } catch (error) {
     if (error instanceof ProducerInvitationError) throw error;
     throw new ProducerInvitationError("UNAVAILABLE");

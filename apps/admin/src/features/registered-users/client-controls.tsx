@@ -107,6 +107,164 @@ export function ReconcileRegisteredUsers({ environment }: { environment: AdminEn
   );
 }
 
+export function NewProducerInvitationControl({ environment }: { environment: AdminEnvironmentId }) {
+  const [open, setOpen] = useState(false);
+  const [emailAddress, setEmailAddress] = useState("");
+  const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [inviteKey, setInviteKey] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const environmentLabel = environment === "live" ? "Live" : "Test";
+
+  async function sendInvitation() {
+    if (!confirmedEmail || pending) return;
+    const requestKey = inviteKey ?? operationKey("producer-invite-email");
+    setInviteKey(requestKey);
+    setPending(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/admin/producer-invitations?environment=${environment}`, {
+        body: JSON.stringify({ emailAddress: confirmedEmail }),
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": requestKey,
+        },
+        method: "POST",
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isProducerInvitationResult(payload)) {
+        setError(
+          response.status === 400
+            ? "Enter a valid email address."
+            : "The invitation was not confirmed. Retry safely with the same button.",
+        );
+        return;
+      }
+
+      setInviteKey(null);
+      setOpen(false);
+      setConfirmedEmail(null);
+      setEmailAddress("");
+      setMessage(
+        payload.status === "accepted"
+          ? "This marked Producer invitation was already accepted."
+          : payload.reused
+            ? "A marked Producer invitation is already pending for this email."
+            : `Producer invitation sent from ${environmentLabel}. It expires in 7 days.`,
+      );
+    } catch {
+      setError("The invitation was not confirmed because the network stopped. Retry safely.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className={styles.producerInviteControl}>
+      {open ? (
+        confirmedEmail ? (
+          <div className={styles.producerInviteConfirmation}>
+            <strong>Send a real {environmentLabel} Producer invitation?</strong>
+            <p>
+              Clerk will email <strong>{confirmedEmail}</strong>. This server-created invitation
+              includes the Skitza Producer marker and expires in 7 days.
+            </p>
+            <div className={styles.inlineActions}>
+              <button
+                className={styles.primaryButton}
+                disabled={pending}
+                onClick={() => void sendInvitation()}
+                type="button"
+              >
+                {pending ? "Sending…" : `Send ${environmentLabel} invitation`}
+              </button>
+              <button
+                className={styles.quietButton}
+                disabled={pending}
+                onClick={() => {
+                  setConfirmedEmail(null);
+                  setError(null);
+                }}
+                type="button"
+              >
+                Edit email
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form
+            className={styles.producerInviteConfirmation}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const normalized = emailAddress.trim().toLowerCase();
+              if (!normalized) return;
+              setConfirmedEmail(normalized);
+              setError(null);
+              setMessage(null);
+            }}
+          >
+            <label className={styles.producerInviteEmail}>
+              <span>Producer email</span>
+              <input
+                autoComplete="email"
+                onChange={(event) => {
+                  setEmailAddress(event.target.value);
+                }}
+                placeholder="producer@example.com"
+                required
+                type="email"
+                value={emailAddress}
+              />
+            </label>
+            <div className={styles.inlineActions}>
+              <button className={styles.primaryButton} type="submit">
+                Review invitation
+              </button>
+              <button
+                className={styles.quietButton}
+                onClick={() => {
+                  setOpen(false);
+                  setEmailAddress("");
+                  setError(null);
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )
+      ) : (
+        <button
+          className={styles.secondaryButton}
+          onClick={() => {
+            setOpen(true);
+            setError(null);
+            setMessage(null);
+          }}
+          type="button"
+        >
+          Invite Producer by email
+        </button>
+      )}
+      {message ? (
+        <p className={styles.inlineSuccess} role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className={styles.inlineError} role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function CopyUserId({ userId }: { userId: string }) {
   const [message, setMessage] = useState<string | null>(null);
 
