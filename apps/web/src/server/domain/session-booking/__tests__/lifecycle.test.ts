@@ -1024,7 +1024,10 @@ describe("session booking lifecycle commands", () => {
     const exhaustedReplay = await createProducerManualSessionBooking(repository, input);
     expect(exhaustedReplay).toMatchObject({
       created: false,
-      booking: { id: created.booking.id, title: "Studio session" },
+      booking: {
+        id: created.booking.id,
+        title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
+      },
       calendarSyncJobId: created.calendarSyncJobId,
     });
 
@@ -1042,7 +1045,10 @@ describe("session booking lifecycle commands", () => {
     const routerReplay = await findProducerManualSessionBookingReplay(repository, input);
     expect(inactiveReplay).toMatchObject({
       created: false,
-      booking: { id: created.booking.id, title: "Studio session" },
+      booking: {
+        id: created.booking.id,
+        title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
+      },
       calendarSyncJobId: created.calendarSyncJobId,
     });
     expect(routerReplay).toMatchObject({
@@ -1200,7 +1206,7 @@ describe("session booking lifecycle commands", () => {
 
     expect(first.created).toBe(true);
     expect(first.booking).toMatchObject({
-      title: "Studio session",
+      title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       origin: "artist_request",
       billingTreatment: "included",
       durationMin: 60,
@@ -1306,17 +1312,17 @@ describe("session booking lifecycle commands", () => {
     }
   });
 
-  it("falls back to the normalized purchase title for a null new-booking title", async () => {
+  it("falls back to the project and participant identity for a null new-booking title", async () => {
     const repository = new MemorySessionBookingRepository();
     const created = await createSessionBooking(
       repository,
       createInput({ operationKey: "null-title-create", title: null }),
     );
 
-    expect(created.booking.title).toBe("Studio session");
+    expect(created.booking.title).toBe("SK-68 Project · SK-68 Artist & SK-68 Producer");
   });
 
-  it("keeps the stored and ICS titles purchase-derived while Google shows the project and names", async () => {
+  it("keeps stored, ICS, and Google titles aligned to the project and names", async () => {
     const icsRepository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true }),
     );
@@ -1325,10 +1331,10 @@ describe("session booking lifecycle commands", () => {
       createInput({ operationKey: "purchase-title-ics", title: null }),
     );
 
-    expect(icsCreated.booking.title).toBe("Studio session");
+    expect(icsCreated.booking.title).toBe("SK-68 Project · SK-68 Artist & SK-68 Producer");
     expect(icsRepository.calendarJobs[0]?.payloadSnapshot).toMatchObject({
       schemaVersion: 1,
-      summary: "Studio session",
+      summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
     });
 
     const googleRepository = new MemorySessionBookingRepository(
@@ -1340,9 +1346,9 @@ describe("session booking lifecycle commands", () => {
       createInput({ operationKey: "project-name-google", title: null }),
     );
 
-    expect(googleCreated.booking.title).toBe("Studio session");
+    expect(googleCreated.booking.title).toBe("SK-68 Project · SK-68 Artist & SK-68 Producer");
     expect(googlePayload(googleRepository.calendarJobs[0])).toMatchObject({
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
     });
   });
 
@@ -1362,7 +1368,10 @@ describe("session booking lifecycle commands", () => {
 
     expect(replay).toMatchObject({
       created: false,
-      booking: { id: created.booking.id, title: "Studio session" },
+      booking: {
+        id: created.booking.id,
+        title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
+      },
     });
   });
 
@@ -1493,7 +1502,7 @@ describe("session booking lifecycle commands", () => {
       sequence: 2,
       startsAtUtc: "2026-07-20T10:00:00.000Z",
       endsAtUtc: "2026-07-20T11:30:00.000Z",
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Private vocal session",
       artistSafeUrl: `https://skitza.app/artist/sessions/${created.booking.id}`,
       attendee: {
         name: "SK-68 Artist",
@@ -2189,7 +2198,7 @@ describe("session booking lifecycle commands", () => {
       notificationMode: "all",
       sequence: 2,
       startsAtUtc: "2026-07-20T12:00:00.000Z",
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Tracking",
     });
   });
 
@@ -2212,7 +2221,7 @@ describe("session booking lifecycle commands", () => {
       }),
     ).rejects.toMatchObject({ code: "INVALID_SLOT" });
     expect(repository.bookings[0]).toMatchObject({
-      title: "Studio session",
+      title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       calendarRevision: 1,
     });
     expect(repository.calendarJobs).toHaveLength(1);
@@ -2245,7 +2254,7 @@ describe("session booking lifecycle commands", () => {
       action: "upsert",
       notificationMode: "all",
       sequence: 2,
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "Updated mix review",
     });
   });
 
@@ -3061,7 +3070,7 @@ describe("session booking lifecycle commands", () => {
     expect(result).toEqual({ outcome: "corrected" });
     expect(repository.bookings[0]).toMatchObject({
       id: created.booking.id,
-      title: "Studio session",
+      title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       durationMin: 60,
       calendarRevision: 2,
       artistRsvpStatus: "accepted",
@@ -3077,7 +3086,7 @@ describe("session booking lifecycle commands", () => {
       action: "upsert",
       notificationMode: "none",
       sequence: 2,
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       startsAtUtc: created.booking.startsAt.toISOString(),
       endsAtUtc: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1_000).toISOString(),
     });
@@ -3115,12 +3124,12 @@ describe("session booking lifecycle commands", () => {
     ).resolves.toEqual({ outcome: "corrected" });
 
     expect(repository.bookings[0]).toMatchObject({
-      title: "Studio session",
+      title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       calendarRevision: 2,
     });
     expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
       sequence: 2,
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       notificationMode: "none",
     });
   });
@@ -3164,7 +3173,7 @@ describe("session booking lifecycle commands", () => {
       calendarRevision: 2,
     });
     expect(repository.bookings[1]).toMatchObject({
-      title: "Studio session",
+      title: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       startsAt: movedStartsAt,
       durationMin: 60,
       status: "confirmed",
@@ -3178,7 +3187,7 @@ describe("session booking lifecycle commands", () => {
     });
     expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
       sequence: 2,
-      summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+      summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
       startsAtUtc: movedStartsAt.toISOString(),
     });
     const rescheduleEvents = repository.events.filter((event) => event.kind === "rescheduled");
@@ -3288,7 +3297,7 @@ describe("session booking lifecycle commands", () => {
             status: "confirmed",
             linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
             updatedAt: new Date("2026-08-09T12:12:00.000Z"),
-            summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+            summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
             timing: {
               kind: "timed",
               startsAt: conflictStartsAt,
@@ -3424,7 +3433,7 @@ describe("session booking lifecycle commands", () => {
             status: "confirmed",
             linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
             updatedAt: new Date("2026-08-09T12:20:00.000Z"),
-            summary: "SK-68 Project · SK-68 Producer & SK-68 Artist",
+            summary: "SK-68 Project · SK-68 Artist & SK-68 Producer",
             timing: {
               kind: "timed",
               startsAt: created.booking.startsAt,

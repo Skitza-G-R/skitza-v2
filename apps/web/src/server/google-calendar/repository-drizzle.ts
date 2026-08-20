@@ -38,6 +38,7 @@ import type {
   GoogleCalendarStoredOAuthState,
   GoogleCalendarWatchTarget,
 } from "./repository";
+import { formatSessionIdentityTitle } from "~/server/domain/session-booking/title";
 
 function afterTimestamp(requested: Date, existing: Date): Date {
   return new Date(Math.max(requested.getTime(), existing.getTime() + 1));
@@ -1297,6 +1298,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             allowanceUseId: bookings.allowanceUseId,
             startsAt: bookings.startsAt,
             durationMin: bookings.durationMin,
+            bookingTitle: bookings.title,
             projectTitle: projects.title,
             producerName: producers.displayName,
             artistName: bookings.artistName,
@@ -1419,7 +1421,17 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
                     "provider_event_id",
                   ),
                   providerEventEtag: sql<string | null>`null`.as("provider_event_etag"),
+                  providerEventUpdatedAt: sql<Date | null>`null`.as(
+                    "provider_event_updated_at",
+                  ),
                   providerState: sql<"uncreated">`'uncreated'`.as("provider_state"),
+                  syncState: sql<"pending">`'pending'`.as("sync_state"),
+                  syncStateChangedAt: sql<Date>`${command.now}`.as("sync_state_changed_at"),
+                  attentionDismissedAt: sql<Date | null>`null`.as("attention_dismissed_at"),
+                  lastInboundReconciledAt: sql<Date | null>`null`.as(
+                    "last_inbound_reconciled_at",
+                  ),
+                  lastSyncErrorCode: sql<null>`null`.as("last_sync_error_code"),
                   desiredRevision: sql<number>`${candidate.calendarRevision}`.as(
                     "desired_revision",
                   ),
@@ -1530,9 +1542,13 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             skitzaRevision: String(candidate.calendarRevision),
             skitzaSchema: "1" as const,
           };
-          const projectName = candidate.projectTitle.trim() || "Session";
-          const producerName = candidate.producerName?.trim() || "Skitza producer";
-          const artistName = candidate.artistName.trim() || "Artist";
+          const summary =
+            candidate.bookingTitle?.trim() ||
+            formatSessionIdentityTitle({
+              projectName: candidate.projectTitle,
+              artistName: candidate.artistName,
+              producerName: candidate.producerName ?? "",
+            });
           const payloadSnapshot: GoogleCalendarSyncJobPayloadSnapshot = {
             schemaVersion: 2,
             action: "upsert",
@@ -1543,7 +1559,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             endsAtUtc: new Date(
               candidate.startsAt.getTime() + candidate.durationMin * 60 * 1_000,
             ).toISOString(),
-            summary: `${projectName} · ${producerName} & ${artistName}`,
+            summary,
             artistSafeUrl: `https://skitza.app/artist/sessions/${candidate.bookingId}`,
             attendee: { name: candidate.artistName, email: candidate.artistEmail },
             privateProperties,

@@ -115,6 +115,23 @@ describe("session booking Postgres repository contract", () => {
     expect(insertEvent).toContain("values(input)");
   });
 
+  it("keeps the Google Calendar link insert-select aligned with every table field", () => {
+    const calendarLink = sourceBlock(
+      "prepareBookingCalendarLink: async",
+      "advanceGoogleCalendarLink: async",
+    );
+    const syncStateChangedAt = calendarLink.indexOf("syncStateChangedAt:");
+    const attentionDismissedAt = calendarLink.indexOf("attentionDismissedAt:");
+    const lastInboundReconciledAt = calendarLink.indexOf("lastInboundReconciledAt:");
+
+    expect(syncStateChangedAt).toBeGreaterThanOrEqual(0);
+    expect(attentionDismissedAt).toBeGreaterThan(syncStateChangedAt);
+    expect(lastInboundReconciledAt).toBeGreaterThan(attentionDismissedAt);
+    expect(calendarLink).toContain(
+      'attentionDismissedAt: sql<Date | null>`null`.as("attention_dismissed_at")',
+    );
+  });
+
   it("uses one producer schedule lock identity across booking and schedule writers", () => {
     expect(sessionBookingScheduleAdvisoryLockKey("producer-a")).toBe(
       "session-booking:schedule:producer-a",

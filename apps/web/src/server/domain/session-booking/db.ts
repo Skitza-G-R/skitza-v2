@@ -1007,6 +1007,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
               providerState: sql<"uncreated">`'uncreated'`.as("provider_state"),
               syncState: sql<"pending">`'pending'`.as("sync_state"),
               syncStateChangedAt: sql<Date>`${input.occurredAt}`.as("sync_state_changed_at"),
+              attentionDismissedAt: sql<Date | null>`null`.as("attention_dismissed_at"),
               lastInboundReconciledAt: sql<Date | null>`null`.as("last_inbound_reconciled_at"),
               lastSyncErrorCode: sql<null>`null`.as("last_sync_error_code"),
               desiredRevision: sql<number>`${input.desiredRevision}`.as("desired_revision"),
