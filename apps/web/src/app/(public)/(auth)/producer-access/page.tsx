@@ -11,6 +11,8 @@ import {
 } from "~/server/auth/producer-invitation-sync";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
 
+import { SignOutHomeButton } from "./sign-out-home-button";
+
 export const metadata: Metadata = {
   title: "Producer access",
   robots: {
@@ -23,6 +25,7 @@ export default async function ProducerAccessPage() {
   const { userId, providerUserId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   let invitationCheckUnavailable = false;
+  let hasArtistAccess = false;
 
   if (userId) {
     if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -30,6 +33,7 @@ export default async function ProducerAccessPage() {
     if (memberships.producer.status !== "none") {
       redirect(postSignInDestination(memberships));
     }
+    hasArtistAccess = memberships.artist.hasAccess;
 
     let sync: ProducerInvitationSyncResult | null = null;
     try {
@@ -91,12 +95,27 @@ export default async function ProducerAccessPage() {
           invitation email. If it still does not work, ask Skitza for a new invitation.
         </p>
 
-        <Link
-          href="/"
-          className="sk-press mt-5 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-default))] px-4 font-semibold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))]"
-        >
-          Back to Skitza
-        </Link>
+        {/* A signed-in account with no membership at all is redirected back
+            to this page from "/" (via /auth/resolve), so a plain homepage
+            link would loop forever. The only real exit for that account is
+            signing out, which the copy above already instructs. Accounts
+            that can actually go somewhere (signed-out visitors, Artists
+            reading about Producer access) keep the plain link. */}
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {userId && !hasArtistAccess ? (
+            <SignOutHomeButton label="Sign out and back to homepage" />
+          ) : (
+            <>
+              <Link
+                href="/"
+                className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-default))] px-4 font-semibold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))]"
+              >
+                Back to Skitza
+              </Link>
+              {userId ? <SignOutHomeButton label="Sign out" /> : null}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
