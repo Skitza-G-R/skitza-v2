@@ -18,6 +18,7 @@ import {
   sessionStartFromLocalSlot,
   sessionUseConsumesAllowance,
 } from "~/server/booking";
+import { formatSessionIdentityTitle } from "./title";
 import type {
   ExactSessionSlotDay,
   SessionBusyInterval,
@@ -619,10 +620,14 @@ function confirmedGoogleCalendarSummary(
   context: SessionBookingCreateContext,
   booking: SessionBookingRecord,
 ): string {
-  const projectName = context.project.title.trim() || "Session";
-  const producerName = context.producer.name.trim() || "Skitza producer";
-  const artistName = booking.artistName.trim() || context.artist.name.trim() || "Artist";
-  return `${projectName} · ${producerName} & ${artistName}`;
+  return (
+    booking.title?.trim() ||
+    formatSessionIdentityTitle({
+      projectName: context.project.title,
+      artistName: booking.artistName || context.artist.name,
+      producerName: context.producer.name,
+    })
+  );
 }
 
 function googleCalendarSyncPayload(input: {
@@ -1631,7 +1636,11 @@ async function createSessionBookingInTransaction(
   }
   const title = normalizeSessionBookingTitle(
     options.title,
-    context.purchase.defaultSessionTitle,
+    formatSessionIdentityTitle({
+      projectName: context.project.title,
+      artistName: context.artist.name,
+      producerName: context.producer.name,
+    }),
     options.transitionKind === "rescheduled",
   );
   const origin = options.origin ?? "artist_request";

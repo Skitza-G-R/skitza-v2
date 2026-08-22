@@ -194,9 +194,15 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(initialSync).toContain("producerName: producers.displayName");
     expect(initialSync).toContain(".innerJoin(\n            projects,");
     expect(initialSync).toContain(".innerJoin(producers,");
-    expect(initialSync).toContain("candidate.projectTitle.trim()");
-    expect(initialSync).toContain("candidate.producerName?.trim()");
-    expect(initialSync).toContain("candidate.artistName.trim()");
+    expect(initialSync).toContain("bookingTitle: bookings.title");
+    expect(initialSync).toContain("candidate.bookingTitle?.trim()");
+    expect(initialSync).toContain("formatSessionIdentityTitle({");
+    expect(initialSync).toContain("projectName: candidate.projectTitle");
+    expect(initialSync).toContain("artistName: candidate.artistName");
+    expect(initialSync).toContain('producerName: candidate.producerName ?? ""');
+    expect(initialSync).toContain(
+      'attentionDismissedAt: sql<Date | null>`null`.as("attention_dismissed_at")',
+    );
   });
 
   it("keeps pending holds and confirmed events on old destinations watched", () => {
