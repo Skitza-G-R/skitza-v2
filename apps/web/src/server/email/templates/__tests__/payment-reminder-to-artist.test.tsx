@@ -39,7 +39,25 @@ describe("PaymentReminderToArtist", () => {
     expect(html).toContain("Friday, July 31, 2026");
     expect(html).toContain("America/Los_Angeles");
     expect(html).toContain("https://skitza.test/artist/payments/purchase-42");
+    expect(html).toContain("View payment details");
+    expect(html).not.toContain("Join on Skitza");
     expect(html).not.toContain("Saturday, August 1, 2026");
+  });
+
+  it("asks a client without a Skitza account to join through the producer's link", async () => {
+    const html = await render(
+      <PaymentReminderToArtist
+        {...reminderProps}
+        paymentUrl="https://skitza.test/join/gili-asraf"
+        joinRequired
+      />,
+    );
+
+    expect(html).toContain("https://skitza.test/join/gili-asraf");
+    expect(html).not.toContain("/artist/payments/");
+    expect(html).toContain("Join on Skitza");
+    expect(html).toContain("with this email address");
+    expect(html).not.toContain("View payment details");
   });
 });
 

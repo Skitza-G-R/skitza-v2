@@ -145,6 +145,35 @@ describeWithTestDatabase("SK-145 route reads — isolated disposable Postgres", 
             "project_id" uuid not null,
             "commercial_snapshot" jsonb not null
           )`,
+          // Mirrors migration 0054: the durable email-only invitation outbox
+          // that workspace reads join for current-email invitation truth.
+          `create table "client_invitation_email_deliveries" (
+            "id" uuid primary key default gen_random_uuid(),
+            "client_contact_id" uuid not null,
+            "producer_id" uuid not null,
+            "operation_key" text not null,
+            "operation_digest" text not null,
+            "recipient_email" text not null,
+            "recipient_email_hash" text not null,
+            "message_snapshot" jsonb not null,
+            "requested_by_clerk_user_id" text not null,
+            "provider_idempotency_key" text not null,
+            "status" text not null default 'reserved',
+            "claim_token" text,
+            "claim_until" timestamptz,
+            "attempt_count" integer not null default 0,
+            "first_attempt_at" timestamptz,
+            "last_attempt_at" timestamptz,
+            "provider_dedupe_expires_at" timestamptz,
+            "provider_message_id" text,
+            "provider_accepted_at" timestamptz,
+            "last_failed_at" timestamptz,
+            "failure_code" text,
+            "created_at" timestamptz not null default now(),
+            "updated_at" timestamptz not null default now(),
+            constraint "client_invitation_email_deliveries_operation_unique"
+              unique ("producer_id", "client_contact_id", "operation_key")
+          )`,
           `create table "bookings" (
             "id" uuid primary key,
             "producer_id" uuid not null,
@@ -290,6 +319,37 @@ describeWithTestDatabase("SK-145 route reads — isolated disposable Postgres", 
             )
         `);
 
+        // Provider-accepted evidence for one owned Client and one foreign
+        // Client: workspace reads must surface only the owned row's evidence.
+        const inviteMessage = JSON.stringify({
+          to: "owned@example.test",
+          artistName: "Owned Artist",
+          producerName: "Producer",
+          inviteUrl: "https://skitza.app/sign-up/join/producer/home",
+        });
+        await tx.execute(sql`
+          insert into "client_invitation_email_deliveries" (
+            "client_contact_id", "producer_id", "operation_key", "operation_digest",
+            "recipient_email", "recipient_email_hash", "message_snapshot",
+            "requested_by_clerk_user_id", "provider_idempotency_key", "status",
+            "attempt_count", "provider_message_id", "provider_accepted_at", "updated_at"
+          )
+          values
+            (
+              ${clientId}, ${producerId}, 'invite-owned-1', ${`sha256:${"d".repeat(64)}`},
+              'owned@example.test', ${"a".repeat(64)}, ${inviteMessage}::jsonb,
+              ${producerUserId}, 'client-invite:owned-1', 'provider_accepted', 1,
+              'resend-owned-1', '2026-07-05T08:00:00Z', '2026-07-05T08:00:00Z'
+            ),
+            (
+              ${foreignClientId}, ${foreignProducerId}, 'invite-foreign-1',
+              ${`sha256:${"e".repeat(64)}`}, 'foreign@example.test', ${"b".repeat(64)},
+              ${inviteMessage}::jsonb, ${foreignProducerUserId},
+              'client-invite:foreign-1', 'provider_accepted', 1, 'resend-foreign-1',
+              '2026-07-06T08:00:00Z', '2026-07-06T08:00:00Z'
+            )
+        `);
+
         const snapshot = JSON.stringify({
           productOrOfferName: "Studio session",
           lineItems: [{ quantity: 1, unitPriceCents: 12_000 }],
@@ -421,6 +481,16 @@ describeWithTestDatabase("SK-145 route reads — isolated disposable Postgres", 
     });
     expect(result.projects).not.toContainEqual(expect.objectContaining({ id: foreignProjectId }));
     expect(result.clients).not.toContainEqual(expect.objectContaining({ id: foreignClientId }));
+    expect(result.clients[0]).toMatchObject({
+      id: clientId,
+      invitationState: "connected",
+      providerAcceptedAt: new Date("2026-07-05T08:00:00Z"),
+    });
+    expect(result.clients[1]).toMatchObject({
+      id: otherOwnedClientId,
+      invitationState: "connected",
+      providerAcceptedAt: null,
+    });
   });
 
   it("returns lean owned Client Space data and rejects a foreign client id", async () => {

@@ -384,6 +384,31 @@ describe("active work import assessment", () => {
     );
   });
 
+  it("accepts a payment dated today for a producer east of UTC and rejects tomorrow", () => {
+    // 01:00 on 22 August in Israel (UTC+3) is still 21 August in UTC.
+    const israelEarlyMorning = new Date("2026-08-21T22:00:00.000Z");
+    const payment = (paidAt: string) => ({
+      operationKey: `paid-${paidAt}`,
+      installmentPosition: 1,
+      amountCents: 4_000,
+      paidAt,
+    });
+
+    const today = assessActiveWorkImportDraft(
+      draft({ payments: [payment("2026-08-22")] }),
+      israelEarlyMorning,
+    );
+    expect(today.state).toBe("ready");
+
+    const tomorrow = assessActiveWorkImportDraft(
+      draft({ payments: [payment("2026-08-23")] }),
+      israelEarlyMorning,
+    );
+    expect(tomorrow.state).toBe("needs_info");
+    if (tomorrow.state !== "needs_info") throw new Error("Expected Needs info");
+    expect(tomorrow.reasons.map((item) => item.code)).toEqual(["payment_invalid"]);
+  });
+
   it("requires a real first Monthly payment before importing later Monthly history", () => {
     const agreement = {
       ...(draft().agreement as Record<string, unknown>),

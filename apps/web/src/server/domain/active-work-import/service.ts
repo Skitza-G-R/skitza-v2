@@ -8,6 +8,10 @@ export const ACTIVE_WORK_IMPORT_NOTICE = "Added by producer from an existing agr
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const POSTGRES_INTEGER_MIN = -2_147_483_648;
+// A payment date is a calendar day stored as UTC midnight. A day that has
+// already started anywhere on Earth (UTC+14 at most) is not in the future for
+// the producer; the editor applies the exact local-day check.
+const LATEST_CALENDAR_DAY_GRACE_MS = 14 * 60 * 60 * 1_000;
 
 export type ActiveWorkImportReasonCode =
   | "client_name_required"
@@ -293,6 +297,15 @@ function parseRoyaltyTerms(
   };
 }
 
+/**
+ * The schedule and snapshot validators reject bad terms with plain `Error`
+ * instances. Anything else (TypeError, RangeError, domain errors) is a
+ * programming failure that must surface instead of reading as bad terms.
+ */
+function isTermsValidationError(error: unknown): error is Error {
+  return error instanceof Error && error.constructor === Error;
+}
+
 function includedTax(subtotalCents: number, ratePct: number): number {
   const numerator = BigInt(subtotalCents) * BigInt(ratePct);
   const denominator = BigInt(100 + ratePct);
@@ -347,7 +360,7 @@ function parsePayments(
       amountCents === null ||
       amountCents <= 0 ||
       paidAt === null ||
-      paidAt.getTime() > asOf.getTime() ||
+      paidAt.getTime() > asOf.getTime() + LATEST_CALENDAR_DAY_GRACE_MS ||
       (note?.length ?? 0) > 2_000;
     if (invalid) {
       reason(
@@ -558,7 +571,8 @@ export function assessActiveWorkImportDraft(
           ? Object.freeze({ ...installment, trigger: "producer_import" as const })
           : installment,
       );
-    } catch {
+    } catch (error) {
+      if (!isTermsValidationError(error)) throw error;
       reason(reasons, "plan_invalid", "agreement.plan", "The payment plan is not valid.");
     }
   }
@@ -618,7 +632,8 @@ export function assessActiveWorkImportDraft(
   };
   try {
     assertCommercialSnapshotMatchesAcceptance(commercialSnapshot, expectedTotalCents, plan);
-  } catch {
+  } catch (error) {
+    if (!isTermsValidationError(error)) throw error;
     return {
       state: "needs_info",
       reasons: [

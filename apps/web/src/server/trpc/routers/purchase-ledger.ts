@@ -277,6 +277,8 @@ export const purchaseLedgerRouter = router({
             operationKey: input.operationKey,
             actorId: requireActor(ctx.userId),
             paymentUrl: `${SITE_URL}/artist/payments/${encodeURIComponent(input.purchaseId)}`,
+            joinUrlForProducer: (producerSlug) =>
+              `${SITE_URL}/join/${encodeURIComponent(producerSlug)}`,
             requestedAt: new Date(),
           },
         );

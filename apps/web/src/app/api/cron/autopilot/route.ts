@@ -51,6 +51,7 @@ export async function GET(req: Request) {
       asOf: now,
       paymentUrlForPurchase: (purchaseId) =>
         `${SITE_URL}/artist/payments/${encodeURIComponent(purchaseId)}`,
+      joinUrlForProducer: (producerSlug) => `${SITE_URL}/join/${encodeURIComponent(producerSlug)}`,
     },
   );
 

@@ -193,6 +193,7 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         "producer_id" uuid not null,
         "project_id" uuid not null,
         "client_contact_id" uuid not null,
+        "source_kind" text not null default 'store_product',
         "ref_number" text not null unique,
         "lifecycle_status" text not null,
         "payment_plan_kind" text,
@@ -201,7 +202,8 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         "tax_cents" integer not null,
         "total_cents" integer not null,
         "currency" text not null,
-        "accepted_at" timestamptz not null,
+        "accepted_at" timestamptz,
+        "commercial_established_at" timestamptz not null,
         "activated_at" timestamptz,
         "canceled_at" timestamptz,
         "updated_at" timestamptz not null,
@@ -209,8 +211,26 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         constraint "purchases_project_owner_fk" foreign key
           ("project_id", "producer_id", "client_contact_id")
           references ${schema}."projects"("id", "producer_id", "client_contact_id")
-          on delete restrict
+          on delete restrict,
+        constraint "purchases_commercial_establishment_shape" check ((
+          ("source_kind" = 'imported_existing_work' and "accepted_at" is null)
+          or ("source_kind" <> 'imported_existing_work'
+            and "accepted_at" = "commercial_established_at")
+        ) is true)
       )`,
+      // Mirrors migration 0055: accepted Purchases inserted without an explicit
+      // establishment time are established at Artist acceptance.
+      `create function ${schema}."default_purchase_commercial_established_at"()
+      returns trigger as $function$
+      begin
+        new."commercial_established_at" :=
+          coalesce(new."commercial_established_at", new."accepted_at");
+        return new;
+      end;
+      $function$ language plpgsql`,
+      `create trigger "purchases_default_commercial_established_at"
+        before insert on ${schema}."purchases"
+        for each row execute function ${schema}."default_purchase_commercial_established_at"()`,
       `create table ${schema}."purchase_installments" (
         "id" uuid primary key,
         "purchase_id" uuid not null,

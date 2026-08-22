@@ -277,6 +277,74 @@ describe("activeWorkImport tRPC boundary", () => {
     );
   });
 
+  it("passes TRPCError instances through unchanged", async () => {
+    const { TRPCError } = await import("@trpc/server");
+    mocks.finishSetup.mockRejectedValue(
+      new TRPCError({ code: "FORBIDDEN", message: "Producer access is closed" }),
+    );
+
+    await expect(
+      (await caller()).finishSetup({
+        batchId: BATCH_ID,
+        operationKey: "reviewed-bulk-action-1",
+        expectedSetupDigest: SETUP_DIGEST,
+        selectedClientContactIds: [CLIENT_ID],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", message: "Producer access is closed" });
+  });
+
+  it("hides unexpected failures behind a safe message while logging diagnostics", async () => {
+    const failure = Object.assign(new Error('relation "active_work_import_batches" is missing'), {
+      code: "42P01",
+    });
+    mocks.latestOpen.mockRejectedValue(failure);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const rejection = (await caller()).latestOpenBatch();
+      await expect(rejection).rejects.toMatchObject({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Something went wrong on our side. Your draft is safe.",
+        cause: failure,
+      });
+      expect(consoleError).toHaveBeenCalledWith(
+        "[active-work-import] unexpected failure",
+        expect.objectContaining({
+          name: "Error",
+          message: 'relation "active_work_import_batches" is missing',
+          code: "42P01",
+          stack: expect.stringContaining("Error") as unknown,
+        }),
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("maps an invalid proof capability to BAD_REQUEST", async () => {
+    const { ActiveWorkImportProofCapabilityError } = await import(
+      "~/server/domain/active-work-import/proof-capability"
+    );
+    const workflow = await import("~/server/domain/active-work-import/workflow");
+    vi.mocked(workflow.prepareActiveWorkImportProof).mockRejectedValue(
+      new ActiveWorkImportProofCapabilityError(),
+    );
+
+    await expect(
+      (await caller()).prepareProof({
+        batchId: BATCH_ID,
+        rowId: ROW_ID,
+        paymentOperationKey: "history-1",
+        originalFileName: "receipt.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 512,
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "The imported payment proof is invalid",
+    });
+  });
+
   it("returns CONFLICT when one bulk setup key is replayed with changed choices", async () => {
     mocks.finishSetup.mockRejectedValue(
       new mocks.ImportError(

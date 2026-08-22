@@ -370,6 +370,63 @@ describe("client invitation provider delivery", () => {
     });
   });
 
+  it("persists the real failure reason, including provider detail, instead of the error name", async () => {
+    const repository = new MemoryRepository();
+    const providerFailure = new Error("Email delivery failed: validation_error (422)", {
+      cause: { name: "validation_error", message: "Invalid `to` field", statusCode: 422 },
+    });
+    providerFailure.name = "EmailDeliveryError";
+    const send = vi.fn().mockRejectedValue(providerFailure);
+
+    await expect(
+      deliverClientInvitation(repository, send, repository.current, ATTEMPTED_AT, () => COMPLETED_AT),
+    ).rejects.toBe(providerFailure);
+
+    expect(repository.current).toMatchObject({
+      status: "failed",
+      failureCode:
+        "EmailDeliveryError: Email delivery failed: validation_error (422) — Invalid `to` field",
+    });
+
+    const plain = new MemoryRepository();
+    await expect(
+      deliverClientInvitation(
+        plain,
+        vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+        plain.current,
+        ATTEMPTED_AT,
+        () => COMPLETED_AT,
+      ),
+    ).rejects.toThrow("fetch failed");
+    expect(plain.current.failureCode).toBe("TypeError: fetch failed");
+  });
+
+  it("logs a failure-marking problem instead of hiding it behind the provider error", async () => {
+    const repository = new MemoryRepository();
+    const markingFailure = new Error("claim row changed");
+    repository.failDelivery = () => Promise.reject(markingFailure);
+    const send = vi.fn().mockRejectedValue(new Error("temporary provider error"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        deliverClientInvitation(
+          repository,
+          send,
+          repository.current,
+          ATTEMPTED_AT,
+          () => COMPLETED_AT,
+        ),
+      ).rejects.toThrow("temporary provider error");
+      expect(consoleError).toHaveBeenCalledWith(
+        "[client-invitations] failure marking failed",
+        { clientContactId: "client-1", deliveryId: "delivery-1", error: markingFailure },
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("expires the same provider operation instead of risking a duplicate after 24 hours", async () => {
     const repository = new MemoryRepository();
     const send = vi.fn().mockRejectedValueOnce(new Error("temporary provider error"));

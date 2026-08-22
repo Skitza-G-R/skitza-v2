@@ -251,8 +251,14 @@ function memoryPurchaseLedgerRepository(
         timeZone: "America/New_York",
         automaticRemindersEnabled: true,
         displayName: "Producer",
+        slug: "producer-a",
       },
-      client: { id: project.clientContactId, name: "Artist", email: "artist@example.test" },
+      client: {
+        id: project.clientContactId,
+        name: "Artist",
+        email: "artist@example.test",
+        connected: true,
+      },
       purchaseName: "Test purchase",
       refNumber: "SK-TEST",
       installments: rows.map((row, index) => ({

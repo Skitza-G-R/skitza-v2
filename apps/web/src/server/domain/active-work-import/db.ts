@@ -528,6 +528,89 @@ export async function markActiveWorkImportRowFailure(
 }
 
 /**
+ * A proof object that is gone or changed cannot be finalized by retrying the
+ * same signed token. Drop that payment's token so the next attempt asks for the
+ * file again (the UI keeps the file name for the prompt), and bump the draft
+ * revision so a stale client save cannot resurrect the dead token.
+ */
+export async function clearActiveWorkImportProofUploadToken(
+  db: Db,
+  input: Readonly<{
+    producerId: string;
+    batchId: string;
+    rowId: string;
+    paymentOperationKey: string;
+    now: Date;
+  }>,
+): Promise<Readonly<{ cleared: boolean }>> {
+  return db.transaction(async (tx) => {
+    const batch = await lockBatch(tx, input);
+    if (!batch) return { cleared: false };
+    const [row] = await tx
+      .select(rowSelection())
+      .from(activeWorkImportRows)
+      .where(
+        and(
+          eq(activeWorkImportRows.id, input.rowId),
+          eq(activeWorkImportRows.batchId, input.batchId),
+          eq(activeWorkImportRows.producerId, input.producerId),
+          isNull(activeWorkImportRows.materializedAt),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (!row) return { cleared: false };
+    const rawPayments: unknown[] = Array.isArray(row.draftPayload.payments)
+      ? row.draftPayload.payments
+      : [];
+    const payments = rawPayments.map((raw) => {
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const payment = raw as Record<string, unknown>;
+      if (
+        payment.operationKey !== input.paymentOperationKey ||
+        payment.proofUploadToken === null ||
+        payment.proofUploadToken === undefined
+      ) {
+        return raw;
+      }
+      return { ...payment, proofUploadToken: null };
+    });
+    if (payments.every((payment, index) => payment === rawPayments[index])) {
+      return { cleared: false };
+    }
+    const [updated] = await tx
+      .update(activeWorkImportRows)
+      .set({
+        draftRevision: row.draftRevision + 1,
+        draftPayload: { ...row.draftPayload, payments },
+        updatedAt: input.now,
+      })
+      .where(
+        and(
+          eq(activeWorkImportRows.id, row.id),
+          eq(activeWorkImportRows.producerId, input.producerId),
+          eq(activeWorkImportRows.draftRevision, row.draftRevision),
+          isNull(activeWorkImportRows.materializedAt),
+        ),
+      )
+      .returning({ id: activeWorkImportRows.id });
+    if (!updated) {
+      throw new ActiveWorkImportDomainError("CONFLICT", "This draft changed. Refresh and retry.");
+    }
+    await tx
+      .update(activeWorkImportBatches)
+      .set({ updatedAt: input.now })
+      .where(
+        and(
+          eq(activeWorkImportBatches.id, input.batchId),
+          eq(activeWorkImportBatches.producerId, input.producerId),
+        ),
+      );
+    return { cleared: true };
+  });
+}
+
+/**
  * Compensate a finalized proof only while holding the same batch/row lock as
  * materialization. This closes the gap where a concurrent retry could start
  * using the deterministic proof object after a failed transaction but before
@@ -577,7 +660,11 @@ export async function cleanupUnpersistedActiveWorkImportProof(
       await input.deleteProof(input.storageKey);
       return "deleted" as const;
     });
-  } catch {
+  } catch (error) {
+    console.error("[active-work-import] proof cleanup preserved object", {
+      storageKey: input.storageKey,
+      error,
+    });
     return "preserved";
   }
 }

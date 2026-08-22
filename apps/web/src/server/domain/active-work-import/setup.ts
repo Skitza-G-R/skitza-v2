@@ -15,12 +15,14 @@ import {
 } from "@skitza/db";
 
 import { emailHashFor } from "~/server/artist/identity";
+import { EmailDeliveryError } from "~/server/email/delivery-error";
 import {
   clientInvitationDeliveryRepository,
   loadCurrentClientInvitationStates,
   reserveActiveWorkImportClientInvitationEmail,
 } from "../client-invitations/db";
 import {
+  ClientInvitationDomainError,
   deliverClientInvitation,
   hasActiveClientConnection,
   type ClientInvitationDeliveryRecord,
@@ -31,6 +33,7 @@ import { PurchaseLedgerDomainError } from "../purchase-ledger/policy";
 import {
   reconcilePurchaseLedger,
   setInstallmentRemindersEnabled,
+  type ReconciledPurchaseLedger,
 } from "../purchase-ledger/service";
 import { digestCommercialSnapshot } from "../purchases/policy";
 import { completeActiveWorkImportBatch } from "./db";
@@ -47,6 +50,9 @@ type MaterializedProjectPurchase = Readonly<{
 }>;
 
 type StoredInstallment = typeof purchaseInstallments.$inferSelect;
+
+// Each reconciliation opens its own locked transaction (one WebSocket each).
+const LEDGER_RECONCILE_CONCURRENCY = 5;
 
 export type ActiveWorkImportSetupScope = Readonly<{
   clients: readonly Readonly<{
@@ -113,20 +119,35 @@ export type ActiveWorkImportInvitationStatus =
   | "failed"
   | "connected";
 
+/** Every failed entry carries a short plain-English `reason` for the producer. */
+export type ActiveWorkImportSetupInvitationResult =
+  | Readonly<{
+      clientContactId: string;
+      status: Exclude<ActiveWorkImportInvitationStatus, "failed">;
+      providerAcceptedAt: Date | null;
+    }>
+  | Readonly<{
+      clientContactId: string;
+      status: "failed";
+      providerAcceptedAt: null;
+      reason: string;
+    }>;
+
+export type ActiveWorkImportSetupReminderResult =
+  | Readonly<{ installmentId: string; purchaseId: string; status: "enabled"; changed: boolean }>
+  | Readonly<{
+      installmentId: string;
+      purchaseId: string;
+      status: "failed";
+      changed: false;
+      reason: string;
+    }>;
+
 export type ActiveWorkImportSetupResult = Readonly<{
   distinctClientCount: number;
   projectPurchaseCount: number;
-  invitations: readonly Readonly<{
-    clientContactId: string;
-    status: ActiveWorkImportInvitationStatus;
-    providerAcceptedAt: Date | null;
-  }>[];
-  reminders: readonly Readonly<{
-    installmentId: string;
-    purchaseId: string;
-    status: "enabled" | "failed";
-    changed: boolean;
-  }>[];
+  invitations: readonly ActiveWorkImportSetupInvitationResult[];
+  reminders: readonly ActiveWorkImportSetupReminderResult[];
 }>;
 
 type ReservedInvitation = Readonly<{
@@ -168,10 +189,9 @@ export interface ActiveWorkImportSetupRepository {
     delivery: ClientInvitationDeliveryRecord,
     attemptedAt: Date,
   ): Promise<
-    Readonly<{
-      status: "requested" | "provider_accepted" | "failed";
-      providerAcceptedAt: Date | null;
-    }>
+    | Readonly<{ status: "requested"; providerAcceptedAt: null }>
+    | Readonly<{ status: "provider_accepted"; providerAcceptedAt: Date }>
+    | Readonly<{ status: "failed"; providerAcceptedAt: null; reason: string }>
   >;
   enableReminder(
     input: Readonly<{
@@ -448,7 +468,7 @@ export async function runActiveWorkImportSetup(
   const installmentById = new Map(
     scope.installments.map((installment) => [installment.id, installment] as const),
   );
-  const invitationResults: ActiveWorkImportSetupResult["invitations"][number][] = [];
+  const invitationResults: ActiveWorkImportSetupInvitationResult[] = [];
   const reserved: ReservedInvitation[] = [];
 
   // Reserve every non-connected recipient before any network call. The
@@ -506,13 +526,14 @@ export async function runActiveWorkImportSetup(
         clientContactId,
         status: "failed",
         providerAcceptedAt: null,
+        reason: "This client's email is not valid or changed since review.",
       });
     } else {
       reserved.push({ clientContactId, delivery: reservation.delivery });
     }
   }
 
-  const reminderResults: ActiveWorkImportSetupResult["reminders"][number][] = [];
+  const reminderResults: ActiveWorkImportSetupReminderResult[] = [];
   for (const installmentId of mandatoryInstallmentIds) {
     const installment = installmentById.get(installmentId);
     if (!installment) {
@@ -527,6 +548,7 @@ export async function runActiveWorkImportSetup(
         purchaseId: installment.purchaseId,
         status: "failed",
         changed: false,
+        reason: "This payment is already paid, waived, or canceled.",
       });
       continue;
     }
@@ -549,6 +571,7 @@ export async function runActiveWorkImportSetup(
         purchaseId: installment.purchaseId,
         status: "failed",
         changed: false,
+        reason: error.message,
       });
     }
   }
@@ -559,20 +582,19 @@ export async function runActiveWorkImportSetup(
       throw new ActiveWorkImportDomainError("INVALID_INPUT", "Setup time must be valid");
     }
     const delivery = await repository.deliverInvitation(reservation.delivery, attemptedAt);
-    invitationResults.push({
-      clientContactId: reservation.clientContactId,
-      status: delivery.status,
-      providerAcceptedAt: delivery.providerAcceptedAt,
-    });
+    invitationResults.push({ clientContactId: reservation.clientContactId, ...delivery });
   }
 
   invitationResults.sort((left, right) =>
     left.clientContactId.localeCompare(right.clientContactId),
   );
-  const hasFailedEffect =
-    invitationResults.some((invitation) => invitation.status === "failed") ||
-    reminderResults.some((reminder) => reminder.status === "failed");
-  if (!hasFailedEffect) {
+  // A send the provider only "requested" (busy claim) is not finished yet;
+  // the batch stays open until every invitation is accepted or resolved.
+  const hasUnresolvedEffect =
+    invitationResults.some(
+      (invitation) => invitation.status === "failed" || invitation.status === "requested",
+    ) || reminderResults.some((reminder) => reminder.status === "failed");
+  if (!hasUnresolvedEffect) {
     await repository.completeBatch({
       producerId: input.producerId,
       batchId: input.batchId,
@@ -692,14 +714,19 @@ export async function loadActiveWorkImportSetupScope(
     producerId: input.producerId,
     clientContactIds: clientIds,
   });
-  const ledgers = await Promise.all(
-    purchaseIds.map((purchaseId) =>
-      reconcilePurchaseLedger(purchaseLedgerRepository(db), {
-        producerId: input.producerId,
-        purchaseId,
-      }),
-    ),
-  );
+  const ledgers: ReconciledPurchaseLedger[] = [];
+  for (let offset = 0; offset < purchaseIds.length; offset += LEDGER_RECONCILE_CONCURRENCY) {
+    ledgers.push(
+      ...(await Promise.all(
+        purchaseIds.slice(offset, offset + LEDGER_RECONCILE_CONCURRENCY).map((purchaseId) =>
+          reconcilePurchaseLedger(purchaseLedgerRepository(db), {
+            producerId: input.producerId,
+            purchaseId,
+          }),
+        ),
+      )),
+    );
+  }
   const projectPurchaseByPurchaseId = new Map(
     projectPurchases.map((row) => [row.purchaseId, row] as const),
   );
@@ -786,6 +813,28 @@ export async function loadActiveWorkImportSetupScope(
   };
 }
 
+function invitationFailureReason(error: unknown): string {
+  if (error instanceof EmailDeliveryError) {
+    switch (error.provider.name) {
+      case "rate_limit_exceeded":
+      case "daily_quota_exceeded":
+      case "monthly_quota_exceeded":
+      case "concurrent_idempotent_requests":
+        return "The email service is busy. Try again in a few minutes.";
+      case "validation_error":
+      case "invalid_parameter":
+      case "missing_required_field":
+        return "The email service rejected this client's email address.";
+      default:
+        return "The email service could not send this invitation. Try again.";
+    }
+  }
+  if (error instanceof ClientInvitationDomainError || error instanceof ActiveWorkImportDomainError) {
+    return error.message;
+  }
+  return "This invitation could not be sent. Try again.";
+}
+
 export function activeWorkImportSetupRepository(
   db: Db,
   sendInvitation: SendClientInvitation,
@@ -814,12 +863,32 @@ export function activeWorkImportSetupRepository(
             providerAcceptedAt: outcome.delivery.providerAcceptedAt,
           };
         }
+        if (outcome.state === "sending") return { status: "requested", providerAcceptedAt: null };
         return {
-          status: outcome.state === "sending" ? "requested" : "failed",
+          status: "failed",
           providerAcceptedAt: null,
+          reason: "The earlier send attempt expired. Try again.",
         };
-      } catch {
-        return { status: "failed", providerAcceptedAt: null };
+      } catch (error) {
+        console.error("[active-work-import] invitation delivery failed", {
+          clientContactId: delivery.clientContactId,
+          deliveryId: delivery.id,
+          error,
+        });
+        // Provider and domain refusals are reported per recipient; anything
+        // else is a bug or outage that must surface to the caller.
+        if (
+          error instanceof EmailDeliveryError ||
+          error instanceof ClientInvitationDomainError ||
+          error instanceof ActiveWorkImportDomainError
+        ) {
+          return {
+            status: "failed",
+            providerAcceptedAt: null,
+            reason: invitationFailureReason(error),
+          };
+        }
+        throw error;
       }
     },
     enableReminder: async (input) => {

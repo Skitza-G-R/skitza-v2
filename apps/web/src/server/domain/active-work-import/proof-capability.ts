@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   assertProofUploadMetadata,
   normalizeProofFileName,
+  PaymentProofPolicyError,
   type ProofContentType,
 } from "../payment-proofs/policy";
 import {
@@ -10,6 +11,7 @@ import {
   finalizePrivateProofUpload,
   type FinalizedProofObject,
 } from "../payment-proofs/storage";
+import { ActiveWorkImportDomainError } from "./service";
 
 const DOMAIN = "skitza:active-work-import-proof:v2";
 const MAX_TOKEN_LENGTH = 4_096;
@@ -166,8 +168,13 @@ export function createActiveWorkImportProofCapability(
   try {
     originalFileName = normalizeProofFileName(input.originalFileName);
     assertProofUploadMetadata(metadata);
-  } catch {
-    fail();
+  } catch (error) {
+    // A producer-supplied file that the proof policy rejects is ordinary
+    // invalid input with a plain reason, not a broken capability.
+    if (error instanceof PaymentProofPolicyError) {
+      throw new ActiveWorkImportDomainError("INVALID_INPUT", error.message);
+    }
+    throw error;
   }
   const base = assertPayload({
     version: 2,

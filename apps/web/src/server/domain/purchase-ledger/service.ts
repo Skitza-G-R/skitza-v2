@@ -99,8 +99,10 @@ export type PurchaseLedgerSnapshot = Readonly<{
     timeZone: string;
     automaticRemindersEnabled: boolean;
     displayName: string;
+    slug: string;
   }>;
-  client: Readonly<{ id: string; name: string; email: string }>;
+  /** `connected` means a live Skitza account is linked to this Client. */
+  client: Readonly<{ id: string; name: string; email: string; connected: boolean }>;
   purchaseName: string;
   refNumber: string;
   installments: readonly (LedgerInstallmentInput &

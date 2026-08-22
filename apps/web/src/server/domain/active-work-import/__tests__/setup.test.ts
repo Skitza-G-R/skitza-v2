@@ -582,6 +582,7 @@ describe("active work import reviewed setup", () => {
         Promise.resolve({
           status: "failed" as const,
           providerAcceptedAt: null,
+          reason: "The email service is busy. Try again in a few minutes.",
         }),
       ),
       enableReminder: vi.fn<ActiveWorkImportSetupRepository["enableReminder"]>((reminder) => {
@@ -598,6 +599,7 @@ describe("active work import reviewed setup", () => {
       clientContactId: "client-a",
       status: "failed",
       providerAcceptedAt: null,
+      reason: "The email service is busy. Try again in a few minutes.",
     });
     expect(result.reminders).toEqual([
       {
@@ -611,6 +613,7 @@ describe("active work import reviewed setup", () => {
         purchaseId: "purchase-1",
         status: "failed",
         changed: false,
+        reason: "already paid",
       },
     ]);
     expect(fake.completeBatch).not.toHaveBeenCalled();
@@ -619,7 +622,11 @@ describe("active work import reviewed setup", () => {
   it("keeps the batch open when an invitation fails but every reminder succeeds", async () => {
     const fake = repository({
       deliverInvitation: vi.fn<ActiveWorkImportSetupRepository["deliverInvitation"]>(() =>
-        Promise.resolve({ status: "failed" as const, providerAcceptedAt: null }),
+        Promise.resolve({
+          status: "failed" as const,
+          providerAcceptedAt: null,
+          reason: "The email service could not send this invitation. Try again.",
+        }),
       ),
     });
 
@@ -627,6 +634,44 @@ describe("active work import reviewed setup", () => {
 
     expect(result.invitations.some((invitation) => invitation.status === "failed")).toBe(true);
     expect(result.reminders.every((reminder) => reminder.status === "enabled")).toBe(true);
+    expect(fake.completeBatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the batch open while an invitation is still only requested from the provider", async () => {
+    const fake = repository({
+      deliverInvitation: vi.fn<ActiveWorkImportSetupRepository["deliverInvitation"]>(() =>
+        Promise.resolve({ status: "requested" as const, providerAcceptedAt: null }),
+      ),
+    });
+
+    const result = await runActiveWorkImportSetup(fake.value, input());
+
+    expect(result.invitations).toContainEqual({
+      clientContactId: "client-a",
+      status: "requested",
+      providerAcceptedAt: null,
+    });
+    expect(result.reminders.every((reminder) => reminder.status === "enabled")).toBe(true);
+    expect(fake.completeBatch).not.toHaveBeenCalled();
+  });
+
+  it("explains an ineligible reservation in plain words without a provider call", async () => {
+    const fake = repository({
+      reserveInvitation: vi.fn<ActiveWorkImportSetupRepository["reserveInvitation"]>(() =>
+        Promise.resolve({ state: "ineligible" as const }),
+      ),
+    });
+
+    const result = await runActiveWorkImportSetup(fake.value, input());
+
+    expect(result.invitations).toContainEqual({
+      clientContactId: "client-a",
+      status: "failed",
+      providerAcceptedAt: null,
+      reason: "This client's email is not valid or changed since review.",
+    });
+    expect(result.reminders.every((reminder) => reminder.status === "enabled")).toBe(true);
+    expect(fake.deliverInvitation).not.toHaveBeenCalled();
     expect(fake.completeBatch).not.toHaveBeenCalled();
   });
 
@@ -888,7 +933,11 @@ describe("active work import reviewed setup", () => {
                 : client,
             ),
           };
-          return Promise.resolve({ status: "failed" as const, providerAcceptedAt: null });
+          return Promise.resolve({
+            status: "failed" as const,
+            providerAcceptedAt: null,
+            reason: "The email service could not send this invitation. Try again.",
+          });
         }
         expect(record.id).toBe(sameDelivery.id);
         expect(record.providerIdempotencyKey).toBe(sameDelivery.providerIdempotencyKey);

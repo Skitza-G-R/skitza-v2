@@ -19,6 +19,7 @@ import {
   type Db,
 } from "@skitza/db";
 
+import { hasActiveClientConnection } from "../client-invitations/service";
 import { projectAdvisoryLockKey } from "../project-lifecycle/lock";
 import { PurchaseLedgerDomainError } from "./policy";
 import type {
@@ -97,9 +98,12 @@ async function loadSnapshot(
       producerTimeZone: producers.timezone,
       automaticRemindersEnabled: producers.autopilotUnpaidReminder,
       producerDisplayName: producers.displayName,
+      producerSlug: producers.slug,
       clientId: clientContacts.id,
       clientName: clientContacts.name,
       clientEmail: clientContacts.email,
+      clientClerkUserId: clientContacts.clerkUserId,
+      clientArchivedAt: clientContacts.archivedAt,
     })
     .from(purchases)
     .innerJoin(
@@ -222,8 +226,14 @@ async function loadSnapshot(
       timeZone: context.producerTimeZone,
       automaticRemindersEnabled: context.automaticRemindersEnabled,
       displayName: context.producerDisplayName ?? "Your producer",
+      slug: context.producerSlug,
     },
-    client: { id: context.clientId, name: context.clientName, email: context.clientEmail },
+    client: {
+      id: context.clientId,
+      name: context.clientName,
+      email: context.clientEmail,
+      connected: hasActiveClientConnection(context.clientClerkUserId, context.clientArchivedAt),
+    },
     purchaseName: context.commercialSnapshot.productOrOfferName,
     refNumber: context.refNumber,
     installments: installments.map((installment) => ({

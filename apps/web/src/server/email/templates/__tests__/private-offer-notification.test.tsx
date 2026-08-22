@@ -11,6 +11,7 @@ vi.mock("../../client", () => ({
   getResend: () => ({ emails: { send: sendEmail } }),
 }));
 
+import { EmailDeliveryError } from "../../delivery-error";
 import { sendClientInviteEmail, sendPrivateOfferNotificationEmail } from "../../send";
 import { ClientInvite } from "../client-invite";
 import { PrivateOfferNotification } from "../private-offer-notification";
@@ -122,14 +123,15 @@ describe("client invite email delivery", () => {
     });
   });
 
-  it("throws a generic error when Resend rejects the client-invite delivery", async () => {
+  it("carries Resend's rejection on the error without leaking it into the message", async () => {
     sendEmail.mockResolvedValueOnce({
       data: null,
-      error: { message: "provider-only rejection detail", name: "validation_error" },
+      error: { message: "provider-only rejection detail", name: "validation_error", statusCode: 422 },
     });
 
-    await expect(
-      sendClientInviteEmail(
+    let thrown: unknown;
+    try {
+      await sendClientInviteEmail(
         "ada@example.com",
         {
           clientName: "Ada",
@@ -137,8 +139,22 @@ describe("client invite email delivery", () => {
           inviteUrl: "https://skitza.test/sign-up/join/gili-asraf",
         },
         "client-invite:client-1:operation-1",
-      ),
-    ).rejects.toEqual(new Error("Email delivery failed"));
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(EmailDeliveryError);
+    expect(thrown).toMatchObject({
+      name: "EmailDeliveryError",
+      message: "Email delivery failed: validation_error (422)",
+      provider: {
+        name: "validation_error",
+        message: "provider-only rejection detail",
+        statusCode: 422,
+      },
+      cause: { name: "validation_error", message: "provider-only rejection detail" },
+    });
   });
 
   it("rejects a malformed provider success without claiming acceptance", async () => {
