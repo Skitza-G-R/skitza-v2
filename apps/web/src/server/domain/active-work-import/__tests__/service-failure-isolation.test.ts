@@ -1,28 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 
+type Ledger = typeof import("../../purchases/ledger");
+type CommercialSnapshot = typeof import("../../purchases/commercial-snapshot");
+
 const mocks = vi.hoisted(() => ({
-  createInstallmentSchedule: vi.fn<(...args: unknown[]) => unknown>(),
-  assertCommercialSnapshotMatchesAcceptance: vi.fn<(...args: unknown[]) => unknown>(),
+  createInstallmentSchedule: vi.fn<Ledger["createInstallmentSchedule"]>(),
+  assertCommercialSnapshotMatchesAcceptance:
+    vi.fn<CommercialSnapshot["assertCommercialSnapshotMatchesAcceptance"]>(),
 }));
 
 vi.mock("../../purchases/ledger", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../purchases/ledger")>();
+  const actual = await importOriginal<Ledger>();
   mocks.createInstallmentSchedule.mockImplementation(actual.createInstallmentSchedule);
   return {
     ...actual,
-    createInstallmentSchedule: (...args: unknown[]) => mocks.createInstallmentSchedule(...args),
+    createInstallmentSchedule: (...args: Parameters<Ledger["createInstallmentSchedule"]>) =>
+      mocks.createInstallmentSchedule(...args),
   };
 });
 
 vi.mock("../../purchases/commercial-snapshot", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../purchases/commercial-snapshot")>();
+  const actual = await importOriginal<CommercialSnapshot>();
   mocks.assertCommercialSnapshotMatchesAcceptance.mockImplementation(
     actual.assertCommercialSnapshotMatchesAcceptance,
   );
   return {
     ...actual,
-    assertCommercialSnapshotMatchesAcceptance: (...args: unknown[]) =>
-      mocks.assertCommercialSnapshotMatchesAcceptance(...args),
+    assertCommercialSnapshotMatchesAcceptance: (
+      ...args: Parameters<CommercialSnapshot["assertCommercialSnapshotMatchesAcceptance"]>
+    ) => {
+      mocks.assertCommercialSnapshotMatchesAcceptance(...args);
+    },
   };
 });
 
