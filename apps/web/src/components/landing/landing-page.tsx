@@ -617,6 +617,22 @@ function Hero() {
               How to get access
               <Icon name="arrow-right" size={16} strokeWidth={2.6} />
             </Link>
+            {/* SK-246: sign-in stays reachable on phones without opening the
+                nav menu. Outlined in brand amber so it reads as the second
+                action without competing with the solid primary CTA. */}
+            <Link
+              href="/sign-in"
+              data-testid="hero-sign-in"
+              className="sk-pop sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[12px] border px-[22px] py-4 text-[15px] font-bold sm:py-[14px] sm:text-[14.5px]"
+              style={{
+                background: "rgba(212,150,10,0.08)",
+                color: "rgb(var(--brand-primary))",
+                borderColor: "rgba(212,150,10,0.45)",
+              }}
+            >
+              Sign in
+              <Icon name="arrow-right" size={14} strokeWidth={2.6} />
+            </Link>
             <a
               href="#how"
               className="sk-pop sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[12px] border px-[22px] py-4 text-[15px] font-bold sm:py-[14px] sm:text-[14.5px]"
