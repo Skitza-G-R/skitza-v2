@@ -1834,6 +1834,36 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
   });
 });
 
+describe("ActiveWorkImportWorkspace page notice", () => {
+  it("shows a quiet status for a page notice and aligns the address with the shown setup", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard/clients-projects/bring-active-work?batch=stale",
+    );
+    render(
+      <ActiveWorkImportWorkspace
+        initialBatch={initialBatch()}
+        initialNotice="This saved setup could not be found — showing your latest one"
+        initialSetupOptions={null}
+        existingClients={[]}
+        archivedClients={[]}
+        templates={[]}
+        defaultCurrency="USD"
+        defaultTaxMode="tax_free"
+        defaultTaxRatePct={0}
+      />,
+    );
+
+    const notice = screen.getByText(
+      "This saved setup could not be found — showing your latest one",
+    );
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(new URL(window.location.href).searchParams.get("batch")).toBe(batchId);
+  });
+});
+
 describe("ActiveWorkImportWorkspace when Skitza cannot be reached", () => {
   const unreachable = "Could not reach Skitza. Check your connection and try again.";
 

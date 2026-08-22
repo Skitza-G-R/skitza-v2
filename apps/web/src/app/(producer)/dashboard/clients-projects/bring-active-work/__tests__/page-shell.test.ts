@@ -19,6 +19,7 @@ import {
   materializeImportRowsAction,
   saveImportRowAction,
 } from "../actions";
+import BringActiveWorkPage from "../page";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pageSource = readFileSync(join(here, "..", "page.tsx"), "utf8");
@@ -32,6 +33,142 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+type WorkspaceProps = Readonly<{
+  initialBatch: { id: string; rows: readonly { assessment: unknown }[] } | null;
+  initialNotice: string | null;
+}>;
+
+function storedRow(id: string) {
+  return {
+    id,
+    batchId: "00000000-0000-4000-8000-000000000200",
+    producerId: "producer-1",
+    operationKey: `row-${id.slice(-3)}`,
+    draftRevision: 1,
+    draftPayload: {},
+    creationDigest: null,
+    createdClientContactId: null,
+    createdProjectId: null,
+    createdPurchaseId: null,
+    materializedAt: null,
+    lastAttemptedAt: null,
+    lastErrorCode: null,
+    createdAt: new Date("2026-08-20T10:00:00.000Z"),
+    updatedAt: new Date("2026-08-20T10:00:00.000Z"),
+  };
+}
+
+function pageCaller(activeWorkImport: Record<string, unknown>) {
+  return {
+    producer: {
+      me: vi.fn().mockResolvedValue({
+        defaultCurrency: "ILS",
+        taxMode: "tax_free",
+        taxRatePct: 0,
+      }),
+    },
+    clientContacts: {
+      listWithProjects: vi.fn().mockResolvedValue({ view: "by-client", clients: [] }),
+    },
+    booking: { packages: { list: vi.fn().mockResolvedValue([]) } },
+    activeWorkImport,
+  };
+}
+
+async function renderPageProps(batch?: string): Promise<WorkspaceProps> {
+  const element = await BringActiveWorkPage({
+    searchParams: Promise.resolve(batch === undefined ? {} : { batch }),
+  });
+  const main = element as unknown as { props: { children: { props: WorkspaceProps } } };
+  return main.props.children.props;
+}
+
+describe("Bring active work page fallbacks", () => {
+  const latestBatchId = "00000000-0000-4000-8000-000000000200";
+  const staleBatchId = "00000000-0000-4000-8000-000000000999";
+  const rowId = "00000000-0000-4000-8000-000000000201";
+
+  it("falls back to the latest open setup with a quiet notice when ?batch= is stale", async () => {
+    const loadBatch = vi.fn().mockRejectedValue(new TRPCError({ code: "NOT_FOUND" }));
+    const latestOpenBatch = vi.fn().mockResolvedValue({
+      batch: { id: latestBatchId, status: "in_progress" },
+      rows: [storedRow(rowId)],
+    });
+    const assessRow = vi.fn().mockResolvedValue({ state: "needs_info", reasons: [] });
+    mocks.createCaller.mockReturnValue(
+      pageCaller({ loadBatch, latestOpenBatch, assessRow, setupOptions: vi.fn() }),
+    );
+
+    const props = await renderPageProps(staleBatchId);
+
+    expect(loadBatch).toHaveBeenCalledWith({ batchId: staleBatchId });
+    expect(latestOpenBatch).toHaveBeenCalledTimes(1);
+    expect(props.initialBatch?.id).toBe(latestBatchId);
+    expect(props.initialNotice).toBe(
+      "This saved setup could not be found — showing your latest one",
+    );
+  });
+
+  it("keeps the requested setup and no notice when it loads", async () => {
+    const loadBatch = vi.fn().mockResolvedValue({
+      batch: { id: latestBatchId, status: "in_progress" },
+      rows: [storedRow(rowId)],
+    });
+    const latestOpenBatch = vi.fn();
+    const assessRow = vi.fn().mockResolvedValue({ state: "needs_info", reasons: [] });
+    mocks.createCaller.mockReturnValue(
+      pageCaller({ loadBatch, latestOpenBatch, assessRow, setupOptions: vi.fn() }),
+    );
+
+    const props = await renderPageProps(latestBatchId);
+
+    expect(latestOpenBatch).not.toHaveBeenCalled();
+    expect(props.initialBatch?.id).toBe(latestBatchId);
+    expect(props.initialNotice).toBeNull();
+  });
+
+  it("still surfaces a real failure instead of hiding it behind the fallback", async () => {
+    const loadBatch = vi.fn().mockRejectedValue(new TRPCError({ code: "INTERNAL_SERVER_ERROR" }));
+    mocks.createCaller.mockReturnValue(
+      pageCaller({ loadBatch, latestOpenBatch: vi.fn(), assessRow: vi.fn() }),
+    );
+
+    await expect(renderPageProps(staleBatchId)).rejects.toBeInstanceOf(TRPCError);
+  });
+
+  it("leaves one unchecked row with a notice when only its check fails", async () => {
+    const secondRowId = "00000000-0000-4000-8000-000000000202";
+    const latestOpenBatch = vi.fn().mockResolvedValue({
+      batch: { id: latestBatchId, status: "in_progress" },
+      rows: [storedRow(rowId), storedRow(secondRowId)],
+    });
+    const assessRow = vi
+      .fn()
+      .mockImplementation((input: { rowId: string }) =>
+        input.rowId === rowId
+          ? Promise.resolve({ state: "needs_info", reasons: [] })
+          : Promise.reject(new Error("check exploded")),
+      );
+    mocks.createCaller.mockReturnValue(
+      pageCaller({ loadBatch: vi.fn(), latestOpenBatch, assessRow, setupOptions: vi.fn() }),
+    );
+
+    const props = await renderPageProps();
+
+    expect(props.initialBatch?.rows.map((row) => row.assessment)).toEqual([
+      { state: "needs_info", reasons: [] },
+      null,
+    ]);
+    expect(props.initialNotice).toBe(
+      "Some items could not be checked yet. Open each item to check it again.",
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.objectContaining({ rowId: secondRowId }),
+    );
+  });
 });
 
 describe("Bring active work route shell", () => {

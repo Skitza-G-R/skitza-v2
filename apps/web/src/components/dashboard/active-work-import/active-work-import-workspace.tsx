@@ -91,6 +91,7 @@ function setupShowsPriorAttempt(options: SetupOptionsView | null): boolean {
 
 export function ActiveWorkImportWorkspace({
   initialBatch,
+  initialNotice = null,
   initialSetupOptions,
   existingClients,
   archivedClients,
@@ -100,6 +101,7 @@ export function ActiveWorkImportWorkspace({
   defaultTaxRatePct,
 }: {
   initialBatch: InitialImportBatch | null;
+  initialNotice?: string | null;
   initialSetupOptions: SetupOptionsView | null;
   existingClients: readonly ExistingClientOption[];
   archivedClients: readonly ArchivedClientOption[];
@@ -194,6 +196,16 @@ export function ActiveWorkImportWorkspace({
       query.removeEventListener("change", sync);
     };
   }, []);
+
+  // After a stale ?batch= fell back to the latest setup, keep the address in
+  // step with what is actually shown so a reload does not repeat the fallback.
+  useEffect(() => {
+    if (!initialBatch) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("batch") === initialBatch.id) return;
+    url.searchParams.set("batch", initialBatch.id);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }, [initialBatch]);
 
   useEffect(() => {
     if (mobileEditorOpen) return;
@@ -1168,6 +1180,15 @@ export function ActiveWorkImportWorkspace({
           </button>
         ) : null}
       </header>
+
+      {initialNotice && !reviewOpen ? (
+        <p
+          role="status"
+          className="mt-2 shrink-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[11.5px] text-[rgb(var(--fg-muted))]"
+        >
+          {initialNotice}
+        </p>
+      ) : null}
 
       {pageError ? (
         <div

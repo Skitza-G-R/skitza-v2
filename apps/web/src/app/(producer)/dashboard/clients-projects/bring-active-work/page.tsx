@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { redirect } from "next/navigation";
 
 import { ActiveWorkImportWorkspace } from "~/components/dashboard/active-work-import/active-work-import-workspace";
@@ -18,6 +19,36 @@ type PageProps = { searchParams?: Promise<{ batch?: string }> };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type Caller = ReturnType<typeof appRouter.createCaller>;
+type LoadedBatch = Awaited<ReturnType<Caller["activeWorkImport"]["latestOpenBatch"]>>;
+
+// A bookmarked or foreign ?batch= id is not an error page: fall back to the
+// producer's latest open setup and say so quietly. Any other failure still
+// surfaces, so a real outage is never hidden behind the fallback.
+async function loadRequestedBatch(
+  caller: Caller,
+  requestedBatchId: string | undefined,
+): Promise<Readonly<{ batch: LoadedBatch; notice: string | null }>> {
+  if (!requestedBatchId || !UUID_PATTERN.test(requestedBatchId)) {
+    return { batch: await caller.activeWorkImport.latestOpenBatch(), notice: null };
+  }
+  try {
+    return {
+      batch: await caller.activeWorkImport.loadBatch({ batchId: requestedBatchId }),
+      notice: null,
+    };
+  } catch (error) {
+    if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") throw error;
+    console.warn("[active-work-import] requested batch not found, showing latest", {
+      batchId: requestedBatchId,
+    });
+    return {
+      batch: await caller.activeWorkImport.latestOpenBatch(),
+      notice: "This saved setup could not be found — showing your latest one",
+    };
+  }
+}
+
 export default async function BringActiveWorkPage({ searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
@@ -31,12 +62,10 @@ export default async function BringActiveWorkPage({ searchParams }: PageProps) {
       : 0;
   const requestedBatchId = (await searchParams)?.batch;
 
-  const [clientResult, packages, batchResult] = await Promise.all([
+  const [clientResult, packages, { batch: batchResult, notice: batchNotice }] = await Promise.all([
     caller.clientContacts.listWithProjects({ view: "by-client" }),
     caller.booking.packages.list(),
-    requestedBatchId && UUID_PATTERN.test(requestedBatchId)
-      ? caller.activeWorkImport.loadBatch({ batchId: requestedBatchId })
-      : caller.activeWorkImport.latestOpenBatch(),
+    loadRequestedBatch(caller, requestedBatchId),
   ]);
   if (clientResult.view !== "by-client") {
     throw new Error("Could not load the client list for active work import");
@@ -67,16 +96,29 @@ export default async function BringActiveWorkPage({ searchParams }: PageProps) {
 
   let initialBatch: InitialImportBatch | null = null;
   let initialSetupOptions: SetupOptionsView | null = null;
+  let assessmentNotice: string | null = null;
   if (batchResult) {
     const assessed = await Promise.all(
       batchResult.rows.map(async (row) => {
         let assessment: ImportAssessmentView | null = null;
         if (!row.materializedAt) {
-          const result = await caller.activeWorkImport.assessRow({
-            batchId: batchResult.batch.id,
-            rowId: row.id,
-          });
-          assessment = mapPublicImportAssessment(result);
+          // One row whose check fails stays Needs info (assessment null) with a
+          // notice; it must not take the whole saved setup down with it.
+          try {
+            const result = await caller.activeWorkImport.assessRow({
+              batchId: batchResult.batch.id,
+              rowId: row.id,
+            });
+            assessment = mapPublicImportAssessment(result);
+          } catch (error) {
+            console.error("[active-work-import] initial row check failed", {
+              batchId: batchResult.batch.id,
+              rowId: row.id,
+              error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+            });
+            assessmentNotice =
+              "Some items could not be checked yet. Open each item to check it again.";
+          }
         }
         return {
           row: {
@@ -123,6 +165,7 @@ export default async function BringActiveWorkPage({ searchParams }: PageProps) {
     <main className="min-w-0" data-gate1-meaningful-screen="bring-active-work">
       <ActiveWorkImportWorkspace
         initialBatch={initialBatch}
+        initialNotice={batchNotice ?? assessmentNotice}
         initialSetupOptions={initialSetupOptions}
         existingClients={clientResult.clients
           .filter((client) => client.producerArchivedAt === null)
