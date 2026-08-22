@@ -14,7 +14,11 @@ vi.mock("~/server/trpc/routers/_app", () => ({
   appRouter: { createCaller: mocks.createCaller },
 }));
 
-import { materializeImportRowsAction, saveImportRowAction } from "../actions";
+import {
+  loadImportBatchRowsAction,
+  materializeImportRowsAction,
+  saveImportRowAction,
+} from "../actions";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pageSource = readFileSync(join(here, "..", "page.tsx"), "utf8");
@@ -261,6 +265,53 @@ describe("Bring active work route shell", () => {
     expect(result.data.outcomes).toHaveLength(100);
     expect(result.data.error).toBe("Something went wrong on our side. Please try again.");
     expect(materializeRows).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads the stored rows of a batch so a stale revision can be adopted", async () => {
+    const loadBatch = vi.fn().mockResolvedValue({
+      batch: { id: "00000000-0000-4000-8000-000000000254", status: "in_progress" },
+      rows: [
+        {
+          id: "00000000-0000-4000-8000-000000000255",
+          batchId: "00000000-0000-4000-8000-000000000254",
+          producerId: "producer-1",
+          operationKey: "row-operation",
+          draftRevision: 5,
+          draftPayload: { client: { name: "Maya" } },
+          creationDigest: null,
+          createdClientContactId: null,
+          createdProjectId: null,
+          createdPurchaseId: null,
+          materializedAt: null,
+          lastAttemptedAt: null,
+          lastErrorCode: null,
+          createdAt: new Date("2026-08-20T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-20T10:05:00.000Z"),
+        },
+      ],
+    });
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { loadBatch } });
+
+    const result = await loadImportBatchRowsAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.rows).toEqual([
+      {
+        id: "00000000-0000-4000-8000-000000000255",
+        operationKey: "row-operation",
+        draftRevision: 5,
+        draftPayload: { client: { name: "Maya" } },
+        materializedAtIso: null,
+        createdClientContactId: null,
+        createdProjectId: null,
+        createdPurchaseId: null,
+        lastErrorCode: null,
+      },
+    ]);
+    expect(loadBatch).toHaveBeenCalledWith({ batchId: "00000000-0000-4000-8000-000000000254" });
   });
 
   it("reports a failed first chunk with no outcomes", async () => {

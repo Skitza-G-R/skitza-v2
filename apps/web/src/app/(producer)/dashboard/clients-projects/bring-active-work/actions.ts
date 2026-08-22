@@ -146,6 +146,24 @@ export async function saveImportRowAction(input: {
   }
 }
 
+/**
+ * Re-reads the stored rows of a batch. The workspace uses it to adopt the
+ * server's current draft revision after a CONFLICT caused by a lost response
+ * (single-producer surface, last write wins).
+ */
+export async function loadImportBatchRowsAction(input: {
+  batchId: string;
+}): Promise<ImportActionResult<{ rows: readonly StoredImportRowView[] }>> {
+  const context = await callerOrError();
+  if (!context.ok) return context;
+  try {
+    const loaded = await context.caller.activeWorkImport.loadBatch(input);
+    return { ok: true, data: { rows: loaded.rows.map(mapRow) } };
+  } catch (error) {
+    return { ok: false, ...actionError(error) };
+  }
+}
+
 export async function restoreImportClientAction(input: {
   id: string;
 }): Promise<ImportActionResult<{ id: string; changed: boolean }>> {

@@ -9,6 +9,7 @@ import {
   createImportBatchAction,
   deleteImportRowAction,
   finishImportSetupAction,
+  loadImportBatchRowsAction,
   loadImportSetupOptionsAction,
   materializeImportRowsAction,
   prepareImportProofAction,
@@ -317,6 +318,7 @@ export function ActiveWorkImportWorkspace({
     if (activeRequest) return activeRequest;
 
     const request = (async (): Promise<boolean> => {
+      let recoveredConflict = false;
       for (;;) {
         const activeBatchId = batchIdRef.current;
         const current = rowsRef.current.find((row) => row.operationKey === operationKey);
@@ -341,6 +343,15 @@ export function ActiveWorkImportWorkspace({
         );
 
         if (!result.ok) {
+          // A CONFLICT here almost always means an earlier save reached Skitza
+          // but its answer was lost, so our expectedRevision (or null for a
+          // first save) is stale. Adopt the server's revision and retry once
+          // with the local edits; a conflict that persists is surfaced as-is.
+          if (result.code === "CONFLICT" && !recoveredConflict) {
+            recoveredConflict = true;
+            const adopted = await adoptServerRevision(activeBatchId, operationKey);
+            if (adopted) continue;
+          }
           const latest = rowsRef.current.find((row) => row.operationKey === operationKey);
           const newerDraftExists = Boolean(latest && latest.localVersion !== savedVersion);
           updateRows((all) =>
@@ -379,6 +390,7 @@ export function ActiveWorkImportWorkspace({
           }),
         );
 
+        recoveredConflict = false;
         const latest = rowsRef.current.find((row) => row.operationKey === operationKey);
         if (latest && latest.localVersion !== savedVersion) continue;
         if (!result.data.assessmentError) {
@@ -404,6 +416,29 @@ export function ActiveWorkImportWorkspace({
         savePromises.current.delete(operationKey);
       }
     }
+  }
+
+  async function adoptServerRevision(batchId: string, operationKey: string): Promise<boolean> {
+    const fresh = await callAction(() => loadImportBatchRowsAction({ batchId }));
+    if (!fresh.ok) return false;
+    const stored = fresh.data.rows.find((row) => row.operationKey === operationKey);
+    if (!stored) return false;
+    updateRows((all) =>
+      all.map((row) =>
+        row.operationKey === operationKey
+          ? {
+              ...row,
+              rowId: stored.id,
+              revision: stored.draftRevision,
+              materializedAtIso: stored.materializedAtIso,
+              createdClientContactId: stored.createdClientContactId,
+              createdProjectId: stored.createdProjectId,
+              createdPurchaseId: stored.createdPurchaseId,
+            }
+          : row,
+      ),
+    );
+    return true;
   }
 
   function changeDraft(operationKey: string, draft: ActiveWorkImportDraft) {

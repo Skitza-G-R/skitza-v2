@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   createBatch: vi.fn<ImportActions["createImportBatchAction"]>(),
   deleteRow: vi.fn<ImportActions["deleteImportRowAction"]>(),
   finishSetup: vi.fn<ImportActions["finishImportSetupAction"]>(),
+  loadRows: vi.fn<ImportActions["loadImportBatchRowsAction"]>(),
   loadSetup: vi.fn<ImportActions["loadImportSetupOptionsAction"]>(),
   materializeRows: vi.fn<ImportActions["materializeImportRowsAction"]>(),
   prepareProof: vi.fn<ImportActions["prepareImportProofAction"]>(),
@@ -32,6 +33,7 @@ vi.mock("~/app/(producer)/dashboard/clients-projects/bring-active-work/actions",
   createImportBatchAction: mocks.createBatch,
   deleteImportRowAction: mocks.deleteRow,
   finishImportSetupAction: mocks.finishSetup,
+  loadImportBatchRowsAction: mocks.loadRows,
   loadImportSetupOptionsAction: mocks.loadSetup,
   materializeImportRowsAction: mocks.materializeRows,
   prepareImportProofAction: mocks.prepareProof,
@@ -606,6 +608,7 @@ beforeEach(() => {
       reminders: [],
     },
   });
+  mocks.loadRows.mockReset().mockResolvedValue({ ok: true, data: { rows: [] } });
   mocks.loadSetup.mockReset().mockResolvedValue({ ok: true, data: setupOptions() });
   mocks.materializeRows.mockReset();
   mocks.prepareProof.mockReset();
@@ -1057,6 +1060,152 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     );
 
     expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 2 });
+  });
+
+  it("adopts the fresh revision and retries once after a stale-revision conflict", async () => {
+    const conflict = {
+      ok: false as const,
+      error: "This draft changed in another save. Refresh and try again.",
+      code: "CONFLICT",
+    };
+    mocks.saveRow
+      .mockResolvedValueOnce(conflict)
+      .mockImplementationOnce((input: Record<string, unknown>) =>
+        Promise.resolve(
+          savedResult(input, { revision: 6, assessment: readyAssessment("ready-after-retry") }),
+        ),
+      );
+    mocks.loadRows.mockResolvedValue({
+      ok: true,
+      data: {
+        rows: [
+          {
+            id: rowId,
+            operationKey: "row-operation",
+            draftRevision: 5,
+            draftPayload: {},
+            materializedAtIso: null,
+            createdClientContactId: null,
+            createdProjectId: null,
+            createdPurchaseId: null,
+            lastErrorCode: null,
+          },
+        ],
+      },
+    });
+    renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Edited after a lost response" },
+    });
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalledTimes(2);
+    });
+    expect(mocks.saveRow.mock.calls[0]?.[0]).toMatchObject({ expectedRevision: 1 });
+    expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({
+      expectedRevision: 5,
+      draftPayload: { project: { title: "Edited after a lost response" } },
+    });
+    expect(mocks.loadRows).toHaveBeenCalledWith({ batchId });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Import progress").textContent).toContain("1 Ready");
+    });
+    expect(screen.queryByText("Could not save — try again")).toBeNull();
+  });
+
+  it("adopts the server row after a first save that was never acknowledged", async () => {
+    mocks.createBatch.mockResolvedValue({ ok: true, data: { batchId } });
+    const needsInfo: ImportAssessmentView = {
+      state: "needs_info",
+      reasons: [{ code: "client_name_required", field: "client.name", message: "Add a name." }],
+    };
+    mocks.saveRow
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "This draft changed in another save. Refresh and try again.",
+        code: "CONFLICT",
+      })
+      .mockImplementationOnce((input: Record<string, unknown>) =>
+        Promise.resolve(savedResult(input, { revision: 1, assessment: needsInfo })),
+      );
+    // The server already holds the row from the lost first save, under the
+    // same operation key the workspace generated.
+    mocks.loadRows.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          rows: [
+            {
+              id: rowId,
+              operationKey: String(mocks.saveRow.mock.calls[0]?.[0]?.rowOperationKey),
+              draftRevision: 1,
+              draftPayload: {},
+              materializedAtIso: null,
+              createdClientContactId: null,
+              createdProjectId: null,
+              createdPurchaseId: null,
+              lastErrorCode: null,
+            },
+          ],
+        },
+      }),
+    );
+    renderWorkspace(null);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add first item" }));
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalledTimes(2);
+    });
+    const operationKey = String(mocks.saveRow.mock.calls[0]?.[0]?.rowOperationKey);
+    expect(mocks.saveRow.mock.calls[0]?.[0]).toMatchObject({ expectedRevision: null });
+    expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({
+      rowOperationKey: operationKey,
+      expectedRevision: 1,
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Import progress").textContent).toContain("1 Need info");
+    });
+    expect(screen.queryByText("Could not save — try again")).toBeNull();
+  });
+
+  it("stops after one recovery attempt when the conflict persists", async () => {
+    mocks.saveRow.mockResolvedValue({
+      ok: false,
+      error: "This draft changed in another save. Refresh and try again.",
+      code: "CONFLICT",
+    });
+    mocks.loadRows.mockResolvedValue({
+      ok: true,
+      data: {
+        rows: [
+          {
+            id: rowId,
+            operationKey: "row-operation",
+            draftRevision: 9,
+            draftPayload: {},
+            materializedAtIso: null,
+            createdClientContactId: null,
+            createdProjectId: null,
+            createdPurchaseId: null,
+            lastErrorCode: null,
+          },
+        ],
+      },
+    });
+    renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Still conflicting" },
+    });
+
+    await screen.findByText("Could not save — try again");
+    expect(mocks.saveRow).toHaveBeenCalledTimes(2);
+    expect(mocks.loadRows).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "This draft changed in another save. Refresh and try again.",
+    );
   });
 
   it("blocks Remove and warns before unload while a draft save is pending", async () => {
