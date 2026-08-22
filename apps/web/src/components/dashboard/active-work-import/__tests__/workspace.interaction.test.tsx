@@ -1718,6 +1718,59 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(await screen.findByText(/1 client · 1 project and agreement added/)).not.toBeNull();
   });
 
+  it("explains a saved PROOF_UPLOAD_MISSING failure in plain words on reload", async () => {
+    const batch = initialBatch();
+    const first = batch.rows[0];
+    if (!first) throw new Error("Test batch needs one row");
+    const user = userEvent.setup();
+    renderWorkspace({
+      ...batch,
+      rows: [{ ...first, row: { ...first.row, lastErrorCode: "PROOF_UPLOAD_MISSING" } }],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Review 1 item to retry" }));
+
+    expect(
+      (
+        await screen.findAllByText(
+          "The payment proof file is no longer available. Attach it again and retry.",
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/Last create attempt failed/)).toBeNull();
+  });
+
+  it("maps a live PROOF_UPLOAD_MISSING outcome to the same sentence", async () => {
+    mocks.materializeRows.mockResolvedValue({
+      ok: true,
+      data: {
+        outcomes: [
+          {
+            state: "failed",
+            rowId,
+            code: "PROOF_UPLOAD_MISSING",
+            message: "Proof upload missing",
+          },
+        ],
+        error: null,
+      },
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await user.click(screen.getByRole("button", { name: "Create 1 ready item" }));
+
+    expect(
+      (
+        await screen.findAllByText(
+          "The payment proof file is no longer available. Attach it again and retry.",
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Proof upload missing")).toBeNull();
+  });
+
   it("keeps created rows and explains the failure when a later chunk did not finish", async () => {
     mocks.materializeRows.mockResolvedValue({
       ok: true,

@@ -99,6 +99,34 @@ export type ActiveWorkImportDraft = {
 };
 
 export type ImportReasonView = Readonly<{ code: string; field: string; message: string }>;
+
+const MATERIALIZE_ERROR_FALLBACK = "Last create attempt failed. Your saved draft is unchanged.";
+const REVIEWED_DETAILS_CHANGED = "The reviewed details changed. Review this item and try again.";
+
+// Row failures arrive as a machine code (stored in lastErrorCode and echoed on
+// a live outcome). Known codes get a specific sentence; an unknown code uses
+// the server's sentence when it has one, and the generic line only as a last
+// resort.
+const MATERIALIZE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  PROOF_UPLOAD_MISSING: "The payment proof file is no longer available. Attach it again and retry.",
+  PROOF_INVALID: "The payment proof could not be verified. Attach it again and retry.",
+  OPERATION_KEY_CONFLICT: REVIEWED_DETAILS_CHANGED,
+  CONFLICT: REVIEWED_DETAILS_CHANGED,
+  INVALID_INPUT: "Some details are no longer valid. Review this item and try again.",
+  NOT_FOUND: "Part of this item could not be found. Review it and try again.",
+  INTEGRITY_ERROR: "Skitza could not create this item safely. Your saved draft is unchanged.",
+};
+
+export function materializeErrorMessage(
+  code: string | null | undefined,
+  serverMessage?: string | null,
+): string | null {
+  if (!code) return null;
+  const known = MATERIALIZE_ERROR_MESSAGES[code];
+  if (known) return known;
+  const fallback = serverMessage?.trim();
+  return fallback ? fallback : MATERIALIZE_ERROR_FALLBACK;
+}
 export type NormalizedImportReview = Readonly<{
   existingClientId: string | null;
   templateProductId: string | null;

@@ -22,6 +22,7 @@ import { ImportRowEditor, type ImportEditorStep } from "./import-row-editor";
 import { ImportRowList } from "./import-row-list";
 import {
   isRowReady,
+  materializeErrorMessage,
   newImportDraft,
   parseStoredImportDraft,
   rowDisplayReasons,
@@ -129,9 +130,7 @@ export function ActiveWorkImportWorkspace({
         createdPurchaseId: row.createdPurchaseId,
         saveState: "idle",
         saveError: null,
-        materializeError: row.lastErrorCode
-          ? "Last create attempt failed. Your saved draft is unchanged."
-          : null,
+        materializeError: materializeErrorMessage(row.lastErrorCode),
         localVersion: 0,
         persistedLocalVersion: 0,
       })) ?? [],
@@ -821,7 +820,7 @@ export function ActiveWorkImportWorkspace({
             materializeError: null,
           };
         }
-        return { ...row, materializeError: outcome.message };
+        return { ...row, materializeError: materializeErrorMessage(outcome.code, outcome.message) };
       }),
     );
 
