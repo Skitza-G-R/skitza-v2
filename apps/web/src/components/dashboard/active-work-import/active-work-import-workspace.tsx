@@ -9,17 +9,20 @@ import {
   createImportBatchAction,
   deleteImportRowAction,
   finishImportSetupAction,
+  loadImportBatchRowsAction,
   loadImportSetupOptionsAction,
   materializeImportRowsAction,
   prepareImportProofAction,
   restoreImportClientAction,
   saveImportRowAction,
+  type ImportActionResult,
 } from "~/app/(producer)/dashboard/clients-projects/bring-active-work/actions";
 
 import { ImportRowEditor, type ImportEditorStep } from "./import-row-editor";
 import { ImportRowList } from "./import-row-list";
 import {
   isRowReady,
+  materializeErrorMessage,
   newImportDraft,
   parseStoredImportDraft,
   rowDisplayReasons,
@@ -27,6 +30,7 @@ import {
   type ActiveWorkImportDraft,
   type ArchivedClientOption,
   type ExistingClientOption,
+  type FinishSetupResultView,
   type ImportTaxMode,
   type ImportReasonView,
   type InitialImportBatch,
@@ -41,6 +45,22 @@ type RowUpdater = (rows: WorkspaceImportRow[]) => WorkspaceImportRow[];
 
 function randomOperationKey(prefix: string): string {
   return `${prefix}:${crypto.randomUUID()}`;
+}
+
+const UNREACHABLE_ERROR = "Could not reach Skitza. Check your connection and try again.";
+
+// Server actions reject when the request never reaches Skitza (offline, timeout,
+// deploy in progress). Every caller reads a plain result instead, so no row or
+// button is ever left busy by an unhandled rejection.
+async function callAction<T>(
+  request: () => Promise<ImportActionResult<T>>,
+): Promise<ImportActionResult<T>> {
+  try {
+    return await request();
+  } catch (error) {
+    console.error("[active-work-import] action did not answer", error);
+    return { ok: false, error: UNREACHABLE_ERROR, code: "UNREACHABLE" };
+  }
 }
 
 type ImportProofContentType =
@@ -73,6 +93,7 @@ function setupShowsPriorAttempt(options: SetupOptionsView | null): boolean {
 
 export function ActiveWorkImportWorkspace({
   initialBatch,
+  initialNotice = null,
   initialSetupOptions,
   existingClients,
   archivedClients,
@@ -82,6 +103,7 @@ export function ActiveWorkImportWorkspace({
   defaultTaxRatePct,
 }: {
   initialBatch: InitialImportBatch | null;
+  initialNotice?: string | null;
   initialSetupOptions: SetupOptionsView | null;
   existingClients: readonly ExistingClientOption[];
   archivedClients: readonly ArchivedClientOption[];
@@ -109,9 +131,7 @@ export function ActiveWorkImportWorkspace({
         createdPurchaseId: row.createdPurchaseId,
         saveState: "idle",
         saveError: null,
-        materializeError: row.lastErrorCode
-          ? "Last create attempt failed. Your saved draft is unchanged."
-          : null,
+        materializeError: materializeErrorMessage(row.lastErrorCode),
         localVersion: 0,
         persistedLocalVersion: 0,
       })) ?? [],
@@ -147,6 +167,7 @@ export function ActiveWorkImportWorkspace({
     setupShowsPriorAttempt(initialSetupOptions),
   );
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [finishResult, setFinishResult] = useState<FinishSetupResultView | null>(null);
   const [proofUploads, setProofUploads] = useState<Record<string, ProofUploadView>>({});
 
   const rowsRef = useRef(rows);
@@ -176,6 +197,16 @@ export function ActiveWorkImportWorkspace({
       query.removeEventListener("change", sync);
     };
   }, []);
+
+  // After a stale ?batch= fell back to the latest setup, keep the address in
+  // step with what is actually shown so a reload does not repeat the fallback.
+  useEffect(() => {
+    if (!initialBatch) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("batch") === initialBatch.id) return;
+    url.searchParams.set("batch", initialBatch.id);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }, [initialBatch]);
 
   useEffect(() => {
     if (mobileEditorOpen) return;
@@ -226,7 +257,7 @@ export function ActiveWorkImportWorkspace({
       setStarting(true);
       setPageError(null);
       try {
-        const result = await createImportBatchAction({ operationKey });
+        const result = await callAction(() => createImportBatchAction({ operationKey }));
         if (!result.ok) {
           setPageError(result.error);
           return null;
@@ -300,6 +331,7 @@ export function ActiveWorkImportWorkspace({
     if (activeRequest) return activeRequest;
 
     const request = (async (): Promise<boolean> => {
+      let recoveredConflict = false;
       for (;;) {
         const activeBatchId = batchIdRef.current;
         const current = rowsRef.current.find((row) => row.operationKey === operationKey);
@@ -314,14 +346,25 @@ export function ActiveWorkImportWorkspace({
               : row,
           ),
         );
-        const result = await saveImportRowAction({
-          batchId: activeBatchId,
-          rowOperationKey: current.operationKey,
-          expectedRevision: current.revision,
-          draftPayload: toServerDraftPayload(current.draft),
-        });
+        const result = await callAction(() =>
+          saveImportRowAction({
+            batchId: activeBatchId,
+            rowOperationKey: current.operationKey,
+            expectedRevision: current.revision,
+            draftPayload: toServerDraftPayload(current.draft),
+          }),
+        );
 
         if (!result.ok) {
+          // A CONFLICT here almost always means an earlier save reached Skitza
+          // but its answer was lost, so our expectedRevision (or null for a
+          // first save) is stale. Adopt the server's revision and retry once
+          // with the local edits; a conflict that persists is surfaced as-is.
+          if (result.code === "CONFLICT" && !recoveredConflict) {
+            recoveredConflict = true;
+            const adopted = await adoptServerRevision(activeBatchId, operationKey);
+            if (adopted) continue;
+          }
           const latest = rowsRef.current.find((row) => row.operationKey === operationKey);
           const newerDraftExists = Boolean(latest && latest.localVersion !== savedVersion);
           updateRows((all) =>
@@ -352,7 +395,7 @@ export function ActiveWorkImportWorkspace({
               assessment: responseIsCurrent ? result.data.assessment : null,
               saveState: responseIsCurrent
                 ? result.data.assessmentError
-                  ? "error"
+                  ? "unchecked"
                   : "saved"
                 : "saving",
               saveError: responseIsCurrent ? result.data.assessmentError : null,
@@ -360,6 +403,7 @@ export function ActiveWorkImportWorkspace({
           }),
         );
 
+        recoveredConflict = false;
         const latest = rowsRef.current.find((row) => row.operationKey === operationKey);
         if (latest && latest.localVersion !== savedVersion) continue;
         if (!result.data.assessmentError) {
@@ -385,6 +429,29 @@ export function ActiveWorkImportWorkspace({
         savePromises.current.delete(operationKey);
       }
     }
+  }
+
+  async function adoptServerRevision(batchId: string, operationKey: string): Promise<boolean> {
+    const fresh = await callAction(() => loadImportBatchRowsAction({ batchId }));
+    if (!fresh.ok) return false;
+    const stored = fresh.data.rows.find((row) => row.operationKey === operationKey);
+    if (!stored) return false;
+    updateRows((all) =>
+      all.map((row) =>
+        row.operationKey === operationKey
+          ? {
+              ...row,
+              rowId: stored.id,
+              revision: stored.draftRevision,
+              materializedAtIso: stored.materializedAtIso,
+              createdClientContactId: stored.createdClientContactId,
+              createdProjectId: stored.createdProjectId,
+              createdPurchaseId: stored.createdPurchaseId,
+            }
+          : row,
+      ),
+    );
+    return true;
   }
 
   function changeDraft(operationKey: string, draft: ActiveWorkImportDraft) {
@@ -425,6 +492,7 @@ export function ActiveWorkImportWorkspace({
         (row.rowId === null ||
           row.persistedLocalVersion < row.localVersion ||
           row.saveState === "error" ||
+          row.saveState === "unchecked" ||
           savePromises.current.has(row.operationKey)),
     );
     const results = await Promise.all(pending.map((row) => persistRow(row.operationKey)));
@@ -434,12 +502,16 @@ export function ActiveWorkImportWorkspace({
   async function leaveWorkspace() {
     if (leaving) return;
     setLeaving(true);
-    const pendingAdd = addPromiseRef.current;
-    if (pendingAdd) await pendingAdd;
-    const saved = await flushPendingRows();
+    let saved = false;
+    try {
+      const pendingAdd = addPromiseRef.current;
+      if (pendingAdd) await pendingAdd;
+      saved = await flushPendingRows();
+    } finally {
+      if (!saved) setLeaving(false);
+    }
     if (!saved) {
       setPageError("We couldn't save every change. Please try again before leaving.");
-      setLeaving(false);
       return;
     }
     router.push("/dashboard/clients-projects");
@@ -553,11 +625,12 @@ export function ActiveWorkImportWorkspace({
       "Remove this draft? Created clients, projects, agreements, and payments cannot be removed here.",
     );
     if (!confirmed) return;
-    if (target.rowId && batchIdRef.current) {
-      const result = await deleteImportRowAction({
-        batchId: batchIdRef.current,
-        rowId: target.rowId,
-      });
+    const activeBatchId = batchIdRef.current;
+    const targetRowId = target.rowId;
+    if (targetRowId && activeBatchId) {
+      const result = await callAction(() =>
+        deleteImportRowAction({ batchId: activeBatchId, rowId: targetRowId }),
+      );
       if (!result.ok) {
         setPageError(result.error);
         return;
@@ -579,8 +652,12 @@ export function ActiveWorkImportWorkspace({
     if (restoringClientId) return;
     setRestoringClientId(client.id);
     setPageError(null);
-    const result = await restoreImportClientAction({ id: client.id });
-    setRestoringClientId(null);
+    let result: Awaited<ReturnType<typeof restoreImportClientAction>>;
+    try {
+      result = await callAction(() => restoreImportClientAction({ id: client.id }));
+    } finally {
+      setRestoringClientId(null);
+    }
     if (!result.ok) {
       setPageError(result.error);
       return;
@@ -606,8 +683,12 @@ export function ActiveWorkImportWorkspace({
     const activeBatchId = batchIdRef.current;
     if (!activeBatchId) return false;
     setLoadingSetup(true);
-    const result = await loadImportSetupOptionsAction({ batchId: activeBatchId });
-    setLoadingSetup(false);
+    let result: Awaited<ReturnType<typeof loadImportSetupOptionsAction>>;
+    try {
+      result = await callAction(() => loadImportSetupOptionsAction({ batchId: activeBatchId }));
+    } finally {
+      setLoadingSetup(false);
+    }
     if (!result.ok) {
       setSetupOptions(null);
       setReviewError(result.error);
@@ -628,17 +709,20 @@ export function ActiveWorkImportWorkspace({
     if (openingReview) return;
     setOpeningReview(true);
     setReviewError(null);
-    const saved = await flushPendingRows();
+    let saved = false;
+    try {
+      saved = await flushPendingRows();
+    } finally {
+      setOpeningReview(false);
+    }
     if (!saved) {
       setPageError("We couldn't save every change. Please try again before reviewing.");
-      setOpeningReview(false);
       return;
     }
     const hasCreated = rowsRef.current.some((row) => row.materializedAtIso !== null);
     const hasUnfinished = rowsRef.current.some((row) => row.materializedAtIso === null);
     setReviewStage(hasUnfinished ? "review" : "setup");
     setReviewOpen(true);
-    setOpeningReview(false);
     if (!hasUnfinished && hasCreated && !setupOptions) {
       await loadSetupOptions();
     }
@@ -671,12 +755,18 @@ export function ActiveWorkImportWorkspace({
 
     setCreating(true);
     setReviewError(null);
-    const result = await materializeImportRowsAction({
-      batchId: activeBatchId,
-      rows: requests,
-    });
-    if (!result.ok) {
+    let result: Awaited<ReturnType<typeof materializeImportRowsAction>>;
+    try {
+      result = await callAction(() =>
+        materializeImportRowsAction({
+          batchId: activeBatchId,
+          rows: requests,
+        }),
+      );
+    } finally {
       setCreating(false);
+    }
+    if (!result.ok) {
       setReviewError(result.error);
       return;
     }
@@ -732,18 +822,22 @@ export function ActiveWorkImportWorkspace({
             materializeError: null,
           };
         }
-        return { ...row, materializeError: outcome.message };
+        return { ...row, materializeError: materializeErrorMessage(outcome.code, outcome.message) };
       }),
     );
-    setCreating(false);
 
     const createdTotal = rowsRef.current.filter((row) => row.materializedAtIso !== null).length;
     const failedTotal = result.data.outcomes.filter(
       (outcome) => outcome.state !== "created",
     ).length;
+    const unansweredTotal = requests.length - result.data.outcomes.length;
     if (createdTotal > 0) {
       setReviewStage("setup");
-      if (failedTotal > 0) {
+      if (result.data.error) {
+        setReviewError(
+          `${result.data.error} ${String(unansweredTotal)} ${unansweredTotal === 1 ? "item was" : "items were"} not created yet; the saved details are unchanged.`,
+        );
+      } else if (failedTotal > 0) {
         setReviewError(
           `${String(failedTotal)} ${failedTotal === 1 ? "draft was" : "drafts were"} not created. The saved details are unchanged.`,
         );
@@ -751,7 +845,9 @@ export function ActiveWorkImportWorkspace({
       await loadSetupOptions();
       return;
     }
-    setReviewError("Nothing was created. Review the messages below and try again.");
+    setReviewError(
+      result.data.error ?? "Nothing was created. Review the messages below and try again.",
+    );
   }
 
   function uploadProofForRow(
@@ -799,14 +895,18 @@ export function ActiveWorkImportWorkspace({
         }));
         return false;
       }
-      const prepared = await prepareImportProofAction({
-        batchId: batchIdRef.current,
-        rowId: row.rowId,
-        paymentOperationKey,
-        originalFileName: file.name,
-        contentType,
-        sizeBytes: file.size,
-      });
+      const activeBatchId = batchIdRef.current;
+      const activeRowId = row.rowId;
+      const prepared = await callAction(() =>
+        prepareImportProofAction({
+          batchId: activeBatchId,
+          rowId: activeRowId,
+          paymentOperationKey,
+          originalFileName: file.name,
+          contentType,
+          sizeBytes: file.size,
+        }),
+      );
       if (!prepared.ok) {
         setProofUploads((current) => ({
           ...current,
@@ -814,20 +914,33 @@ export function ActiveWorkImportWorkspace({
         }));
         return false;
       }
+      let uploadError: string | null = null;
       try {
         const response = await fetch(prepared.data.uploadUrl, {
           method: "PUT",
           headers: { "Content-Type": contentType },
           body: file,
         });
-        if (!response.ok) throw new Error();
-      } catch {
+        if (!response.ok) {
+          // A signed upload link that was refused is not a connection problem:
+          // 403 means the link expired, anything else is the storage service.
+          console.error("[active-work-import] proof upload refused", {
+            status: response.status,
+          });
+          uploadError =
+            response.status === 403
+              ? "The upload link expired. Attach the file again."
+              : `The storage service refused the upload (status ${String(response.status)}). Try again in a moment.`;
+        }
+      } catch (error) {
+        console.error("[active-work-import] proof upload did not reach storage", error);
+        uploadError = "The proof upload did not finish. Check your connection and try again.";
+      }
+      if (uploadError) {
+        const error = uploadError;
         setProofUploads((current) => ({
           ...current,
-          [paymentOperationKey]: {
-            status: "error",
-            error: "The proof upload did not finish. Check your connection and try again.",
-          },
+          [paymentOperationKey]: { status: "error", error },
         }));
         return false;
       }
@@ -882,13 +995,19 @@ export function ActiveWorkImportWorkspace({
     setSetupAttempted(true);
     setFinishing(true);
     setReviewError(null);
-    const result = await finishImportSetupAction({
-      batchId: activeBatchId,
-      operationKey,
-      expectedSetupDigest: setupOptions.setupDigest,
-      selectedClientContactIds: [...selectedClientIds],
-    });
-    setFinishing(false);
+    let result: Awaited<ReturnType<typeof finishImportSetupAction>>;
+    try {
+      result = await callAction(() =>
+        finishImportSetupAction({
+          batchId: activeBatchId,
+          operationKey,
+          expectedSetupDigest: setupOptions.setupDigest,
+          selectedClientContactIds: [...selectedClientIds],
+        }),
+      );
+    } finally {
+      setFinishing(false);
+    }
     if (!result.ok) {
       if (result.code === "CONFLICT") {
         finishOperationKeyRef.current = null;
@@ -898,9 +1017,18 @@ export function ActiveWorkImportWorkspace({
       return;
     }
     finishOperationKeyRef.current = null;
+    setFinishResult(result.data);
     const failedClients = new Set(
       result.data.invitations
         .filter((invitation) => invitation.status === "failed")
+        .map((invitation) => invitation.clientContactId),
+    );
+    // "requested" means the provider only acknowledged the send. The batch is
+    // not finished yet: stay here, keep those clients selected so the next
+    // Finish setup checks them again, and say so without an error tone.
+    const requestedClients = new Set(
+      result.data.invitations
+        .filter((invitation) => invitation.status === "requested")
         .map((invitation) => invitation.clientContactId),
     );
     const failedInstallments = new Set(
@@ -908,12 +1036,14 @@ export function ActiveWorkImportWorkspace({
         .filter((reminder) => reminder.status === "failed")
         .map((reminder) => reminder.installmentId),
     );
-    if (failedClients.size > 0 || failedInstallments.size > 0) {
-      setSelectedClientIds(failedClients);
+    if (failedClients.size > 0 || failedInstallments.size > 0 || requestedClients.size > 0) {
+      setSelectedClientIds(new Set([...failedClients, ...requestedClients]));
       await loadSetupOptions();
-      setReviewError(
-        "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
-      );
+      if (failedClients.size > 0 || failedInstallments.size > 0) {
+        setReviewError(
+          "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
+        );
+      }
       return;
     }
     router.push("/dashboard/clients-projects");
@@ -975,6 +1105,7 @@ export function ActiveWorkImportWorkspace({
       creating={creating}
       finishing={finishing}
       error={reviewError}
+      finishResult={finishResult}
       selectedClientIds={selectedClientIds}
       onBack={() => {
         setReviewOpen(false);
@@ -1075,6 +1206,15 @@ export function ActiveWorkImportWorkspace({
           </button>
         ) : null}
       </header>
+
+      {initialNotice && !reviewOpen ? (
+        <p
+          role="status"
+          className="mt-2 shrink-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[11.5px] text-[rgb(var(--fg-muted))]"
+        >
+          {initialNotice}
+        </p>
+      ) : null}
 
       {pageError ? (
         <div

@@ -6,10 +6,13 @@ import { describe, expect, it } from "vitest";
 import {
   IMPORT_NOTICE,
   applyTemplate,
+  draftPaymentBalance,
   draftTaxBreakdown,
+  installmentBalance,
   inputToCents,
   isRowReady,
   localDateInputValue,
+  materializeErrorMessage,
   matchingExistingClient,
   newImportDraft,
   normalizedEmail,
@@ -68,6 +71,93 @@ describe("active-work import model", () => {
     );
     expect(source).toContain(".toLowerCase()");
     expect(source).not.toContain("toLocaleLowerCase");
+  });
+
+  it("tracks remaining and overpaid money per installment, never at purchase level", () => {
+    const schedule = [
+      { position: 1, amountCents: 50_000 },
+      { position: 2, amountCents: 50_000 },
+    ];
+
+    expect(installmentBalance(schedule, [{ installmentPosition: 1, amountCents: 70_000 }])).toEqual(
+      { paidCents: 70_000, remainingCents: 50_000, overpaidCents: 20_000 },
+    );
+    expect(installmentBalance(schedule, [{ installmentPosition: 2, amountCents: 30_000 }])).toEqual(
+      { paidCents: 30_000, remainingCents: 70_000, overpaidCents: 0 },
+    );
+    expect(
+      installmentBalance(schedule, [
+        { installmentPosition: 1, amountCents: 50_000 },
+        { installmentPosition: 2, amountCents: 50_000 },
+      ]),
+    ).toEqual({ paidCents: 100_000, remainingCents: 0, overpaidCents: 0 });
+    expect(installmentBalance(schedule, [{ installmentPosition: 3, amountCents: 1_000 }])).toEqual({
+      paidCents: 1_000,
+      remainingCents: 100_000,
+      overpaidCents: 1_000,
+    });
+
+    const draft = newImportDraft({ ...defaults, defaultTaxMode: "tax_free" });
+    draft.agreement.subtotal = "1000";
+    draft.agreement.planKind = "split_50_50";
+    draft.payments = [
+      {
+        operationKey: "first-half-overpaid",
+        installmentPosition: 1,
+        amount: "700",
+        paidAt: "2026-07-01",
+        note: "",
+        proofUploadToken: null,
+        proofFileName: null,
+      },
+    ];
+    expect(draftPaymentBalance(draft)).toEqual({
+      paidCents: 70_000,
+      remainingCents: 50_000,
+      overpaidCents: 20_000,
+    });
+
+    draft.agreement.subtotal = "";
+    expect(draftPaymentBalance(draft)).toEqual({
+      paidCents: 70_000,
+      remainingCents: null,
+      overpaidCents: 0,
+    });
+  });
+
+  it("turns row failure codes into specific sentences with one generic fallback", () => {
+    expect(materializeErrorMessage(null)).toBeNull();
+    expect(materializeErrorMessage("")).toBeNull();
+    expect(materializeErrorMessage("PROOF_UPLOAD_MISSING")).toBe(
+      "The payment proof file is no longer available. Attach it again and retry.",
+    );
+    expect(materializeErrorMessage("PROOF_INVALID")).toBe(
+      "The payment proof could not be verified. Attach it again and retry.",
+    );
+    expect(materializeErrorMessage("OPERATION_KEY_CONFLICT")).toBe(
+      "The reviewed details changed. Review this item and try again.",
+    );
+    expect(materializeErrorMessage("CONFLICT")).toBe(
+      "The reviewed details changed. Review this item and try again.",
+    );
+    expect(materializeErrorMessage("INVALID_INPUT")).toBe(
+      "Some details are no longer valid. Review this item and try again.",
+    );
+    expect(materializeErrorMessage("NOT_FOUND")).toBe(
+      "Part of this item could not be found. Review it and try again.",
+    );
+    expect(materializeErrorMessage("INTEGRITY_ERROR")).toBe(
+      "Skitza could not create this item safely. Your saved draft is unchanged.",
+    );
+    expect(
+      materializeErrorMessage("TEMPORARY_FAILURE", "This item was not created. Try again."),
+    ).toBe("This item was not created. Try again.");
+    expect(materializeErrorMessage("NeonDbError")).toBe(
+      "Last create attempt failed. Your saved draft is unchanged.",
+    );
+    expect(materializeErrorMessage("UNKNOWN", "   ")).toBe(
+      "Last create attempt failed. Your saved draft is unchanged.",
+    );
   });
 
   it("uses the local calendar date for date inputs", () => {

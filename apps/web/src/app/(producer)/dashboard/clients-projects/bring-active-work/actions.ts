@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { auth } from "~/server/auth/clerk-identity";
 
 import type {
+  FinishSetupResultView,
   ImportAssessmentView,
   SetupOptionsView,
   StoredImportRowView,
@@ -24,17 +25,39 @@ async function callerOrError(): Promise<
   return { ok: true, caller: appRouter.createCaller({ userId }) };
 }
 
+const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
+const CHANGED_ERROR = "Something changed. Review the latest details and try again.";
+
+// tRPC fills a missing message with the code itself ("INTERNAL_SERVER_ERROR")
+// and zod failures arrive as a JSON array. Neither is a sentence a producer
+// should read, so only a real sentence is forwarded.
+function humanMessage(error: TRPCError): string | null {
+  const message = error.message.trim();
+  if (!message || message === error.code || /^[[{]/.test(message)) return null;
+  return message;
+}
+
 function actionError(error: unknown): Readonly<{ error: string; code?: string }> {
   if (error instanceof TRPCError) {
-    const message =
-      error.code === "UNAUTHORIZED"
-        ? "Please sign in to continue."
-        : error.code === "NOT_FOUND"
-          ? "This saved setup could not be found."
-          : error.message || "Something changed. Review the latest details and try again.";
-    return { error: message, code: error.code };
+    if (error.code === "UNAUTHORIZED") {
+      return { error: "Please sign in to continue.", code: error.code };
+    }
+    if (error.code === "NOT_FOUND") {
+      return { error: "This saved setup could not be found.", code: error.code };
+    }
+    if (error.code === "BAD_REQUEST" || error.code === "CONFLICT") {
+      return { error: humanMessage(error) ?? CHANGED_ERROR, code: error.code };
+    }
+    console.error("[active-work-import] unexpected action failure", {
+      code: error.code,
+      message: error.message,
+    });
+    return { error: GENERIC_ERROR, code: error.code };
   }
-  return { error: "Something went wrong. Please try again.", code: "INTERNAL" };
+  console.error("[active-work-import] unexpected action failure", {
+    error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+  });
+  return { error: GENERIC_ERROR, code: "INTERNAL" };
 }
 
 function mapRow(row: {
@@ -108,15 +131,37 @@ export async function saveImportRowAction(input: {
         assessmentError: null,
       },
     };
-  } catch {
+  } catch (error) {
+    console.error("[active-work-import] assessment failed after a successful save", {
+      rowId: saved.row.id,
+      error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+    });
     return {
       ok: true,
       data: {
         row: mapRow(saved.row),
         assessment: null,
-        assessmentError: "Saved, but we couldn't check the details. Edit or try again.",
+        assessmentError: "Saved, but not checked yet. Edit or try again.",
       },
     };
+  }
+}
+
+/**
+ * Re-reads the stored rows of a batch. The workspace uses it to adopt the
+ * server's current draft revision after a CONFLICT caused by a lost response
+ * (single-producer surface, last write wins).
+ */
+export async function loadImportBatchRowsAction(input: {
+  batchId: string;
+}): Promise<ImportActionResult<{ rows: readonly StoredImportRowView[] }>> {
+  const context = await callerOrError();
+  if (!context.ok) return context;
+  try {
+    const loaded = await context.caller.activeWorkImport.loadBatch(input);
+    return { ok: true, data: { rows: loaded.rows.map(mapRow) } };
+  } catch (error) {
+    return { ok: false, ...actionError(error) };
   }
 }
 
@@ -184,46 +229,54 @@ export type MaterializeImportOutcome =
 
 const MATERIALIZE_ROWS_CHUNK_SIZE = 100;
 
+/**
+ * Rows are created in router-safe chunks. A chunk that fails stops the run,
+ * but the outcomes already returned by earlier chunks are real created work,
+ * so they travel back together with the error instead of being dropped.
+ */
 export async function materializeImportRowsAction(input: {
   batchId: string;
   rows: readonly Readonly<{ rowId: string; expectedCreationDigest: string }>[];
-}): Promise<ImportActionResult<{ outcomes: readonly MaterializeImportOutcome[] }>> {
+}): Promise<
+  ImportActionResult<{ outcomes: readonly MaterializeImportOutcome[]; error: string | null }>
+> {
   const context = await callerOrError();
   if (!context.ok) return context;
-  try {
-    const materializedOutcomes: MaterializeImportOutcome[] = [];
-    for (let offset = 0; offset < input.rows.length; offset += MATERIALIZE_ROWS_CHUNK_SIZE) {
-      const outcomes = await context.caller.activeWorkImport.materializeRows({
+  const materializedOutcomes: MaterializeImportOutcome[] = [];
+  for (let offset = 0; offset < input.rows.length; offset += MATERIALIZE_ROWS_CHUNK_SIZE) {
+    let outcomes: Awaited<ReturnType<typeof context.caller.activeWorkImport.materializeRows>>;
+    try {
+      outcomes = await context.caller.activeWorkImport.materializeRows({
         batchId: input.batchId,
         rows: input.rows.slice(offset, offset + MATERIALIZE_ROWS_CHUNK_SIZE),
       });
-      materializedOutcomes.push(
-        ...outcomes.map((outcome): MaterializeImportOutcome => {
-          if (outcome.state === "created") {
-            return {
-              state: "created",
-              rowId: outcome.result.rowId,
-              clientContactId: outcome.result.clientContactId,
-              projectId: outcome.result.projectId,
-              purchaseId: outcome.result.purchaseId,
-              created: outcome.result.created,
-              materializedAtIso: outcome.result.materializedAt.toISOString(),
-            };
-          }
-          if (outcome.state === "needs_info") {
-            return { state: "needs_info", rowId: outcome.rowId, reasons: outcome.reasons };
-          }
-          return outcome;
-        }),
-      );
+    } catch (error) {
+      return {
+        ok: true,
+        data: { outcomes: materializedOutcomes, error: actionError(error).error },
+      };
     }
-    return {
-      ok: true,
-      data: { outcomes: materializedOutcomes },
-    };
-  } catch (error) {
-    return { ok: false, ...actionError(error) };
+    materializedOutcomes.push(
+      ...outcomes.map((outcome): MaterializeImportOutcome => {
+        if (outcome.state === "created") {
+          return {
+            state: "created",
+            rowId: outcome.result.rowId,
+            clientContactId: outcome.result.clientContactId,
+            projectId: outcome.result.projectId,
+            purchaseId: outcome.result.purchaseId,
+            created: outcome.result.created,
+            materializedAtIso: outcome.result.materializedAt.toISOString(),
+          };
+        }
+        if (outcome.state === "needs_info") {
+          return { state: "needs_info", rowId: outcome.rowId, reasons: outcome.reasons };
+        }
+        return outcome;
+      }),
+    );
   }
+  return { ok: true, data: { outcomes: materializedOutcomes, error: null } };
 }
 
 export async function loadImportSetupOptionsAction(input: {
@@ -255,21 +308,14 @@ export async function loadImportSetupOptionsAction(input: {
   }
 }
 
-export type FinishImportSetupView = Readonly<{
-  distinctClientCount: number;
-  projectPurchaseCount: number;
-  invitations: readonly Readonly<{
-    clientContactId: string;
-    status: "requested" | "provider_accepted" | "failed" | "connected";
-    providerAcceptedAtIso: string | null;
-  }>[];
-  reminders: readonly Readonly<{
-    installmentId: string;
-    purchaseId: string;
-    status: "enabled" | "failed";
-    changed: boolean;
-  }>[];
-}>;
+export type FinishImportSetupView = FinishSetupResultView;
+
+// Newer servers attach a `reason` sentence to failed setup entries; older
+// ones do not. Read it without depending on either shape.
+function optionalReason(entry: object): string | null {
+  const reason = (entry as { reason?: unknown }).reason;
+  return typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
+}
 
 export async function finishImportSetupAction(input: {
   batchId: string;
@@ -287,10 +333,20 @@ export async function finishImportSetupAction(input: {
     return {
       ok: true,
       data: {
-        ...result,
+        distinctClientCount: result.distinctClientCount,
+        projectPurchaseCount: result.projectPurchaseCount,
         invitations: result.invitations.map((invitation) => ({
-          ...invitation,
+          clientContactId: invitation.clientContactId,
+          status: invitation.status,
           providerAcceptedAtIso: invitation.providerAcceptedAt?.toISOString() ?? null,
+          reason: optionalReason(invitation),
+        })),
+        reminders: result.reminders.map((reminder) => ({
+          installmentId: reminder.installmentId,
+          purchaseId: reminder.purchaseId,
+          status: reminder.status,
+          changed: reminder.changed,
+          reason: optionalReason(reminder),
         })),
       },
     };

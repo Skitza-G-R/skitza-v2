@@ -16,11 +16,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   centsToInput,
   draftInstallmentSchedule,
+  draftPaymentBalance,
   draftTaxBreakdown,
   formatImportMoney,
   inputToCents,
   localDateInputValue,
-  paidCents,
   type ActiveWorkImportDraft,
   type ImportPaymentDraft,
   type ImportPlanKind,
@@ -183,8 +183,9 @@ export function PaymentHistoryEditor({
 }) {
   const schedule = draftInstallmentSchedule(draft);
   const totalCents = draftTaxBreakdown(draft).totalCents;
-  const importedPaidCents = paidCents(draft);
-  const remainingCents = Math.max(0, (totalCents ?? 0) - importedPaidCents);
+  const balance = draftPaymentBalance(draft);
+  const importedPaidCents = balance.paidCents;
+  const remainingCents = balance.remainingCents ?? 0;
   const currency = draft.agreement.currency || "USD";
   const blockingIncomplete = firstIncompletePayment(draft.payments, schedule);
   const [activeEditor, setActiveEditor] = useState<ActivePaymentEditor | null>(() =>
@@ -609,12 +610,11 @@ export function PaymentHistoryEditor({
           </p>
         ) : null}
 
-        {totalCents !== null && importedPaidCents > totalCents ? (
+        {balance.overpaidCents > 0 ? (
           <p className="flex items-start gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-warning)/0.28)] bg-[rgb(var(--fg-warning)/0.07)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[rgb(var(--fg-warning-text))]">
             <CircleAlert size={14} strokeWidth={2.2} aria-hidden className="mt-0.5 shrink-0" />
-            This purchase is overpaid by{" "}
-            {formatImportMoney(importedPaidCents - totalCents, currency)}. The excess stays on this
-            purchase.
+            This purchase is overpaid by {formatImportMoney(balance.overpaidCents, currency)}. The
+            excess stays on this purchase.
           </p>
         ) : null}
 

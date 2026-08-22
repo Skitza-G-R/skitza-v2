@@ -433,6 +433,30 @@ describe("compact active-work payment history", () => {
     expect(document.querySelectorAll("[data-payment-inline-editor]")).toHaveLength(1);
   });
 
+  it("keeps the second half remaining when the first half of a 50/50 is overpaid", () => {
+    const draft = paymentDraft("split_50_50");
+    draft.payments = [
+      {
+        operationKey: "history-first-half",
+        installmentPosition: 1,
+        amount: "700.00",
+        paidAt: "2020-01-02",
+        note: "",
+        proofUploadToken: null,
+        proofFileName: null,
+      },
+    ];
+    render(<Harness initialDraft={draft} />);
+
+    const summary = screen.getByText("Remaining").parentElement;
+    expect(summary?.textContent).toContain("$500");
+    expect(screen.getByText("Paid").parentElement?.textContent).toContain("$700");
+    expect(screen.getByText(/This purchase is overpaid by \$200/)).not.toBeNull();
+    const [first, second] = installmentRows();
+    expect(first?.textContent).toContain("Overpaid");
+    expect(second?.textContent).toContain("Locked");
+  });
+
   it("shows overpayment clearly and does not create another installment", () => {
     const draft = paymentDraft("full");
     draft.payments = [

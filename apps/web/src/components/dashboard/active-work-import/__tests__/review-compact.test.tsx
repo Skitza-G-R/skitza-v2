@@ -249,6 +249,54 @@ describe("compact active-work Review", () => {
     expect(screen.queryByRole("heading", { name: "Blue Hour EP" })).toBeNull();
   });
 
+  it("reports remaining and overpaid money per installment in the summary", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: {
+        ...base,
+        normalized: {
+          ...base.normalized,
+          payments: [
+            {
+              operationKey: "payment-one",
+              installmentPosition: 1,
+              amountCents: 500_000,
+              paidAtIso: "2026-07-10T00:00:00.000Z",
+              note: null,
+              hasProof: false,
+            },
+          ],
+        },
+      },
+    });
+    ready.draft.payments = ready.draft.payments.map((payment) => ({ ...payment, amount: "5000" }));
+    const draftOnly = workspaceRow({
+      operationKey: "needs-info",
+      clientName: "Noa Band",
+      projectTitle: "Northbound Album",
+      assessment: null,
+    });
+    draftOnly.draft.payments = draftOnly.draft.payments.map((payment) => ({
+      ...payment,
+      amount: "5000",
+    }));
+
+    render(<ReviewAndFinish {...reviewProps([ready, draftOnly])} />);
+
+    const summaries = screen
+      .getByRole("region", { name: "Needs info · 1" })
+      .querySelectorAll("summary");
+    expect(summaries[0]?.textContent).toContain("₪5,000 paid");
+    expect(summaries[0]?.textContent).toContain("₪4,000 remaining");
+    expect(summaries[0]?.textContent).toContain("₪1,000 overpaid");
+    expect(summaries[1]?.textContent).toContain("₪4,000 remaining");
+    expect(summaries[1]?.textContent).toContain("₪1,000 overpaid");
+  });
+
   it("wraps long mobile Client, Project, email, and agreement facts", () => {
     const longClient = "The International Artist Collective With A Very Long Client Name";
     const longProject = "An Exceptionally Long Album Project Title That Must Stay Fully Readable";

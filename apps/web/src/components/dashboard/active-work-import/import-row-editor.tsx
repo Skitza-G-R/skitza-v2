@@ -24,7 +24,6 @@ import {
   type ArchivedClientOption,
   type ExistingClientOption,
   type ImportReasonView,
-  type ImportRowSaveState,
   type StoreTemplateOption,
   type WorkspaceImportRow,
 } from "./model";
@@ -228,7 +227,6 @@ export function ImportRowEditor({
   const proofUploading = Object.values(proofUploads).some(
     (upload) => upload.status === "uploading",
   );
-  const indicatorStatus: ImportRowSaveState = row.saveState;
   const allReasons: readonly ImportReasonView[] = row.materializeError
     ? [{ code: "materialize_failed", field: "row", message: row.materializeError }]
     : rowDisplayReasons(row.assessment, draft, clients, archivedClients).filter(
@@ -350,10 +348,25 @@ export function ImportRowEditor({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <SaveIndicator
-            status={indicatorStatus}
-            {...(row.saveError ? { errorMessage: row.saveError } : {})}
-          />
+          {row.saveState === "unchecked" ? (
+            <span
+              role="status"
+              aria-live="polite"
+              title={row.saveError ?? undefined}
+              className="inline-flex items-center gap-1.5 font-mono text-[0.66rem] tracking-[0.12em] text-[rgb(var(--fg-warning-text))] uppercase"
+            >
+              <span
+                aria-hidden
+                className="inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--fg-warning))]"
+              />
+              <span>Saved, but not checked yet</span>
+            </span>
+          ) : (
+            <SaveIndicator
+              status={row.saveState}
+              {...(row.saveError ? { errorMessage: row.saveError } : {})}
+            />
+          )}
           {!created ? (
             <button
               type="button"

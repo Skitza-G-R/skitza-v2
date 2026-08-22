@@ -229,7 +229,8 @@ export function CompleteScreenClient({
                   Bring in your active work
                 </span>
                 <span className="mt-1.5 block text-[12px] leading-5 text-[rgb(var(--fg-muted))]">
-                  Add the clients and projects you already started. Nothing will be sent to anyone.
+                  Add the clients and projects you already started. Nothing is sent while you set
+                  things up. Reminders turn on for unpaid payments only when you finish setup.
                 </span>
               </span>
               <span className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-3.5 text-[12.5px] font-bold text-[rgb(var(--bg-background))] sm:mt-0 sm:shrink-0">

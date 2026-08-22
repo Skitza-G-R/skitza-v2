@@ -192,6 +192,109 @@ describe("artist payment record status", () => {
     expect(JSON.stringify(row)).not.toContain("Maya Cohen accepted the exact terms");
   });
 
+  it("labels proof-backed imported history as confirmed by the producer and keeps the proof visible", () => {
+    const snapshot = commercialSnapshot(100_000, { kind: "full" });
+    const importedAt = new Date("2026-06-15T09:00:00.000Z");
+    const imported = mapPurchase(
+      purchase({
+        id: "imported-with-proof",
+        sourceKind: "imported_existing_work",
+        commercialSnapshot: snapshot,
+        commercialEstablishedAt: importedAt,
+        provenance: {
+          kind: "producer_import",
+          id: "import-attestation-2",
+          importedAt,
+          importedSnapshot: snapshot,
+          notice: "Added by producer from an existing agreement",
+        },
+        installments: [
+          {
+            id: "imported-installment-1",
+            purchaseId: "imported-with-proof",
+            producerId: "00000000-0000-4000-8000-000000000201",
+            position: 1,
+            amountCents: 100_000,
+            currency: "ILS",
+            dueTrigger: "producer_import",
+            dueAt: importedAt,
+            triggeredAt: importedAt,
+            requiredForActivation: true,
+            status: "partially_paid",
+            remindersEnabled: false,
+            paidCents: 20_000,
+            waivedCents: 0,
+            remainingCents: 80_000,
+            overpaidCents: 0,
+          },
+        ],
+        proofs: [
+          {
+            id: "imported-proof-1",
+            purchaseId: "imported-with-proof",
+            installmentId: "imported-installment-1",
+            producerId: "00000000-0000-4000-8000-000000000201",
+            projectId: "project-1",
+            clientContactId: "client-1",
+            replacesProofId: null,
+            amountCents: 20_000,
+            currency: "ILS",
+            originalFileName: "bank-transfer.pdf",
+            status: "confirmed",
+            note: null,
+            rejectionNote: null,
+            confirmedAt: importedAt,
+            rejectedAt: null,
+            createdAt: importedAt,
+          },
+        ],
+        payments: [
+          {
+            id: "imported-payment-1",
+            purchaseId: "imported-with-proof",
+            installmentId: "imported-installment-1",
+            producerId: "00000000-0000-4000-8000-000000000201",
+            proofId: "imported-proof-1",
+            source: "proof",
+            amountCents: 20_000,
+            effectiveAmountCents: 20_000,
+            currency: "ILS",
+            paidAt: importedAt,
+            note: null,
+            createdAt: importedAt,
+          },
+        ],
+      }),
+    );
+
+    expect(imported?.payments[0]?.sourceLabel).toBe("Confirmed by producer");
+    expect(imported?.proofs[0]?.originalFileName).toBe("bank-transfer.pdf");
+    expect(JSON.stringify(imported)).not.toContain("Confirmed from proof");
+
+    const accepted = mapPurchase(
+      purchase({
+        id: "accepted-with-proof",
+        payments: [
+          {
+            id: "accepted-payment-1",
+            purchaseId: "accepted-with-proof",
+            installmentId: "accepted-installment-1",
+            producerId: "00000000-0000-4000-8000-000000000201",
+            proofId: "accepted-proof-1",
+            source: "proof",
+            amountCents: 20_000,
+            effectiveAmountCents: 20_000,
+            currency: "ILS",
+            paidAt: importedAt,
+            note: null,
+            createdAt: importedAt,
+          },
+        ],
+      }),
+    );
+    expect(accepted?.payments[0]?.sourceLabel).toBe("Confirmed from proof");
+  });
+
   it("keeps only the accepted PDF file name in the client history model", () => {
     const baseSnapshot = commercialSnapshot(100_000, { kind: "full" });
     const snapshot = {

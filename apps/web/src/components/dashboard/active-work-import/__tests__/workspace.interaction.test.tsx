@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   createBatch: vi.fn<ImportActions["createImportBatchAction"]>(),
   deleteRow: vi.fn<ImportActions["deleteImportRowAction"]>(),
   finishSetup: vi.fn<ImportActions["finishImportSetupAction"]>(),
+  loadRows: vi.fn<ImportActions["loadImportBatchRowsAction"]>(),
   loadSetup: vi.fn<ImportActions["loadImportSetupOptionsAction"]>(),
   materializeRows: vi.fn<ImportActions["materializeImportRowsAction"]>(),
   prepareProof: vi.fn<ImportActions["prepareImportProofAction"]>(),
@@ -32,6 +33,7 @@ vi.mock("~/app/(producer)/dashboard/clients-projects/bring-active-work/actions",
   createImportBatchAction: mocks.createBatch,
   deleteImportRowAction: mocks.deleteRow,
   finishImportSetupAction: mocks.finishSetup,
+  loadImportBatchRowsAction: mocks.loadRows,
   loadImportSetupOptionsAction: mocks.loadSetup,
   materializeImportRowsAction: mocks.materializeRows,
   prepareImportProofAction: mocks.prepareProof,
@@ -606,6 +608,7 @@ beforeEach(() => {
       reminders: [],
     },
   });
+  mocks.loadRows.mockReset().mockResolvedValue({ ok: true, data: { rows: [] } });
   mocks.loadSetup.mockReset().mockResolvedValue({ ok: true, data: setupOptions() });
   mocks.materializeRows.mockReset();
   mocks.prepareProof.mockReset();
@@ -1013,7 +1016,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
           savedResult(input, {
             revision: 2,
             assessment: null,
-            assessmentError: "Saved, but we couldn't check the details. Edit or try again.",
+            assessmentError: "Saved, but not checked yet. Edit or try again.",
           }),
         ),
       )
@@ -1040,12 +1043,13 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     fireEvent.change(projectName, { target: { value: "Saved despite check failure" } });
     await waitFor(
       () => {
-        expect(
-          screen.getByText("Saved, but we couldn't check the details. Edit or try again."),
-        ).not.toBeNull();
+        expect(screen.getAllByText("Saved, but not checked yet").length).toBeGreaterThan(0);
       },
       { timeout: 1_500 },
     );
+    expect(screen.getByTitle("Saved, but not checked yet. Edit or try again.")).not.toBeNull();
+    expect(screen.queryByText("Could not save — try again")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
 
     fireEvent.change(projectName, { target: { value: "Try the check again" } });
     await waitFor(
@@ -1056,6 +1060,152 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     );
 
     expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 2 });
+  });
+
+  it("adopts the fresh revision and retries once after a stale-revision conflict", async () => {
+    const conflict = {
+      ok: false as const,
+      error: "This draft changed in another save. Refresh and try again.",
+      code: "CONFLICT",
+    };
+    mocks.saveRow
+      .mockResolvedValueOnce(conflict)
+      .mockImplementationOnce((input: Record<string, unknown>) =>
+        Promise.resolve(
+          savedResult(input, { revision: 6, assessment: readyAssessment("ready-after-retry") }),
+        ),
+      );
+    mocks.loadRows.mockResolvedValue({
+      ok: true,
+      data: {
+        rows: [
+          {
+            id: rowId,
+            operationKey: "row-operation",
+            draftRevision: 5,
+            draftPayload: {},
+            materializedAtIso: null,
+            createdClientContactId: null,
+            createdProjectId: null,
+            createdPurchaseId: null,
+            lastErrorCode: null,
+          },
+        ],
+      },
+    });
+    renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Edited after a lost response" },
+    });
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalledTimes(2);
+    });
+    expect(mocks.saveRow.mock.calls[0]?.[0]).toMatchObject({ expectedRevision: 1 });
+    expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({
+      expectedRevision: 5,
+      draftPayload: { project: { title: "Edited after a lost response" } },
+    });
+    expect(mocks.loadRows).toHaveBeenCalledWith({ batchId });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Import progress").textContent).toContain("1 Ready");
+    });
+    expect(screen.queryByText("Could not save — try again")).toBeNull();
+  });
+
+  it("adopts the server row after a first save that was never acknowledged", async () => {
+    mocks.createBatch.mockResolvedValue({ ok: true, data: { batchId } });
+    const needsInfo: ImportAssessmentView = {
+      state: "needs_info",
+      reasons: [{ code: "client_name_required", field: "client.name", message: "Add a name." }],
+    };
+    mocks.saveRow
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "This draft changed in another save. Refresh and try again.",
+        code: "CONFLICT",
+      })
+      .mockImplementationOnce((input: Record<string, unknown>) =>
+        Promise.resolve(savedResult(input, { revision: 1, assessment: needsInfo })),
+      );
+    // The server already holds the row from the lost first save, under the
+    // same operation key the workspace generated.
+    mocks.loadRows.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          rows: [
+            {
+              id: rowId,
+              operationKey: String(mocks.saveRow.mock.calls[0]?.[0]?.rowOperationKey),
+              draftRevision: 1,
+              draftPayload: {},
+              materializedAtIso: null,
+              createdClientContactId: null,
+              createdProjectId: null,
+              createdPurchaseId: null,
+              lastErrorCode: null,
+            },
+          ],
+        },
+      }),
+    );
+    renderWorkspace(null);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add first item" }));
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalledTimes(2);
+    });
+    const operationKey = String(mocks.saveRow.mock.calls[0]?.[0]?.rowOperationKey);
+    expect(mocks.saveRow.mock.calls[0]?.[0]).toMatchObject({ expectedRevision: null });
+    expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({
+      rowOperationKey: operationKey,
+      expectedRevision: 1,
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Import progress").textContent).toContain("1 Need info");
+    });
+    expect(screen.queryByText("Could not save — try again")).toBeNull();
+  });
+
+  it("stops after one recovery attempt when the conflict persists", async () => {
+    mocks.saveRow.mockResolvedValue({
+      ok: false,
+      error: "This draft changed in another save. Refresh and try again.",
+      code: "CONFLICT",
+    });
+    mocks.loadRows.mockResolvedValue({
+      ok: true,
+      data: {
+        rows: [
+          {
+            id: rowId,
+            operationKey: "row-operation",
+            draftRevision: 9,
+            draftPayload: {},
+            materializedAtIso: null,
+            createdClientContactId: null,
+            createdProjectId: null,
+            createdPurchaseId: null,
+            lastErrorCode: null,
+          },
+        ],
+      },
+    });
+    renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Still conflicting" },
+    });
+
+    await screen.findByText("Could not save — try again");
+    expect(mocks.saveRow).toHaveBeenCalledTimes(2);
+    expect(mocks.loadRows).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "This draft changed in another save. Refresh and try again.",
+    );
   });
 
   it("blocks Remove and warns before unload while a draft save is pending", async () => {
@@ -1376,6 +1526,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
             materializedAtIso: "2026-08-20T10:00:00.000Z",
           },
         ],
+        error: null,
       },
     });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
@@ -1463,6 +1614,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
             ],
           },
         ],
+        error: null,
       },
     });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
@@ -1536,8 +1688,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
       materializedAtIso: "2026-08-20T10:00:00.000Z",
     };
     mocks.materializeRows
-      .mockResolvedValueOnce({ ok: true, data: { outcomes: [failedOutcome] } })
-      .mockResolvedValueOnce({ ok: true, data: { outcomes: [createdOutcome] } });
+      .mockResolvedValueOnce({ ok: true, data: { outcomes: [failedOutcome], error: null } })
+      .mockResolvedValueOnce({ ok: true, data: { outcomes: [createdOutcome], error: null } });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
     const user = userEvent.setup();
     renderWorkspace();
@@ -1566,6 +1718,90 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(await screen.findByText(/1 client · 1 project and agreement added/)).not.toBeNull();
   });
 
+  it("explains a saved PROOF_UPLOAD_MISSING failure in plain words on reload", async () => {
+    const batch = initialBatch();
+    const first = batch.rows[0];
+    if (!first) throw new Error("Test batch needs one row");
+    const user = userEvent.setup();
+    renderWorkspace({
+      ...batch,
+      rows: [{ ...first, row: { ...first.row, lastErrorCode: "PROOF_UPLOAD_MISSING" } }],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Review 1 item to retry" }));
+
+    expect(
+      (
+        await screen.findAllByText(
+          "The payment proof file is no longer available. Attach it again and retry.",
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/Last create attempt failed/)).toBeNull();
+  });
+
+  it("maps a live PROOF_UPLOAD_MISSING outcome to the same sentence", async () => {
+    mocks.materializeRows.mockResolvedValue({
+      ok: true,
+      data: {
+        outcomes: [
+          {
+            state: "failed",
+            rowId,
+            code: "PROOF_UPLOAD_MISSING",
+            message: "Proof upload missing",
+          },
+        ],
+        error: null,
+      },
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await user.click(screen.getByRole("button", { name: "Create 1 ready item" }));
+
+    expect(
+      (
+        await screen.findAllByText(
+          "The payment proof file is no longer available. Attach it again and retry.",
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Proof upload missing")).toBeNull();
+  });
+
+  it("keeps created rows and explains the failure when a later chunk did not finish", async () => {
+    mocks.materializeRows.mockResolvedValue({
+      ok: true,
+      data: {
+        outcomes: [
+          {
+            state: "created",
+            rowId,
+            clientContactId: "client-created",
+            projectId: "project-created",
+            purchaseId: "purchase-created",
+            created: true,
+            materializedAtIso: "2026-08-20T10:00:00.000Z",
+          },
+        ],
+        error: "Something went wrong on our side. Please try again.",
+      },
+    });
+    mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await user.click(screen.getByRole("button", { name: "Create 1 ready item" }));
+
+    expect(await screen.findByText(/1 client · 1 project and agreement added/)).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Something went wrong on our side. Please try again.",
+    );
+  });
+
   it("keeps raw Ready client matches in Needs info and creates only the effective-ready row", async () => {
     mocks.materializeRows.mockResolvedValue({
       ok: true,
@@ -1581,6 +1817,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
             materializedAtIso: "2026-08-20T10:00:00.000Z",
           },
         ],
+        error: null,
       },
     });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
@@ -1647,6 +1884,165 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(screen.getByRole("button", { name: "Finish setup" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Back to items" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Back to active work items" })).toBeNull();
+  });
+});
+
+describe("ActiveWorkImportWorkspace proof upload errors", () => {
+  async function attachProof(fetchImpl: () => Promise<unknown>) {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(fetchImpl));
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("v2") })),
+    );
+    mocks.prepareProof.mockResolvedValue({
+      ok: true,
+      data: { uploadUrl: "https://r2.example/upload", uploadToken: "tok", expiresInSeconds: 600 },
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "03 Payments" }));
+    const first = within(screen.getByRole("list", { name: "Installment schedule" })).getAllByRole(
+      "listitem",
+    )[0];
+    if (!first) throw new Error("Expected Payment 1");
+    await user.click(within(first).getByRole("button", { name: "Record" }));
+    await user.click(screen.getByRole("button", { name: "Add proof" }));
+    const input = screen.getByText("Choose private proof").querySelector("input[type=file]");
+    if (!(input instanceof HTMLInputElement)) throw new Error("Expected a proof file input");
+    await user.upload(input, new File(["%PDF-1.4"], "receipt.pdf", { type: "application/pdf" }));
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("says the upload link expired on a 403 and logs the status", async () => {
+    await attachProof(() => Promise.resolve({ ok: false, status: 403 }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The upload link expired. Attach the file again.",
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.objectContaining({ status: 403 }),
+    );
+  });
+
+  it("reports another refused upload with its status instead of blaming the connection", async () => {
+    await attachProof(() => Promise.resolve({ ok: false, status: 500 }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The storage service refused the upload (status 500). Try again in a moment.",
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.objectContaining({ status: 500 }),
+    );
+  });
+
+  it("keeps the connection message for a request that never reached storage", async () => {
+    await attachProof(() => Promise.reject(new TypeError("Failed to fetch")));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The proof upload did not finish. Check your connection and try again.",
+    );
+  });
+});
+
+describe("ActiveWorkImportWorkspace page notice", () => {
+  it("shows a quiet status for a page notice and aligns the address with the shown setup", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard/clients-projects/bring-active-work?batch=stale",
+    );
+    render(
+      <ActiveWorkImportWorkspace
+        initialBatch={initialBatch()}
+        initialNotice="This saved setup could not be found — showing your latest one"
+        initialSetupOptions={null}
+        existingClients={[]}
+        archivedClients={[]}
+        templates={[]}
+        defaultCurrency="USD"
+        defaultTaxMode="tax_free"
+        defaultTaxRatePct={0}
+      />,
+    );
+
+    const notice = screen.getByText(
+      "This saved setup could not be found — showing your latest one",
+    );
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(new URL(window.location.href).searchParams.get("batch")).toBe(batchId);
+  });
+});
+
+describe("ActiveWorkImportWorkspace when Skitza cannot be reached", () => {
+  const unreachable = "Could not reach Skitza. Check your connection and try again.";
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  it("marks a draft save that never answered as an error instead of leaving it Saving", async () => {
+    mocks.saveRow.mockRejectedValue(new Error("fetch failed"));
+    renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Typed while offline" },
+    });
+
+    await screen.findByText("Could not save — try again");
+    expect(screen.getByRole("alert").textContent).toContain(unreachable);
+    expect(screen.queryByText("Saving…")).toBeNull();
+  });
+
+  it("re-enables Create and explains the failure when creation never answered", async () => {
+    mocks.materializeRows.mockRejectedValue(new Error("fetch failed"));
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    const create = screen.getByRole("button", { name: "Create 1 ready item" });
+    await user.click(create);
+
+    await screen.findByText(unreachable);
+    await waitFor(() => {
+      expect((create as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(screen.getByRole("button", { name: "Create 1 ready item" })).not.toBeNull();
+  });
+
+  it("re-enables Finish setup and explains the failure when finishing never answered", async () => {
+    mocks.finishSetup.mockRejectedValue(new Error("fetch failed"));
+    const user = userEvent.setup();
+    renderWorkspace(createdBatch(), { initialSetupOptions: freshSetupOptions() });
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+    await screen.findByRole("heading", { name: "Finish setup" });
+    const done = screen.getByRole("button", { name: "Finish setup" });
+
+    await user.click(done);
+
+    await screen.findByText(unreachable);
+    await waitFor(() => {
+      expect((done as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("offers Try again when the next steps could not be loaded", async () => {
+    mocks.loadSetup.mockRejectedValue(new Error("fetch failed"));
+    const user = userEvent.setup();
+    renderWorkspace(createdBatch(), { initialSetupOptions: null });
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await screen.findByText(unreachable);
+    expect(screen.getByText("Could not load the next steps")).not.toBeNull();
+    const retry = screen.getByRole("button", { name: "Try again" });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -1783,6 +2179,7 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
               clientContactId: "client-retry",
               status: "failed",
               providerAcceptedAtIso: null,
+              reason: null,
             },
           ],
           reminders: [],
@@ -1805,6 +2202,107 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     expect(mocks.finishSetup.mock.calls[1]?.[0]?.operationKey).not.toBe(
       mocks.finishSetup.mock.calls[0]?.[0]?.operationKey,
     );
+  });
+
+  it("stays on the setup screen while an invitation is still being sent", async () => {
+    mocks.finishSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        distinctClientCount: 1,
+        projectPurchaseCount: 1,
+        invitations: [
+          {
+            clientContactId: "client-available",
+            status: "requested",
+            providerAcceptedAtIso: null,
+            reason: null,
+          },
+        ],
+        reminders: [],
+      },
+    });
+    mocks.loadSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        ...freshSetupOptions(),
+        clients: [
+          {
+            id: "client-available",
+            name: "Available client",
+            email: "available@example.com",
+            connected: false,
+            providerAcceptedAtIso: null,
+            invitationEligible: true,
+            invitationState: "send_in_progress_or_retryable",
+          },
+        ],
+      },
+    });
+    const user = await openCreatedSetup(freshSetupOptions());
+    await user.click(screen.getByRole("checkbox", { name: /Available client/ }));
+    const done = screen.getByRole("button", { name: "Finish setup" });
+
+    await user.click(done);
+
+    expect((await screen.findAllByText("Still sending — check again in a moment")).length).toBe(2);
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Finish setup" })).not.toBeNull();
+    await waitFor(() => {
+      expect(mocks.loadSetup).toHaveBeenCalledTimes(1);
+    });
+    const invite = screen.getByRole("checkbox", { name: /Available client/ });
+    expect((invite as HTMLInputElement).checked).toBe(true);
+    await waitFor(() => {
+      expect((done as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it("shows the server reason under a failed invitation and reminder", async () => {
+    mocks.finishSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        distinctClientCount: 2,
+        projectPurchaseCount: 1,
+        invitations: [
+          {
+            clientContactId: "client-retry",
+            status: "failed",
+            providerAcceptedAtIso: null,
+            reason: "The mailbox rejected this address.",
+          },
+        ],
+        reminders: [
+          {
+            installmentId: "installment-1",
+            purchaseId: "purchase-created",
+            status: "failed",
+            changed: false,
+            reason: "This payment is already closed.",
+          },
+        ],
+      },
+    });
+    const user = await openCreatedSetup();
+    await user.click(screen.getByRole("checkbox", { name: /Retry client/ }));
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await screen.findByText(
+      "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
+    );
+    const retryRow = screen.getByRole("checkbox", { name: /Retry client/ }).closest("label");
+    expect(retryRow?.textContent).toContain("The mailbox rejected this address.");
+    expect(screen.getByText("This payment is already closed.")).not.toBeNull();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("explains that reminders to clients who have not joined include the join link", async () => {
+    await openCreatedSetup();
+
+    expect(
+      screen.getByText(/Reminders to clients who have not joined yet include your join link/),
+    ).not.toBeNull();
   });
 
   it("reloads current setup and rotates the operation key after a conflict", async () => {

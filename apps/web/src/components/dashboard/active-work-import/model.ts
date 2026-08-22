@@ -99,6 +99,34 @@ export type ActiveWorkImportDraft = {
 };
 
 export type ImportReasonView = Readonly<{ code: string; field: string; message: string }>;
+
+const MATERIALIZE_ERROR_FALLBACK = "Last create attempt failed. Your saved draft is unchanged.";
+const REVIEWED_DETAILS_CHANGED = "The reviewed details changed. Review this item and try again.";
+
+// Row failures arrive as a machine code (stored in lastErrorCode and echoed on
+// a live outcome). Known codes get a specific sentence; an unknown code uses
+// the server's sentence when it has one, and the generic line only as a last
+// resort.
+const MATERIALIZE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  PROOF_UPLOAD_MISSING: "The payment proof file is no longer available. Attach it again and retry.",
+  PROOF_INVALID: "The payment proof could not be verified. Attach it again and retry.",
+  OPERATION_KEY_CONFLICT: REVIEWED_DETAILS_CHANGED,
+  CONFLICT: REVIEWED_DETAILS_CHANGED,
+  INVALID_INPUT: "Some details are no longer valid. Review this item and try again.",
+  NOT_FOUND: "Part of this item could not be found. Review it and try again.",
+  INTEGRITY_ERROR: "Skitza could not create this item safely. Your saved draft is unchanged.",
+};
+
+export function materializeErrorMessage(
+  code: string | null | undefined,
+  serverMessage?: string | null,
+): string | null {
+  if (!code) return null;
+  const known = MATERIALIZE_ERROR_MESSAGES[code];
+  if (known) return known;
+  const fallback = serverMessage?.trim();
+  return fallback ? fallback : MATERIALIZE_ERROR_FALLBACK;
+}
 export type NormalizedImportReview = Readonly<{
   existingClientId: string | null;
   templateProductId: string | null;
@@ -158,7 +186,9 @@ export type InitialImportBatch = Readonly<{
   }>[];
 }>;
 
-export type ImportRowSaveState = "idle" | "saving" | "saved" | "error";
+// "unchecked" means the draft reached Skitza but its readiness check did not
+// answer. The work is safe; only the Ready/Needs info verdict is missing.
+export type ImportRowSaveState = "idle" | "saving" | "saved" | "error" | "unchecked";
 
 export type WorkspaceImportRow = {
   rowId: string | null;
@@ -218,6 +248,29 @@ export type SetupOptionsView = Readonly<{
   clients: readonly SetupClientOption[];
   installments: readonly SetupInstallmentOption[];
 }>;
+
+// Result of one Finish setup run. "requested" means the email provider only
+// acknowledged the request (busy); it is not finished and not failed.
+// `reason` is the server's sentence for a failed entry when it has one.
+export type FinishSetupResultView = Readonly<{
+  distinctClientCount: number;
+  projectPurchaseCount: number;
+  invitations: readonly Readonly<{
+    clientContactId: string;
+    status: "requested" | "provider_accepted" | "failed" | "connected";
+    providerAcceptedAtIso: string | null;
+    reason: string | null;
+  }>[];
+  reminders: readonly Readonly<{
+    installmentId: string;
+    purchaseId: string;
+    status: "enabled" | "failed";
+    changed: boolean;
+    reason: string | null;
+  }>[];
+}>;
+
+export const STILL_SENDING_NOTICE = "Still sending — check again in a moment" as const;
 
 export function newImportDraft(input: {
   defaultCurrency: string;
@@ -840,6 +893,51 @@ export function paymentPlanLabel(draft: ActiveWorkImportDraft): string {
 
 export function paidCents(draft: ActiveWorkImportDraft): number {
   return draft.payments.reduce((sum, payment) => sum + (inputToCents(payment.amount) ?? 0), 0);
+}
+
+/**
+ * Money truth is per installment: a payment on installment 1 never covers
+ * installment 2, and excess on one installment never reduces another.
+ * remaining = Σ max(0, scheduled − paid), overpaid = Σ max(0, paid − scheduled).
+ * A payment on a position that is not in the schedule is all excess.
+ */
+export function installmentBalance(
+  schedule: readonly Readonly<{ position: number; amountCents: number }>[],
+  payments: readonly Readonly<{ installmentPosition: number; amountCents: number }>[],
+): Readonly<{ paidCents: number; remainingCents: number; overpaidCents: number }> {
+  const paidByPosition = new Map<number, number>();
+  let paidCents = 0;
+  for (const payment of payments) {
+    paidCents += payment.amountCents;
+    paidByPosition.set(
+      payment.installmentPosition,
+      (paidByPosition.get(payment.installmentPosition) ?? 0) + payment.amountCents,
+    );
+  }
+  let remainingCents = 0;
+  let overpaidCents = 0;
+  for (const installment of schedule) {
+    const paid = paidByPosition.get(installment.position) ?? 0;
+    paidByPosition.delete(installment.position);
+    remainingCents += Math.max(0, installment.amountCents - paid);
+    overpaidCents += Math.max(0, paid - installment.amountCents);
+  }
+  for (const stray of paidByPosition.values()) overpaidCents += Math.max(0, stray);
+  return { paidCents, remainingCents, overpaidCents };
+}
+
+export function draftPaymentBalance(
+  draft: ActiveWorkImportDraft,
+): Readonly<{ paidCents: number; remainingCents: number | null; overpaidCents: number }> {
+  const schedule = draftInstallmentSchedule(draft);
+  const payments = draft.payments.map((payment) => ({
+    installmentPosition: payment.installmentPosition,
+    amountCents: inputToCents(payment.amount) ?? 0,
+  }));
+  if (schedule.length === 0) {
+    return { paidCents: paidCents(draft), remainingCents: null, overpaidCents: 0 };
+  }
+  return installmentBalance(schedule, payments);
 }
 
 export function installmentCount(draft: ActiveWorkImportDraft): number {

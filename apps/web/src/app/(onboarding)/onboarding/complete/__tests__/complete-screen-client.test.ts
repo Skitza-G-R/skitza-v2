@@ -14,7 +14,7 @@ describe("onboarding completion Store discovery", () => {
     expect(SRC).toContain("Open dashboard");
   });
 
-  it("offers active-work import as an optional next step without sending anything", () => {
+  it("offers active-work import as an optional next step with honest reminder copy", () => {
     const dashboardAction = SRC.indexOf("Open dashboard");
     const importAction = SRC.indexOf("Bring in your active work");
 
@@ -22,7 +22,9 @@ describe("onboarding completion Store discovery", () => {
     expect(importAction).toBeGreaterThan(dashboardAction);
     expect(SRC).toContain('href="/dashboard/clients-projects/bring-active-work"');
     expect(SRC).toContain("Add the clients and projects you already started.");
-    expect(SRC).toContain("Nothing will be sent to anyone.");
+    expect(SRC).not.toContain("Nothing will be sent to anyone.");
+    expect(SRC).toMatch(/Nothing is sent while you set\s+things up\./);
+    expect(SRC).toMatch(/Reminders turn on for unpaid payments only when you finish setup\./);
     expect(SRC).toContain("Add active work");
   });
 });

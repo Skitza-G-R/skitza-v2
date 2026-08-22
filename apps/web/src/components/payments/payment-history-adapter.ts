@@ -305,11 +305,13 @@ function mapPurchase(
       amountCents: payment.effectiveAmountCents,
       currency: payment.currency,
       paidAtIso: payment.paidAt.toISOString(),
+      // Producer-entered history keeps its locked wording even when a proof
+      // file was attached at import; the proof itself stays listed above.
       sourceLabel:
-        payment.source === "proof"
-          ? "Confirmed from proof"
-          : purchase.sourceKind === "imported_existing_work"
-            ? "Confirmed by producer"
+        purchase.sourceKind === "imported_existing_work"
+          ? "Confirmed by producer"
+          : payment.source === "proof"
+            ? "Confirmed from proof"
             : "Recorded manually",
       note: payment.note,
     })),
