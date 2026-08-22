@@ -158,7 +158,9 @@ export type InitialImportBatch = Readonly<{
   }>[];
 }>;
 
-export type ImportRowSaveState = "idle" | "saving" | "saved" | "error";
+// "unchecked" means the draft reached Skitza but its readiness check did not
+// answer. The work is safe; only the Ready/Needs info verdict is missing.
+export type ImportRowSaveState = "idle" | "saving" | "saved" | "error" | "unchecked";
 
 export type WorkspaceImportRow = {
   rowId: string | null;

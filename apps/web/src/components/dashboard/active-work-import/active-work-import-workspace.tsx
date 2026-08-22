@@ -371,7 +371,7 @@ export function ActiveWorkImportWorkspace({
               assessment: responseIsCurrent ? result.data.assessment : null,
               saveState: responseIsCurrent
                 ? result.data.assessmentError
-                  ? "error"
+                  ? "unchecked"
                   : "saved"
                 : "saving",
               saveError: responseIsCurrent ? result.data.assessmentError : null,
@@ -444,6 +444,7 @@ export function ActiveWorkImportWorkspace({
         (row.rowId === null ||
           row.persistedLocalVersion < row.localVersion ||
           row.saveState === "error" ||
+          row.saveState === "unchecked" ||
           savePromises.current.has(row.operationKey)),
     );
     const results = await Promise.all(pending.map((row) => persistRow(row.operationKey)));
@@ -781,9 +782,14 @@ export function ActiveWorkImportWorkspace({
     const failedTotal = result.data.outcomes.filter(
       (outcome) => outcome.state !== "created",
     ).length;
+    const unansweredTotal = requests.length - result.data.outcomes.length;
     if (createdTotal > 0) {
       setReviewStage("setup");
-      if (failedTotal > 0) {
+      if (result.data.error) {
+        setReviewError(
+          `${result.data.error} ${String(unansweredTotal)} ${unansweredTotal === 1 ? "item was" : "items were"} not created yet; the saved details are unchanged.`,
+        );
+      } else if (failedTotal > 0) {
         setReviewError(
           `${String(failedTotal)} ${failedTotal === 1 ? "draft was" : "drafts were"} not created. The saved details are unchanged.`,
         );
@@ -791,7 +797,9 @@ export function ActiveWorkImportWorkspace({
       await loadSetupOptions();
       return;
     }
-    setReviewError("Nothing was created. Review the messages below and try again.");
+    setReviewError(
+      result.data.error ?? "Nothing was created. Review the messages below and try again.",
+    );
   }
 
   function uploadProofForRow(

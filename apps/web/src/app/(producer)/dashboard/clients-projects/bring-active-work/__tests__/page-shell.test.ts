@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TRPCError } from "@trpc/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -22,6 +23,11 @@ const actionSource = readFileSync(join(here, "..", "actions.ts"), "utf8");
 beforeEach(() => {
   mocks.auth.mockReset().mockResolvedValue({ userId: "producer-user" });
   mocks.createCaller.mockReset();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("Bring active work route shell", () => {
@@ -98,6 +104,7 @@ describe("Bring active work route shell", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.error);
     expect(result.data.outcomes).toHaveLength(101);
+    expect(result.data.error).toBeNull();
     expect(result.data.outcomes[0]?.rowId).toBe(rows[0]?.rowId);
     expect(result.data.outcomes[100]?.rowId).toBe(rows[100]?.rowId);
     expect(materializeRows).toHaveBeenCalledTimes(2);
@@ -142,10 +149,131 @@ describe("Bring active work route shell", () => {
       draftRevision: 7,
     });
     expect(result.data.assessment).toBeNull();
-    expect(result.data.assessmentError).toBe(
-      "Saved, but we couldn't check the details. Edit or try again.",
-    );
+    expect(result.data.assessmentError).toBe("Saved, but not checked yet. Edit or try again.");
     expect(saveRow).toHaveBeenCalledTimes(1);
     expect(assessRow).toHaveBeenCalledTimes(1);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.anything(),
+    );
+  });
+
+  it("never forwards a raw error token and logs the unknown branch", async () => {
+    const saveRow = vi.fn().mockRejectedValue(new TRPCError({ code: "INTERNAL_SERVER_ERROR" }));
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { saveRow } });
+
+    const result = await saveImportRowAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      rowOperationKey: "row-operation",
+      expectedRevision: null,
+      draftPayload: {},
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a failure result.");
+    expect(result.error).toBe("Something went wrong on our side. Please try again.");
+    expect(result.error).not.toMatch(/INTERNAL_SERVER_ERROR/);
+    expect(result.code).toBe("INTERNAL_SERVER_ERROR");
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.objectContaining({ code: "INTERNAL_SERVER_ERROR" }),
+    );
+  });
+
+  it("forwards the exact message only for expected client-facing codes", async () => {
+    const conflict = vi
+      .fn()
+      .mockRejectedValue(
+        new TRPCError({ code: "CONFLICT", message: "This draft changed in another save." }),
+      );
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { saveRow: conflict } });
+    const conflictResult = await saveImportRowAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      rowOperationKey: "row-operation",
+      expectedRevision: 1,
+      draftPayload: {},
+    });
+    expect(conflictResult).toEqual({
+      ok: false,
+      error: "This draft changed in another save.",
+      code: "CONFLICT",
+    });
+
+    const timeout = vi
+      .fn()
+      .mockRejectedValue(new TRPCError({ code: "TIMEOUT", message: "TIMEOUT" }));
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { saveRow: timeout } });
+    const timeoutResult = await saveImportRowAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      rowOperationKey: "row-operation",
+      expectedRevision: 1,
+      draftPayload: {},
+    });
+    expect(timeoutResult).toEqual({
+      ok: false,
+      error: "Something went wrong on our side. Please try again.",
+      code: "TIMEOUT",
+    });
+
+    const bareConflict = vi.fn().mockRejectedValue(new TRPCError({ code: "CONFLICT" }));
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { saveRow: bareConflict } });
+    const bareResult = await saveImportRowAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      rowOperationKey: "row-operation",
+      expectedRevision: 1,
+      draftPayload: {},
+    });
+    if (bareResult.ok) throw new Error("Expected a failure result.");
+    expect(bareResult.error).not.toBe("CONFLICT");
+    expect(bareResult.error).toBe("Something changed. Review the latest details and try again.");
+  });
+
+  it("keeps the outcomes of earlier chunks when a later chunk fails", async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => ({
+      rowId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      expectedCreationDigest: `digest-${String(index + 1)}`,
+    }));
+    const materializeRows = vi
+      .fn()
+      .mockResolvedValueOnce(
+        rows.slice(0, 100).map((row) => ({
+          state: "created",
+          result: {
+            rowId: row.rowId,
+            clientContactId: "client",
+            projectId: "project",
+            purchaseId: "purchase",
+            created: true,
+            materializedAt: new Date("2026-08-20T10:00:00.000Z"),
+          },
+        })),
+      )
+      .mockRejectedValueOnce(new TRPCError({ code: "INTERNAL_SERVER_ERROR" }));
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { materializeRows } });
+
+    const result = await materializeImportRowsAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      rows,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.outcomes).toHaveLength(100);
+    expect(result.data.error).toBe("Something went wrong on our side. Please try again.");
+    expect(materializeRows).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a failed first chunk with no outcomes", async () => {
+    const materializeRows = vi
+      .fn()
+      .mockRejectedValue(new TRPCError({ code: "CONFLICT", message: "Details changed." }));
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { materializeRows } });
+
+    const result = await materializeImportRowsAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      rows: [{ rowId: "00000000-0000-4000-8000-000000000001", expectedCreationDigest: "d" }],
+    });
+
+    expect(result).toEqual({ ok: true, data: { outcomes: [], error: "Details changed." } });
   });
 });

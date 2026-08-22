@@ -24,17 +24,39 @@ async function callerOrError(): Promise<
   return { ok: true, caller: appRouter.createCaller({ userId }) };
 }
 
+const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
+const CHANGED_ERROR = "Something changed. Review the latest details and try again.";
+
+// tRPC fills a missing message with the code itself ("INTERNAL_SERVER_ERROR")
+// and zod failures arrive as a JSON array. Neither is a sentence a producer
+// should read, so only a real sentence is forwarded.
+function humanMessage(error: TRPCError): string | null {
+  const message = error.message.trim();
+  if (!message || message === error.code || /^[[{]/.test(message)) return null;
+  return message;
+}
+
 function actionError(error: unknown): Readonly<{ error: string; code?: string }> {
   if (error instanceof TRPCError) {
-    const message =
-      error.code === "UNAUTHORIZED"
-        ? "Please sign in to continue."
-        : error.code === "NOT_FOUND"
-          ? "This saved setup could not be found."
-          : error.message || "Something changed. Review the latest details and try again.";
-    return { error: message, code: error.code };
+    if (error.code === "UNAUTHORIZED") {
+      return { error: "Please sign in to continue.", code: error.code };
+    }
+    if (error.code === "NOT_FOUND") {
+      return { error: "This saved setup could not be found.", code: error.code };
+    }
+    if (error.code === "BAD_REQUEST" || error.code === "CONFLICT") {
+      return { error: humanMessage(error) ?? CHANGED_ERROR, code: error.code };
+    }
+    console.error("[active-work-import] unexpected action failure", {
+      code: error.code,
+      message: error.message,
+    });
+    return { error: GENERIC_ERROR, code: error.code };
   }
-  return { error: "Something went wrong. Please try again.", code: "INTERNAL" };
+  console.error("[active-work-import] unexpected action failure", {
+    error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+  });
+  return { error: GENERIC_ERROR, code: "INTERNAL" };
 }
 
 function mapRow(row: {
@@ -108,13 +130,17 @@ export async function saveImportRowAction(input: {
         assessmentError: null,
       },
     };
-  } catch {
+  } catch (error) {
+    console.error("[active-work-import] assessment failed after a successful save", {
+      rowId: saved.row.id,
+      error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+    });
     return {
       ok: true,
       data: {
         row: mapRow(saved.row),
         assessment: null,
-        assessmentError: "Saved, but we couldn't check the details. Edit or try again.",
+        assessmentError: "Saved, but not checked yet. Edit or try again.",
       },
     };
   }
@@ -184,46 +210,54 @@ export type MaterializeImportOutcome =
 
 const MATERIALIZE_ROWS_CHUNK_SIZE = 100;
 
+/**
+ * Rows are created in router-safe chunks. A chunk that fails stops the run,
+ * but the outcomes already returned by earlier chunks are real created work,
+ * so they travel back together with the error instead of being dropped.
+ */
 export async function materializeImportRowsAction(input: {
   batchId: string;
   rows: readonly Readonly<{ rowId: string; expectedCreationDigest: string }>[];
-}): Promise<ImportActionResult<{ outcomes: readonly MaterializeImportOutcome[] }>> {
+}): Promise<
+  ImportActionResult<{ outcomes: readonly MaterializeImportOutcome[]; error: string | null }>
+> {
   const context = await callerOrError();
   if (!context.ok) return context;
-  try {
-    const materializedOutcomes: MaterializeImportOutcome[] = [];
-    for (let offset = 0; offset < input.rows.length; offset += MATERIALIZE_ROWS_CHUNK_SIZE) {
-      const outcomes = await context.caller.activeWorkImport.materializeRows({
+  const materializedOutcomes: MaterializeImportOutcome[] = [];
+  for (let offset = 0; offset < input.rows.length; offset += MATERIALIZE_ROWS_CHUNK_SIZE) {
+    let outcomes: Awaited<ReturnType<typeof context.caller.activeWorkImport.materializeRows>>;
+    try {
+      outcomes = await context.caller.activeWorkImport.materializeRows({
         batchId: input.batchId,
         rows: input.rows.slice(offset, offset + MATERIALIZE_ROWS_CHUNK_SIZE),
       });
-      materializedOutcomes.push(
-        ...outcomes.map((outcome): MaterializeImportOutcome => {
-          if (outcome.state === "created") {
-            return {
-              state: "created",
-              rowId: outcome.result.rowId,
-              clientContactId: outcome.result.clientContactId,
-              projectId: outcome.result.projectId,
-              purchaseId: outcome.result.purchaseId,
-              created: outcome.result.created,
-              materializedAtIso: outcome.result.materializedAt.toISOString(),
-            };
-          }
-          if (outcome.state === "needs_info") {
-            return { state: "needs_info", rowId: outcome.rowId, reasons: outcome.reasons };
-          }
-          return outcome;
-        }),
-      );
+    } catch (error) {
+      return {
+        ok: true,
+        data: { outcomes: materializedOutcomes, error: actionError(error).error },
+      };
     }
-    return {
-      ok: true,
-      data: { outcomes: materializedOutcomes },
-    };
-  } catch (error) {
-    return { ok: false, ...actionError(error) };
+    materializedOutcomes.push(
+      ...outcomes.map((outcome): MaterializeImportOutcome => {
+        if (outcome.state === "created") {
+          return {
+            state: "created",
+            rowId: outcome.result.rowId,
+            clientContactId: outcome.result.clientContactId,
+            projectId: outcome.result.projectId,
+            purchaseId: outcome.result.purchaseId,
+            created: outcome.result.created,
+            materializedAtIso: outcome.result.materializedAt.toISOString(),
+          };
+        }
+        if (outcome.state === "needs_info") {
+          return { state: "needs_info", rowId: outcome.rowId, reasons: outcome.reasons };
+        }
+        return outcome;
+      }),
+    );
   }
+  return { ok: true, data: { outcomes: materializedOutcomes, error: null } };
 }
 
 export async function loadImportSetupOptionsAction(input: {

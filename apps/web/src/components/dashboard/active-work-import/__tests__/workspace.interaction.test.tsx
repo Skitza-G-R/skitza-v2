@@ -1013,7 +1013,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
           savedResult(input, {
             revision: 2,
             assessment: null,
-            assessmentError: "Saved, but we couldn't check the details. Edit or try again.",
+            assessmentError: "Saved, but not checked yet. Edit or try again.",
           }),
         ),
       )
@@ -1040,12 +1040,13 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     fireEvent.change(projectName, { target: { value: "Saved despite check failure" } });
     await waitFor(
       () => {
-        expect(
-          screen.getByText("Saved, but we couldn't check the details. Edit or try again."),
-        ).not.toBeNull();
+        expect(screen.getAllByText("Saved, but not checked yet").length).toBeGreaterThan(0);
       },
       { timeout: 1_500 },
     );
+    expect(screen.getByTitle("Saved, but not checked yet. Edit or try again.")).not.toBeNull();
+    expect(screen.queryByText("Could not save — try again")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
 
     fireEvent.change(projectName, { target: { value: "Try the check again" } });
     await waitFor(
@@ -1376,6 +1377,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
             materializedAtIso: "2026-08-20T10:00:00.000Z",
           },
         ],
+        error: null,
       },
     });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
@@ -1463,6 +1465,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
             ],
           },
         ],
+        error: null,
       },
     });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
@@ -1536,8 +1539,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
       materializedAtIso: "2026-08-20T10:00:00.000Z",
     };
     mocks.materializeRows
-      .mockResolvedValueOnce({ ok: true, data: { outcomes: [failedOutcome] } })
-      .mockResolvedValueOnce({ ok: true, data: { outcomes: [createdOutcome] } });
+      .mockResolvedValueOnce({ ok: true, data: { outcomes: [failedOutcome], error: null } })
+      .mockResolvedValueOnce({ ok: true, data: { outcomes: [createdOutcome], error: null } });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
     const user = userEvent.setup();
     renderWorkspace();
@@ -1566,6 +1569,37 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(await screen.findByText(/1 client · 1 project and agreement added/)).not.toBeNull();
   });
 
+  it("keeps created rows and explains the failure when a later chunk did not finish", async () => {
+    mocks.materializeRows.mockResolvedValue({
+      ok: true,
+      data: {
+        outcomes: [
+          {
+            state: "created",
+            rowId,
+            clientContactId: "client-created",
+            projectId: "project-created",
+            purchaseId: "purchase-created",
+            created: true,
+            materializedAtIso: "2026-08-20T10:00:00.000Z",
+          },
+        ],
+        error: "Something went wrong on our side. Please try again.",
+      },
+    });
+    mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await user.click(screen.getByRole("button", { name: "Create 1 ready item" }));
+
+    expect(await screen.findByText(/1 client · 1 project and agreement added/)).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Something went wrong on our side. Please try again.",
+    );
+  });
+
   it("keeps raw Ready client matches in Needs info and creates only the effective-ready row", async () => {
     mocks.materializeRows.mockResolvedValue({
       ok: true,
@@ -1581,6 +1615,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
             materializedAtIso: "2026-08-20T10:00:00.000Z",
           },
         ],
+        error: null,
       },
     });
     mocks.loadSetup.mockResolvedValue({ ok: true, data: freshSetupOptions() });

@@ -170,6 +170,13 @@ export function ImportRowList({
                     >
                       Could not save — try again
                     </span>
+                  ) : row.saveState === "unchecked" ? (
+                    <span
+                      role="status"
+                      className="mt-0.5 block text-[9.5px] text-[rgb(var(--fg-warning-text))] lg:pl-[1.55rem]"
+                    >
+                      Saved, but not checked yet
+                    </span>
                   ) : null}
                 </span>
 
