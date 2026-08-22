@@ -1,6 +1,7 @@
 import { render } from "@react-email/components";
 
 import { FROM_ADDRESS, getResend, SITE_URL } from "./client";
+import { EmailDeliveryError } from "./delivery-error";
 import {
   BookingCancelledOrRescheduled,
   type BookingCancelledOrRescheduledProps,
@@ -199,7 +200,11 @@ export async function sendClientInviteEmail(
   );
 
   if (result.error) {
-    throw new Error("Email delivery failed");
+    throw new EmailDeliveryError({
+      name: result.error.name,
+      message: result.error.message,
+      statusCode: result.error.statusCode,
+    });
   }
   const responseData: unknown = result.data;
   if (

@@ -253,9 +253,22 @@ function validCompletionTime(clock: () => Date, attemptedAt: Date, label: string
   return completedAt;
 }
 
+/** Durable diagnostic: the error's real reason plus any provider detail it carries as cause. */
 function failureCode(error: unknown): string {
-  const value = error instanceof Error && error.name ? error.name : "EMAIL_PROVIDER_ERROR";
-  return value.trim().slice(0, 200) || "EMAIL_PROVIDER_ERROR";
+  if (!(error instanceof Error)) return "EMAIL_PROVIDER_ERROR";
+  const cause = error.cause;
+  const causeMessage =
+    cause !== null &&
+    typeof cause === "object" &&
+    "message" in cause &&
+    typeof cause.message === "string"
+      ? cause.message.trim()
+      : "";
+  const value = [`${error.name}: ${error.message}`.trim(), causeMessage]
+    .filter(Boolean)
+    .join(" — ")
+    .slice(0, 500);
+  return value || "EMAIL_PROVIDER_ERROR";
 }
 
 function assertStoredIntent(delivery: ClientInvitationDeliveryRecord): void {
