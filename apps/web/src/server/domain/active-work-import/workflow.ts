@@ -1,9 +1,10 @@
 import type { Db } from "@skitza/db";
 
-import { deletePrivateProofObjectQuietly } from "../payment-proofs/storage";
+import { deletePrivateProofObjectQuietly, ProofStorageError } from "../payment-proofs/storage";
 import {
   assessStoredActiveWorkImportRow,
   cleanupUnpersistedActiveWorkImportProof,
+  clearActiveWorkImportProofUploadToken,
   loadActiveWorkImportBatch,
   loadUnmaterializedImportRow,
   markActiveWorkImportRowFailure,
@@ -187,11 +188,20 @@ export async function assessActiveWorkImportRowForCreation(
   };
 }
 
+/** Stable machine codes for `last_error_code`; raw error names are only logged. */
 function errorCode(error: unknown): string {
   if (error instanceof ActiveWorkImportDomainError) return error.code;
   if (error instanceof ActiveWorkImportProofCapabilityError) return "PROOF_INVALID";
-  if (error instanceof Error && error.name) return error.name.slice(0, 200);
-  return "UNKNOWN";
+  if (error instanceof ProofStorageError) return "PROOF_UPLOAD_MISSING";
+  return "UNEXPECTED";
+}
+
+function failureMessage(error: unknown): string {
+  if (error instanceof ActiveWorkImportDomainError) return error.message;
+  if (error instanceof ProofStorageError) {
+    return "The payment proof file is no longer available. Attach it again and retry.";
+  }
+  return "This row could not be created. Your draft is safe.";
 }
 
 export type MaterializeActiveWorkImportRowOutcome =
@@ -256,6 +266,7 @@ export async function materializeActiveWorkImportRow(
     );
   }
   const finalizedStorageKeys: string[] = [];
+  const missingProofOperationKeys: string[] = [];
   try {
     const capabilities = new Map(
       [...assessment.proofCapabilities].map(([key, value]) => [key, value.capability]),
@@ -276,39 +287,78 @@ export async function materializeActiveWorkImportRow(
         if (!verified || verified.capability.uploadId !== capability.uploadId) {
           throw new ActiveWorkImportProofCapabilityError();
         }
-        const storedProof = await finalizeActiveWorkImportProofUpload(verified.secret, capability);
-        finalizedStorageKeys.push(storedProof.storageKey);
-        return storedProof;
+        try {
+          const storedProof = await finalizeActiveWorkImportProofUpload(
+            verified.secret,
+            capability,
+          );
+          finalizedStorageKeys.push(storedProof.storageKey);
+          return storedProof;
+        } catch (error) {
+          if (error instanceof ProofStorageError) {
+            missingProofOperationKeys.push(capability.paymentOperationKey);
+          }
+          throw error;
+        }
       },
     });
     return { state: "created", result };
   } catch (error) {
+    const scope = { rowId: input.rowId, batchId: input.batchId };
+    console.error("[active-work-import] materialize failed", { ...scope, error });
+    // Compensation must never hide the original failure: each step logs its
+    // own problem and the row still reports the real reason below.
     for (const storageKey of finalizedStorageKeys) {
-      await cleanupUnpersistedActiveWorkImportProof(db, {
+      try {
+        await cleanupUnpersistedActiveWorkImportProof(db, {
+          producerId: input.producerId,
+          batchId: input.batchId,
+          rowId: input.rowId,
+          storageKey,
+          deleteProof: deletePrivateProofObjectQuietly,
+        });
+      } catch (cleanupError) {
+        console.error("[active-work-import] proof cleanup failed", {
+          ...scope,
+          storageKey,
+          error: cleanupError,
+        });
+      }
+    }
+    for (const paymentOperationKey of missingProofOperationKeys) {
+      try {
+        await clearActiveWorkImportProofUploadToken(db, {
+          producerId: input.producerId,
+          batchId: input.batchId,
+          rowId: input.rowId,
+          paymentOperationKey,
+          now: importedAt,
+        });
+      } catch (clearError) {
+        console.error("[active-work-import] proof token reset failed", {
+          ...scope,
+          paymentOperationKey,
+          error: clearError,
+        });
+      }
+    }
+    const code = errorCode(error);
+    try {
+      await markActiveWorkImportRowFailure(db, {
         producerId: input.producerId,
         batchId: input.batchId,
         rowId: input.rowId,
-        storageKey,
-        deleteProof: deletePrivateProofObjectQuietly,
+        errorCode: code,
+        attemptedAt: importedAt,
+      });
+    } catch (markError) {
+      console.error("[active-work-import] failure marking failed", {
+        ...scope,
+        code,
+        error: markError,
       });
     }
-    const code = errorCode(error);
-    await markActiveWorkImportRowFailure(db, {
-      producerId: input.producerId,
-      batchId: input.batchId,
-      rowId: input.rowId,
-      errorCode: code,
-      attemptedAt: importedAt,
-    });
-    return {
-      state: "failed",
-      rowId: input.rowId,
-      code,
-      message:
-        error instanceof ActiveWorkImportDomainError
-          ? error.message
-          : "This row could not be created. Your draft is safe.",
-    };
+    return { state: "failed", rowId: input.rowId, code, message: failureMessage(error) };
   }
 }
 
@@ -339,14 +389,16 @@ export async function materializeActiveWorkImportRows(
         }),
       );
     } catch (error) {
+      console.error("[active-work-import] materialize failed", {
+        rowId: row.rowId,
+        batchId: input.batchId,
+        error,
+      });
       outcomes.push({
         state: "failed",
         rowId: row.rowId,
         code: errorCode(error),
-        message:
-          error instanceof ActiveWorkImportDomainError
-            ? error.message
-            : "This row could not be created. Your draft is safe.",
+        message: failureMessage(error),
       });
     }
   }
