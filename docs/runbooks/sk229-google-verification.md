@@ -1,5 +1,25 @@
 # SK-229 Google Calendar verification runbook
 
+## Outcome — 17 August 2026: approved
+
+Google's Third Party Data Safety Team approved the OAuth App Verification request for
+project `skitza-openclaw` for the sensitive scope `.../auth/calendar.events` (email to
+giasraf@gmail.com, 17 August 2026 03:50 UTC, subject "[Action Needed] OAuth Verification
+Request Acknowledgement"). The non-sensitive scopes (`openid`, `userinfo.email`,
+`calendar.calendarlist.readonly`, `calendar.events.freebusy`) needed no review.
+
+Google's reminders: keep Project Owner/Editor accounts current; any new scope or any change
+to the consent-screen configuration requires a new verification request.
+
+Remaining follow-ups:
+
+- Confirm in Google Auth Platform → Audience that the app is **In production** (it was
+  still "Testing" on 14 August).
+- Decide whether the unused second OAuth client is kept; Google auto-deletes inactive
+  clients (notice of 5 August 2026).
+
+The sections below are the pre-approval handoff and are kept for history.
+
 Use this runbook with the final production Clerk instance and only disposable
 Producer, Artist, booking, and Google Calendar data.
 
