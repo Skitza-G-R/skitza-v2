@@ -31,6 +31,7 @@ import { PurchaseLedgerDomainError } from "../purchase-ledger/policy";
 import {
   reconcilePurchaseLedger,
   setInstallmentRemindersEnabled,
+  type ReconciledPurchaseLedger,
 } from "../purchase-ledger/service";
 import { digestCommercialSnapshot } from "../purchases/policy";
 import { completeActiveWorkImportBatch } from "./db";
@@ -47,6 +48,9 @@ type MaterializedProjectPurchase = Readonly<{
 }>;
 
 type StoredInstallment = typeof purchaseInstallments.$inferSelect;
+
+// Each reconciliation opens its own locked transaction (one WebSocket each).
+const LEDGER_RECONCILE_CONCURRENCY = 5;
 
 export type ActiveWorkImportSetupScope = Readonly<{
   clients: readonly Readonly<{
@@ -692,14 +696,19 @@ export async function loadActiveWorkImportSetupScope(
     producerId: input.producerId,
     clientContactIds: clientIds,
   });
-  const ledgers = await Promise.all(
-    purchaseIds.map((purchaseId) =>
-      reconcilePurchaseLedger(purchaseLedgerRepository(db), {
-        producerId: input.producerId,
-        purchaseId,
-      }),
-    ),
-  );
+  const ledgers: ReconciledPurchaseLedger[] = [];
+  for (let offset = 0; offset < purchaseIds.length; offset += LEDGER_RECONCILE_CONCURRENCY) {
+    ledgers.push(
+      ...(await Promise.all(
+        purchaseIds.slice(offset, offset + LEDGER_RECONCILE_CONCURRENCY).map((purchaseId) =>
+          reconcilePurchaseLedger(purchaseLedgerRepository(db), {
+            producerId: input.producerId,
+            purchaseId,
+          }),
+        ),
+      )),
+    );
+  }
   const projectPurchaseByPurchaseId = new Map(
     projectPurchases.map((row) => [row.purchaseId, row] as const),
   );
