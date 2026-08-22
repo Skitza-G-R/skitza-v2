@@ -5,6 +5,7 @@ import {
   createActiveWorkImportProofCapability,
   verifyActiveWorkImportProofCapability,
 } from "../proof-capability";
+import { ActiveWorkImportDomainError } from "../service";
 
 const SECRET = "skitza-import-proof-test-secret-long-enough";
 const SCOPE = {
@@ -75,6 +76,39 @@ describe("producer import proof capability", () => {
       sizeBytes: 1_025,
     });
     expect(changed.payload.uploadId).not.toBe(signed.payload.uploadId);
+  });
+
+  it("reports a rejected file name or type as plain invalid input, not a broken capability", () => {
+    const rejected = [
+      { originalFileName: "re/ceipt.pdf", contentType: "application/pdf" },
+      { originalFileName: "receipt.txt", contentType: "text/plain" },
+    ];
+    for (const input of rejected) {
+      let thrown: unknown;
+      try {
+        createActiveWorkImportProofCapability(SECRET, { ...SCOPE, ...input, sizeBytes: 512 });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ActiveWorkImportDomainError);
+      expect(thrown).toMatchObject({ code: "INVALID_INPUT" });
+    }
+    expect(() =>
+      createActiveWorkImportProofCapability(SECRET, {
+        ...SCOPE,
+        originalFileName: "re/ceipt.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 512,
+      }),
+    ).toThrow("File name contains unsupported characters");
+    expect(() =>
+      createActiveWorkImportProofCapability(SECRET, {
+        ...SCOPE,
+        originalFileName: "receipt.txt",
+        contentType: "text/plain",
+        sizeBytes: 512,
+      }),
+    ).toThrow("Choose a JPG, PNG, WebP, HEIC, or PDF file");
   });
 
   it("canonicalizes retries before deriving the deterministic object identity", () => {

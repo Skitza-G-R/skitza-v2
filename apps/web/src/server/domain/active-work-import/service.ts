@@ -293,6 +293,15 @@ function parseRoyaltyTerms(
   };
 }
 
+/**
+ * The schedule and snapshot validators reject bad terms with plain `Error`
+ * instances. Anything else (TypeError, RangeError, domain errors) is a
+ * programming failure that must surface instead of reading as bad terms.
+ */
+function isTermsValidationError(error: unknown): error is Error {
+  return error instanceof Error && error.constructor === Error;
+}
+
 function includedTax(subtotalCents: number, ratePct: number): number {
   const numerator = BigInt(subtotalCents) * BigInt(ratePct);
   const denominator = BigInt(100 + ratePct);
@@ -558,7 +567,8 @@ export function assessActiveWorkImportDraft(
           ? Object.freeze({ ...installment, trigger: "producer_import" as const })
           : installment,
       );
-    } catch {
+    } catch (error) {
+      if (!isTermsValidationError(error)) throw error;
       reason(reasons, "plan_invalid", "agreement.plan", "The payment plan is not valid.");
     }
   }
@@ -618,7 +628,8 @@ export function assessActiveWorkImportDraft(
   };
   try {
     assertCommercialSnapshotMatchesAcceptance(commercialSnapshot, expectedTotalCents, plan);
-  } catch {
+  } catch (error) {
+    if (!isTermsValidationError(error)) throw error;
     return {
       state: "needs_info",
       reasons: [
