@@ -3,10 +3,10 @@
 import { Check, ChevronRight, CircleAlert, Plus } from "lucide-react";
 
 import {
+  draftPaymentBalance,
   draftTaxBreakdown,
   formatImportMoney,
   isRowReady,
-  paidCents,
   paymentPlanLabel,
   type ArchivedClientOption,
   type ExistingClientOption,
@@ -110,8 +110,11 @@ export function ImportRowList({
             isRowReady(row.assessment, row.draft, clients, archivedClients);
           const created = row.materializedAtIso !== null;
           const total = draftTaxBreakdown(row.draft).totalCents;
-          const paid = paidCents(row.draft);
-          const remaining = total === null ? null : Math.max(0, total - paid);
+          const {
+            paidCents: paid,
+            remainingCents: remaining,
+            overpaidCents,
+          } = draftPaymentBalance(row.draft);
           const selected = selectedOperationKey === row.operationKey;
           const currency = row.draft.agreement.currency || "USD";
           const stateLabel = created ? "Created" : ready ? "Ready" : "Needs info";
@@ -196,9 +199,12 @@ export function ImportRowList({
                   <span className="mt-0.5 block truncate text-[10px] text-[rgb(var(--fg-muted))]">
                     {remaining === null
                       ? "—"
-                      : paid > (total ?? 0)
-                        ? `${formatImportMoney(paid - (total ?? 0), currency)} over`
-                        : `${formatImportMoney(remaining, currency)} left`}
+                      : [
+                          `${formatImportMoney(remaining, currency)} left`,
+                          ...(overpaidCents > 0
+                            ? [`${formatImportMoney(overpaidCents, currency)} over`]
+                            : []),
+                        ].join(" · ")}
                   </span>
                 </span>
 

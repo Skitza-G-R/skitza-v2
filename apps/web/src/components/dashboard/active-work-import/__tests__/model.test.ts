@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
   IMPORT_NOTICE,
   applyTemplate,
+  draftPaymentBalance,
   draftTaxBreakdown,
+  installmentBalance,
   inputToCents,
   isRowReady,
   localDateInputValue,
@@ -68,6 +70,58 @@ describe("active-work import model", () => {
     );
     expect(source).toContain(".toLowerCase()");
     expect(source).not.toContain("toLocaleLowerCase");
+  });
+
+  it("tracks remaining and overpaid money per installment, never at purchase level", () => {
+    const schedule = [
+      { position: 1, amountCents: 50_000 },
+      { position: 2, amountCents: 50_000 },
+    ];
+
+    expect(installmentBalance(schedule, [{ installmentPosition: 1, amountCents: 70_000 }])).toEqual(
+      { paidCents: 70_000, remainingCents: 50_000, overpaidCents: 20_000 },
+    );
+    expect(installmentBalance(schedule, [{ installmentPosition: 2, amountCents: 30_000 }])).toEqual(
+      { paidCents: 30_000, remainingCents: 70_000, overpaidCents: 0 },
+    );
+    expect(
+      installmentBalance(schedule, [
+        { installmentPosition: 1, amountCents: 50_000 },
+        { installmentPosition: 2, amountCents: 50_000 },
+      ]),
+    ).toEqual({ paidCents: 100_000, remainingCents: 0, overpaidCents: 0 });
+    expect(installmentBalance(schedule, [{ installmentPosition: 3, amountCents: 1_000 }])).toEqual({
+      paidCents: 1_000,
+      remainingCents: 100_000,
+      overpaidCents: 1_000,
+    });
+
+    const draft = newImportDraft({ ...defaults, defaultTaxMode: "tax_free" });
+    draft.agreement.subtotal = "1000";
+    draft.agreement.planKind = "split_50_50";
+    draft.payments = [
+      {
+        operationKey: "first-half-overpaid",
+        installmentPosition: 1,
+        amount: "700",
+        paidAt: "2026-07-01",
+        note: "",
+        proofUploadToken: null,
+        proofFileName: null,
+      },
+    ];
+    expect(draftPaymentBalance(draft)).toEqual({
+      paidCents: 70_000,
+      remainingCents: 50_000,
+      overpaidCents: 20_000,
+    });
+
+    draft.agreement.subtotal = "";
+    expect(draftPaymentBalance(draft)).toEqual({
+      paidCents: 70_000,
+      remainingCents: null,
+      overpaidCents: 0,
+    });
   });
 
   it("uses the local calendar date for date inputs", () => {

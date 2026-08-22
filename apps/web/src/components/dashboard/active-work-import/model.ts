@@ -844,6 +844,51 @@ export function paidCents(draft: ActiveWorkImportDraft): number {
   return draft.payments.reduce((sum, payment) => sum + (inputToCents(payment.amount) ?? 0), 0);
 }
 
+/**
+ * Money truth is per installment: a payment on installment 1 never covers
+ * installment 2, and excess on one installment never reduces another.
+ * remaining = Σ max(0, scheduled − paid), overpaid = Σ max(0, paid − scheduled).
+ * A payment on a position that is not in the schedule is all excess.
+ */
+export function installmentBalance(
+  schedule: readonly Readonly<{ position: number; amountCents: number }>[],
+  payments: readonly Readonly<{ installmentPosition: number; amountCents: number }>[],
+): Readonly<{ paidCents: number; remainingCents: number; overpaidCents: number }> {
+  const paidByPosition = new Map<number, number>();
+  let paidCents = 0;
+  for (const payment of payments) {
+    paidCents += payment.amountCents;
+    paidByPosition.set(
+      payment.installmentPosition,
+      (paidByPosition.get(payment.installmentPosition) ?? 0) + payment.amountCents,
+    );
+  }
+  let remainingCents = 0;
+  let overpaidCents = 0;
+  for (const installment of schedule) {
+    const paid = paidByPosition.get(installment.position) ?? 0;
+    paidByPosition.delete(installment.position);
+    remainingCents += Math.max(0, installment.amountCents - paid);
+    overpaidCents += Math.max(0, paid - installment.amountCents);
+  }
+  for (const stray of paidByPosition.values()) overpaidCents += Math.max(0, stray);
+  return { paidCents, remainingCents, overpaidCents };
+}
+
+export function draftPaymentBalance(
+  draft: ActiveWorkImportDraft,
+): Readonly<{ paidCents: number; remainingCents: number | null; overpaidCents: number }> {
+  const schedule = draftInstallmentSchedule(draft);
+  const payments = draft.payments.map((payment) => ({
+    installmentPosition: payment.installmentPosition,
+    amountCents: inputToCents(payment.amount) ?? 0,
+  }));
+  if (schedule.length === 0) {
+    return { paidCents: paidCents(draft), remainingCents: null, overpaidCents: 0 };
+  }
+  return installmentBalance(schedule, payments);
+}
+
 export function installmentCount(draft: ActiveWorkImportDraft): number {
   if (draft.agreement.planKind === "split_50_50") return 2;
   if (draft.agreement.planKind === "monthly") {

@@ -14,10 +14,11 @@ import { useState, type MouseEvent } from "react";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 
 import {
+  draftPaymentBalance,
   draftTaxBreakdown,
   formatImportMoney,
   IMPORT_NOTICE,
-  paidCents,
+  installmentBalance,
   PAYMENT_NOTICE,
   paymentPlanLabel,
   rowDisplayReasons,
@@ -366,11 +367,22 @@ function reviewEntryFacts(entry: ReviewEntry) {
     ready?.commercialSnapshot.currency || entry.row.draft.agreement.currency || "USD";
   const totalCents =
     ready?.commercialSnapshot.totalCents ?? draftTaxBreakdown(entry.row.draft).totalCents;
-  const importedPaidCents = ready
-    ? ready.payments.reduce((sum, payment) => sum + payment.amountCents, 0)
-    : paidCents(entry.row.draft);
-  const remainingCents = totalCents === null ? null : Math.max(0, totalCents - importedPaidCents);
-  const overpaidCents = totalCents === null ? 0 : Math.max(0, importedPaidCents - totalCents);
+  const balance = ready
+    ? installmentBalance(
+        ready.schedule.map((installment) => ({
+          position: installment.sequence,
+          amountCents: installment.amountCents,
+        })),
+        ready.payments,
+      )
+    : draftPaymentBalance(entry.row.draft);
+  const { paidCents: importedPaidCents, remainingCents, overpaidCents } = balance;
+  const balanceParts = [
+    remainingCents === null
+      ? "Balance unavailable"
+      : `${formatImportMoney(remainingCents, currency)} remaining`,
+    ...(overpaidCents > 0 ? [`${formatImportMoney(overpaidCents, currency)} overpaid`] : []),
+  ];
   return {
     clientName: ready?.clientName || entry.row.draft.client.name.trim() || "New client",
     projectTitle: ready?.projectTitle || entry.row.draft.project.title.trim() || "Untitled project",
@@ -378,12 +390,7 @@ function reviewEntryFacts(entry: ReviewEntry) {
       totalCents === null ? "Agreement incomplete" : formatImportMoney(totalCents, currency),
     agreementPlan: ready ? planLabel(ready) : paymentPlanLabel(entry.row.draft),
     paid: `${formatImportMoney(importedPaidCents, currency)} paid`,
-    paymentBalance:
-      overpaidCents > 0
-        ? `${formatImportMoney(overpaidCents, currency)} overpaid`
-        : remainingCents === null
-          ? "Balance unavailable"
-          : `${formatImportMoney(remainingCents, currency)} remaining`,
+    paymentBalance: balanceParts.join(" · "),
   };
 }
 
