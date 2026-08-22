@@ -4,6 +4,7 @@
 
 - Skitza is a SaaS product for solo music producers. One public link lets artists listen, sign up, book, and pay.
 - Speak to Gili in simple, easy-to-understand English. Lead with the result and explain technical details only when they help a decision.
+- Keep answers short. Plain words, no developer jargon. If a technical word cannot be avoided, explain it in a few plain words right after. Status updates: 3–6 short lines — what is done, what is left, what Gili needs to decide.
 - Gili currently makes the final product and engineering decisions. Work directly from her instructions and the Linear backlog; Raz is not a required gate unless Gili says so for a specific task.
 
 ## Strict scope and initiative rule
