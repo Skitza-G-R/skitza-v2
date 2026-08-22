@@ -18,8 +18,7 @@ import { cn } from "~/lib/cn";
 //
 // The repo runs vitest in `node` env (no jsdom) so the contract of
 // this file is pinned by exporting the pure helpers (PORTFOLIO_PLATFORMS,
-// isValidLinkUrl, linkRowError, toLinksPayload) — same convention as
-// Story 02's progress-bar.tsx + action-bar.tsx. The React shell is
+// isValidLinkUrl, linkRowError, toLinksPayload). The React shell is
 // intentionally thin: 3 <Input>s wired to onChange + an inline error
 // badge driven by linkRowError.
 

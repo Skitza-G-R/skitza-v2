@@ -17,8 +17,7 @@ import {
 // component hands a normalized payload to the server action.
 //
 // The repo runs vitest in `node` env (no jsdom) so this file pins the
-// pure helpers exported by external-links-editor.tsx — same pattern as
-// progress-bar.test.tsx + action-bar.test.tsx (Story 02). The React
+// pure helpers exported by external-links-editor.tsx. The React
 // component is a thin shell around these helpers, so pinning them here
 // covers the contract that matters: the 3 platforms exposed, the
 // validation rule, the serialization shape that the server action
