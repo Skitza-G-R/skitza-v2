@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { auth } from "~/server/auth/clerk-identity";
 
 import type {
+  FinishSetupResultView,
   ImportAssessmentView,
   SetupOptionsView,
   StoredImportRowView,
@@ -307,21 +308,14 @@ export async function loadImportSetupOptionsAction(input: {
   }
 }
 
-export type FinishImportSetupView = Readonly<{
-  distinctClientCount: number;
-  projectPurchaseCount: number;
-  invitations: readonly Readonly<{
-    clientContactId: string;
-    status: "requested" | "provider_accepted" | "failed" | "connected";
-    providerAcceptedAtIso: string | null;
-  }>[];
-  reminders: readonly Readonly<{
-    installmentId: string;
-    purchaseId: string;
-    status: "enabled" | "failed";
-    changed: boolean;
-  }>[];
-}>;
+export type FinishImportSetupView = FinishSetupResultView;
+
+// Newer servers attach a `reason` sentence to failed setup entries; older
+// ones do not. Read it without depending on either shape.
+function optionalReason(entry: object): string | null {
+  const reason = (entry as { reason?: unknown }).reason;
+  return typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
+}
 
 export async function finishImportSetupAction(input: {
   batchId: string;
@@ -339,10 +333,20 @@ export async function finishImportSetupAction(input: {
     return {
       ok: true,
       data: {
-        ...result,
+        distinctClientCount: result.distinctClientCount,
+        projectPurchaseCount: result.projectPurchaseCount,
         invitations: result.invitations.map((invitation) => ({
-          ...invitation,
+          clientContactId: invitation.clientContactId,
+          status: invitation.status,
           providerAcceptedAtIso: invitation.providerAcceptedAt?.toISOString() ?? null,
+          reason: optionalReason(invitation),
+        })),
+        reminders: result.reminders.map((reminder) => ({
+          installmentId: reminder.installmentId,
+          purchaseId: reminder.purchaseId,
+          status: reminder.status,
+          changed: reminder.changed,
+          reason: optionalReason(reminder),
         })),
       },
     };

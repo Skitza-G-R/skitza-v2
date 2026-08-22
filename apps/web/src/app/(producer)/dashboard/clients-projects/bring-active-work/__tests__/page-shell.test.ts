@@ -15,6 +15,7 @@ vi.mock("~/server/trpc/routers/_app", () => ({
 }));
 
 import {
+  finishImportSetupAction,
   loadImportBatchRowsAction,
   materializeImportRowsAction,
   saveImportRowAction,
@@ -449,6 +450,70 @@ describe("Bring active work route shell", () => {
       },
     ]);
     expect(loadBatch).toHaveBeenCalledWith({ batchId: "00000000-0000-4000-8000-000000000254" });
+  });
+
+  it("carries setup reasons and requested status through, tolerating an older server", async () => {
+    const finishSetup = vi.fn().mockResolvedValue({
+      distinctClientCount: 2,
+      projectPurchaseCount: 2,
+      invitations: [
+        {
+          clientContactId: "00000000-0000-4000-8000-000000000301",
+          status: "requested",
+          providerAcceptedAt: null,
+        },
+        {
+          clientContactId: "00000000-0000-4000-8000-000000000302",
+          status: "failed",
+          providerAcceptedAt: null,
+          reason: "The mailbox rejected this address.",
+        },
+      ],
+      reminders: [
+        {
+          installmentId: "00000000-0000-4000-8000-000000000401",
+          purchaseId: "00000000-0000-4000-8000-000000000501",
+          status: "failed",
+          changed: false,
+          reason: "This installment is already closed.",
+        },
+        {
+          installmentId: "00000000-0000-4000-8000-000000000402",
+          purchaseId: "00000000-0000-4000-8000-000000000501",
+          status: "enabled",
+          changed: true,
+        },
+      ],
+    });
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { finishSetup } });
+
+    const result = await finishImportSetupAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      operationKey: "finish-1",
+      expectedSetupDigest: `sha256:${"a".repeat(64)}`,
+      selectedClientContactIds: ["00000000-0000-4000-8000-000000000301"],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.invitations).toEqual([
+      {
+        clientContactId: "00000000-0000-4000-8000-000000000301",
+        status: "requested",
+        providerAcceptedAtIso: null,
+        reason: null,
+      },
+      {
+        clientContactId: "00000000-0000-4000-8000-000000000302",
+        status: "failed",
+        providerAcceptedAtIso: null,
+        reason: "The mailbox rejected this address.",
+      },
+    ]);
+    expect(result.data.reminders.map((reminder) => reminder.reason)).toEqual([
+      "This installment is already closed.",
+      null,
+    ]);
   });
 
   it("reports a failed first chunk with no outcomes", async () => {

@@ -22,8 +22,10 @@ import {
   PAYMENT_NOTICE,
   paymentPlanLabel,
   rowDisplayReasons,
+  STILL_SENDING_NOTICE,
   type ArchivedClientOption,
   type ExistingClientOption,
+  type FinishSetupResultView,
   type ImportReasonView,
   type NormalizedImportReview,
   type SetupClientOption,
@@ -105,6 +107,30 @@ function invitationNote(client: SetupClientOption): string | null {
 function reminderNote(installment: SetupInstallmentOption): string | null {
   if (installment.dueTrigger !== "artist_approval") return null;
   return "Reminder delivery waits for Artist approval. It will not send early.";
+}
+
+// What the last Finish setup run said about one client or installment.
+function invitationResultNote(
+  client: SetupClientOption,
+  finishResult: FinishSetupResultView | null,
+): string | null {
+  const entry = finishResult?.invitations.find(
+    (invitation) => invitation.clientContactId === client.id,
+  );
+  if (!entry) return null;
+  if (entry.status === "requested") return STILL_SENDING_NOTICE;
+  if (entry.status === "failed") return entry.reason;
+  return null;
+}
+
+function reminderResultNote(
+  installment: SetupInstallmentOption,
+  finishResult: FinishSetupResultView | null,
+): string | null {
+  const entry = finishResult?.reminders.find(
+    (reminder) => reminder.installmentId === installment.id,
+  );
+  return entry?.status === "failed" ? entry.reason : null;
 }
 
 function installmentTriggerLabel(
@@ -566,6 +592,7 @@ export function ReviewAndFinish({
   creating,
   finishing,
   error,
+  finishResult = null,
   selectedClientIds,
   onBack,
   onCreate,
@@ -586,6 +613,7 @@ export function ReviewAndFinish({
   creating: boolean;
   finishing: boolean;
   error: string | null;
+  finishResult?: FinishSetupResultView | null;
   selectedClientIds: ReadonlySet<string>;
   onBack: () => void;
   onCreate: () => void;
@@ -646,6 +674,8 @@ export function ReviewAndFinish({
     setupOptions?.installments.filter(
       (installment) => installment.remainingCents > 0 && installment.reminderEligible,
     ) ?? [];
+  const stillSending =
+    finishResult?.invitations.some((invitation) => invitation.status === "requested") ?? false;
 
   const reviewEyebrow = canCreateOrRetry ? "Silent creation checkpoint" : "Needs info";
   const reviewHeading = canCreateOrRetry ? "Review before creating" : "Review what needs info";
@@ -699,6 +729,16 @@ export function ReviewAndFinish({
             <CircleAlert size={16} strokeWidth={2.2} aria-hidden className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
+        ) : null}
+
+        {stage === "setup" && stillSending ? (
+          <p
+            role="status"
+            className="mb-4 flex items-start gap-2.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 text-[12px] leading-relaxed text-[rgb(var(--fg-secondary))]"
+          >
+            <Mail size={16} strokeWidth={2.1} aria-hidden className="mt-0.5 shrink-0" />
+            <span>{STILL_SENDING_NOTICE}</span>
+          </p>
         ) : null}
 
         {stage === "review" ? (
@@ -798,6 +838,7 @@ export function ReviewAndFinish({
                 {setupOptions.clients.map((client) => {
                   const reason = invitationReason(client);
                   const note = invitationNote(client);
+                  const resultNote = invitationResultNote(client, finishResult);
                   return (
                     <label
                       key={client.id}
@@ -833,6 +874,11 @@ export function ReviewAndFinish({
                             {note}
                           </span>
                         ) : null}
+                        {resultNote ? (
+                          <span className="mt-1 block text-[10.5px] leading-relaxed [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-warning-text))]">
+                            {resultNote}
+                          </span>
+                        ) : null}
                       </span>
                     </label>
                   );
@@ -857,7 +903,8 @@ export function ReviewAndFinish({
                   </h3>
                   <p className="mt-0.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
                     Finish setup turns reminders on for every eligible unpaid imported payment
-                    below. There is no extra choice here.
+                    below. There is no extra choice here. Reminders to clients who have not joined
+                    yet include your join link.
                   </p>
                 </div>
               </div>
@@ -865,6 +912,7 @@ export function ReviewAndFinish({
                 <div className="mt-3 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
                   {eligibleUnpaidInstallments.map((installment) => {
                     const note = reminderNote(installment);
+                    const resultNote = reminderResultNote(installment, finishResult);
                     return (
                       <div key={installment.id} className="flex min-w-0 items-start gap-3 py-3.5">
                         <Check
@@ -884,6 +932,11 @@ export function ReviewAndFinish({
                           {note ? (
                             <span className="mt-1 block text-[10.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
                               {note}
+                            </span>
+                          ) : null}
+                          {resultNote ? (
+                            <span className="mt-1 block text-[10.5px] leading-relaxed [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-warning-text))]">
+                              {resultNote}
                             </span>
                           ) : null}
                         </span>

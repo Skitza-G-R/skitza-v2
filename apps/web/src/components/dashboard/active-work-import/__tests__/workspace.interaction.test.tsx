@@ -2179,6 +2179,7 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
               clientContactId: "client-retry",
               status: "failed",
               providerAcceptedAtIso: null,
+              reason: null,
             },
           ],
           reminders: [],
@@ -2201,6 +2202,107 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     expect(mocks.finishSetup.mock.calls[1]?.[0]?.operationKey).not.toBe(
       mocks.finishSetup.mock.calls[0]?.[0]?.operationKey,
     );
+  });
+
+  it("stays on the setup screen while an invitation is still being sent", async () => {
+    mocks.finishSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        distinctClientCount: 1,
+        projectPurchaseCount: 1,
+        invitations: [
+          {
+            clientContactId: "client-available",
+            status: "requested",
+            providerAcceptedAtIso: null,
+            reason: null,
+          },
+        ],
+        reminders: [],
+      },
+    });
+    mocks.loadSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        ...freshSetupOptions(),
+        clients: [
+          {
+            id: "client-available",
+            name: "Available client",
+            email: "available@example.com",
+            connected: false,
+            providerAcceptedAtIso: null,
+            invitationEligible: true,
+            invitationState: "send_in_progress_or_retryable",
+          },
+        ],
+      },
+    });
+    const user = await openCreatedSetup(freshSetupOptions());
+    await user.click(screen.getByRole("checkbox", { name: /Available client/ }));
+    const done = screen.getByRole("button", { name: "Finish setup" });
+
+    await user.click(done);
+
+    expect((await screen.findAllByText("Still sending — check again in a moment")).length).toBe(2);
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Finish setup" })).not.toBeNull();
+    await waitFor(() => {
+      expect(mocks.loadSetup).toHaveBeenCalledTimes(1);
+    });
+    const invite = screen.getByRole("checkbox", { name: /Available client/ });
+    expect((invite as HTMLInputElement).checked).toBe(true);
+    await waitFor(() => {
+      expect((done as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it("shows the server reason under a failed invitation and reminder", async () => {
+    mocks.finishSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        distinctClientCount: 2,
+        projectPurchaseCount: 1,
+        invitations: [
+          {
+            clientContactId: "client-retry",
+            status: "failed",
+            providerAcceptedAtIso: null,
+            reason: "The mailbox rejected this address.",
+          },
+        ],
+        reminders: [
+          {
+            installmentId: "installment-1",
+            purchaseId: "purchase-created",
+            status: "failed",
+            changed: false,
+            reason: "This payment is already closed.",
+          },
+        ],
+      },
+    });
+    const user = await openCreatedSetup();
+    await user.click(screen.getByRole("checkbox", { name: /Retry client/ }));
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await screen.findByText(
+      "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
+    );
+    const retryRow = screen.getByRole("checkbox", { name: /Retry client/ }).closest("label");
+    expect(retryRow?.textContent).toContain("The mailbox rejected this address.");
+    expect(screen.getByText("This payment is already closed.")).not.toBeNull();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("explains that reminders to clients who have not joined include the join link", async () => {
+    await openCreatedSetup();
+
+    expect(
+      screen.getByText(/Reminders to clients who have not joined yet include your join link/),
+    ).not.toBeNull();
   });
 
   it("reloads current setup and rotates the operation key after a conflict", async () => {

@@ -249,6 +249,29 @@ export type SetupOptionsView = Readonly<{
   installments: readonly SetupInstallmentOption[];
 }>;
 
+// Result of one Finish setup run. "requested" means the email provider only
+// acknowledged the request (busy); it is not finished and not failed.
+// `reason` is the server's sentence for a failed entry when it has one.
+export type FinishSetupResultView = Readonly<{
+  distinctClientCount: number;
+  projectPurchaseCount: number;
+  invitations: readonly Readonly<{
+    clientContactId: string;
+    status: "requested" | "provider_accepted" | "failed" | "connected";
+    providerAcceptedAtIso: string | null;
+    reason: string | null;
+  }>[];
+  reminders: readonly Readonly<{
+    installmentId: string;
+    purchaseId: string;
+    status: "enabled" | "failed";
+    changed: boolean;
+    reason: string | null;
+  }>[];
+}>;
+
+export const STILL_SENDING_NOTICE = "Still sending — check again in a moment" as const;
+
 export function newImportDraft(input: {
   defaultCurrency: string;
   defaultTaxMode: ImportTaxMode;

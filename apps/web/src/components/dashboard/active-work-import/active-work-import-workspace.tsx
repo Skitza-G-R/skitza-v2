@@ -30,6 +30,7 @@ import {
   type ActiveWorkImportDraft,
   type ArchivedClientOption,
   type ExistingClientOption,
+  type FinishSetupResultView,
   type ImportTaxMode,
   type ImportReasonView,
   type InitialImportBatch,
@@ -166,6 +167,7 @@ export function ActiveWorkImportWorkspace({
     setupShowsPriorAttempt(initialSetupOptions),
   );
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [finishResult, setFinishResult] = useState<FinishSetupResultView | null>(null);
   const [proofUploads, setProofUploads] = useState<Record<string, ProofUploadView>>({});
 
   const rowsRef = useRef(rows);
@@ -1015,9 +1017,18 @@ export function ActiveWorkImportWorkspace({
       return;
     }
     finishOperationKeyRef.current = null;
+    setFinishResult(result.data);
     const failedClients = new Set(
       result.data.invitations
         .filter((invitation) => invitation.status === "failed")
+        .map((invitation) => invitation.clientContactId),
+    );
+    // "requested" means the provider only acknowledged the send. The batch is
+    // not finished yet: stay here, keep those clients selected so the next
+    // Finish setup checks them again, and say so without an error tone.
+    const requestedClients = new Set(
+      result.data.invitations
+        .filter((invitation) => invitation.status === "requested")
         .map((invitation) => invitation.clientContactId),
     );
     const failedInstallments = new Set(
@@ -1025,12 +1036,14 @@ export function ActiveWorkImportWorkspace({
         .filter((reminder) => reminder.status === "failed")
         .map((reminder) => reminder.installmentId),
     );
-    if (failedClients.size > 0 || failedInstallments.size > 0) {
-      setSelectedClientIds(failedClients);
+    if (failedClients.size > 0 || failedInstallments.size > 0 || requestedClients.size > 0) {
+      setSelectedClientIds(new Set([...failedClients, ...requestedClients]));
       await loadSetupOptions();
-      setReviewError(
-        "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
-      );
+      if (failedClients.size > 0 || failedInstallments.size > 0) {
+        setReviewError(
+          "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
+        );
+      }
       return;
     }
     router.push("/dashboard/clients-projects");
@@ -1092,6 +1105,7 @@ export function ActiveWorkImportWorkspace({
       creating={creating}
       finishing={finishing}
       error={reviewError}
+      finishResult={finishResult}
       selectedClientIds={selectedClientIds}
       onBack={() => {
         setReviewOpen(false);
