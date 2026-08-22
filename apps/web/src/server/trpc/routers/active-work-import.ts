@@ -14,6 +14,7 @@ import {
   loadActiveWorkImportSetupScope,
   runActiveWorkImportSetup,
 } from "~/server/domain/active-work-import/setup";
+import { ActiveWorkImportProofCapabilityError } from "~/server/domain/active-work-import/proof-capability";
 import { ActiveWorkImportDomainError } from "~/server/domain/active-work-import/service";
 import {
   assessActiveWorkImportRowForCreation,
@@ -43,6 +44,8 @@ function actorId(userId: string | null): string {
 }
 
 function mapDomainError(error: unknown): never {
+  // Auth and configuration failures are already exact tRPC errors.
+  if (error instanceof TRPCError) throw error;
   if (
     error instanceof ActiveWorkImportDomainError ||
     error instanceof ClientInvitationDomainError
@@ -56,10 +59,20 @@ function mapDomainError(error: unknown): never {
     }
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
   }
+  if (error instanceof ActiveWorkImportProofCapabilityError) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
   console.error("[active-work-import] unexpected failure", {
-    error: error instanceof Error ? error.name : "unknown",
+    name: error instanceof Error ? error.name : "unknown",
+    message: error instanceof Error ? error.message : String(error),
+    code: typeof error === "object" && error !== null && "code" in error ? error.code : undefined,
+    stack: error instanceof Error ? error.stack : undefined,
   });
-  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: "Something went wrong on our side. Your draft is safe.",
+    cause: error,
+  });
 }
 
 export const activeWorkImportRouter = router({
