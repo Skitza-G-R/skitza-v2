@@ -21,6 +21,14 @@ vi.mock("~/server/auth/role", () => ({
   fetchUserAccountMemberships: () => mocks.memberships(),
 }));
 vi.mock("next/navigation", () => ({ redirect: (href: string) => mocks.redirect(href) }));
+// Client island (Clerk hooks) — stubbed so the server page renders statically.
+vi.mock("./sign-out-home-button", () => ({
+  SignOutHomeButton: ({ label }: { label: string }) => (
+    <button type="button" data-testid="sign-out-home">
+      {label}
+    </button>
+  ),
+}));
 
 import ProducerAccessPage from "./page";
 
@@ -47,6 +55,41 @@ describe("Producer access information", () => {
     expect(html).toContain("maya@email.com");
     expect(html).not.toContain("Create a studio");
     expect(html).not.toContain("data-clerk-sign-up");
+  });
+
+  it("keeps the plain homepage link for signed-out visitors", async () => {
+    const html = renderToStaticMarkup(await ProducerAccessPage());
+
+    expect(html).toContain("Back to Skitza");
+    expect(html).not.toContain("data-testid=\"sign-out-home\"");
+  });
+
+  it("offers sign-out instead of the looping homepage link to a membership-less account", async () => {
+    // "/" redirects every signed-in account through /auth/resolve, which
+    // sends a no-membership account right back here — so the homepage link
+    // must be replaced by a real session exit.
+    mocks.auth.mockResolvedValue({ userId: "orphan-user" });
+    mocks.memberships.mockResolvedValue({
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: false, hasActiveConnections: false },
+    });
+
+    const html = renderToStaticMarkup(await ProducerAccessPage());
+
+    expect(html).toContain("Sign out and back to homepage");
+    expect(html).not.toContain("Back to Skitza");
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("keeps the homepage link and adds sign-out for a signed-in Artist", async () => {
+    mocks.auth.mockResolvedValue({ userId: "artist-user" });
+
+    const html = renderToStaticMarkup(await ProducerAccessPage());
+
+    expect(html).toContain("Back to Skitza");
+    expect(html).toContain("Sign out");
+    expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
   it("sends a newly invited Artist to Producer setup without removing Artist access", async () => {
