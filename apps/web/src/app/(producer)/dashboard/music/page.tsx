@@ -40,7 +40,7 @@ export default async function MusicPage({ searchParams }: PageProps) {
   const params = resolvedParams ?? {};
 
   if (params.addSong === "1" && data.uploadableProjects.length === 0) {
-    redirect("/dashboard/clients-projects?newProject=1");
+    redirect("/dashboard/clients-projects");
   }
 
   const tracks: MusicLibraryRow[] = data.projects.flatMap((project) =>

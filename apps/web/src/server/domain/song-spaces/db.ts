@@ -185,7 +185,7 @@ export function songSpaceRepository(db: Db): SongSpaceRepository {
               projectId: purchases.projectId,
               lifecycleStatus: purchases.lifecycleStatus,
               commercialSnapshot: purchases.commercialSnapshot,
-              acceptedAt: purchases.acceptedAt,
+              commercialEstablishedAt: purchases.commercialEstablishedAt,
             })
             .from(purchases)
             .where(
@@ -194,7 +194,7 @@ export function songSpaceRepository(db: Db): SongSpaceRepository {
                 eq(purchases.projectId, scope.projectId),
               ),
             )
-            .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+            .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
 
           const trackRows = await tx
             .select({
@@ -218,7 +218,7 @@ export function songSpaceRepository(db: Db): SongSpaceRepository {
               purchaseId: purchase.purchaseId,
               lifecycleStatus: purchase.lifecycleStatus,
               includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
-              acceptedAt: purchase.acceptedAt,
+              commercialEstablishedAt: purchase.commercialEstablishedAt,
             })),
             tracks: trackRows.map((track) => ({
               ...track,

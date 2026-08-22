@@ -74,7 +74,7 @@ export type SongSpacePurchaseRecord = SongSpaceScope &
   Readonly<{
     lifecycleStatus: SongSpacePurchaseLifecycleStatus;
     includedSongSpaces: number;
-    acceptedAt: Date;
+    commercialEstablishedAt: Date;
   }>;
 
 export type SongSpaceProjectSnapshot = SongSpaceProjectScope &
@@ -213,8 +213,11 @@ function snapshotIdentifier(value: string, label: string): string {
 }
 
 function comparePurchases(left: SongSpacePurchaseRecord, right: SongSpacePurchaseRecord): number {
-  const acceptedOrder = left.acceptedAt.getTime() - right.acceptedAt.getTime();
-  return acceptedOrder !== 0 ? acceptedOrder : left.purchaseId.localeCompare(right.purchaseId);
+  const establishedOrder =
+    left.commercialEstablishedAt.getTime() - right.commercialEstablishedAt.getTime();
+  return establishedOrder !== 0
+    ? establishedOrder
+    : left.purchaseId.localeCompare(right.purchaseId);
 }
 
 function compareTracks(left: SongSpaceRecord, right: SongSpaceRecord): number {
@@ -252,7 +255,7 @@ export function summarizeProjectSongSpaces(
       integrity("Purchase lifecycle status is invalid");
     }
     assertCapacity(purchase.includedSongSpaces);
-    assertSnapshotDate(purchase.acceptedAt, "Purchase acceptedAt");
+    assertSnapshotDate(purchase.commercialEstablishedAt, "Purchase commercialEstablishedAt");
     purchasesById.set(purchaseId, purchase);
     allocatedByPurchaseId.set(purchaseId, 0);
   }

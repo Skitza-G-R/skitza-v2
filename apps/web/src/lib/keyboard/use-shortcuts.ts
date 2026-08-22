@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 // Global keyboard-shortcut layer. Patterned after Linear/Superhuman:
 // two-key navigation (`g` then a key from G_LEADER_ROUTES) and
-// single-key actions (`n`, `?`, `[`). We skip
+// single-key actions (`?`, `[`). We skip
 // when the user is typing into an input/textarea/contenteditable
 // so the shortcuts never interrupt real writing. Modifier combos
 // (⌘/Ctrl/Alt) are allowed through untouched — cmdk owns ⌘K.
@@ -25,7 +25,6 @@ export function isTypingTarget(el: unknown): boolean {
 export type ShortcutHandlers = {
   openCheatsheet: () => void;
   toggleSidebar: () => void;
-  createNewProject: () => void;
 };
 
 // G-leader navigation map. Exported so the test suite can assert the
@@ -137,16 +136,6 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
       if (key === "[") {
         e.preventDefault();
         handlers.toggleSidebar();
-        return;
-      }
-      // `n` = new project. Producers anywhere in the app can hit N
-      // and open the canonical new-project flow.
-      // If the current surface wants a different "new", it can layer
-      // a useHotkey("n", ...) on top; its capture-phase listener stops
-      // the event before the global bubble-phase listener receives it.
-      if (key === "n") {
-        e.preventDefault();
-        handlers.createNewProject();
         return;
       }
     }

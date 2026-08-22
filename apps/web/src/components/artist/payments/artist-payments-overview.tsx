@@ -235,7 +235,7 @@ function ArtistPaymentRow({
 
 function artistPaymentActionLabel(purchase: PaymentHistoryPurchase): string {
   if (purchase.recordStatus === "canceled") return "View closed record";
-  if (purchase.recordStatus === "no_payment_required") return "View accepted terms";
+  if (purchase.recordStatus === "no_payment_required") return "View agreement";
   if (purchase.recordStatus === "settled_by_waiver") return "View settlement history";
   if (purchase.recordStatus === "paid_in_full") return "View payment history";
   return purchase.showPayNextPayment ? "Pay & upload proof" : "View payment record";

@@ -125,7 +125,7 @@ describe("ArtistPaymentsOverview", () => {
     expect(html).toContain("Nothing to pay");
   });
 
-  it("routes a zero-total record to its accepted terms instead of a proof-only dead end", () => {
+  it("routes a zero-total record to its agreement instead of a proof-only dead end", () => {
     const html = renderToStaticMarkup(
       <ArtistPaymentsOverview
         sections={[emptyWaitingData, sectionWithPurchase(zeroTotalPurchase), emptyHistoryData]}
@@ -133,11 +133,12 @@ describe("ArtistPaymentsOverview", () => {
     );
 
     expect(html).toContain("Royalty-only production");
-    expect(html).toContain("View accepted terms");
+    expect(html).toContain("View agreement");
     expect(html).toContain(
       'href="/artist/payments/00000000-0000-4000-8000-000000000102?studio=00000000-0000-4000-8000-000000000201"',
     );
     expect(html).not.toContain("Pay &amp; upload proof");
+    expect(html).not.toContain("Accepted terms");
   });
 
   it("never advertises proof upload for a canceled purchase", () => {

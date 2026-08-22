@@ -111,7 +111,7 @@ function purchase(input: {
   lifecycleStatus?: PaymentReadPurchaseRecord["lifecycleStatus"];
   paymentPlanKind?: PaymentReadPurchaseRecord["paymentPlanKind"];
   acceptedAt?: Date;
-}): PaymentReadPurchaseRecord {
+}): PaymentReadPurchaseRecord & { acceptedAt: Date; sourceKind: "store_product" } {
   const paymentPlanKind = input.paymentPlanKind ?? "full";
   const snapshot = terms(
     input.name,
@@ -140,6 +140,7 @@ function purchase(input: {
     totalCents: input.totalCents,
     currency: input.currency,
     acceptedAt,
+    commercialEstablishedAt: acceptedAt,
     activatedAt:
       input.lifecycleStatus === "waiting_for_payment" ? null : new Date(acceptedAt.getTime()),
     canceledAt: input.lifecycleStatus === "canceled" ? new Date("2026-07-10T09:00:00.000Z") : null,
@@ -183,15 +184,22 @@ function snapshotFor(
       createdAt: new Date(`2026-0${String(index + 5)}-01T09:00:00.000Z`),
     })),
     purchases,
-    acceptances: purchases.map((row) => ({
-      id: `acceptance-${row.id}`,
-      purchaseId: row.id,
-      producerId: row.producerId,
-      clientContactId: row.clientContactId,
-      acceptedSnapshot: row.commercialSnapshot,
-      snapshotDigest: row.snapshotDigest,
-      acceptedAt: row.acceptedAt,
-    })),
+    acceptances: purchases.flatMap((row) =>
+      row.sourceKind !== "imported_existing_work" && row.acceptedAt
+        ? [
+            {
+              id: `acceptance-${row.id}`,
+              purchaseId: row.id,
+              producerId: row.producerId,
+              clientContactId: row.clientContactId,
+              acceptedSnapshot: row.commercialSnapshot,
+              snapshotDigest: row.snapshotDigest,
+              acceptedAt: row.acceptedAt,
+            },
+          ]
+        : [],
+    ),
+    importAttestations: [],
     installments: [],
     payments: [],
     corrections: [],
@@ -205,6 +213,71 @@ function snapshotFor(
 }
 
 describe("SK-69 payment read model", () => {
+  it("returns honest producer-import provenance without Artist acceptance fields", () => {
+    const establishedAt = new Date("2026-07-01T09:00:00.000Z");
+    const accepted = purchase({
+      id: "imported-purchase",
+      projectId: "project-imported",
+      name: "Existing agreement",
+      currency: "USD",
+      totalCents: 10_000,
+      lifecycleStatus: "waiting_for_payment",
+    });
+    const imported: PaymentReadPurchaseRecord = {
+      ...accepted,
+      sourceKind: "imported_existing_work",
+      acceptedAt: null,
+      commercialEstablishedAt: establishedAt,
+      createdAt: establishedAt,
+    };
+    const data = snapshotFor([imported], {
+      acceptances: [],
+      importAttestations: [
+        {
+          id: "attestation-imported-purchase",
+          purchaseId: imported.id,
+          producerId: imported.producerId,
+          clientContactId: imported.clientContactId,
+          importedSnapshot: imported.commercialSnapshot,
+          snapshotDigest: imported.snapshotDigest,
+          importedAt: establishedAt,
+        },
+      ],
+      installments: [
+        {
+          id: "imported-installment",
+          purchaseId: imported.id,
+          producerId: imported.producerId,
+          position: 1,
+          amountCents: imported.totalCents,
+          currency: imported.currency,
+          dueTrigger: "producer_import",
+          dueAt: establishedAt,
+          triggeredAt: establishedAt,
+          requiredForActivation: true,
+          status: "not_paid",
+          remindersEnabled: false,
+        },
+      ],
+    });
+
+    const model = buildPaymentReadModel(data, AS_OF);
+    const projection = Object.values(model.producerBuckets)
+      .flatMap((bucket) => bucket.projects)
+      .flatMap((project) => project.purchases)
+      .find((candidate) => candidate.id === imported.id);
+
+    expect(projection?.provenance).toEqual({
+      kind: "producer_import",
+      id: "attestation-imported-purchase",
+      importedAt: establishedAt,
+      importedSnapshot: imported.commercialSnapshot,
+      notice: "Added by producer from an existing agreement",
+    });
+    expect(projection?.provenance).not.toHaveProperty("acceptedAt");
+    expect(projection?.provenance).not.toHaveProperty("acceptedSnapshot");
+  });
+
   it("keeps currencies separate and shows Due now apart from Total remaining", () => {
     const usd = purchase({
       id: "purchase-usd",

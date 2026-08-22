@@ -37,13 +37,10 @@ describe("producer shell navigation truthfulness", () => {
     expect(cheatsheet).not.toContain("window.addEventListener");
   });
 
-  it("keeps one truthful New Project shortcut", () => {
-    expect(bridge).toContain("createNewProject");
-    expect(bridge).not.toContain("createContextAware");
-  });
-
-  it("opens the canonical New Project modal directly", () => {
-    expect(bridge).toContain("/dashboard/clients-projects?newProject=1");
-    expect(bridge).not.toContain("/dashboard/clients-projects/new");
+  it("does not advertise or handle the retired manual New project shortcut", () => {
+    expect(cheatsheet).not.toContain("New project");
+    expect(cheatsheet).not.toContain('{ k: "n"');
+    expect(bridge).not.toContain("createNewProject");
+    expect(bridge).not.toContain("newProject=1");
   });
 });

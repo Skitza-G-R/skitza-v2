@@ -4,10 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { G_LEADER_ROUTES, isTypingTarget } from "./use-shortcuts";
 
-const source = readFileSync(
-  fileURLToPath(new URL("./use-shortcuts.ts", import.meta.url)),
-  "utf8",
-);
+const source = readFileSync(fileURLToPath(new URL("./use-shortcuts.ts", import.meta.url)), "utf8");
 
 // Node-environment tests only. The DOM-dependent branches (HTMLElement,
 // isContentEditable) get manual QA in the browser — jsdom is not set up
@@ -48,8 +45,9 @@ describe("G_LEADER_ROUTES", () => {
 });
 
 describe("global action shortcuts", () => {
-  it("keeps one truthful New Project key", () => {
-    expect(source).toMatch(/key === "n"[\s\S]*handlers\.createNewProject\(\)/);
+  it("does not keep a shortcut for retired manual project creation", () => {
+    expect(source).not.toMatch(/key === "n"/);
+    expect(source).not.toContain("createNewProject");
     expect(source).not.toMatch(/key === "c"/);
     expect(source).not.toContain("createContextAware");
   });

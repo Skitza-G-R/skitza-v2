@@ -15,7 +15,9 @@ describe("CommandPalette accessibility", () => {
 
   it("uses only current producer destinations", () => {
     expect(source).toContain("/dashboard/store");
-    expect(source).toContain("/dashboard/clients-projects?newProject=1");
+    expect(source).toContain("/dashboard/clients-projects");
+    expect(source).not.toContain("New project");
+    expect(source).not.toContain("newProject=1");
     expect(source).not.toContain("/dashboard/profile");
     expect(source).not.toContain("/dashboard/clients-projects/new");
   });

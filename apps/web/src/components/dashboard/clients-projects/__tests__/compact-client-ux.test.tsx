@@ -59,7 +59,8 @@ describe("compact client detail decisions", () => {
     expect(hero).toContain("canPermanentlyDelete");
     expect(hero).toContain("Add email");
     expect(hero).toContain("Restore client");
-    expect(hero).toContain("New project");
+    expect(hero).not.toContain("New project");
+    expect(hero).not.toContain("NewProjectModal");
     expect(hero).toMatch(/canPermanentlyDelete\s*\?/);
   });
 

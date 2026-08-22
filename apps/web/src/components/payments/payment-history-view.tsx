@@ -30,7 +30,7 @@ export function PaymentHistoryView({ role, data }: PaymentHistoryViewProps) {
 }
 
 export type {
-  PaymentHistoryAcceptance,
+  PaymentHistoryAgreementRecord,
   PaymentHistoryCancellation,
   PaymentHistoryCorrection,
   PaymentHistoryCurrencyTotal,

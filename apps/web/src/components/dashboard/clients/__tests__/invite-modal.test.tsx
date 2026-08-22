@@ -32,6 +32,10 @@ describe("InviteToAppModal", () => {
     expect(SRC).toContain("Copy invite link");
   });
 
+  it("renders the individual WhatsApp action", () => {
+    expect(SRC).toContain("Share on WhatsApp");
+  });
+
   it("calls sendClientInviteAction Server Action (not direct tRPC client)", () => {
     // The repo uses Server Actions exclusively — no client-side useMutation.
     expect(SRC).toMatch(/sendClientInviteAction/);
@@ -40,10 +44,12 @@ describe("InviteToAppModal", () => {
 
   it("passes via: 'email' for the email send path", () => {
     expect(SRC).toMatch(/via:\s*["']email["']/);
+    expect(SRC).toMatch(/operationKey,\s*\}/);
   });
 
   it("passes via: 'link' for the copy-link path", () => {
     expect(SRC).toMatch(/via:\s*["']link["']/);
+    expect(SRC).toMatch(/client-invite-link:\$\{client\.id\}:\$\{crypto\.randomUUID\(\)\}/);
   });
 
   it("copies the shared normal client signup URL without a client or offer id", () => {
@@ -92,11 +98,43 @@ describe("InviteToAppModal", () => {
     expect(SRC).toMatch(/client\.gradient/);
   });
 
-  it("calls onClose after a successful action (so the modal closes)", () => {
+  it("calls onClose after a terminal action", () => {
     expect(SRC).toMatch(/onClose\(\)/);
   });
 
-  it("fires onSent callback after a successful action if provided", () => {
-    expect(SRC).toMatch(/onSent\?\.\(\)/);
+  it("fires onSent only after provider acceptance, never after link copy", () => {
+    const emailStart = SRC.indexOf("const handleSendEmail");
+    const linkStart = SRC.indexOf("const handleCopyLink");
+    const returnStart = SRC.indexOf("return (", linkStart);
+    const emailSection = SRC.slice(emailStart, linkStart);
+    const linkSection = SRC.slice(linkStart, returnStart);
+
+    expect(emailSection).toContain('deliveryState !== "provider_accepted"');
+    expect(emailSection).toContain("providerAcceptedAtIso");
+    expect(emailSection).toContain("onSent?.()");
+    expect(linkSection).not.toContain("onSent");
+    expect(linkSection).toContain("handleWhatsApp");
+  });
+
+  it("reuses one operation key and rotates only after a conflict-driven deliberate click", () => {
+    expect(SRC).toContain("emailAttemptRef");
+    expect(SRC).toContain("rotateOnNextClick");
+    expect(SRC).toContain('res.code === "new_operation_required"');
+    expect(SRC).toContain("Try a new send");
+    expect(SRC).not.toMatch(/new_operation_required[\s\S]{0,180}sendClientInviteAction/);
+  });
+
+  it("uses neutral in-flight copy and standard text-button radii", () => {
+    expect(SRC).toContain("The invitation email is still sending");
+    expect(SRC).toContain("Check send status");
+    expect(SRC).toMatch(/Send invite email[\s\S]*?Copy invite link/);
+    expect(SRC.match(/rounded-\[var\(--radius-lg\)\]/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps every modal control at least 44px on phones", () => {
+    expect(SRC).toMatch(/aria-label="Close"[\s\S]{0,120}h-11 w-11/);
+    for (const handler of ["handleSendEmail", "handleWhatsApp", "handleCopyLink"]) {
+      expect(SRC).toMatch(new RegExp(`onClick=\\{${handler}\\}[\\s\\S]{0,240}min-h-11`));
+    }
   });
 });

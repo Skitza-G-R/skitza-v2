@@ -16,7 +16,7 @@ import {
 } from "~/server/storage/r2";
 
 import { assertProofUploadMetadata, type ProofContentType } from "./policy";
-import { proofObjectKeys, type ProofUploadTokenPayload } from "./tokens";
+import { proofObjectKeys } from "./tokens";
 
 const UPLOAD_URL_TTL_SECONDS = 5 * 60;
 
@@ -38,6 +38,17 @@ export type FinalizedProofObject = ProofObjectMetadata &
     storageBucket: "docs";
     storageKey: string;
   }>;
+
+/**
+ * Neutral storage descriptor. Authentication and ownership stay with the
+ * calling capability domain (Artist proof token or Producer import token).
+ */
+export type PrivateProofUploadDescriptor = Readonly<{
+  uploadId: string;
+  originalFileName: string;
+  contentType: ProofContentType;
+  sizeBytes: number;
+}>;
 
 export function assertExpectedProofObjectMetadata(
   actual: Readonly<{
@@ -128,7 +139,7 @@ async function loadFinalizedProofObject(
 
 export async function createPrivateProofUpload(
   serverSecret: string,
-  payload: ProofUploadTokenPayload,
+  payload: PrivateProofUploadDescriptor,
   client = getR2(),
 ): Promise<{ uploadUrl: string; expiresInSeconds: number }> {
   const { stagingKey } = proofObjectKeys(serverSecret, payload.uploadId);
@@ -147,7 +158,7 @@ export async function createPrivateProofUpload(
 
 export async function finalizePrivateProofUpload(
   serverSecret: string,
-  payload: ProofUploadTokenPayload,
+  payload: PrivateProofUploadDescriptor,
   client = getR2(),
 ): Promise<FinalizedProofObject> {
   const { stagingKey, finalKey } = proofObjectKeys(serverSecret, payload.uploadId);
@@ -224,7 +235,7 @@ export async function finalizePrivateProofUpload(
 
 export async function deletePrivateProofStagingUpload(
   serverSecret: string,
-  payload: ProofUploadTokenPayload,
+  payload: PrivateProofUploadDescriptor,
   client = getR2(),
 ): Promise<void> {
   const { stagingKey } = proofObjectKeys(serverSecret, payload.uploadId);

@@ -7,6 +7,7 @@ import {
   filterProducerPaymentRecords,
   paginateProducerPaymentArtists,
   summarizeProducerPayments,
+  waitingOnMilestonesCents,
   type ProducerPaymentRecord,
 } from "../producer-payments-dashboard-model";
 
@@ -25,6 +26,7 @@ function record(
     purchaseTitle: `Purchase ${overrides.id}`,
     purchaseReference: `SK-${overrides.id}`,
     purchaseLifecycleStatus: "active",
+    isImportedExistingWork: false,
     totalCents: 20_000,
     paidCents: 0,
     dueNowCents: 0,
@@ -45,6 +47,31 @@ function record(
 }
 
 describe("producer payments dashboard calculations", () => {
+  it("does not misclassify an imported first payment as waiting on a milestone", () => {
+    const imported = record({
+      id: "imported",
+      clientContactId: "client-imported",
+      clientName: "Imported Artist",
+      currency: "USD",
+      dueNowCents: 20_000,
+      installments: [
+        {
+          id: "imported-first-payment",
+          amountCents: 20_000,
+          paidCents: 0,
+          waivedCents: 0,
+          remainingCents: 20_000,
+          dueAtIso: null,
+          triggeredAtIso: null,
+          dueTrigger: "producer_import",
+          status: "not_paid",
+        },
+      ],
+    });
+
+    expect(waitingOnMilestonesCents(imported)).toBe(0);
+  });
+
   it("uses the producer timezone and keeps corrected receipts, expectations, debt, and milestones separate", () => {
     const thisMonth = buildProducerPaymentTimeRange("this_month", NOW, TIME_ZONE);
     const records: ProducerPaymentRecord[] = [
@@ -352,6 +379,67 @@ describe("producer payments dashboard rows", () => {
     expect(history.find((event) => event.kind === "proof")?.occurredAtIso).toBe(
       "2026-08-02T09:00:00.000Z",
     );
+  });
+
+  it("labels imported manual history as confirmed by the producer without changing other sources", () => {
+    const imported = record({
+      id: "imported-history",
+      clientContactId: "client-imported",
+      clientName: "Imported Artist",
+      currency: "USD",
+      isImportedExistingWork: true,
+      payments: [
+        {
+          id: "imported-manual",
+          installmentId: "imported-installment",
+          proofId: null,
+          source: "manual",
+          originalAmountCents: 5_000,
+          effectiveAmountCents: 5_000,
+          paidAtIso: "2026-08-03T09:00:00.000Z",
+          note: "Bank transfer received",
+        },
+      ],
+    });
+    const regular = record({
+      id: "regular-history",
+      clientContactId: "client-regular",
+      clientName: "Regular Artist",
+      currency: "USD",
+      payments: [
+        {
+          id: "regular-manual",
+          installmentId: "regular-installment",
+          proofId: null,
+          source: "manual",
+          originalAmountCents: 4_000,
+          effectiveAmountCents: 4_000,
+          paidAtIso: "2026-08-03T10:00:00.000Z",
+          note: null,
+        },
+        {
+          id: "regular-proof",
+          installmentId: "regular-installment",
+          proofId: "proof-regular",
+          source: "proof",
+          originalAmountCents: 3_000,
+          effectiveAmountCents: 3_000,
+          paidAtIso: "2026-08-03T11:00:00.000Z",
+          note: null,
+        },
+      ],
+    });
+
+    const history = buildProducerPaymentHistory(
+      [imported, regular],
+      buildProducerPaymentTimeRange("this_month", NOW, TIME_ZONE),
+      TIME_ZONE,
+    );
+    const labelById = new Map(history.map((event) => [event.id, event.statusLabel]));
+
+    expect(labelById.get("payment:imported-manual")).toBe("Confirmed by producer");
+    expect(labelById.get("payment:regular-manual")).toBe("Recorded manually");
+    expect(labelById.get("payment:regular-proof")).toBe("Confirmed");
   });
 
   it("keeps the upcoming filter mutually exclusive with actionable statuses", () => {

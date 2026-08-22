@@ -1,11 +1,41 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { afterEach, vi } from "vitest";
+
+vi.mock("../client-actions-menu", () => ({
+  ClientActionsMenu: () => null,
+}));
+
+import type { ClientCardData } from "../client-card";
+import { MobileClientRow } from "../mobile-client-row";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "mobile-client-row.tsx"), "utf8");
 const ACTIONS_SRC = readFileSync(join(here, "..", "client-actions-menu.tsx"), "utf8");
+
+const client = {
+  id: "client-255",
+  name: "Maya Cohen",
+  email: "maya@example.test",
+  phone: null,
+  notes: null,
+  tags: [],
+  archived: false,
+  linkState: "pending",
+  projects: 1,
+  lifetime: null,
+  owed: null,
+  needsAttention: false,
+} satisfies ClientCardData;
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("MobileClientRow client management actions", () => {
   it("keeps Edit and Archive or Restore in one disclosure outside the row link", () => {
@@ -28,5 +58,28 @@ describe("MobileClientRow client management actions", () => {
     expect(SRC).not.toContain("commercialUnavailable");
     expect(SRC).not.toContain("formatMoney");
     expect(SRC).toContain("projectSummary");
+  });
+
+  it("opens the individual invitation action for an invited, unconnected client", () => {
+    const onInvite = vi.fn();
+    render(<MobileClientRow client={client} onInvite={onInvite} divider={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Invited" }));
+
+    expect(onInvite).toHaveBeenCalledTimes(1);
+    expect(onInvite).toHaveBeenCalledWith(client);
+  });
+
+  it("keeps a connected client connected-first without an invitation action", () => {
+    render(
+      <MobileClientRow
+        client={{ ...client, linkState: "active" }}
+        onInvite={vi.fn()}
+        divider={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /invite|connected/i })).toBeNull();
+    expect(screen.getByTitle("Connected")).toBeTruthy();
   });
 });

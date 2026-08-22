@@ -6,9 +6,11 @@ import {
   cancelPurchase,
   correctPurchasePayment,
   pauseProjectForOverdueInstallment,
+  readPurchaseLedger,
   reconcilePurchaseLedger,
   recordConfirmedPurchasePayment,
   resumePaymentPausedProject,
+  setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
   type NewProjectPaymentPauseEvent,
   type NewPurchaseCancellation,
@@ -39,7 +41,9 @@ function snapshot(
       totalCents: 10_000,
       plan,
       lifecycleStatus: "waiting_for_payment",
+      sourceKind: "store_product",
       acceptedAt: ACCEPTED_AT,
+      commercialEstablishedAt: ACCEPTED_AT,
       activatedAt: null,
       canceledAt: null,
     },
@@ -258,6 +262,139 @@ function manualInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("purchase ledger transitions", () => {
+  it("accepts either real Artist acceptance or imported producer establishment, never a hybrid", async () => {
+    const accepted = new MemoryLedgerRepository(snapshot());
+    await expect(
+      readPurchaseLedger(accepted, {
+        producerId: "producer-a",
+        purchaseId: "purchase-a",
+        asOf: ACCEPTED_AT,
+      }),
+    ).resolves.toMatchObject({ snapshot: { purchase: { sourceKind: "store_product" } } });
+
+    const importedSnapshot: PurchaseLedgerSnapshot = {
+      ...snapshot(),
+      purchase: {
+        ...snapshot().purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+      },
+      installments: snapshot().installments.map((installment, index) =>
+        index === 0 ? { ...installment, dueTrigger: "producer_import" as const } : installment,
+      ),
+    };
+    await expect(
+      readPurchaseLedger(new MemoryLedgerRepository(importedSnapshot), {
+        producerId: "producer-a",
+        purchaseId: "purchase-a",
+        asOf: ACCEPTED_AT,
+      }),
+    ).resolves.toMatchObject({
+      snapshot: {
+        purchase: { sourceKind: "imported_existing_work", acceptedAt: null },
+      },
+    });
+
+    for (const invalidPurchase of [
+      { ...snapshot().purchase, acceptedAt: null },
+      {
+        ...snapshot().purchase,
+        commercialEstablishedAt: new Date(ACCEPTED_AT.getTime() + 1),
+      },
+      {
+        ...importedSnapshot.purchase,
+        acceptedAt: ACCEPTED_AT,
+      },
+      {
+        ...importedSnapshot.purchase,
+        commercialEstablishedAt: new Date(Number.NaN),
+      },
+    ]) {
+      const repository = new MemoryLedgerRepository({
+        ...importedSnapshot,
+        purchase: invalidPurchase,
+      });
+      await expect(
+        readPurchaseLedger(repository, {
+          producerId: "producer-a",
+          purchaseId: "purchase-a",
+          asOf: ACCEPTED_AT,
+        }),
+      ).rejects.toMatchObject({
+        code: "INTEGRITY_ERROR",
+        message: "Purchase commercial establishment history is invalid",
+      });
+    }
+  });
+
+  it("enables an unpaid final 50% preference but rejects settled debt", async () => {
+    const value = snapshot("split_50_50");
+    const imported: PurchaseLedgerSnapshot = {
+      ...value,
+      purchase: {
+        ...value.purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+      },
+      installments: value.installments.map((installment, index) => ({
+        ...installment,
+        dueTrigger: index === 0 ? "producer_import" : "artist_approval",
+        remindersEnabled: false,
+      })),
+    };
+    const repository = new MemoryLedgerRepository(imported);
+    await expect(
+      setInstallmentRemindersEnabled(repository, {
+        producerId: "producer-a",
+        purchaseId: "purchase-a",
+        installmentId: "installment-2",
+        enabled: true,
+      }),
+    ).resolves.toEqual({ enabled: true, changed: true });
+    expect(repository.current.installments[1]).toMatchObject({
+      dueTrigger: "artist_approval",
+      dueAt: null,
+      remindersEnabled: true,
+    });
+
+    const settled = new MemoryLedgerRepository({
+      ...imported,
+      installments: imported.installments.map((installment, index) => ({
+        ...installment,
+        remindersEnabled: false,
+        status: index === 0 ? "confirmed" : installment.status,
+      })),
+      payments: [
+        {
+          id: "settled-payment",
+          purchaseId: "purchase-a",
+          installmentId: "installment-1",
+          producerId: "producer-a",
+          operationKey: "settled-payment",
+          operationDigest: "settled-digest",
+          source: "manual",
+          proofId: null,
+          amountCents: 5_000,
+          currency: "USD",
+          paidAt: ACCEPTED_AT,
+          addedByClerkUserId: "clerk-producer",
+          note: null,
+        },
+      ],
+    });
+    await expect(
+      setInstallmentRemindersEnabled(settled, {
+        producerId: "producer-a",
+        purchaseId: "purchase-a",
+        installmentId: "installment-1",
+        enabled: true,
+      }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "Reminders can be enabled only for an unpaid installment",
+    });
+  });
+
   it("requires the complete first installment before activation", async () => {
     const repository = new MemoryLedgerRepository(snapshot());
     const partial = await recordConfirmedPurchasePayment(
@@ -446,10 +583,7 @@ describe("purchase ledger transitions", () => {
       operationKey: "payment-before-cancellation",
       amountCents: 2_000,
     });
-    const canceledPayment = await recordConfirmedPurchasePayment(
-      canceledRepository,
-      canceledInput,
-    );
+    const canceledPayment = await recordConfirmedPurchasePayment(canceledRepository, canceledInput);
     canceledRepository.current = {
       ...canceledRepository.current,
       purchase: {

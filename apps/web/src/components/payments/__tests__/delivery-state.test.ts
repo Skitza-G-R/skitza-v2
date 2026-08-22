@@ -19,7 +19,7 @@ describe("SK-44 payment delivery mapping", () => {
     ).toMatchObject({ key: "paid", label: "Paid · downloads available" });
   });
 
-  it("keeps a zero-total accepted purchase distinct from verified payment", () => {
+  it("keeps a zero-total agreement distinct from verified payment with neutral provenance copy", () => {
     expect(
       mapPaymentDeliveryState({
         fullyPaid: true,
@@ -35,6 +35,8 @@ describe("SK-44 payment delivery mapping", () => {
     ).toMatchObject({
       key: "no_payment_required",
       label: "No payment required · downloads available",
+      description:
+        "This agreement has no cash total. Access comes from the agreement, not a verified payment.",
     });
   });
 

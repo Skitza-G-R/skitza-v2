@@ -65,6 +65,16 @@ afterEach(() => {
 });
 
 describe("payment-proof upload feedback", () => {
+  it("describes the locked installment without claiming Artist acceptance", () => {
+    renderScreen();
+
+    expect(screen.getByText("Locked installment amount")).toBeTruthy();
+    expect(
+      screen.getByText("This amount is locked by the installment and cannot be edited here."),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("accepted installment");
+  });
+
   it("shows a retryable local error when upload startup throws synchronously", () => {
     mocks.startUpload
       .mockImplementationOnce(() => {

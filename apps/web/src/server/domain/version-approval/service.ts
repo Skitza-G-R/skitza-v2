@@ -62,7 +62,7 @@ export type VersionApprovalInstallmentRecord = {
   purchaseId: string;
   producerId: string;
   position: number;
-  dueTrigger: "acceptance" | "monthly_anniversary" | "artist_approval";
+  dueTrigger: "acceptance" | "producer_import" | "monthly_anniversary" | "artist_approval";
   dueAt: Date | null;
   triggeredAt: Date | null;
   status:
@@ -180,10 +180,7 @@ function ownedGraph(
     integrity("The locked purchase does not match its project owner");
   }
   if (scope.kind === "artist_approve") {
-    if (
-      graph.artistOwnerClerkUserId !== scope.artistClerkUserId ||
-      !graph.artistOwnerClerkUserId
-    ) {
+    if (graph.artistOwnerClerkUserId !== scope.artistClerkUserId || !graph.artistOwnerClerkUserId) {
       notFound();
     }
   } else if (project.producerId !== scope.producerId) {
@@ -274,10 +271,7 @@ function targetVersion(
   return version;
 }
 
-function newestFirst(
-  left: VersionApprovalEventRecord,
-  right: VersionApprovalEventRecord,
-): number {
+function newestFirst(left: VersionApprovalEventRecord, right: VersionApprovalEventRecord): number {
   const time = right.createdAt.getTime() - left.createdAt.getTime();
   return time === 0 ? right.id.localeCompare(left.id) : time;
 }
@@ -287,16 +281,11 @@ export function latestSongApprovalEvent(
   trackId: string,
 ): VersionApprovalEventRecord | null {
   return (
-    graph.approvalEvents
-      .filter((event) => event.trackId === trackId)
-      .sort(newestFirst)[0] ?? null
+    graph.approvalEvents.filter((event) => event.trackId === trackId).sort(newestFirst)[0] ?? null
   );
 }
 
-export function isSongArtistApprovalLocked(
-  graph: VersionApprovalGraph,
-  trackId: string,
-): boolean {
+export function isSongArtistApprovalLocked(graph: VersionApprovalGraph, trackId: string): boolean {
   return latestSongApprovalEvent(graph, trackId)?.action === "approved";
 }
 
@@ -312,10 +301,7 @@ export type VersionApprovalPresentation = Readonly<{
  */
 export function presentVersionApprovalHistory(
   versionIds: readonly string[],
-  events: readonly Pick<
-    VersionApprovalEventRecord,
-    "id" | "versionId" | "action" | "createdAt"
-  >[],
+  events: readonly Pick<VersionApprovalEventRecord, "id" | "versionId" | "action" | "createdAt">[],
 ): ReadonlyMap<string, VersionApprovalPresentation> {
   const knownVersions = new Set(versionIds);
   const ordered = events
@@ -348,10 +334,7 @@ export function presentVersionApprovalHistory(
 }
 
 function assertActive(graph: VersionApprovalGraph, track: VersionApprovalTrackRecord): void {
-  if (
-    graph.project.lifecycleStatus !== "active" ||
-    graph.purchase.lifecycleStatus !== "active"
-  ) {
+  if (graph.project.lifecycleStatus !== "active" || graph.purchase.lifecycleStatus !== "active") {
     throw new VersionApprovalDomainError(
       "INACTIVE",
       "Exact-version approval is available only while the project and purchase are active",
@@ -414,9 +397,7 @@ function everyIncludedSongApproved(graph: VersionApprovalGraph): boolean {
   });
 }
 
-function finalApprovalInstallment(
-  graph: VersionApprovalGraph,
-): VersionApprovalInstallmentRecord {
+function finalApprovalInstallment(graph: VersionApprovalGraph): VersionApprovalInstallmentRecord {
   const matches = graph.installments.filter(
     (installment) => installment.position === 2 && installment.dueTrigger === "artist_approval",
   );
@@ -642,7 +623,11 @@ export async function reopenArtistApprovedSong(
     trackId: string;
     reopenedAt: Date;
   },
-): Promise<{ changed: boolean; previouslyApprovedVersionId: string | null; reopenedAt: Date | null }> {
+): Promise<{
+  changed: boolean;
+  previouslyApprovedVersionId: string | null;
+  reopenedAt: Date | null;
+}> {
   const producerId = identifier(input.producerId, "Producer id");
   const actorClerkUserId = identifier(input.actorClerkUserId, "Producer account id");
   const trackId = identifier(input.trackId, "Song id");

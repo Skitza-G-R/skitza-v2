@@ -33,12 +33,12 @@ function planLabel(plan: PaymentPlan | null): string {
 }
 
 function planDescription(plan: PaymentPlan | null): string | null {
-  if (plan === null) return "This accepted purchase has a zero total.";
-  if (plan.kind === "full") return "The full accepted total is one installment.";
+  if (plan === null) return "This agreement has a zero total.";
+  if (plan.kind === "full") return "The full agreed total is one installment.";
   if (plan.kind === "split_50_50") {
-    return "The first half is due at acceptance; the second follows the accepted trigger.";
+    return "The agreed total is split into two installments.";
   }
-  return `The accepted total is split across ${String(plan.installments)} monthly installments.`;
+  return `The agreed total is split across ${String(plan.installments)} monthly installments.`;
 }
 
 function sessionLabel(session: PurchaseCommercialSnapshot["session"]): string {
@@ -65,7 +65,7 @@ function frozenTerms(
         .join(" · ")
     : "Not specified";
   return {
-    frozenAtIso: purchase.acceptance.acceptedAt.toISOString(),
+    frozenAtIso: purchase.commercialEstablishedAt.toISOString(),
     productName: snapshot.productOrOfferName,
     deliverables,
     lineItems: snapshot.lineItems.map((line, index) => ({
@@ -153,6 +153,7 @@ function projectStatus(project: PaymentProjectProjection): PaymentHistoryStatus 
 
 function triggerLabel(trigger: PaymentHistoryInstallment["trigger"]): string | null {
   if (trigger === "acceptance") return "At acceptance";
+  if (trigger === "producer_import") return "When added to Skitza";
   if (trigger === "artist_approval") return "When the artist approves the final version";
   if (trigger === "monthly_anniversary") return "Monthly anniversary";
   return trigger;
@@ -235,11 +236,22 @@ function mapPurchase(
     totalRemainingCents: purchase.totalRemainingCents,
     delivery,
     frozenTerms: frozenTerms(purchase, deliverables.labels),
-    acceptance: {
-      acceptedAtIso: purchase.acceptance.acceptedAt.toISOString(),
-      acceptedByLabel: `${purchase.clientName} accepted the exact terms`,
-      statement: "The agreement, price, plan, and schedule above are the frozen accepted record.",
-    },
+    agreementRecord:
+      purchase.provenance.kind === "artist_acceptance"
+        ? {
+            kind: "artist_acceptance",
+            establishedAtIso: purchase.provenance.acceptedAt.toISOString(),
+            headline: `${purchase.clientName} accepted the exact terms`,
+            statement:
+              "The agreement, price, plan, and schedule above are the frozen accepted record.",
+          }
+        : {
+            kind: "producer_import",
+            establishedAtIso: purchase.provenance.importedAt.toISOString(),
+            headline: purchase.provenance.notice,
+            statement:
+              "The outside agreement, price, plan, and schedule above are frozen in Skitza.",
+          },
     plan: {
       label: planLabel(purchase.commercialSnapshot.selectedPaymentPlan),
       description: planDescription(purchase.commercialSnapshot.selectedPaymentPlan),
@@ -293,7 +305,12 @@ function mapPurchase(
       amountCents: payment.effectiveAmountCents,
       currency: payment.currency,
       paidAtIso: payment.paidAt.toISOString(),
-      sourceLabel: payment.source === "proof" ? "Confirmed from proof" : "Recorded manually",
+      sourceLabel:
+        payment.source === "proof"
+          ? "Confirmed from proof"
+          : purchase.sourceKind === "imported_existing_work"
+            ? "Confirmed by producer"
+            : "Recorded manually",
       note: payment.note,
     })),
     corrections: purchase.corrections.map((correction) => ({

@@ -90,9 +90,10 @@ const SHARED_PROJECT: PaymentHistoryProject = {
         rights: ["Artist owns the approved master."],
         agreementText: "The exact accepted production agreement remains frozen for this purchase.",
       },
-      acceptance: {
-        acceptedAtIso: "2026-06-01T09:00:00.000Z",
-        acceptedByLabel: "Maya Cohen accepted the exact terms",
+      agreementRecord: {
+        kind: "artist_acceptance",
+        establishedAtIso: "2026-06-01T09:00:00.000Z",
+        headline: "Maya Cohen accepted the exact terms",
         statement: "Price, plan, agreement, and schedule are the immutable accepted record.",
       },
       plan: {
@@ -250,9 +251,9 @@ const UPCOMING_PROJECT: PaymentHistoryProject = {
         subtotalCents: 180_000,
         totalCents: 180_000,
       },
-      acceptance: {
-        ...SHARED_PURCHASE.acceptance,
-        acceptedAtIso: "2026-07-22T09:00:00.000Z",
+      agreementRecord: {
+        ...SHARED_PURCHASE.agreementRecord,
+        establishedAtIso: "2026-07-22T09:00:00.000Z",
       },
       plan: {
         label: "One payment",
@@ -338,9 +339,9 @@ const EXTREME_MONEY_PROJECT: PaymentHistoryProject = {
         subtotalCents: 987_654_321,
         totalCents: 987_654_321,
       },
-      acceptance: {
-        ...SHARED_PURCHASE.acceptance,
-        acceptedAtIso: "2026-07-24T09:00:00.000Z",
+      agreementRecord: {
+        ...SHARED_PURCHASE.agreementRecord,
+        establishedAtIso: "2026-07-24T09:00:00.000Z",
       },
       plan: {
         label: "Three milestones",

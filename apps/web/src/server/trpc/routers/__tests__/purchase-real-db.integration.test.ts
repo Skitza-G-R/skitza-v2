@@ -156,6 +156,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
       totalCents: input.totalCents,
       currency: "USD",
       acceptedAt,
+      commercialEstablishedAt: acceptedAt,
       ...(input.totalCents === 0
         ? { lifecycleStatus: "active" as const, activatedAt: acceptedAt }
         : {}),
@@ -513,6 +514,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
     const { purchase } = await safely(() =>
       insertPaidPurchaseWithSchedule({ totalCents: 100, paymentPlanKind: "full" }),
     );
+    if (!purchase.acceptedAt) throw new Error("Accepted fixture is missing acceptedAt");
     expect(typeof purchase.id).toBe("string");
     expect(purchase).toMatchObject({
       totalCents: 100,
@@ -547,6 +549,8 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
     const { purchase } = await safely(() =>
       insertPaidPurchaseWithSchedule({ totalCents: 100, paymentPlanKind: "full" }),
     );
+    if (!purchase.acceptedAt) throw new Error("Accepted fixture is missing acceptedAt");
+    const purchaseAcceptedAt = purchase.acceptedAt;
 
     const exactAcceptance = {
       purchaseId: purchase.id,
@@ -555,7 +559,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
       acceptedByClerkUserId: `sk90-artist-${fixtureSuffix}`,
       acceptedSnapshot: purchase.commercialSnapshot,
       snapshotDigest: purchase.snapshotDigest,
-      acceptedAt: purchase.acceptedAt,
+      acceptedAt: purchaseAcceptedAt,
     };
 
     expect(
@@ -577,7 +581,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
           .insert(purchaseAcceptances)
           .values({
             ...exactAcceptance,
-            acceptedAt: new Date(purchase.acceptedAt.getTime() + 1),
+            acceptedAt: new Date(purchaseAcceptedAt.getTime() + 1),
           }),
       ),
     ).toBe("23514");
@@ -586,7 +590,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
     await safely(() =>
       activeDb()
         .update(purchases)
-        .set({ lifecycleStatus: "active", activatedAt: purchase.acceptedAt })
+        .set({ lifecycleStatus: "active", activatedAt: purchaseAcceptedAt })
         .where(eq(purchases.id, purchase.id)),
     );
     expect(

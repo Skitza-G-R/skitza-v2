@@ -386,13 +386,13 @@ export const projectRouter = router({
               lifecycleStatus: purchases.lifecycleStatus,
               totalCents: purchases.totalCents,
               currency: purchases.currency,
-              acceptedAt: purchases.acceptedAt,
+              commercialEstablishedAt: purchases.commercialEstablishedAt,
               canceledAt: purchases.canceledAt,
               commercialSnapshot: purchases.commercialSnapshot,
             })
             .from(purchases)
             .where(and(eq(purchases.producerId, ctx.producerId), eq(purchases.projectId, row.id)))
-            .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+            .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
           const songSpaces = summarizeProjectSongSpaces({
             producerId: ctx.producerId,
             projectId: row.id,
@@ -402,7 +402,7 @@ export const projectRouter = router({
               purchaseId: purchase.id,
               lifecycleStatus: purchase.lifecycleStatus,
               includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
-              acceptedAt: purchase.acceptedAt,
+              commercialEstablishedAt: purchase.commercialEstablishedAt,
             })),
             tracks: tracksList.map((track) => ({
               id: track.id,

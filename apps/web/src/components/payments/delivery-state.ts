@@ -79,7 +79,7 @@ export function mapPaymentDeliveryState(input: PaymentDeliveryInput): PaymentDel
       key: "no_payment_required",
       label: "No payment required · downloads available",
       description:
-        "This accepted purchase has no cash total. Access comes from the accepted agreement, not a verified payment.",
+        "This agreement has no cash total. Access comes from the agreement, not a verified payment.",
       googleDriveLinks: input.googleDriveLinks,
       withheldGoogleDriveLinkCount: 0,
     };

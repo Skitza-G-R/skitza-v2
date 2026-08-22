@@ -1,6 +1,7 @@
 import { router } from "../init";
 import { artistRouter } from "./artist";
 import { artistPlatformRouter } from "./artist-platform";
+import { activeWorkImportRouter } from "./active-work-import";
 import { audioRouter } from "./audio";
 import { audioDeliveryRouter } from "./audio-delivery";
 import { bookingRouter } from "./booking";
@@ -24,6 +25,7 @@ import { songPublicationRouter } from "./song-publication";
 import { songArtworkRouter } from "./song-artwork";
 
 export const appRouter = router({
+  activeWorkImport: activeWorkImportRouter,
   artist: artistRouter,
   artistPlatform: artistPlatformRouter,
   audioDelivery: audioDeliveryRouter,

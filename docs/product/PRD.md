@@ -1,12 +1,12 @@
 # Skitza — Product Requirements Document
 
-**Version:** 5.2
-**Date:** 13 August 2026
+**Version:** 5.4
+**Date:** 20 August 2026
 **Status:** Durable product source of truth
 
 ## 1. Authority and scope
 
-This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026, the approved **Manual sessions and Google Calendar sync** contract, finalized on 8 August 2026, and the approved **Enhanced producer desktop app** contract, finalized on 13 August 2026.
+This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026, the approved **Manual sessions and Google Calendar sync** contract, finalized on 8 August 2026, the approved **Enhanced producer desktop app** contract, finalized on 13 August 2026, and the approved imported-existing-work decisions in Linear `SK-255`, finalized on 20 August 2026.
 
 When sources conflict, use this order:
 
@@ -139,13 +139,15 @@ A Purchase, sometimes called an Order in engineering, is one accepted:
 - paid add-on;
 - ₪0 No charge add-on.
 
+A Purchase may also record one existing agreement imported by the producer. That imported Purchase is established by an immutable producer attestation, not by Artist acceptance inside Skitza.
+
 A project may have several purchases, including several unpaid purchases at the same time. Only an exact accidental duplicate request or checkout is blocked.
 
 Each purchase owns immutable commercial history:
 
 - product or offer snapshot;
 - subtotal, tax, total, currency, and price breakdown;
-- exact agreement and acceptance record;
+- exact agreement and either an Artist acceptance record or producer import attestation;
 - selected payment plan;
 - installment schedule;
 - payment and proof history;
@@ -202,6 +204,8 @@ All Store products, private offers, session products, paid extra songs, and no-c
 14. A true ₪0 purchase becomes fully paid and active at acceptance.
 
 Skitza records off-app money. It does not take, hold, route, split, or process card payments.
+
+Imported existing work is the approved exception to the Artist-acceptance step above. The producer may silently create or reuse a Client, create one Project, and establish one imported Purchase from the exact outside agreement. The Artist sees **Added by producer from an existing agreement** and does not approve or acknowledge those terms again. Skitza must never create an Artist acceptance row, accepting Clerk user, signature, or acceptance time for an import. The producer attestation freezes who imported it, when, and the exact commercial snapshot. Imported work supports only exact Full, 50/50, and Monthly shapes, creates no Song rows, and otherwise uses the normal Purchase ledger, activation, access, and download rules.
 
 ### 4.7 — Mac and Windows desktop apps
 
@@ -568,6 +572,14 @@ Royalty accounting, collection, reporting, and payout are outside scope.
 
 Normal Invite client remains separate from private offers. Fix its route. Do not replace it with the offer flow.
 
+**Invited** means Skitza's email provider accepted a deliberate invitation-email send request. It does not claim inbox delivery. Copying the join link or opening WhatsApp never marks a Client as Invited. Invitation email delivery must use durable per-recipient idempotency and preserve request, attempt, provider-accepted, and failure evidence.
+
+### 8.7 Bring in active work
+
+The optional **Bring in active work** setup creates Clients, Projects, imported Purchases, installments, and historical producer-confirmed payments without contacting anyone. Each resumable row has one stable operation key; successful row IDs are retained so retrying after partial success cannot duplicate a Client, Project, Purchase, installment, payment, or proof. One failed or incomplete row never rolls back a successful row. Drafting and row creation stay silent. The setup cannot finish until the producer reaches **Finish setup**, which automatically activates reminders for every unpaid imported installment; invitations remain optional.
+
+The setup is reachable from **Clients & Projects** and from the optional onboarding-completion shortcut. The combined Clients & Projects header uses **Copy my Skitza link** as its main acquisition action and **Bring in active work** as the quieter second action. It has no manual **New client**, **New project**, **New offer**, or **Send private offer** action. Normal new Clients join through the producer's public Skitza link. Private Offers remain in Store and are not removed or moved by this decision.
+
 ## 9. Sessions
 
 A session is a real booking tied to one client, one project, and that project's purchase-owned bookable entitlement. Sessions never float outside a project.
@@ -649,7 +661,9 @@ Tax choices are:
 
 Monthly dates are based on the first confirmed payment date and stay fixed. For 50/50, the agreement records the exact artist-approval trigger.
 
-Acceptance saves the exact content, verified accepting account/client, time, purchase, project, plan, and commercial snapshot.
+For work agreed inside Skitza, acceptance saves the exact content, verified accepting account/client, time, purchase, project, plan, and commercial snapshot.
+
+For imported existing work, commercial establishment saves an immutable producer attestation with the importing Clerk account, time, Purchase, producer, Client, and exact frozen snapshot. Its first installment is triggered by the producer import, not by Artist acceptance. Imported Purchases have no Artist acceptance record or acceptance timestamp. The normal Monthly anniversary and exact Artist approval triggers remain unchanged for later installments.
 
 A changeable external contract link is not an immutable agreement. Skitza must store the exact accepted terms.
 
@@ -813,6 +827,8 @@ When late:
 - never delete, complete, cancel, or archive automatically.
 
 Automatic reminders default on and may be disabled globally or per payment.
+
+Imported Purchase drafting and row creation remain silent. Imported installments are created without active reminders, then mandatory **Finish setup** automatically activates reminders for every unpaid imported Full, Monthly, and 50/50 installment. Reminder selection is not optional inside this setup; invitations remain optional. A final 50/50 reminder remains silent until exact Artist approval makes that installment due. Existing reminder controls after setup remain unchanged unless a later product decision explicitly changes them.
 
 Schedule:
 

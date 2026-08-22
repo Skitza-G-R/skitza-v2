@@ -41,6 +41,7 @@ function paymentRecord(index: number): ProducerPaymentRecord {
     purchaseTitle: `Purchase ${String(index)}`,
     purchaseReference: `REF-${String(index)}`,
     purchaseLifecycleStatus: "active",
+    isImportedExistingWork: false,
     currency: index === 3 ? "ILS" : "USD",
     totalCents: 20_000,
     paidCents: 10_000,
@@ -218,6 +219,34 @@ describe("ProducerPaymentsDashboard", () => {
     expect(screen.getAllByText("Payment").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "Open proof" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /details/i })).toBeNull();
+  });
+
+  it("shows imported manual money as confirmed by the producer in History", async () => {
+    const user = userEvent.setup();
+    const imported = {
+      ...paymentRecord(2),
+      isImportedExistingWork: true,
+      payments: [
+        {
+          id: "imported-manual-payment",
+          installmentId: "installment-2",
+          proofId: null,
+          source: "manual" as const,
+          originalAmountCents: 10_000,
+          effectiveAmountCents: 10_000,
+          paidAtIso: "2026-08-03T09:00:00.000Z",
+          note: "Bank transfer received",
+        },
+      ],
+    };
+    renderDashboard({ records: [imported] });
+
+    await user.click(screen.getByRole("tab", { name: "history" }));
+
+    expect(
+      screen.getAllByText("Confirmed by producer · Bank transfer received").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Recorded manually · Bank transfer received")).toBeNull();
   });
 
   it("uses the locked truthful empty state", () => {

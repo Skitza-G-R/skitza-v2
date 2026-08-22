@@ -60,9 +60,10 @@ const purchase: PaymentHistoryPurchase = {
     agreementText: "Credit the producer in release metadata.",
     agreementPdfFileName: "frozen-production-terms.pdf",
   },
-  acceptance: {
-    acceptedAtIso: "2026-07-01T09:00:00.000Z",
-    acceptedByLabel: "Accepted by Maya Stone",
+  agreementRecord: {
+    kind: "artist_acceptance",
+    establishedAtIso: "2026-07-01T09:00:00.000Z",
+    headline: "Accepted by Maya Stone",
     statement: "Exact agreement and payment plan accepted.",
   },
   plan: {
@@ -306,6 +307,37 @@ describe("PaymentHistoryView", () => {
     expect(html).toContain("Final mix v3");
     expect(html).toContain("Overdue · downloads locked");
     expect(html).toContain("Purchase delivery state");
+  });
+
+  it("shows imported provenance without claiming the artist accepted it", () => {
+    const importedPurchase: PaymentHistoryPurchase = {
+      ...purchase,
+      id: "purchase-imported",
+      reference: "SK-P-IMPORTED",
+      agreementRecord: {
+        kind: "producer_import",
+        establishedAtIso: "2026-07-10T09:00:00.000Z",
+        headline: "Added by producer from an existing agreement",
+        statement: "The outside agreement, price, plan, and schedule above are frozen in Skitza.",
+      },
+    };
+    const importedData: PaymentHistoryViewData = {
+      ...data,
+      projects: [{ ...usdProject, purchases: [importedPurchase] }],
+    };
+
+    const producerHtml = renderToStaticMarkup(
+      <PaymentHistoryView role="producer" data={importedData} />,
+    );
+    const artistHtml = renderToStaticMarkup(
+      <PaymentHistoryView role="artist" data={importedData} />,
+    );
+
+    for (const html of [producerHtml, artistHtml]) {
+      expect(html).toContain("Agreement record");
+      expect(html).toContain("Added by producer from an existing agreement");
+      expect(html).not.toContain("Maya Stone accepted the exact terms");
+    }
   });
 
   it("shows exact role-safe links and the logged producer reminder only", () => {

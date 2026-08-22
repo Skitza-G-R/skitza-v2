@@ -3,7 +3,11 @@ export type PurchasePaymentPlan =
   | Readonly<{ kind: "split_50_50" }>
   | Readonly<{ kind: "monthly"; installments: number }>;
 
-export type InstallmentTrigger = "acceptance" | "artist_approval" | "monthly_anniversary";
+export type InstallmentTrigger =
+  | "acceptance"
+  | "producer_import"
+  | "artist_approval"
+  | "monthly_anniversary";
 
 export type PurchaseInstallmentStatus =
   | "not_paid"
@@ -43,8 +47,9 @@ export function purchaseInstallmentDueLabel(plan: PurchasePaymentPlan, sequence:
 
 export function purchaseInstallmentTriggerLabel(trigger: InstallmentTrigger): string {
   if (trigger === "acceptance") return "Triggered by offer acceptance";
+  if (trigger === "producer_import") return "Started when the producer added this agreement";
   if (trigger === "artist_approval") return "Triggered when you approve the final version";
-  return "Triggered on a monthly anniversary after acceptance";
+  return "Triggered on a monthly anniversary after the agreement started";
 }
 
 export type ConfirmedPayment = Readonly<{

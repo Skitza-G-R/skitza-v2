@@ -33,13 +33,14 @@ describe("Clients & Projects read-performance contracts", () => {
     expect(listWithProjects).toContain('view: "by-client" as const');
   });
 
-  it("loads the shared project, comment, and contact inputs once and concurrently", () => {
+  it("loads shared project, comment, contact, and invitation inputs once and concurrently", () => {
     expect(listWithProjects).toMatch(
-      /const \[projectRows, commentAgg, contacts\] = await Promise\.all\(\[/,
+      /const \[projectRows, commentAgg, contacts, invitationStates\] = await Promise\.all\(\[/,
     );
     expect(listWithProjects.match(/\.from\(projects\)/g)).toHaveLength(1);
     expect(listWithProjects.match(/\.from\(trackComments\)/g)).toHaveLength(1);
     expect(listWithProjects.match(/\.from\(clientContacts\)/g)).toHaveLength(1);
+    expect(listWithProjects.match(/loadCurrentClientInvitationStates\(/g)).toHaveLength(1);
   });
 
   it("keeps Client Space lean without widening the legacy detail contract", () => {

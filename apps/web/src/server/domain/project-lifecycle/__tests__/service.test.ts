@@ -233,7 +233,9 @@ function memoryPurchaseLedgerRepository(
         totalCents: rows.length * amountCents,
         plan: rows.length === 0 ? null : "full",
         lifecycleStatus: purchase.lifecycleStatus,
+        sourceKind: "store_product",
         acceptedAt: new Date(BASE_TIME),
+        commercialEstablishedAt: new Date(BASE_TIME),
         activatedAt:
           purchase.lifecycleStatus === "waiting_for_payment" ? null : new Date(BASE_TIME),
         canceledAt: cloneDate(purchase.canceledAt),

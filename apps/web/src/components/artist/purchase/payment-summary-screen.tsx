@@ -121,10 +121,10 @@ export function PaymentSummaryScreen({
             </>
           ) : recordStatus === "no_payment_required" ? (
             <>
-              <StatusEyebrow>Accepted record</StatusEyebrow>
+              <StatusEyebrow>Agreement</StatusEyebrow>
               <StatusTitle>No payment required</StatusTitle>
               <StatusCopy>
-                This accepted purchase has no cash total. View the frozen accepted terms below.
+                This agreement has no cash total. View the frozen terms below.
               </StatusCopy>
             </>
           ) : recordStatus === "paid_in_full" ? (
@@ -249,7 +249,7 @@ export function PaymentSummaryScreen({
                 Full purchase record
               </span>
               <span className="mt-0.5 block text-[10.5px] font-normal text-[rgb(var(--fg-muted))]">
-                Accepted terms, plan, schedule, and complete history
+                Agreement, plan, schedule, and complete history
               </span>
             </span>
             <span className="shrink-0 text-[10px] font-semibold text-[rgb(var(--brand-primary-text))]">

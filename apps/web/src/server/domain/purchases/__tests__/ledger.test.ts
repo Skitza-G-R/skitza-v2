@@ -70,7 +70,7 @@ describe("purchase installment schedules", () => {
     );
     expect(purchaseInstallmentTriggerLabel("acceptance")).toBe("Triggered by offer acceptance");
     expect(purchaseInstallmentTriggerLabel("monthly_anniversary")).toBe(
-      "Triggered on a monthly anniversary after acceptance",
+      "Triggered on a monthly anniversary after the agreement started",
     );
   });
 });

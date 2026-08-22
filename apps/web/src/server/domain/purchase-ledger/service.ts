@@ -76,7 +76,15 @@ export type PurchaseLedgerSnapshot = Readonly<{
     totalCents: number;
     plan: PurchaseLedgerPlan | null;
     lifecycleStatus: "waiting_for_payment" | "active" | "canceled";
-    acceptedAt: Date;
+    sourceKind:
+      | "store_product"
+      | "private_offer"
+      | "session_product"
+      | "paid_add_on"
+      | "no_charge_add_on"
+      | "imported_existing_work";
+    acceptedAt: Date | null;
+    commercialEstablishedAt: Date;
     activatedAt: Date | null;
     canceledAt: Date | null;
   }>;
@@ -97,7 +105,7 @@ export type PurchaseLedgerSnapshot = Readonly<{
   refNumber: string;
   installments: readonly (LedgerInstallmentInput &
     Readonly<{
-      dueTrigger: "acceptance" | "monthly_anniversary" | "artist_approval";
+      dueTrigger: "acceptance" | "producer_import" | "monthly_anniversary" | "artist_approval";
       triggeredAt: Date | null;
       remindersEnabled: boolean;
     }>)[];
@@ -249,6 +257,23 @@ function ownedSnapshot(
   ) {
     throw new PurchaseLedgerDomainError("NOT_FOUND", "Purchase ledger was not found");
   }
+  const establishedAt = snapshot.purchase.commercialEstablishedAt;
+  const acceptedAt = snapshot.purchase.acceptedAt;
+  const imported = snapshot.purchase.sourceKind === "imported_existing_work";
+  if (
+    !(establishedAt instanceof Date) ||
+    Number.isNaN(establishedAt.getTime()) ||
+    (imported
+      ? acceptedAt !== null
+      : !(acceptedAt instanceof Date) ||
+        Number.isNaN(acceptedAt.getTime()) ||
+        acceptedAt.getTime() !== establishedAt.getTime())
+  ) {
+    throw new PurchaseLedgerDomainError(
+      "INTEGRITY_ERROR",
+      "Purchase commercial establishment history is invalid",
+    );
+  }
   const installmentTotal = snapshot.installments.reduce(
     (sum, installment) => sum + installment.amountCents,
     0,
@@ -266,7 +291,7 @@ function ownedSnapshot(
   ) {
     throw new PurchaseLedgerDomainError(
       "INTEGRITY_ERROR",
-      "Accepted purchase and installment schedule disagree",
+      "Purchase and installment schedule disagree",
     );
   }
   if (
@@ -734,6 +759,24 @@ export async function setInstallmentRemindersEnabled(
   return repository.atomically(scope, async (transaction) => {
     const snapshot = ownedSnapshot(await transaction.loadSnapshot(), scope);
     const installment = installmentFor(snapshot, installmentId);
+    if (input.enabled) {
+      const current = projection(snapshot, new Date()).installments.find(
+        (candidate) => candidate.id === installmentId,
+      );
+      if (
+        snapshot.purchase.lifecycleStatus === "canceled" ||
+        !current ||
+        current.remainingCents <= 0 ||
+        current.status === "confirmed" ||
+        current.status === "waived" ||
+        current.status === "canceled"
+      ) {
+        throw new PurchaseLedgerDomainError(
+          "CONFLICT",
+          "Reminders can be enabled only for an unpaid installment",
+        );
+      }
+    }
     if (installment.remindersEnabled === input.enabled) {
       return { enabled: input.enabled, changed: false };
     }

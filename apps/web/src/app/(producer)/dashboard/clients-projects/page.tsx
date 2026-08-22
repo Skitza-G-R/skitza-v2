@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { WorkspaceListView } from "~/components/dashboard/clients-projects/workspace-list-view";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
+import { clientInvitationLinkState } from "~/components/dashboard/clients/client-invitation-state";
 import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
 import { mapProducerWorkspaceSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
@@ -24,35 +25,22 @@ import { ProjectsListLoading } from "./projects-list-loading";
 //   • producer.me() — consumed for `slug` (so the Invite modal can
 //     build the verified artist signup URL) and the display currency.
 
-// WorkspaceListView owns ?tab= / ?sort= / ?filter= as local state in
-// Phase 1; URL hydration is a fast-follow. The one searchParam we DO
-// hydrate is `?newProject=1` — the legacy /clients-projects/new route
-// redirects here with that param so the modal auto-opens. (G7.)
-type PageProps = {
-  searchParams?: Promise<{ newProject?: string }>;
-};
-
-export default async function ProjectsPage({ searchParams }: PageProps) {
+// WorkspaceListView owns the bounded tab, view, sort, and search URL state.
+// Manual New client / New project entry points were retired in SK-255:
+// normal new work starts through the producer's public Skitza link, while
+// existing work enters through Bring in active work.
+export default async function ProjectsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
-  const sp = (await searchParams) ?? {};
-  const autoOpenNewProject = sp.newProject === "1";
-
   return (
     <Suspense fallback={<ProjectsListLoading />}>
-      <ProjectsPageContent userId={userId} autoOpenNewProject={autoOpenNewProject} />
+      <ProjectsPageContent userId={userId} />
     </Suspense>
   );
 }
 
-async function ProjectsPageContent({
-  userId,
-  autoOpenNewProject,
-}: {
-  userId: string;
-  autoOpenNewProject: boolean;
-}) {
+async function ProjectsPageContent({ userId }: { userId: string }) {
   const caller = appRouter.createCaller({ userId });
 
   const loadResult = await Promise.all([
@@ -89,14 +77,7 @@ async function ProjectsPageContent({
       c.producerArchivedAt === null && c.archiveBlockingProjectCount > 0
         ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
         : null,
-    // clerkUserId set ⇒ the artist signed up via the invite link
-    // ("active"). Otherwise, invitedAt set ⇒ "pending" (amber
-    // pulsing pill). Otherwise ⇒ "none" (the Invite-to-app CTA).
-    linkState: c.clerkUserId
-      ? ("active" as const)
-      : c.invitedAt
-        ? ("pending" as const)
-        : ("none" as const),
+    linkState: clientInvitationLinkState(c.invitationState),
     projects: c.activeProjectCount,
     lifetime: c.commercial.lifetimeCents,
     owed: c.commercial.outstandingCents,
@@ -146,7 +127,6 @@ async function ProjectsPageContent({
           projects={projectRows}
           clients={clientRows}
           producerSlug={producerSlug}
-          initialNewProjectOpen={autoOpenNewProject}
         />
       </div>
     </div>

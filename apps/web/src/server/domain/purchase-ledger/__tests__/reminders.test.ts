@@ -18,7 +18,10 @@ type ReminderOverrides = Readonly<{
   installmentEnabled?: boolean;
   pendingProof?: boolean;
   lifecycleStatus?: "waiting_for_payment" | "active" | "canceled";
-  dueAt?: Date;
+  sourceKind?: "store_product" | "imported_existing_work";
+  dueTrigger?: "acceptance" | "producer_import" | "monthly_anniversary" | "artist_approval";
+  dueAt?: Date | null;
+  triggeredAt?: Date | null;
   email?: string;
   amountCents?: number;
   timeZone?: string;
@@ -27,6 +30,8 @@ type ReminderOverrides = Readonly<{
 function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): ReconciledPurchaseLedger {
   const amountCents = overrides.amountCents ?? 1_000;
   const lifecycleStatus = overrides.lifecycleStatus ?? "active";
+  const sourceKind = overrides.sourceKind ?? "store_product";
+  const establishedAt = new Date("2026-07-01T10:00:00.000Z");
   const snapshot: PurchaseLedgerSnapshot = {
     purchase: {
       id: "purchase-a",
@@ -37,8 +42,10 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
       totalCents: amountCents,
       plan: "full",
       lifecycleStatus,
-      acceptedAt: new Date("2026-07-01T10:00:00.000Z"),
-      activatedAt: new Date("2026-07-01T10:00:00.000Z"),
+      sourceKind,
+      acceptedAt: sourceKind === "imported_existing_work" ? null : establishedAt,
+      commercialEstablishedAt: establishedAt,
+      activatedAt: establishedAt,
       canceledAt: lifecycleStatus === "canceled" ? new Date("2026-07-19T10:00:00.000Z") : null,
     },
     project: {
@@ -64,9 +71,10 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
         position: 1,
         amountCents,
         currency: "USD",
-        dueTrigger: "acceptance",
-        dueAt: overrides.dueAt ?? new Date("2026-07-20T10:00:00.000Z"),
-        triggeredAt: new Date("2026-07-01T10:00:00.000Z"),
+        dueTrigger: overrides.dueTrigger ?? "acceptance",
+        dueAt:
+          overrides.dueAt === undefined ? new Date("2026-07-20T10:00:00.000Z") : overrides.dueAt,
+        triggeredAt: overrides.triggeredAt === undefined ? establishedAt : overrides.triggeredAt,
         requiredForActivation: true,
         status: lifecycleStatus === "canceled" ? "overdue" : "not_paid",
         remindersEnabled: overrides.installmentEnabled ?? true,
@@ -383,9 +391,7 @@ describe("purchase reminders", () => {
 
   it("does not send an automatic reminder while payment proof awaits review", async () => {
     const asOf = new Date("2026-07-17T12:00:00.000Z");
-    const repository = new MemoryReminderRepository(
-      reminderLedger(asOf, { pendingProof: true }),
-    );
+    const repository = new MemoryReminderRepository(reminderLedger(asOf, { pendingProof: true }));
     const mail = provider();
 
     const result = await sendAutomaticPurchaseReminders(repository, mail.send, {
@@ -396,6 +402,49 @@ describe("purchase reminders", () => {
     expect(result).toMatchObject({ reconciled: 1, eligible: 0, sent: 0, errored: 0 });
     expect(mail.calls).toHaveLength(0);
     expect(repository.deliveries).toHaveLength(0);
+  });
+
+  it("keeps an enabled imported final-50 reminder silent until real Artist approval makes it due", async () => {
+    const asOf = new Date("2026-07-20T12:00:00.000Z");
+    const beforeApproval = new MemoryReminderRepository(
+      reminderLedger(asOf, {
+        sourceKind: "imported_existing_work",
+        dueTrigger: "artist_approval",
+        dueAt: null,
+        triggeredAt: null,
+        installmentEnabled: true,
+      }),
+    );
+    const beforeMail = provider();
+
+    const before = await sendAutomaticPurchaseReminders(beforeApproval, beforeMail.send, {
+      asOf,
+      paymentUrlForPurchase,
+    });
+
+    expect(before).toMatchObject({ reconciled: 1, eligible: 0, sent: 0 });
+    expect(beforeMail.calls).toHaveLength(0);
+    expect(beforeApproval.deliveries).toHaveLength(0);
+
+    const approvalAt = new Date("2026-07-20T10:00:00.000Z");
+    const afterApproval = new MemoryReminderRepository(
+      reminderLedger(asOf, {
+        sourceKind: "imported_existing_work",
+        dueTrigger: "artist_approval",
+        dueAt: approvalAt,
+        triggeredAt: approvalAt,
+        installmentEnabled: true,
+      }),
+    );
+    const afterMail = provider();
+
+    const after = await sendAutomaticPurchaseReminders(afterApproval, afterMail.send, {
+      asOf,
+      paymentUrlForPurchase,
+    });
+
+    expect(after).toMatchObject({ reconciled: 1, eligible: 1, sent: 1 });
+    expect(afterMail.calls).toHaveLength(1);
   });
 
   it("selects today's producer-local occurrence before the exact due wall-clock time", async () => {

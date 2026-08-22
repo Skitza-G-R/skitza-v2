@@ -106,7 +106,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
       href: withArtistStudio(`/artist/payments/${purchase.id}`, activeStudio.producerId),
       actionLabel: "View payment",
       upcomingAt: purchase.nextPayment.dueAt,
-      occurredAt: purchase.acceptedAt,
+      occurredAt: purchase.commercialEstablishedAt,
     });
   }
 
@@ -229,7 +229,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
       ),
       actionLabel: "View",
       upcomingAt: null,
-      occurredAt: proofUnderReview.purchase.acceptedAt,
+      occurredAt: proofUnderReview.purchase.commercialEstablishedAt,
     });
   }
   const meaningfulItems =

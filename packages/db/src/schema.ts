@@ -167,6 +167,7 @@ export const producers = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
+    idClerkUserUnique: unique("producers_id_clerk_user_unique").on(t.id, t.clerkUserId),
     adminEmailSearchIdx: index("producers_admin_email_search_idx").on(
       sql`lower(${t.email}) text_pattern_ops`,
       t.clerkUserId,
@@ -2600,6 +2601,18 @@ export const trackComments = pgTable(
 export type TrackComment = typeof trackComments.$inferSelect;
 export type NewTrackComment = typeof trackComments.$inferInsert;
 
+export const clientInvitationEmailDeliveryStatus = pgEnum(
+  "client_invitation_email_delivery_status",
+  ["reserved", "sending", "provider_accepted", "failed", "dedupe_expired"],
+);
+
+export type ClientInvitationEmailMessageSnapshot = {
+  to: string;
+  artistName: string;
+  producerName: string;
+  inviteUrl: string;
+};
+
 // ─── Client contacts cache ──────────────────────────────────────────
 // When an artist signs a contract, submits a booking request, or the
 // producer creates a project, we upsert an entry here so send-forms can
@@ -2656,10 +2669,9 @@ export const clientContacts = pgTable(
     // disconnect marker above. Producer archive changes list placement only;
     // artist ownership and access continue through the stable client id.
     producerArchivedAt: timestamp("producer_archived_at", { withTimezone: true }),
-    // Linkpill "Invited" state for the Clients & Projects v3 redesign.
-    // Stamped when the producer triggers Send Invite (email or copy-link)
-    // from the Invite-to-App modal. Cleared when Clerk webhook resolves
-    // `clerkUserId`. NULL means "no invite ever sent".
+    // Legacy invitation-intent timestamp. It is not delivery evidence: older
+    // code also stamped it for copy-link intent. New "Invited" reads use a
+    // provider_accepted clientInvitationEmailDeliveries row instead.
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     // Drag-to-reorder slot for the Clients list. NOT NULL with default 0
     // so existing rows back-fill safely. Reorder mutations update many
@@ -2686,6 +2698,98 @@ export const clientContacts = pgTable(
 
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type NewClientContact = typeof clientContacts.$inferInsert;
+
+// Durable email-only invitation outbox. Copy-link and WhatsApp actions have
+// no representation here, so they cannot become "Invited" evidence. The
+// providerAcceptedAt timestamp means the email provider accepted Skitza's
+// send request; it deliberately does not claim inbox delivery.
+export const clientInvitationEmailDeliveries = pgTable(
+  "client_invitation_email_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clientContactId: uuid("client_contact_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    recipientEmail: text("recipient_email").notNull(),
+    recipientEmailHash: text("recipient_email_hash").notNull(),
+    messageSnapshot: jsonb("message_snapshot")
+      .$type<ClientInvitationEmailMessageSnapshot>()
+      .notNull(),
+    requestedByClerkUserId: text("requested_by_clerk_user_id").notNull(),
+    providerIdempotencyKey: text("provider_idempotency_key").notNull(),
+    status: clientInvitationEmailDeliveryStatus("status").notNull().default("reserved"),
+    claimToken: text("claim_token"),
+    claimUntil: timestamp("claim_until", { withTimezone: true }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    providerDedupeExpiresAt: timestamp("provider_dedupe_expires_at", { withTimezone: true }),
+    providerMessageId: text("provider_message_id"),
+    providerAcceptedAt: timestamp("provider_accepted_at", { withTimezone: true }),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+    failureCode: text("failure_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    recipientOperationUnique: unique("client_invitation_email_deliveries_operation_unique").on(
+      t.producerId,
+      t.clientContactId,
+      t.operationKey,
+    ),
+    providerIdempotencyUnique: unique(
+      "client_invitation_email_deliveries_provider_idempotency_unique",
+    ).on(t.providerIdempotencyKey),
+    clientProducerFk: foreignKey({
+      columns: [t.clientContactId, t.producerId],
+      foreignColumns: [clientContacts.id, clientContacts.producerId],
+      name: "client_invitation_email_deliveries_client_producer_fk",
+    }).onDelete("restrict"),
+    requestingProducerFk: foreignKey({
+      columns: [t.producerId, t.requestedByClerkUserId],
+      foreignColumns: [producers.id, producers.clerkUserId],
+      name: "client_invitation_email_deliveries_requesting_producer_fk",
+    }).onDelete("restrict"),
+    claimIdx: index("client_invitation_email_deliveries_claim_idx").on(
+      t.status,
+      t.claimUntil,
+      t.id,
+    ),
+    producerUpdatedIdx: index("client_invitation_email_deliveries_producer_updated_idx").on(
+      t.producerId,
+      t.updatedAt,
+      t.id,
+    ),
+    clientAcceptedIdx: index("client_invitation_email_deliveries_client_accepted_idx").on(
+      t.clientContactId,
+      t.providerAcceptedAt,
+      t.id,
+    ),
+    operationShape: check(
+      "client_invitation_email_deliveries_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 200 AND ${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$' AND NULLIF(btrim(${t.providerIdempotencyKey}), '') IS NOT NULL AND char_length(${t.providerIdempotencyKey}) <= 256`,
+    ),
+    recipientShape: check(
+      "client_invitation_email_deliveries_recipient_shape",
+      sql`(${t.recipientEmailHash} ~ '^[0-9a-f]{64}$' AND NULLIF(btrim(${t.recipientEmail}), '') IS NOT NULL AND ${t.messageSnapshot}->>'to' = ${t.recipientEmail} AND NULLIF(btrim(${t.messageSnapshot}->>'inviteUrl'), '') IS NOT NULL AND NULLIF(btrim(${t.requestedByClerkUserId}), '') IS NOT NULL) IS TRUE`,
+    ),
+    attemptShape: check(
+      "client_invitation_email_deliveries_attempt_shape",
+      sql`((${t.attemptCount} = 0 AND ${t.firstAttemptAt} IS NULL AND ${t.lastAttemptAt} IS NULL AND ${t.providerDedupeExpiresAt} IS NULL) OR (${t.attemptCount} > 0 AND ${t.firstAttemptAt} IS NOT NULL AND ${t.lastAttemptAt} IS NOT NULL AND ${t.providerDedupeExpiresAt} IS NOT NULL)) IS TRUE`,
+    ),
+    stateShape: check(
+      "client_invitation_email_deliveries_state_shape",
+      sql`((${t.status} = 'reserved' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.attemptCount} = 0 AND ${t.providerMessageId} IS NULL AND ${t.providerAcceptedAt} IS NULL AND ${t.lastFailedAt} IS NULL AND ${t.failureCode} IS NULL) OR (${t.status} = 'sending' AND NULLIF(btrim(${t.claimToken}), '') IS NOT NULL AND ${t.claimUntil} IS NOT NULL AND ${t.attemptCount} > 0 AND ${t.providerMessageId} IS NULL AND ${t.providerAcceptedAt} IS NULL AND ${t.failureCode} IS NULL) OR (${t.status} = 'provider_accepted' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.attemptCount} > 0 AND NULLIF(btrim(${t.providerMessageId}), '') IS NOT NULL AND ${t.providerAcceptedAt} IS NOT NULL AND ${t.failureCode} IS NULL) OR (${t.status} = 'failed' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.attemptCount} > 0 AND ${t.providerMessageId} IS NULL AND ${t.providerAcceptedAt} IS NULL AND ${t.lastFailedAt} IS NOT NULL AND NULLIF(btrim(${t.failureCode}), '') IS NOT NULL) OR (${t.status} = 'dedupe_expired' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.attemptCount} > 0 AND ${t.providerMessageId} IS NULL AND ${t.providerAcceptedAt} IS NULL)) IS TRUE`,
+    ),
+    timestampShape: check(
+      "client_invitation_email_deliveries_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt} AND (${t.claimUntil} IS NULL OR ${t.claimUntil} >= ${t.createdAt}) AND (${t.firstAttemptAt} IS NULL OR ${t.firstAttemptAt} >= ${t.createdAt}) AND (${t.lastAttemptAt} IS NULL OR ${t.lastAttemptAt} >= ${t.firstAttemptAt}) AND (${t.providerDedupeExpiresAt} IS NULL OR ${t.providerDedupeExpiresAt} > ${t.firstAttemptAt}) AND (${t.providerAcceptedAt} IS NULL OR ${t.providerAcceptedAt} >= ${t.firstAttemptAt}) AND (${t.lastFailedAt} IS NULL OR ${t.lastFailedAt} >= ${t.firstAttemptAt})`,
+    ),
+  }),
+);
+export type ClientInvitationEmailDelivery = typeof clientInvitationEmailDeliveries.$inferSelect;
+export type NewClientInvitationEmailDelivery = typeof clientInvitationEmailDeliveries.$inferInsert;
 
 // ─── Registered Clerk accounts (SK-133) ────────────────────────────
 // One person appears once, keyed by the provider's immutable Clerk user ID.
@@ -3713,9 +3817,10 @@ export type NewProducerNote = typeof producerNotes.$inferInsert;
 
 // ─── Purchase foundation (SK-90) ───────────────────────────────────
 // Requests remain a pre-acceptance new-work queue. A Purchase begins when
-// final terms are accepted and owns the frozen commercial snapshot, exact
-// installment schedule, proofs, ledger history, songs, versions, sessions,
-// approval events, and download entitlement for that accepted work.
+// final terms are either accepted by the Artist or truthfully established by
+// the Producer for imported existing work. It owns the frozen commercial
+// snapshot, exact installment schedule, proofs, ledger history, songs,
+// versions, sessions, approval events, and download entitlement.
 type PurchaseCommercialSnapshotBody = {
   productOrOfferName: string;
   tagline?: string;
@@ -3774,6 +3879,7 @@ export const purchaseSourceKind = pgEnum("purchase_source_kind", [
   "session_product",
   "paid_add_on",
   "no_charge_add_on",
+  "imported_existing_work",
 ]);
 
 export const privateOfferStatus = pgEnum("private_offer_status", [
@@ -3807,8 +3913,15 @@ export const purchasePaymentPlanKind = pgEnum("purchase_payment_plan_kind", [
 
 export const purchaseInstallmentDueTrigger = pgEnum("purchase_installment_due_trigger", [
   "acceptance",
+  "producer_import",
   "monthly_anniversary",
   "artist_approval",
+]);
+
+export const activeWorkImportBatchStatus = pgEnum("active_work_import_batch_status", [
+  "draft",
+  "in_progress",
+  "completed",
 ]);
 
 export const purchaseInstallmentStatus = pgEnum("purchase_installment_status", [
@@ -4042,7 +4155,13 @@ export const purchases = pgTable(
     taxCents: integer("tax_cents").notNull(),
     totalCents: integer("total_cents").notNull(),
     currency: text("currency").notNull(),
-    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
+    // Accepted sources set acceptedAt to the exact Artist acceptance time.
+    // Imported existing work leaves it null: commercialEstablishedAt is then
+    // the immutable Producer-import time proven by purchaseImportAttestations.
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    commercialEstablishedAt: timestamp("commercial_established_at", {
+      withTimezone: true,
+    }).notNull(),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     canceledAt: timestamp("canceled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -4063,6 +4182,10 @@ export const purchases = pgTable(
     idProjectUnique: unique("purchases_id_project_unique").on(t.id, t.projectId),
     idCurrencyUnique: unique("purchases_id_currency_unique").on(t.id, t.currency),
     idSnapshotUnique: unique("purchases_id_snapshot_unique").on(t.id, t.snapshotDigest),
+    idEstablishmentUnique: unique("purchases_id_establishment_unique").on(
+      t.id,
+      t.commercialEstablishedAt,
+    ),
     idOwnerUnique: unique("purchases_id_owner_unique").on(
       t.id,
       t.projectId,
@@ -4138,11 +4261,15 @@ export const purchases = pgTable(
     ),
     zeroTotalActivationShape: check(
       "purchases_zero_total_activation_shape",
-      sql`(${t.totalCents} > 0 OR (${t.lifecycleStatus} IN ('active', 'canceled') AND ${t.activatedAt} = ${t.acceptedAt})) IS TRUE`,
+      sql`(${t.totalCents} > 0 OR (${t.lifecycleStatus} IN ('active', 'canceled') AND ${t.activatedAt} = ${t.commercialEstablishedAt})) IS TRUE`,
     ),
     lifecycleTimestampShape: check(
       "purchases_lifecycle_timestamp_shape",
-      sql`((${t.lifecycleStatus} = 'waiting_for_payment' AND ${t.activatedAt} IS NULL AND ${t.canceledAt} IS NULL) OR (${t.lifecycleStatus} = 'active' AND ${t.activatedAt} >= ${t.acceptedAt} AND ${t.canceledAt} IS NULL) OR (${t.lifecycleStatus} = 'canceled' AND ((${t.activatedAt} IS NULL AND ${t.canceledAt} >= ${t.acceptedAt}) OR (${t.activatedAt} >= ${t.acceptedAt} AND ${t.canceledAt} >= ${t.activatedAt})))) IS TRUE`,
+      sql`((${t.lifecycleStatus} = 'waiting_for_payment' AND ${t.activatedAt} IS NULL AND ${t.canceledAt} IS NULL) OR (${t.lifecycleStatus} = 'active' AND ${t.activatedAt} >= ${t.commercialEstablishedAt} AND ${t.canceledAt} IS NULL) OR (${t.lifecycleStatus} = 'canceled' AND ((${t.activatedAt} IS NULL AND ${t.canceledAt} >= ${t.commercialEstablishedAt}) OR (${t.activatedAt} >= ${t.commercialEstablishedAt} AND ${t.canceledAt} >= ${t.activatedAt})))) IS TRUE`,
+    ),
+    establishmentShape: check(
+      "purchases_commercial_establishment_shape",
+      sql`((${t.sourceKind} = 'imported_existing_work' AND ${t.acceptedAt} IS NULL) OR (${t.sourceKind} <> 'imported_existing_work' AND ${t.acceptedAt} = ${t.commercialEstablishedAt})) IS TRUE`,
     ),
     snapshotScalarConsistency: check(
       "purchases_snapshot_scalar_consistency",
@@ -4162,11 +4289,11 @@ export const purchases = pgTable(
     ),
     sourceLinkShape: check(
       "purchases_source_link_shape",
-      sql`(((${t.sourceKind} IN ('store_product', 'session_product')) AND ${t.productId} IS NOT NULL AND ${t.purchaseRequestId} IS NOT NULL AND ${t.privateOfferId} IS NULL) OR (${t.sourceKind} = 'private_offer' AND ${t.privateOfferId} IS NOT NULL AND ${t.purchaseRequestId} IS NULL) OR (${t.sourceKind} IN ('paid_add_on', 'no_charge_add_on') AND (${t.productId} IS NOT NULL OR ${t.privateOfferId} IS NOT NULL OR ${t.purchaseRequestId} IS NOT NULL))) IS TRUE`,
+      sql`(((${t.sourceKind} IN ('store_product', 'session_product')) AND ${t.productId} IS NOT NULL AND ${t.purchaseRequestId} IS NOT NULL AND ${t.privateOfferId} IS NULL) OR (${t.sourceKind} = 'private_offer' AND ${t.privateOfferId} IS NOT NULL AND ${t.purchaseRequestId} IS NULL) OR (${t.sourceKind} IN ('paid_add_on', 'no_charge_add_on') AND (${t.productId} IS NOT NULL OR ${t.privateOfferId} IS NOT NULL OR ${t.purchaseRequestId} IS NOT NULL)) OR (${t.sourceKind} = 'imported_existing_work' AND ${t.productId} IS NULL AND ${t.privateOfferId} IS NULL AND ${t.purchaseRequestId} IS NULL)) IS TRUE`,
     ),
     sourceAmountShape: check(
       "purchases_source_amount_shape",
-      sql`((${t.sourceKind} IN ('store_product', 'session_product', 'paid_add_on') AND ${t.totalCents} > 0) OR (${t.sourceKind} = 'no_charge_add_on' AND ${t.totalCents} = 0) OR ${t.sourceKind} = 'private_offer') IS TRUE`,
+      sql`((${t.sourceKind} IN ('store_product', 'session_product', 'paid_add_on', 'imported_existing_work') AND ${t.totalCents} > 0) OR (${t.sourceKind} = 'no_charge_add_on' AND ${t.totalCents} = 0) OR ${t.sourceKind} = 'private_offer') IS TRUE`,
     ),
   }),
 );
@@ -4310,6 +4437,242 @@ export const purchaseAcceptances = pgTable(
 );
 export type PurchaseAcceptance = typeof purchaseAcceptances.$inferSelect;
 export type NewPurchaseAcceptance = typeof purchaseAcceptances.$inferInsert;
+
+// Honest commercial provenance for a Purchase whose agreement happened
+// outside Skitza. It is mutually exclusive with purchaseAcceptances and is
+// append-only in SQL. The duplicated snapshot is deliberate audit evidence:
+// the insert trigger requires it to match the Purchase byte-for-byte.
+export const purchaseImportAttestations = pgTable(
+  "purchase_import_attestations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    purchaseId: uuid("purchase_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    clientContactId: uuid("client_contact_id").notNull(),
+    importedByClerkUserId: text("imported_by_clerk_user_id").notNull(),
+    importedSnapshot: jsonb("imported_snapshot").$type<PurchaseCommercialSnapshot>().notNull(),
+    snapshotDigest: text("snapshot_digest").notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    purchaseUnique: unique("purchase_import_attestations_purchase_unique").on(t.purchaseId),
+    purchaseOwnerFk: foreignKey({
+      columns: [t.purchaseId, t.producerId, t.clientContactId],
+      foreignColumns: [purchases.id, purchases.producerId, purchases.clientContactId],
+      name: "purchase_import_attestations_purchase_owner_fk",
+    }).onDelete("restrict"),
+    purchaseSnapshotFk: foreignKey({
+      columns: [t.purchaseId, t.snapshotDigest],
+      foreignColumns: [purchases.id, purchases.snapshotDigest],
+      name: "purchase_import_attestations_purchase_snapshot_fk",
+    }).onDelete("restrict"),
+    purchaseEstablishedAtFk: foreignKey({
+      columns: [t.purchaseId, t.importedAt],
+      foreignColumns: [purchases.id, purchases.commercialEstablishedAt],
+      name: "purchase_import_attestations_established_at_fk",
+    }).onDelete("restrict"),
+    importingProducerFk: foreignKey({
+      columns: [t.producerId, t.importedByClerkUserId],
+      foreignColumns: [producers.id, producers.clerkUserId],
+      name: "purchase_import_attestations_importing_producer_fk",
+    }).onDelete("restrict"),
+    actorShape: check(
+      "purchase_import_attestations_actor_shape",
+      sql`NULLIF(btrim(${t.importedByClerkUserId}), '') IS NOT NULL`,
+    ),
+  }),
+);
+export type PurchaseImportAttestation = typeof purchaseImportAttestations.$inferSelect;
+export type NewPurchaseImportAttestation = typeof purchaseImportAttestations.$inferInsert;
+
+// Resumable, producer-scoped draft workspaces. Validation remains a server
+// domain concern; the database preserves the entered JSON and the exact IDs
+// created by each stable row operation so partial retries cannot duplicate
+// commercial records.
+export const activeWorkImportBatches = pgTable(
+  "active_work_import_batches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    createdByClerkUserId: text("created_by_clerk_user_id").notNull(),
+    status: activeWorkImportBatchStatus("status").notNull().default("draft"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    producerOperationUnique: unique("active_work_import_batches_operation_unique").on(
+      t.producerId,
+      t.operationKey,
+    ),
+    idProducerUnique: unique("active_work_import_batches_id_producer_unique").on(
+      t.id,
+      t.producerId,
+    ),
+    producerFk: foreignKey({
+      columns: [t.producerId],
+      foreignColumns: [producers.id],
+      name: "active_work_import_batches_producer_fk",
+    }).onDelete("restrict"),
+    creatingProducerFk: foreignKey({
+      columns: [t.producerId, t.createdByClerkUserId],
+      foreignColumns: [producers.id, producers.clerkUserId],
+      name: "active_work_import_batches_creating_producer_fk",
+    }).onDelete("restrict"),
+    producerStatusUpdatedIdx: index("active_work_import_batches_status_updated_idx").on(
+      t.producerId,
+      t.status,
+      t.updatedAt,
+      t.id,
+    ),
+    operationShape: check(
+      "active_work_import_batches_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 200 AND NULLIF(btrim(${t.createdByClerkUserId}), '') IS NOT NULL`,
+    ),
+    stateShape: check(
+      "active_work_import_batches_state_shape",
+      sql`((${t.status} = 'completed' AND ${t.completedAt} IS NOT NULL) OR (${t.status} <> 'completed' AND ${t.completedAt} IS NULL)) IS TRUE`,
+    ),
+    timestampShape: check(
+      "active_work_import_batches_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt} AND (${t.completedAt} IS NULL OR ${t.completedAt} >= ${t.createdAt})`,
+    ),
+  }),
+);
+export type ActiveWorkImportBatch = typeof activeWorkImportBatches.$inferSelect;
+export type NewActiveWorkImportBatch = typeof activeWorkImportBatches.$inferInsert;
+
+// Append-only receipt reserved before finish-setup side effects. The digest
+// binds a kind/version discriminator, batchId, expectedSetupDigest, and the
+// sorted, deduplicated Client and installment selections. Reusing one stable
+// operation key with different reviewed intent therefore fails closed.
+export const activeWorkImportSetupOperations = pgTable(
+  "active_work_import_setup_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    batchId: uuid("batch_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    requestedByClerkUserId: text("requested_by_clerk_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    operationUnique: unique("active_work_import_setup_operations_operation_unique").on(
+      t.producerId,
+      t.batchId,
+      t.operationKey,
+    ),
+    batchProducerFk: foreignKey({
+      columns: [t.batchId, t.producerId],
+      foreignColumns: [activeWorkImportBatches.id, activeWorkImportBatches.producerId],
+      name: "active_work_import_setup_operations_batch_producer_fk",
+    }).onDelete("restrict"),
+    requestingProducerFk: foreignKey({
+      columns: [t.producerId, t.requestedByClerkUserId],
+      foreignColumns: [producers.id, producers.clerkUserId],
+      name: "active_work_import_setup_operations_requesting_producer_fk",
+    }).onDelete("restrict"),
+    operationShape: check(
+      "active_work_import_setup_operations_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 200 AND ${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$' AND NULLIF(btrim(${t.requestedByClerkUserId}), '') IS NOT NULL AND char_length(${t.requestedByClerkUserId}) <= 200`,
+    ),
+    timestampShape: check(
+      "active_work_import_setup_operations_timestamp_shape",
+      sql`isfinite(${t.createdAt})`,
+    ),
+  }),
+);
+export type ActiveWorkImportSetupOperation = typeof activeWorkImportSetupOperations.$inferSelect;
+export type NewActiveWorkImportSetupOperation = typeof activeWorkImportSetupOperations.$inferInsert;
+
+export const activeWorkImportRows = pgTable(
+  "active_work_import_rows",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    batchId: uuid("batch_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    draftRevision: integer("draft_revision").notNull().default(1),
+    draftPayload: jsonb("draft_payload").$type<Record<string, unknown>>().notNull(),
+    creationDigest: text("creation_digest"),
+    createdClientContactId: uuid("created_client_contact_id"),
+    createdProjectId: uuid("created_project_id"),
+    createdPurchaseId: uuid("created_purchase_id"),
+    materializedAt: timestamp("materialized_at", { withTimezone: true }),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    producerOperationUnique: unique("active_work_import_rows_operation_unique").on(
+      t.producerId,
+      t.operationKey,
+    ),
+    idProducerUnique: unique("active_work_import_rows_id_producer_unique").on(t.id, t.producerId),
+    createdProjectUnique: uniqueIndex("active_work_import_rows_created_project_unique")
+      .on(t.createdProjectId)
+      .where(sql`${t.createdProjectId} IS NOT NULL`),
+    createdPurchaseUnique: uniqueIndex("active_work_import_rows_created_purchase_unique")
+      .on(t.createdPurchaseId)
+      .where(sql`${t.createdPurchaseId} IS NOT NULL`),
+    batchProducerFk: foreignKey({
+      columns: [t.batchId, t.producerId],
+      foreignColumns: [activeWorkImportBatches.id, activeWorkImportBatches.producerId],
+      name: "active_work_import_rows_batch_producer_fk",
+    }).onDelete("restrict"),
+    clientProducerFk: foreignKey({
+      columns: [t.createdClientContactId, t.producerId],
+      foreignColumns: [clientContacts.id, clientContacts.producerId],
+      name: "active_work_import_rows_client_producer_fk",
+    }).onDelete("restrict"),
+    projectOwnerFk: foreignKey({
+      columns: [t.createdProjectId, t.producerId, t.createdClientContactId],
+      foreignColumns: [projects.id, projects.producerId, projects.clientContactId],
+      name: "active_work_import_rows_project_owner_fk",
+    }).onDelete("restrict"),
+    purchaseOwnerFk: foreignKey({
+      columns: [t.createdPurchaseId, t.createdProjectId, t.producerId, t.createdClientContactId],
+      foreignColumns: [
+        purchases.id,
+        purchases.projectId,
+        purchases.producerId,
+        purchases.clientContactId,
+      ],
+      name: "active_work_import_rows_purchase_owner_fk",
+    }).onDelete("restrict"),
+    batchUpdatedIdx: index("active_work_import_rows_batch_updated_idx").on(
+      t.batchId,
+      t.updatedAt,
+      t.id,
+    ),
+    operationShape: check(
+      "active_work_import_rows_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 200`,
+    ),
+    draftShape: check(
+      "active_work_import_rows_draft_shape",
+      sql`${t.draftRevision} > 0 AND jsonb_typeof(${t.draftPayload}) = 'object'`,
+    ),
+    resultShape: check(
+      "active_work_import_rows_result_shape",
+      sql`(((${t.createdClientContactId} IS NULL AND ${t.createdProjectId} IS NULL AND ${t.createdPurchaseId} IS NULL AND ${t.creationDigest} IS NULL AND ${t.materializedAt} IS NULL) OR (${t.createdClientContactId} IS NOT NULL AND ${t.createdProjectId} IS NOT NULL AND ${t.createdPurchaseId} IS NOT NULL AND ${t.creationDigest} ~ '^sha256:[0-9a-f]{64}$' AND ${t.materializedAt} IS NOT NULL AND ${t.lastAttemptedAt} IS NOT NULL AND ${t.lastErrorCode} IS NULL))) IS TRUE`,
+    ),
+    failureShape: check(
+      "active_work_import_rows_failure_shape",
+      sql`${t.lastErrorCode} IS NULL OR (NULLIF(btrim(${t.lastErrorCode}), '') IS NOT NULL AND ${t.lastAttemptedAt} IS NOT NULL)`,
+    ),
+    timestampShape: check(
+      "active_work_import_rows_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt} AND (${t.materializedAt} IS NULL OR ${t.materializedAt} >= ${t.createdAt}) AND (${t.lastAttemptedAt} IS NULL OR ${t.lastAttemptedAt} >= ${t.createdAt})`,
+    ),
+  }),
+);
+export type ActiveWorkImportRow = typeof activeWorkImportRows.$inferSelect;
+export type NewActiveWorkImportRow = typeof activeWorkImportRows.$inferInsert;
 
 export const purchaseInstallments = pgTable(
   "purchase_installments",

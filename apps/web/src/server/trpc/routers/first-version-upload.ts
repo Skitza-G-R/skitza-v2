@@ -807,7 +807,7 @@ export const firstVersionUploadRouter = router({
           and(eq(purchases.projectId, projects.id), eq(purchases.producerId, projects.producerId)),
         )
         .where(and(eq(projects.id, input.projectId), eq(projects.producerId, ctx.producerId)))
-        .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+        .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
       const allocatedRows = await ctx.db
         .select({ purchaseId: projectTracks.purchaseId })
         .from(projectTracks)
@@ -1210,7 +1210,7 @@ export const firstVersionUploadRouter = router({
             .where(
               and(eq(purchases.projectId, projectId), eq(purchases.producerId, ctx.producerId)),
             )
-            .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+            .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
           const allocatedRows = await tx
             .select({ purchaseId: projectTracks.purchaseId })
             .from(projectTracks)

@@ -100,18 +100,25 @@ describe("client invite email delivery", () => {
     expect(html).toContain("color:#1A1407");
 
     await expect(
-      sendClientInviteEmail("ada@example.com", {
-        clientName: "Ada",
-        producerName: "Gili",
-        inviteUrl: "https://skitza.test/sign-up/join/gili-asraf",
-      }),
-    ).resolves.toBeUndefined();
+      sendClientInviteEmail(
+        "ada@example.com",
+        {
+          clientName: "Ada",
+          producerName: "Gili",
+          inviteUrl: "https://skitza.test/sign-up/join/gili-asraf",
+        },
+        "client-invite:client-1:operation-1",
+      ),
+    ).resolves.toBe("email_1");
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(sendEmail.mock.calls[0]?.[0]).toMatchObject({
       from: "Skitza <test@skitza.test>",
       to: "ada@example.com",
       subject: "Gili invited you to Skitza",
+    });
+    expect(sendEmail.mock.calls[0]?.[1]).toEqual({
+      idempotencyKey: "client-invite:client-1:operation-1",
     });
   });
 
@@ -122,11 +129,30 @@ describe("client invite email delivery", () => {
     });
 
     await expect(
-      sendClientInviteEmail("ada@example.com", {
-        clientName: "Ada",
-        producerName: "Gili",
-        inviteUrl: "https://skitza.test/sign-up/join/gili-asraf",
-      }),
+      sendClientInviteEmail(
+        "ada@example.com",
+        {
+          clientName: "Ada",
+          producerName: "Gili",
+          inviteUrl: "https://skitza.test/sign-up/join/gili-asraf",
+        },
+        "client-invite:client-1:operation-1",
+      ),
+    ).rejects.toEqual(new Error("Email delivery failed"));
+  });
+
+  it("rejects a malformed provider success without claiming acceptance", async () => {
+    sendEmail.mockResolvedValueOnce({ data: null, error: null });
+    await expect(
+      sendClientInviteEmail(
+        "ada@example.com",
+        {
+          clientName: "Ada",
+          producerName: "Gili",
+          inviteUrl: "https://skitza.test/sign-up/join/gili-asraf",
+        },
+        "client-invite:client-1:operation-1",
+      ),
     ).rejects.toEqual(new Error("Email delivery failed"));
   });
 });

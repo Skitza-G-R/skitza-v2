@@ -83,6 +83,27 @@ function data(projects: readonly ClientPaymentProjectData[]): ClientPaymentsData
 }
 
 describe("buildClientPaymentsView", () => {
+  it("treats an imported first payment as due now, not as a future milestone", () => {
+    const importedPurchase = purchase(
+      "imported",
+      [
+        installment("imported-first-payment", {
+          dueTrigger: "producer_import",
+          triggerLabel: "When added to Skitza",
+        }),
+      ],
+      { dueNowCents: 10_000 },
+    );
+
+    const view = buildClientPaymentsView(data([project("imported-project", [importedPurchase])]));
+
+    expect(view.currentGroups[0]?.rows[0]?.action).toEqual({ kind: "send_reminder" });
+    expect(view.currencySummaries[0]).toMatchObject({
+      owesNowCents: 10_000,
+      waitingOnMilestonesCents: 0,
+    });
+  });
+
   it("keeps exact per-currency totals and the locked calculation meanings", () => {
     const usd = purchase(
       "purchase-usd",

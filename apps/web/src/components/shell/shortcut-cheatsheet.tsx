@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "~/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
 
 // The `?` overlay. Mounted by ShortcutsBridge; open state is owned
 // by the bridge so the hook can call openCheatsheet() as a plain
@@ -35,7 +30,6 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
       title: "Global actions",
       keys: [
         { k: "⌘ K", desc: "Command palette" },
-        { k: "n", desc: "New project" },
         { k: "[", desc: "Toggle sidebar" },
         { k: "?", desc: "This cheatsheet" },
         { k: "Esc", desc: "Close overlay / deselect" },

@@ -44,12 +44,7 @@ const artistExactProof = read(
   "[proofId]",
   "page.tsx",
 );
-const artistPaymentSummary = read(
-  "components",
-  "artist",
-  "purchase",
-  "payment-summary-screen.tsx",
-);
+const artistPaymentSummary = read("components", "artist", "purchase", "payment-summary-screen.tsx");
 const paymentHistory = read("components", "payments", "payment-history.tsx");
 const producerPaymentWorkspace = read("components", "payments", "producer-payment-workspace.tsx");
 const producerPaymentWorkspaceData = read(
@@ -90,12 +85,7 @@ const clientSpaceWorkspace = read(
   "clients",
   "client-space-workspace.tsx",
 );
-const clientPaymentsPanel = read(
-  "components",
-  "dashboard",
-  "clients",
-  "client-payments-panel.tsx",
-);
+const clientPaymentsPanel = read("components", "dashboard", "clients", "client-payments-panel.tsx");
 const dashboardPage = read("app", "(producer)", "dashboard", "page.tsx");
 const artistHome = read("app", "(artist)", "artist", "page.tsx");
 const requestsPage = read("app", "(producer)", "dashboard", "requests", "page.tsx");
@@ -233,35 +223,25 @@ describe("SK-69 payment surface wiring", () => {
       "`/artist/payments/${encodeURIComponent(purchaseId)}/proof/${encodeURIComponent(proof.proofId)}`",
     );
 
-    expect(artistPaymentInstructions).toContain(
-      "caller.artist.purchase.paymentInstructions({",
-    );
+    expect(artistPaymentInstructions).toContain("caller.artist.purchase.paymentInstructions({");
     expect(artistPaymentInstructions).toContain(
       "const proofQuery = new URLSearchParams({ installment: data.installmentId })",
     );
     expect(artistPaymentInstructions).toContain("purchaseId={data.purchaseId}");
     expect(artistPaymentInstructions).toContain("installmentId={data.installmentId}");
 
-    expect(artistNewProof).toContain(
-      "caller.artist.purchase.proofOfPayment.state({",
-    );
-    expect(artistNewProof).toContain(
-      "proof.installmentId === data.installmentId",
-    );
+    expect(artistNewProof).toContain("caller.artist.purchase.proofOfPayment.state({");
+    expect(artistNewProof).toContain("proof.installmentId === data.installmentId");
     expect(artistNewProof).toContain("purchaseId={data.purchaseId}");
     expect(artistNewProof).toContain("installmentId={data.installmentId}");
     expect(artistNewProof).not.toContain("paymentInstructions");
 
-    expect(artistExactProof).toContain(
-      ".artist.purchase.proofOfPayment.state({ purchaseId })",
-    );
-    expect(artistExactProof).toContain(
-      "data.proofs.find((proof) => proof.proofId === proofId)",
-    );
+    expect(artistExactProof).toContain(".artist.purchase.proofOfPayment.state({ purchaseId })");
+    expect(artistExactProof).toContain("data.proofs.find((proof) => proof.proofId === proofId)");
     expect(artistExactProof).toContain("if (!exact) notFound()");
   });
 
-  it("opens every accepted purchase from the rich ledger and skips proof state without installments", () => {
+  it("opens every agreement from the rich ledger and keeps imported copy neutral", () => {
     expect(artistPurchasePayment).toContain("caller.artist.purchase.payments()");
     expect(artistPurchasePayment).toContain("findArtistPaymentRecord(sections, purchaseId)");
     expect(artistPurchasePayment).toMatch(
@@ -270,5 +250,9 @@ describe("SK-69 payment surface wiring", () => {
     expect(artistPurchasePayment).toContain("purchaseRecord={purchase}");
     expect(artistPaymentSummary).toContain("PaymentHistoryPurchaseDetails");
     expect(artistPaymentSummary).toContain("Full purchase record");
+    expect(artistPayments).toContain('eyebrow: "Agreements"');
+    expect(artistPayments).not.toContain("Accepted purchases");
+    expect(artistPurchasePayment).toContain('eyebrow: "Agreement"');
+    expect(artistPurchasePayment).not.toContain("Accepted purchase");
   });
 });

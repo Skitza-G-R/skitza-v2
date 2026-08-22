@@ -35,7 +35,8 @@ export type ClientMoneyPurchaseRecord = Readonly<{
     | "private_offer"
     | "session_product"
     | "paid_add_on"
-    | "no_charge_add_on";
+    | "no_charge_add_on"
+    | "imported_existing_work";
   lifecycleStatus: "waiting_for_payment" | "active" | "canceled";
   paymentPlanKind: "full" | "split_50_50" | "monthly" | null;
   commercialSnapshot: unknown;
@@ -43,7 +44,7 @@ export type ClientMoneyPurchaseRecord = Readonly<{
   taxCents: number;
   totalCents: number;
   currency: string;
-  acceptedAt: Date;
+  commercialEstablishedAt: Date;
   activatedAt: Date | null;
   canceledAt: Date | null;
 }>;
@@ -220,7 +221,7 @@ export type ClientMoneyPurchase = Readonly<{
   taxCents: number;
   totalCents: number;
   currency: string;
-  acceptedAt: Date;
+  commercialEstablishedAt: Date;
   activatedAt: Date | null;
   canceledAt: Date | null;
   ledger: PurchaseLedgerSummary;
@@ -273,6 +274,7 @@ const PURCHASE_SOURCES = new Set<ClientMoneyPurchaseRecord["sourceKind"]>([
   "session_product",
   "paid_add_on",
   "no_charge_add_on",
+  "imported_existing_work",
 ]);
 const PAYMENT_PLANS = new Set<NonNullable<ClientMoneyPurchaseRecord["paymentPlanKind"]>>([
   "full",
@@ -281,6 +283,7 @@ const PAYMENT_PLANS = new Set<NonNullable<ClientMoneyPurchaseRecord["paymentPlan
 ]);
 const INSTALLMENT_TRIGGERS = new Set<InstallmentTrigger>([
   "acceptance",
+  "producer_import",
   "artist_approval",
   "monthly_anniversary",
 ]);
@@ -304,10 +307,7 @@ function notFound(): never {
 }
 
 function integrityError(): never {
-  throw new ClientMoneyDomainError(
-    "INTEGRITY_ERROR",
-    "The client money history is inconsistent",
-  );
+  throw new ClientMoneyDomainError("INTEGRITY_ERROR", "The client money history is inconsistent");
 }
 
 function isNonEmpty(value: unknown): value is string {
@@ -344,10 +344,7 @@ function requiredMapValue<Key, Value>(map: ReadonlyMap<Key, Value>, key: Key): V
 }
 
 function productName(purchase: ClientMoneyPurchaseRecord): string {
-  if (
-    typeof purchase.commercialSnapshot !== "object" ||
-    purchase.commercialSnapshot === null
-  ) {
+  if (typeof purchase.commercialSnapshot !== "object" || purchase.commercialSnapshot === null) {
     integrityError();
   }
   const snapshot = purchase.commercialSnapshot as Record<string, unknown>;
@@ -382,10 +379,7 @@ function totalsFor(purchases: readonly ClientMoneyPurchase[]): readonly ClientMo
     };
     total.purchasedCents = addCents(total.purchasedCents, purchase.totalCents);
     total.paidCents = addCents(total.paidCents, purchase.ledger.paidCents);
-    total.remainingCents = addCents(
-      total.remainingCents,
-      purchase.ledger.remainingBalanceCents,
-    );
+    total.remainingCents = addCents(total.remainingCents, purchase.ledger.remainingBalanceCents);
     totals.set(purchase.currency, total);
   }
 
@@ -394,12 +388,7 @@ function totalsFor(purchases: readonly ClientMoneyPurchase[]): readonly ClientMo
     .map(([currency, total]) => ({ currency, ...total }));
 }
 
-function compareNewest(
-  leftDate: Date,
-  leftId: string,
-  rightDate: Date,
-  rightId: string,
-): number {
+function compareNewest(leftDate: Date, leftId: string, rightDate: Date, rightId: string): number {
   const byDate = rightDate.getTime() - leftDate.getTime();
   if (byDate !== 0) return byDate;
   return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
@@ -458,7 +447,7 @@ export async function getClientMoneyLedger(
       !isCents(purchase.taxCents) ||
       !isCents(purchase.totalCents) ||
       !isNonEmpty(purchase.currency) ||
-      !isValidDate(purchase.acceptedAt) ||
+      !isValidDate(purchase.commercialEstablishedAt) ||
       !isNullableValidDate(purchase.activatedAt) ||
       !isNullableValidDate(purchase.canceledAt) ||
       (purchase.totalCents === 0) !== (purchase.paymentPlanKind === null)
@@ -663,10 +652,7 @@ export async function getClientMoneyLedger(
         })),
         payments: payments.map((payment) => ({
           id: payment.id,
-          installmentSequence: requiredMapValue(
-            installmentsById,
-            payment.installmentId,
-          ).position,
+          installmentSequence: requiredMapValue(installmentsById, payment.installmentId).position,
           amountCents: payment.amountCents,
           confirmedAt: payment.paidAt,
         })),
@@ -682,10 +668,7 @@ export async function getClientMoneyLedger(
         })),
         waivers: waivers.map((waiver) => ({
           id: waiver.id,
-          installmentSequence: requiredMapValue(
-            installmentsById,
-            waiver.installmentId,
-          ).position,
+          installmentSequence: requiredMapValue(installmentsById, waiver.installmentId).position,
           amountCents: waiver.amountCents,
           reason: waiver.reason,
           actorId: waiver.waivedByClerkUserId,
@@ -704,15 +687,11 @@ export async function getClientMoneyLedger(
         return {
           id: payment.id,
           installmentId: payment.installmentId,
-          installmentPosition: requiredMapValue(
-            installmentsById,
-            payment.installmentId,
-          ).position,
+          installmentPosition: requiredMapValue(installmentsById, payment.installmentId).position,
           proofId: payment.proofId,
           source: payment.source,
           originalAmountCents: payment.amountCents,
-          effectiveAmountCents:
-            paymentCorrections.at(-1)?.newAmountCents ?? payment.amountCents,
+          effectiveAmountCents: paymentCorrections.at(-1)?.newAmountCents ?? payment.amountCents,
           currency: payment.currency,
           paidAt: payment.paidAt,
           note: payment.note,
@@ -763,7 +742,7 @@ export async function getClientMoneyLedger(
       taxCents: purchase.taxCents,
       totalCents: purchase.totalCents,
       currency: purchase.currency,
-      acceptedAt: purchase.acceptedAt,
+      commercialEstablishedAt: purchase.commercialEstablishedAt,
       activatedAt: purchase.activatedAt,
       canceledAt: purchase.canceledAt,
       ledger,
@@ -786,18 +765,13 @@ export async function getClientMoneyLedger(
           (waiver): ClientMoneyWaiver => ({
             id: waiver.id,
             installmentId: waiver.installmentId,
-            installmentPosition: requiredMapValue(
-              installmentsById,
-              waiver.installmentId,
-            ).position,
+            installmentPosition: requiredMapValue(installmentsById, waiver.installmentId).position,
             amountCents: waiver.amountCents,
             reason: waiver.reason,
             waivedAt: waiver.createdAt,
           }),
         )
-        .sort((left, right) =>
-          compareNewest(left.waivedAt, left.id, right.waivedAt, right.id),
-        ),
+        .sort((left, right) => compareNewest(left.waivedAt, left.id, right.waivedAt, right.id)),
     });
   }
 
@@ -807,7 +781,12 @@ export async function getClientMoneyLedger(
         .filter((purchase) => purchase.projectId === project.id)
         .map((purchase) => requiredMapValue(mappedPurchases, purchase.id))
         .sort((left, right) =>
-          compareNewest(left.acceptedAt, left.id, right.acceptedAt, right.id),
+          compareNewest(
+            left.commercialEstablishedAt,
+            left.id,
+            right.commercialEstablishedAt,
+            right.id,
+          ),
         );
       return {
         id: project.id,

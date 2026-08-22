@@ -1,4 +1,5 @@
 import * as React from "react";
+import { readFileSync } from "node:fs";
 import type { ChangeEvent, ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -9,6 +10,11 @@ import {
   type ProducerPaymentWorkspaceProps,
 } from "../producer-payment-workspace";
 import type { PaymentWorkspaceBucket } from "../producer-payment-workspace-model";
+
+const WORKSPACE_DATA_SRC = readFileSync(
+  new URL("../producer-payment-workspace-data.ts", import.meta.url),
+  "utf8",
+);
 
 const usdPurchase: PaymentHistoryPurchase = {
   id: "purchase-usd",
@@ -57,9 +63,10 @@ const usdPurchase: PaymentHistoryPurchase = {
     rights: [],
     agreementText: "FULL DOSSIER SENTINEL",
   },
-  acceptance: {
-    acceptedAtIso: "2026-07-01T09:00:00.000Z",
-    acceptedByLabel: "Maya Stone",
+  agreementRecord: {
+    kind: "artist_acceptance",
+    establishedAtIso: "2026-07-01T09:00:00.000Z",
+    headline: "Maya Stone accepted the exact terms",
     statement: null,
   },
   plan: { label: "Two payments", description: null },
@@ -118,9 +125,10 @@ const ilsPurchase: PaymentHistoryPurchase = {
     subtotalCents: 300_000,
     totalCents: 300_000,
   },
-  acceptance: {
-    acceptedAtIso: "2026-07-15T09:00:00.000Z",
-    acceptedByLabel: "Noa Green",
+  agreementRecord: {
+    kind: "producer_import",
+    establishedAtIso: "2026-07-15T09:00:00.000Z",
+    headline: "Added by producer from an existing agreement",
     statement: null,
   },
   nextPayment: {
@@ -410,6 +418,17 @@ function togglePurchaseDetails(tree: ReactElement, purchaseId: string): void {
 }
 
 describe("ProducerPaymentWorkspace", () => {
+  it("uses neutral agreement wording for imported and accepted records", () => {
+    const emptyBuckets = buckets.map((bucket) => ({ ...bucket, projects: [] }));
+    const html = renderToStaticMarkup(
+      <ProducerPaymentWorkspace buckets={emptyBuckets} scope="global" />,
+    );
+
+    expect(html).toContain("No agreements yet");
+    expect(html).not.toContain("No accepted purchases yet");
+    expect(WORKSPACE_DATA_SRC).toContain('emptyDescription: "Agreements will appear here."');
+  });
+
   it("renders one compact multi-currency ledger and a grouped producer table", () => {
     const html = renderToStaticMarkup(
       <ProducerPaymentWorkspace buckets={buckets} scope="global" />,
@@ -438,8 +457,8 @@ describe("ProducerPaymentWorkspace", () => {
     expect(html).toContain('aria-label="Search payment records"');
     expect(html).toContain('aria-label="Filter by currency"');
     expect(html).toContain('aria-label="Filter by artist"');
-    expect(html).toContain('aria-label="Accepted from"');
-    expect(html).toContain('aria-label="Accepted to"');
+    expect(html).toContain('aria-label="Agreement from"');
+    expect(html).toContain('aria-label="Agreement to"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('href="/dashboard/payments/proof-pending"');
     expect(html).toContain('aria-label="Payment proof actions"');
@@ -654,15 +673,15 @@ describe("ProducerPaymentWorkspace", () => {
     expect(searchHtml).not.toContain("Mix &amp; master");
   });
 
-  it("executes combined artist and inclusive accepted-date filters", () => {
+  it("executes combined artist and inclusive agreement-date filters", () => {
     const harness = createInteractionHarness({
       buckets,
       scope: "global",
     });
 
     changeSelect(harness.renderTree(), "Filter by artist", "client-noa");
-    changeInput(harness.renderTree(), "Accepted from", "2026-07-15");
-    changeInput(harness.renderTree(), "Accepted to", "2026-07-15");
+    changeInput(harness.renderTree(), "Agreement from", "2026-07-15");
+    changeInput(harness.renderTree(), "Agreement to", "2026-07-15");
     const html = harness.html();
 
     expect(html).toContain("Vocal production");
@@ -677,8 +696,8 @@ describe("ProducerPaymentWorkspace", () => {
     });
 
     changeSelect(harness.renderTree(), "Filter by artist", "client-noa");
-    changeInput(harness.renderTree(), "Accepted from", "2026-07-20");
-    changeInput(harness.renderTree(), "Accepted to", "2026-07-10");
+    changeInput(harness.renderTree(), "Agreement from", "2026-07-20");
+    changeInput(harness.renderTree(), "Agreement to", "2026-07-10");
     const invalidHtml = harness.html();
     expect(invalidHtml).toContain("Start date must be on or before end date");
     expect(invalidHtml).toContain('role="alert"');

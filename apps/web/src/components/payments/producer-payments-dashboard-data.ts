@@ -26,6 +26,7 @@ export function toProducerPaymentsDashboardData(model: PaymentReadModel): Produc
       purchaseTitle: purchase.commercialSnapshot.productOrOfferName,
       purchaseReference: purchase.refNumber,
       purchaseLifecycleStatus: purchase.lifecycleStatus,
+      isImportedExistingWork: purchase.sourceKind === "imported_existing_work",
       currency: purchase.currency,
       totalCents: purchase.totalCents,
       paidCents: purchase.paidCents,

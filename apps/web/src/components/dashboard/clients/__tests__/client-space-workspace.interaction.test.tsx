@@ -2,11 +2,9 @@
 
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  afterOfferCreated: vi.fn(),
   loadOffers: vi.fn(),
   toast: vi.fn(),
 }));
@@ -19,59 +17,12 @@ vi.mock("~/app/(producer)/dashboard/store/private-offer-actions", () => ({
   loadClientPrivateOffersAction: mocks.loadOffers,
 }));
 
-vi.mock("~/components/dashboard/offers/private-offer-composer", () => ({
-  PrivateOfferComposer: ({
-    open,
-    onOpenChange,
-    onCreated,
-  }: {
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    onCreated?: (offerId: string) => void;
-  }) =>
-    open ? (
-      <section role="dialog" aria-label="Private offer composer">
-        <button
-          type="button"
-          onClick={() => {
-            onOpenChange?.(false);
-          }}
-        >
-          Cancel offer
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onCreated?.("offer-created");
-            mocks.afterOfferCreated();
-            onOpenChange?.(false);
-          }}
-        >
-          Save offer
-        </button>
-      </section>
-    ) : null,
-}));
-
 vi.mock("~/components/runtime-state/online-required-link", () => ({
   useOnlineStatus: () => true,
 }));
 
 vi.mock("~/components/ui/toast", () => ({
   useToast: () => ({ toast: mocks.toast }),
-}));
-
-vi.mock("~/components/ui/sheet", () => ({
-  Sheet: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  SheetContent: ({
-    children,
-    "data-testid": testId,
-  }: {
-    children?: ReactNode;
-    "data-testid"?: string;
-  }) => <section data-testid={testId}>{children}</section>,
-  SheetDescription: ({ children }: { children?: ReactNode }) => <p>{children}</p>,
-  SheetTitle: ({ children }: { children?: ReactNode }) => <h2>{children}</h2>,
 }));
 
 vi.mock("~/components/dashboard/clients/client-actions-menu", () => ({
@@ -87,11 +38,10 @@ vi.mock("~/components/dashboard/clients/edit-client-modal", () => ({
 }));
 
 vi.mock("~/components/dashboard/clients/invite-modal", () => ({
-  InviteToAppModal: () => null,
-}));
-
-vi.mock("~/components/dashboard/clients/new-project-modal", () => ({
-  NewProjectModal: () => null,
+  InviteToAppModal: ({ open, invitationState }: { open?: boolean; invitationState?: string }) =>
+    open ? (
+      <section role="dialog" aria-label="Individual invitation" data-state={invitationState} />
+    ) : null,
 }));
 
 vi.mock("~/components/dashboard/clients/remove-client-confirm-modal", () => ({
@@ -144,11 +94,13 @@ function workspaceElement({
   clientId = "client-1",
   clientName = "Maya Stone",
   initialTab,
+  linkState = "active",
   tags = [],
 }: {
   clientId?: string;
   clientName?: string;
   initialTab?: "projects" | "payments" | "details";
+  linkState?: "none" | "sending" | "failed" | "pending" | "active";
   tags?: string[];
 } = {}) {
   return (
@@ -163,7 +115,7 @@ function workspaceElement({
         archived: false,
         archiveBlockedReason: null,
         canPermanentlyDelete: false,
-        linkState: "active",
+        linkState,
         joinedAtIso: "2026-01-01T00:00:00.000Z",
       }}
       projects={[]}
@@ -190,13 +142,7 @@ async function openDetails(user: ReturnType<typeof userEvent.setup>) {
   });
 }
 
-async function openOfferComposer(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /^New Offer/ }));
-  return screen.findByRole("dialog", { name: "Private offer composer" });
-}
-
 beforeEach(() => {
-  mocks.afterOfferCreated.mockReset();
   mocks.loadOffers.mockReset();
   mocks.toast.mockReset();
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -212,7 +158,7 @@ afterEach(() => {
 });
 
 describe("ClientSpaceWorkspace offer refresh state", () => {
-  it("does not refetch producer offers when the composer is canceled", async () => {
+  it("shows existing private-offer history without exposing a creation action", async () => {
     mocks.loadOffers.mockResolvedValue({
       ok: true,
       data: [offer("Existing offer")],
@@ -222,87 +168,17 @@ describe("ClientSpaceWorkspace offer refresh state", () => {
 
     await openDetails(user);
     expect(await screen.findByText("Existing offer")).not.toBeNull();
-    await openOfferComposer(user);
-    await user.click(screen.getByRole("button", { name: "Cancel offer" }));
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Private offer composer" })).toBeNull();
-    });
+    expect(screen.queryByRole("button", { name: /New Offer/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /New Project/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add for/i })).toBeNull();
     expect(mocks.loadOffers).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes exactly once after a successful offer creation", async () => {
-    const refresh = deferred<OfferResult>();
+  it("retries a failed private-offer history read without adding creation UI", async () => {
     mocks.loadOffers
-      .mockResolvedValueOnce({
-        ok: true,
-        data: [offer("Existing offer")],
-      } satisfies OfferResult)
-      .mockReturnValueOnce(refresh.promise);
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await openDetails(user);
-    expect(await screen.findByText("Existing offer")).not.toBeNull();
-    await openOfferComposer(user);
-    await user.click(screen.getByRole("button", { name: "Save offer" }));
-
-    await waitFor(() => {
-      expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
-    });
-    await act(async () => {
-      refresh.resolve({
-        ok: true,
-        data: [offer("Created offer")],
-      });
-      await refresh.promise;
-    });
-    expect(await screen.findByText("Created offer")).not.toBeNull();
-    expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
-  });
-
-  it("invalidates synchronously so a stale completion cannot overwrite the new generation", async () => {
-    const stale = deferred<OfferResult>();
-    const fresh = deferred<OfferResult>();
-    mocks.loadOffers.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
-    mocks.afterOfferCreated.mockImplementation(() => {
-      stale.resolve({
-        ok: true,
-        data: [offer("Stale offer")],
-      });
-    });
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await openDetails(user);
-    await openOfferComposer(user);
-    await user.click(screen.getByRole("button", { name: "Save offer" }));
-
-    await waitFor(() => {
-      expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
-    });
-    expect(screen.queryByText("Stale offer")).toBeNull();
-
-    await act(async () => {
-      fresh.resolve({
-        ok: true,
-        data: [offer("Fresh offer")],
-      });
-      await fresh.promise;
-    });
-    expect(await screen.findByText("Fresh offer")).not.toBeNull();
-    expect(screen.queryByText("Stale offer")).toBeNull();
-  });
-
-  it("keeps existing offers visible and exposes retry when refresh fails", async () => {
-    mocks.loadOffers
-      .mockResolvedValueOnce({
-        ok: true,
-        data: [offer("Existing offer")],
-      } satisfies OfferResult)
       .mockResolvedValueOnce({
         ok: false,
-        error: "Could not refresh private offers.",
+        error: "Could not load private offers.",
       } satisfies OfferResult)
       .mockResolvedValueOnce({
         ok: true,
@@ -312,43 +188,28 @@ describe("ClientSpaceWorkspace offer refresh state", () => {
     renderWorkspace();
 
     await openDetails(user);
-    expect(await screen.findByText("Existing offer")).not.toBeNull();
-    await openOfferComposer(user);
-    await user.click(screen.getByRole("button", { name: "Save offer" }));
-
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "Could not refresh private offers.",
+      "Could not load private offers.",
     );
-    expect(screen.getByText("Existing offer")).not.toBeNull();
-
     await user.click(screen.getByRole("button", { name: "Try again" }));
+
     await waitFor(() => {
-      expect(mocks.loadOffers).toHaveBeenCalledTimes(3);
+      expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
     });
     expect(await screen.findByText("Recovered offer")).not.toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
   });
 
   it("resets client-owned state and rejects a stale generation when the client id changes", async () => {
-    const staleClientRefresh = deferred<OfferResult>();
+    const staleClientLoad = deferred<OfferResult>();
     const nextClientLoad = deferred<OfferResult>();
     mocks.loadOffers
-      .mockResolvedValueOnce({
-        ok: true,
-        data: [offer("First client offer")],
-      } satisfies OfferResult)
-      .mockReturnValueOnce(staleClientRefresh.promise)
+      .mockReturnValueOnce(staleClientLoad.promise)
       .mockReturnValueOnce(nextClientLoad.promise);
     const user = userEvent.setup();
     const view = renderWorkspace();
 
     await openDetails(user);
-    expect(await screen.findByText("First client offer")).not.toBeNull();
-    await openOfferComposer(user);
-    await user.click(screen.getByRole("button", { name: "Save offer" }));
-    await waitFor(() => {
-      expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
-    });
 
     view.rerender(
       workspaceElement({
@@ -358,19 +219,18 @@ describe("ClientSpaceWorkspace offer refresh state", () => {
     );
 
     await waitFor(() => {
-      expect(mocks.loadOffers).toHaveBeenCalledTimes(3);
+      expect(mocks.loadOffers).toHaveBeenCalledTimes(2);
       expect(mocks.loadOffers).toHaveBeenLastCalledWith("client-2");
     });
-    expect(screen.queryByText("First client offer")).toBeNull();
 
     await act(async () => {
-      staleClientRefresh.resolve({
+      staleClientLoad.resolve({
         ok: true,
-        data: [offer("Stale first-client refresh")],
+        data: [offer("Stale first-client load")],
       });
-      await staleClientRefresh.promise;
+      await staleClientLoad.promise;
     });
-    expect(screen.queryByText("Stale first-client refresh")).toBeNull();
+    expect(screen.queryByText("Stale first-client load")).toBeNull();
 
     await act(async () => {
       nextClientLoad.resolve({
@@ -380,12 +240,27 @@ describe("ClientSpaceWorkspace offer refresh state", () => {
       await nextClientLoad.promise;
     });
     expect(await screen.findByText("Second client offer")).not.toBeNull();
-    expect(screen.queryByText("First client offer")).toBeNull();
-    expect(screen.queryByText("Stale first-client refresh")).toBeNull();
+    expect(screen.queryByText("Stale first-client load")).toBeNull();
   });
 });
 
 describe("ClientSpaceWorkspace rendered containment and focus", () => {
+  it("opens the individual invitation modal after provider acceptance", async () => {
+    const user = userEvent.setup();
+    const view = render(workspaceElement({ linkState: "pending" }));
+
+    await user.click(screen.getByRole("button", { name: "Invited" }));
+
+    expect(screen.getByRole("dialog", { name: "Individual invitation" }).dataset.state).toBe(
+      "pending",
+    );
+
+    view.rerender(workspaceElement({ linkState: "active" }));
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connected" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Individual invitation" })).toBeNull();
+  });
+
   it("renders the locked Payments tab on the first frame", () => {
     render(workspaceElement({ initialTab: "payments" }));
 

@@ -68,7 +68,8 @@ function purchase(
     lifecycleStatus: "active",
     paymentPlanKind: "full",
     commercialSnapshot: snapshot,
-    acceptance: {
+    provenance: {
+      kind: "artist_acceptance",
       id: `acceptance-${overrides.id}`,
       acceptedAt: new Date("2026-07-01T09:00:00.000Z"),
       acceptedSnapshot: snapshot,
@@ -77,7 +78,7 @@ function purchase(
     taxCents: 0,
     totalCents: 100_000,
     currency: "ILS",
-    acceptedAt: new Date("2026-07-01T09:00:00.000Z"),
+    commercialEstablishedAt: new Date("2026-07-01T09:00:00.000Z"),
     activatedAt: new Date("2026-07-02T09:00:00.000Z"),
     canceledAt: null,
     paidCents: 0,
@@ -125,6 +126,72 @@ function mapPurchase(row: PaymentPurchaseProjection) {
 }
 
 describe("artist payment record status", () => {
+  it("maps imported provenance, due timing, and producer-confirmed money without artist acceptance", () => {
+    const snapshot = commercialSnapshot(100_000, { kind: "full" });
+    const importedAt = new Date("2026-06-15T09:00:00.000Z");
+    const row = mapPurchase(
+      purchase({
+        id: "imported-work",
+        sourceKind: "imported_existing_work",
+        commercialSnapshot: snapshot,
+        commercialEstablishedAt: importedAt,
+        provenance: {
+          kind: "producer_import",
+          id: "import-attestation-1",
+          importedAt,
+          importedSnapshot: snapshot,
+          notice: "Added by producer from an existing agreement",
+        },
+        installments: [
+          {
+            id: "imported-installment-1",
+            purchaseId: "imported-work",
+            producerId: "00000000-0000-4000-8000-000000000201",
+            position: 1,
+            amountCents: 100_000,
+            currency: "ILS",
+            dueTrigger: "producer_import",
+            dueAt: importedAt,
+            triggeredAt: importedAt,
+            requiredForActivation: true,
+            status: "partially_paid",
+            remindersEnabled: false,
+            paidCents: 20_000,
+            waivedCents: 0,
+            remainingCents: 80_000,
+            overpaidCents: 0,
+          },
+        ],
+        payments: [
+          {
+            id: "imported-payment-1",
+            purchaseId: "imported-work",
+            installmentId: "imported-installment-1",
+            producerId: "00000000-0000-4000-8000-000000000201",
+            proofId: null,
+            source: "manual",
+            amountCents: 20_000,
+            effectiveAmountCents: 20_000,
+            currency: "ILS",
+            paidAt: importedAt,
+            note: null,
+            createdAt: importedAt,
+          },
+        ],
+      }),
+    );
+
+    expect(row?.agreementRecord).toEqual({
+      kind: "producer_import",
+      establishedAtIso: importedAt.toISOString(),
+      headline: "Added by producer from an existing agreement",
+      statement: "The outside agreement, price, plan, and schedule above are frozen in Skitza.",
+    });
+    expect(row?.schedule[0]?.trigger).toBe("When added to Skitza");
+    expect(row?.payments[0]?.sourceLabel).toBe("Confirmed by producer");
+    expect(JSON.stringify(row)).not.toContain("Maya Cohen accepted the exact terms");
+  });
+
   it("keeps only the accepted PDF file name in the client history model", () => {
     const baseSnapshot = commercialSnapshot(100_000, { kind: "full" });
     const snapshot = {
@@ -142,7 +209,8 @@ describe("artist payment record status", () => {
       purchase({
         id: "accepted-pdf",
         commercialSnapshot: snapshot,
-        acceptance: {
+        provenance: {
+          kind: "artist_acceptance",
           id: "acceptance-pdf",
           acceptedAt: new Date("2026-07-01T09:00:00.000Z"),
           acceptedSnapshot: snapshot,
@@ -162,7 +230,8 @@ describe("artist payment record status", () => {
         id: "zero-total",
         paymentPlanKind: null,
         commercialSnapshot: snapshot,
-        acceptance: {
+        provenance: {
+          kind: "artist_acceptance",
           id: "acceptance-zero",
           acceptedAt: new Date("2026-07-01T09:00:00.000Z"),
           acceptedSnapshot: snapshot,

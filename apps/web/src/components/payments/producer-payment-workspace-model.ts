@@ -1,13 +1,6 @@
-import type {
-  PaymentHistoryProject,
-  PaymentHistoryPurchase,
-} from "./payment-history-view";
+import type { PaymentHistoryProject, PaymentHistoryPurchase } from "./payment-history-view";
 
-export type PaymentWorkspaceBucketId =
-  | "needs_review"
-  | "due_or_overdue"
-  | "upcoming"
-  | "history";
+export type PaymentWorkspaceBucketId = "needs_review" | "due_or_overdue" | "upcoming" | "history";
 
 export type PaymentWorkspaceView = "all" | "open" | PaymentWorkspaceBucketId;
 
@@ -33,10 +26,10 @@ export interface PaymentWorkspaceFilters {
   projectId: string;
   /** `"all"` or one exact, producer-owned client contact id. */
   counterpartyId: string;
-  /** Inclusive UTC calendar date for accepted purchases, or an empty string. */
-  acceptedFrom: string;
-  /** Inclusive UTC calendar date for accepted purchases, or an empty string. */
-  acceptedTo: string;
+  /** Inclusive UTC calendar date for established agreements, or an empty string. */
+  establishedFrom: string;
+  /** Inclusive UTC calendar date for established agreements, or an empty string. */
+  establishedTo: string;
 }
 
 export interface PaymentWorkspaceGroup {
@@ -138,20 +131,22 @@ function rowMatchesView(row: PaymentWorkspaceRow, view: PaymentWorkspaceView): b
   return row.bucketId === view;
 }
 
-function acceptedDateKey(row: PaymentWorkspaceRow): string | null {
-  const acceptedAtIso = row.purchase.acceptance.acceptedAtIso;
-  if (!acceptedAtIso) return null;
+function agreementDateKey(row: PaymentWorkspaceRow): string | null {
+  const establishedAtIso = row.purchase.agreementRecord.establishedAtIso;
+  if (!establishedAtIso) return null;
 
-  const acceptedAt = new Date(acceptedAtIso);
-  if (Number.isNaN(acceptedAt.getTime())) return null;
-  return acceptedAt.toISOString().slice(0, 10);
+  const establishedAt = new Date(establishedAtIso);
+  if (Number.isNaN(establishedAt.getTime())) return null;
+  return establishedAt.toISOString().slice(0, 10);
 }
 
 export function isPaymentWorkspaceDateRangeValid(
-  acceptedFrom: string,
-  acceptedTo: string,
+  establishedFrom: string,
+  establishedTo: string,
 ): boolean {
-  return acceptedFrom.length === 0 || acceptedTo.length === 0 || acceptedFrom <= acceptedTo;
+  return (
+    establishedFrom.length === 0 || establishedTo.length === 0 || establishedFrom <= establishedTo
+  );
 }
 
 /**
@@ -186,7 +181,7 @@ export function filterPaymentWorkspaceRows(
   rows: readonly PaymentWorkspaceRow[],
   filters: PaymentWorkspaceFilters,
 ): PaymentWorkspaceRow[] {
-  if (!isPaymentWorkspaceDateRangeValid(filters.acceptedFrom, filters.acceptedTo)) return [];
+  if (!isPaymentWorkspaceDateRangeValid(filters.establishedFrom, filters.establishedTo)) return [];
 
   const queryTokens = normalized(filters.query).split(/\s+/u).filter(Boolean);
 
@@ -201,11 +196,11 @@ export function filterPaymentWorkspaceRows(
       return false;
     }
 
-    if (filters.acceptedFrom || filters.acceptedTo) {
-      const acceptedDate = acceptedDateKey(row);
-      if (!acceptedDate) return false;
-      if (filters.acceptedFrom && acceptedDate < filters.acceptedFrom) return false;
-      if (filters.acceptedTo && acceptedDate > filters.acceptedTo) return false;
+    if (filters.establishedFrom || filters.establishedTo) {
+      const agreementDate = agreementDateKey(row);
+      if (!agreementDate) return false;
+      if (filters.establishedFrom && agreementDate < filters.establishedFrom) return false;
+      if (filters.establishedTo && agreementDate > filters.establishedTo) return false;
     }
 
     if (queryTokens.length === 0) return true;
@@ -226,8 +221,7 @@ export function filterPaymentWorkspaceRows(
   return filtered
     .map((row, index) => ({ row, index }))
     .sort((left, right) => {
-      const bucketDifference =
-        BUCKET_ORDER[left.row.bucketId] - BUCKET_ORDER[right.row.bucketId];
+      const bucketDifference = BUCKET_ORDER[left.row.bucketId] - BUCKET_ORDER[right.row.bucketId];
       if (bucketDifference !== 0) return bucketDifference;
 
       const statusDifference = dueStatusRank(left.row) - dueStatusRank(right.row);

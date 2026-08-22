@@ -13,27 +13,7 @@ const PROJECT_MENU = readFileSync(
   join(here, "..", "..", "projects", "project-actions-menu.tsx"),
   "utf8",
 );
-const NEW_PROJECT = readFileSync(join(here, "..", "new-project-modal.tsx"), "utf8");
 const INVITE = readFileSync(join(here, "..", "invite-modal.tsx"), "utf8");
-const COMPOSER = readFileSync(
-  join(here, "..", "..", "offers", "private-offer-composer.tsx"),
-  "utf8",
-);
-const EDITOR_SHELL = readFileSync(
-  join(
-    here,
-    "..",
-    "..",
-    "..",
-    "..",
-    "app",
-    "(producer)",
-    "dashboard",
-    "store",
-    "editor-shell.tsx",
-  ),
-  "utf8",
-);
 const OFFER_ACTIONS = readFileSync(
   join(
     here,
@@ -120,14 +100,13 @@ describe("Client Space project boundaries", () => {
 });
 
 describe("Client Space action boundaries", () => {
-  it("limits the + bottom sheet to New Project and New Offer", () => {
-    const addSheet = sourceBetween(WORKSPACE, 'data-testid="client-add-sheet"', "</SheetContent>");
-    const labels = [...addSheet.matchAll(/<AddActionButton[\s\S]*?\blabel="([^"]+)"/g)].map(
-      (match) => match[1],
-    );
-
-    expect(labels).toEqual(["New Project", "New Offer"]);
-    expect(addSheet).not.toMatch(/\bEdit\b|\bArchive\b|\bRestore\b|\bDelete\b/);
+  it("removes the manual + menu, project modal, and private-offer composer", () => {
+    expect(WORKSPACE).not.toContain("aria-label={`Add for ${client.name}`}");
+    expect(WORKSPACE).not.toContain("client-add-sheet");
+    expect(WORKSPACE).not.toContain("NewProjectModal");
+    expect(WORKSPACE).not.toContain("PrivateOfferComposer");
+    expect(WORKSPACE).not.toContain('label="New Project"');
+    expect(WORKSPACE).not.toContain('label="New Offer"');
   });
 
   it("keeps Edit and Archive or Restore in the existing client kebab", () => {
@@ -143,23 +122,11 @@ describe("Client Space action boundaries", () => {
     expect(WORKSPACE).toMatch(/<ClientArchiveConfirmModal[\s\S]*?archived:\s*client\.archived/);
   });
 
-  it("passes an explicit return target to project, invite, and offer dialogs", () => {
-    expect(WORKSPACE).toMatch(/<NewProjectModal[\s\S]*?returnFocusRef=\{actionReturnFocusRef\}/);
+  it("keeps the explicit return target for the individual invitation dialog", () => {
     expect(WORKSPACE).toMatch(/<InviteToAppModal[\s\S]*?returnFocusRef=\{actionReturnFocusRef\}/);
-    expect(WORKSPACE).toMatch(
-      /<PrivateOfferComposer[\s\S]*?trigger=\{null\}[\s\S]*?returnFocusRef=\{actionReturnFocusRef\}/,
-    );
 
-    for (const source of [NEW_PROJECT, INVITE]) {
-      expect(source).toMatch(/returnFocusRef\?:\s*RefObject<HTMLElement\s*\|\s*null>/);
-      expect(source).toMatch(
-        /onCloseAutoFocus=\{\(event\)\s*=>\s*\{[\s\S]*?returnFocusRef\?\.current[\s\S]*?event\.preventDefault\(\)[\s\S]*?target\.focus\(\)/,
-      );
-    }
-
-    expect(COMPOSER).toMatch(/returnFocusRef\?:\s*RefObject<HTMLElement\s*\|\s*null>/);
-    expect(COMPOSER).toMatch(/<EditorShell[\s\S]*?\{\.\.\.\(returnFocusRef \? \{ returnFocusRef \} : \{\}\)\}/);
-    expect(EDITOR_SHELL).toMatch(
+    expect(INVITE).toMatch(/returnFocusRef\?:\s*RefObject<HTMLElement\s*\|\s*null>/);
+    expect(INVITE).toMatch(
       /onCloseAutoFocus=\{\(event\)\s*=>\s*\{[\s\S]*?returnFocusRef\?\.current[\s\S]*?event\.preventDefault\(\)[\s\S]*?target\.focus\(\)/,
     );
   });

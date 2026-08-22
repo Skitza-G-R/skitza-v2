@@ -51,6 +51,10 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "add-song-dialog.tsx"), "utf8");
+const musicPage = readFileSync(
+  join(here, "..", "..", "..", "..", "app", "(producer)", "dashboard", "music", "page.tsx"),
+  "utf8",
+);
 const compactSource = source.replace(/\s+/g, " ");
 const sourceFile = ts.createSourceFile(
   "add-song-dialog.tsx",
@@ -205,11 +209,15 @@ describe("Add Song project choice", () => {
     expect(html).toContain("Quiet Shapes");
   });
 
-  it("sends an empty project list to the real New Project entry", () => {
+  it("sends an empty project list to truthful project-entry guidance", () => {
     const html = renderDialog([]);
     expect(html).toContain("You need an active project first");
-    expect(html).toContain('href="/dashboard/clients-projects?newProject=1"');
-    expect(html).toContain("New Project");
+    expect(html).toContain("Projects start through your Skitza link");
+    expect(html).toContain('href="/dashboard/clients-projects"');
+    expect(html).toContain("Open Clients &amp; Projects");
+    expect(html).not.toContain("newProject=1");
+    expect(musicPage).toContain('redirect("/dashboard/clients-projects")');
+    expect(musicPage).not.toContain("newProject=1");
   });
 
   it("does not silently fall back to another project when a row target is unavailable", () => {

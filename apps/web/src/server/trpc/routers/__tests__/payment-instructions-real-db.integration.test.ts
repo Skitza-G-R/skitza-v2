@@ -189,6 +189,7 @@ describeWithSafeDatabase("SK-6 payment instructions — isolated disposable Post
             totalCents: snapshot.totalCents,
             currency: snapshot.currency,
             acceptedAt,
+            commercialEstablishedAt: acceptedAt,
           })
           .returning();
         if (!purchase) throw new Error("SK-6 purchase fixture was not created");
@@ -229,7 +230,7 @@ describeWithSafeDatabase("SK-6 payment instructions — isolated disposable Post
           acceptedByClerkUserId: input.artistClerkUserId,
           acceptedSnapshot: purchase.commercialSnapshot,
           snapshotDigest: purchase.snapshotDigest,
-          acceptedAt: purchase.acceptedAt,
+          acceptedAt,
         });
 
         return {

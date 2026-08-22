@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown, FolderKanban, Plus, Search, X } from "lucide-react";
+import { ChevronDown, FolderKanban, Search, X } from "lucide-react";
 import { useDeferredValue, useMemo, useRef } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -142,7 +142,6 @@ interface ProducerProjectsListProps {
   onViewChange: (next: ProjectListView) => void;
   onSortChange: (next: ProjectListSort) => void;
   onSearchChange: (next: string) => void;
-  onNewProject: () => void;
 }
 
 export function ProducerProjectsList({
@@ -153,7 +152,6 @@ export function ProducerProjectsList({
   onViewChange,
   onSortChange,
   onSearchChange,
-  onNewProject,
 }: ProducerProjectsListProps) {
   const router = useRouter();
   const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase());
@@ -299,7 +297,6 @@ export function ProducerProjectsList({
           onClearSearch={() => {
             onSearchChange("");
           }}
-          onNewProject={onNewProject}
         />
       ) : (
         <>
@@ -430,12 +427,10 @@ function ProjectListEmptyState({
   view,
   hasSearch,
   onClearSearch,
-  onNewProject,
 }: {
   view: ProjectListView;
   hasSearch: boolean;
   onClearSearch: () => void;
-  onNewProject: () => void;
 }) {
   const title = hasSearch
     ? "No projects match your search"
@@ -452,6 +447,12 @@ function ProjectListEmptyState({
       <h2 className="font-syne mt-3 text-[18px] font-bold text-[rgb(var(--fg-default))]">
         {title}
       </h2>
+      {!hasSearch && view === "current" ? (
+        <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-[rgb(var(--fg-muted))]">
+          New work appears here after an artist starts through your Skitza link. To add work already
+          in progress, use Bring in active work above.
+        </p>
+      ) : null}
       {hasSearch ? (
         <button
           type="button"
@@ -459,15 +460,6 @@ function ProjectListEmptyState({
           className="mt-5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-[13px] font-semibold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
         >
           Clear search
-        </button>
-      ) : view === "current" ? (
-        <button
-          type="button"
-          onClick={onNewProject}
-          className="mt-5 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-        >
-          <Plus size={14} aria-hidden />
-          New project
         </button>
       ) : null}
     </div>

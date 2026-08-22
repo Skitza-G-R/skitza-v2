@@ -167,6 +167,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
+        timeZone: "UTC",
       }).format(data.project.deadlineAt)
     : "No deadline";
   const now = new Date();
@@ -223,6 +224,8 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
         totalCents: purchase.totalCents,
         currency: purchase.currency,
         reference: purchase.refNumber,
+        provenanceNotice:
+          purchase.provenance.kind === "producer_import" ? purchase.provenance.notice : null,
         installments: purchase.installments.map((installment) => ({
           id: installment.id,
           position: installment.position,

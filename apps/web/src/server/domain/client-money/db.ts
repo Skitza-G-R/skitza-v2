@@ -73,7 +73,7 @@ export function clientMoneyRepository(db: Db): ClientMoneyRepository {
               taxCents: purchases.taxCents,
               totalCents: purchases.totalCents,
               currency: purchases.currency,
-              acceptedAt: purchases.acceptedAt,
+              commercialEstablishedAt: purchases.commercialEstablishedAt,
               activatedAt: purchases.activatedAt,
               canceledAt: purchases.canceledAt,
             })

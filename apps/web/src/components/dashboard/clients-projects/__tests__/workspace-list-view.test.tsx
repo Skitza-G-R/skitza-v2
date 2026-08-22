@@ -53,11 +53,33 @@ describe("WorkspaceListView — SK-202 project-first shell", () => {
     expect(SRC).toContain("data-tab-swipe-surface");
   });
 
-  it("keeps the top New project action and the unchanged modal contract", () => {
-    expect(SRC).toContain('tab === "projects" ? "New project" : "New client"');
-    expect(SRC).toContain("setNewProjectOpen(true)");
-    expect(SRC).toMatch(/<NewProjectModal[\s\S]*?open=\{newProjectOpen\}/);
-    expect(SRC).not.toMatch(/products=\{/);
+  it("uses the public Skitza link as the one primary entry action", () => {
+    expect(SRC).toContain("buildJoinUrl(producerSlug)");
+    expect(SRC).toContain("await copyPublicLink(skitzaLink, writeText)");
+    expect(SRC).toContain("Copy my Skitza link");
+    expect(SRC).toContain("Try copy again");
+    expect(SRC).toContain("Link unavailable");
+    expect(SRC).toContain('aria-live="polite"');
+    expect(SRC).toContain('role="alert"');
+  });
+
+  it("keeps Bring in active work as the quieter second action", () => {
+    const primaryAction = SRC.indexOf("Copy my Skitza link");
+    const importAction = SRC.indexOf("Bring in active work");
+
+    expect(primaryAction).toBeGreaterThan(-1);
+    expect(importAction).toBeGreaterThan(primaryAction);
+    expect(SRC).toContain('href="/dashboard/clients-projects/bring-active-work"');
+    expect(SRC).toMatch(/Bring in active work[\s\S]{0,120}<\/Link>/);
+    expect(SRC).toContain("sm:grid-cols-[auto_auto]");
+  });
+
+  it("removes manual client and project creation from the header and empty states", () => {
+    expect(SRC).not.toContain("NewClientModal");
+    expect(SRC).not.toContain("NewProjectModal");
+    expect(SRC).not.toContain("New client");
+    expect(SRC).not.toContain("New project");
+    expect(SRC).toContain("Share your Skitza link to welcome your first client.");
   });
 
   it("keeps the Clients roster, search, archive filters, and actions reachable", () => {

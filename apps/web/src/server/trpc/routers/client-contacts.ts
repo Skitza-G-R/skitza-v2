@@ -6,7 +6,6 @@ import {
   clientContacts,
   notifications,
   privateOffers,
-  producers,
   projectTracks,
   projects,
   purchaseRequests,
@@ -24,9 +23,19 @@ import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
-import { buildClientInviteUrl } from "~/lib/clients/invite-url";
 import { emailHashFor } from "~/server/artist/identity";
 import { clientManagementRepository } from "~/server/domain/client-management/db";
+import {
+  clientInvitationDeliveryRepository,
+  loadCurrentClientInvitationStates,
+  reserveClientInvitationEmail,
+  type CurrentClientInvitationState,
+} from "~/server/domain/client-invitations/db";
+import {
+  ClientInvitationDomainError,
+  deliverClientInvitation,
+  producerClientInvitationPresentationState,
+} from "~/server/domain/client-invitations/service";
 import {
   archiveClient,
   ClientManagementDomainError,
@@ -77,6 +86,25 @@ function unavailableCommercialProjection(): ClientCommercialProjection {
   };
 }
 
+function invitationProjection(
+  clerkUserId: string | null,
+  artistArchivedAt: Date | null,
+  state: CurrentClientInvitationState | undefined,
+) {
+  const providerAcceptedAt = state?.providerAcceptedAt ?? null;
+  return {
+    // Preserve the existing field as provider-accepted evidence for current
+    // consumers while exposing the durable, honest presentation state.
+    invitedAt: providerAcceptedAt,
+    providerAcceptedAt,
+    invitationState: producerClientInvitationPresentationState(
+      clerkUserId,
+      state?.presentationState,
+      artistArchivedAt,
+    ),
+  };
+}
+
 function mapHistoricalDeletionDomainError(error: unknown): never {
   if (!(error instanceof HistoricalDeletionDomainError)) throw error;
   if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
@@ -91,6 +119,18 @@ function mapClientManagementDomainError(error: unknown): never {
   }
   if (error.code === "BLOCKING_PROJECT") {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+}
+
+function mapClientInvitationDomainError(error: unknown): never {
+  if (!(error instanceof ClientInvitationDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "OPERATION_KEY_CONFLICT" || error.code === "CONFLICT") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (error.code === "INTEGRITY_ERROR") {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
   }
   throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
 }
@@ -119,7 +159,7 @@ async function loadClientDetailBase(
     contact.invitedAt !== null ||
     contact.archivedAt !== null ||
     contact.producerArchivedAt !== null;
-  const [canPermanentlyDelete, projectRows] = await Promise.all([
+  const [canPermanentlyDelete, projectRows, invitationStates] = await Promise.all([
     isObviouslyNonDeletable
       ? Promise.resolve(false)
       : canPermanentlyDeleteEmptyDraftClient(historicalDeletionRepository(ctx.db), {
@@ -165,6 +205,10 @@ async function loadClientDetailBase(
       .where(and(eq(projects.producerId, ctx.producerId), eq(projects.clientContactId, clientId)))
       .groupBy(projects.id)
       .orderBy(desc(projects.updatedAt)),
+    loadCurrentClientInvitationStates(ctx.db, {
+      producerId: ctx.producerId,
+      clientContactIds: [clientId],
+    }),
   ]);
 
   const activeProjectCount = projectRows.filter(
@@ -187,7 +231,11 @@ async function loadClientDetailBase(
       notes: contact.notes,
       producerArchivedAt: contact.producerArchivedAt,
       referralSource: contact.referralSource,
-      invitedAt: contact.invitedAt,
+      ...invitationProjection(
+        contact.clerkUserId,
+        contact.archivedAt,
+        invitationStates.get(contact.id),
+      ),
       clerkUserId: contact.clerkUserId,
       canPermanentlyDelete,
     },
@@ -217,6 +265,8 @@ export const clientContactsRouter = router({
           email: clientContacts.email,
           name: clientContacts.name,
           lastSeenAt: clientContacts.lastSeenAt,
+          clerkUserId: clientContacts.clerkUserId,
+          archivedAt: clientContacts.archivedAt,
         })
         .from(clientContacts)
         .where(
@@ -228,10 +278,19 @@ export const clientContactsRouter = router({
         .orderBy(desc(clientContacts.lastSeenAt));
 
       const q = input?.q?.trim().toLowerCase();
-      if (!q) return rows;
-      return rows.filter(
-        (r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
-      );
+      const filtered = q
+        ? rows.filter(
+            (row) => row.name.toLowerCase().includes(q) || row.email.toLowerCase().includes(q),
+          )
+        : rows;
+      const invitationStates = await loadCurrentClientInvitationStates(ctx.db, {
+        producerId: ctx.producerId,
+        clientContactIds: filtered.map((row) => row.id),
+      });
+      return filtered.map(({ clerkUserId, archivedAt, ...row }) => ({
+        ...row,
+        ...invitationProjection(clerkUserId, archivedAt, invitationStates.get(row.id)),
+      }));
     }),
 
   // Phase H.2 — enriched CRM list with two "modes":
@@ -252,7 +311,7 @@ export const clientContactsRouter = router({
       // The three producer-scoped inputs are independent. Loading them
       // together also lets the workspace view build both UI shapes
       // without repeating the project and comment aggregates.
-      const [projectRows, commentAgg, contacts] = await Promise.all([
+      const [projectRows, commentAgg, contacts, invitationStates] = await Promise.all([
         ctx.db
           .select({
             id: projects.id,
@@ -322,10 +381,12 @@ export const clientContactsRouter = router({
             referralSource: clientContacts.referralSource,
             invitedAt: clientContacts.invitedAt,
             clerkUserId: clientContacts.clerkUserId,
+            archivedAt: clientContacts.archivedAt,
           })
           .from(clientContacts)
           .where(eq(clientContacts.producerId, ctx.producerId))
           .orderBy(asc(clientContacts.position), desc(clientContacts.lastSeenAt)),
+        loadCurrentClientInvitationStates(ctx.db, { producerId: ctx.producerId }),
       ]);
 
       const commentMap = new Map<string, { lastComment: Date | null; unresolved: number }>();
@@ -390,7 +451,11 @@ export const clientContactsRouter = router({
                 tags: contact.tags,
                 notes: contact.notes,
                 producerArchivedAt: contact.producerArchivedAt,
-                invitedAt: contact.invitedAt,
+                ...invitationProjection(
+                  contact.clerkUserId,
+                  contact.archivedAt,
+                  invitationStates.get(contact.id),
+                ),
                 clerkUserId: contact.clerkUserId,
               }
             : {
@@ -402,6 +467,8 @@ export const clientContactsRouter = router({
                 notes: null as string | null,
                 producerArchivedAt: null as Date | null,
                 invitedAt: null as Date | null,
+                providerAcceptedAt: null as Date | null,
+                invitationState: "available" as const,
                 clerkUserId: null as string | null,
               },
         };
@@ -482,7 +549,7 @@ export const clientContactsRouter = router({
           phone: c.phone,
           referralSource: c.referralSource,
           producerArchivedAt: c.producerArchivedAt,
-          invitedAt: c.invitedAt,
+          ...invitationProjection(c.clerkUserId, c.archivedAt, invitationStates.get(c.id)),
           clerkUserId: c.clerkUserId,
           activeProjectCount: agg.active,
           archiveBlockingProjectCount: agg.archiveBlocking,
@@ -907,63 +974,82 @@ export const clientContactsRouter = router({
       return { count: input.orderedIds.length };
     }),
 
-  // Clients & Projects v3 redesign — Phase 1 Task 13. Stamps invited_at
-  // on the contact and (when via='email') dispatches the invite email
-  // via Resend. The link path is a no-op send — the producer copied the
-  // URL to their clipboard from the modal — but we still stamp
-  // invited_at so the LinkPill flips to "Invited" either way.
-  //
-  // Notification emit is deliberately skipped: this is a producer-
-  // initiated action, so notifying the producer about their own click
-  // would just add inbox noise. The visible feedback is the LinkPill
-  // state change. (Deviation from the brief; documented in PR notes.)
-  //
-  // Email failure is surfaced (the modal needs to know whether the send
-  // succeeded) — we do NOT swallow Resend errors here. If the producer
-  // wants the link path as a fallback, that's a separate click.
+  // Email sends use a durable provider-idempotent outbox. Copy-link keeps only
+  // the legacy deletion-safety stamp and never becomes "Invited" evidence.
+  // Every deliberate action supplies one stable operation key; a retry of the
+  // same click reuses it, while a later deliberate resend uses a new key.
   sendInvite: producerProcedure
     .input(
       z.object({
         id: z.string().uuid(),
         via: z.enum(["email", "link"]),
+        operationKey: z.string().trim().min(1).max(200),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const producer =
-        input.via === "email"
-          ? (
-              await ctx.db
-                .select({
-                  slug: producers.slug,
-                  displayName: producers.displayName,
-                })
-                .from(producers)
-                .where(eq(producers.id, ctx.producerId))
-                .limit(1)
-            )[0]
-          : undefined;
-
       try {
-        return await inviteClient(clientManagementRepository(ctx.db), {
+        if (input.via === "link") {
+          return await inviteClient(clientManagementRepository(ctx.db), {
+            producerId: ctx.producerId,
+            clientId: input.id,
+            via: "link",
+            invitedAt: new Date(),
+            deliverEmail: () => Promise.resolve(),
+          });
+        }
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        const reserved = await reserveClientInvitationEmail(ctx.db, {
           producerId: ctx.producerId,
-          clientId: input.id,
-          via: input.via,
-          invitedAt: new Date(),
-          // The domain commits invitedAt under the shared deletion lock before
-          // this callback runs. A failed send remains safely retryable without
-          // letting permanent deletion create a dead invite.
-          deliverEmail: async (client) => {
-            const slug = producer?.slug ?? "";
-            const producerName = producer?.displayName ?? "Your producer";
-            const inviteUrl = buildClientInviteUrl(slug, SITE_URL);
-            await sendClientInviteEmail(client.email, {
-              clientName: client.name,
-              producerName,
-              inviteUrl,
-            });
-          },
+          clientContactId: input.id,
+          operationKey: input.operationKey,
+          requestedByClerkUserId: ctx.userId,
+          siteUrl: SITE_URL,
         });
+        const outcome = await deliverClientInvitation(
+          clientInvitationDeliveryRepository(ctx.db),
+          ({ message, idempotencyKey }) =>
+            sendClientInviteEmail(
+              message.to,
+              {
+                clientName: message.artistName,
+                producerName: message.producerName,
+                inviteUrl: message.inviteUrl,
+              },
+              idempotencyKey,
+            ),
+          reserved.delivery,
+        );
+        if (outcome.state === "dedupe_expired") {
+          throw new ClientInvitationDomainError(
+            "CONFLICT",
+            "This send expired. Try again with a new send action.",
+          );
+        }
+        if (outcome.state === "sending") {
+          return {
+            via: "email" as const,
+            deliveryState: "sending" as const,
+            invitedAt: null,
+            providerAcceptedAt: null,
+          };
+        }
+        const providerAcceptedAt = outcome.delivery.providerAcceptedAt;
+        if (!providerAcceptedAt) {
+          throw new ClientInvitationDomainError(
+            "INTEGRITY_ERROR",
+            "Accepted invitation is missing provider evidence",
+          );
+        }
+        return {
+          via: "email" as const,
+          deliveryState: "provider_accepted" as const,
+          invitedAt: providerAcceptedAt,
+          providerAcceptedAt,
+        };
       } catch (error) {
+        if (error instanceof ClientInvitationDomainError) {
+          mapClientInvitationDomainError(error);
+        }
         mapClientManagementDomainError(error);
       }
     }),

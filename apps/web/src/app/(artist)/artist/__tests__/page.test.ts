@@ -50,6 +50,12 @@ describe("/artist page composition", () => {
     expect(SRC).toMatch(/Remaining balance/);
   });
 
+  it("orders payment actions by the honest commercial establishment date", () => {
+    expect(SRC).toContain("purchase.commercialEstablishedAt");
+    expect(SRC).toContain("proofUnderReview.purchase.commercialEstablishedAt");
+    expect(SRC).not.toContain("purchase.acceptedAt");
+  });
+
   it("keeps the unread exact Version visible when a higher-priority Home action wins", () => {
     const newSongBranch = SRC.match(
       /let newSongAction:[\s\S]*?if \(home\.latestMix\?\.unread\)[\s\S]*?\n {2}\}/,
