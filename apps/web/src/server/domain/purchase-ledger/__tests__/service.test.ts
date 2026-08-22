@@ -58,8 +58,9 @@ function snapshot(
       timeZone: "America/New_York",
       automaticRemindersEnabled: true,
       displayName: "Producer",
+      slug: "producer-a",
     },
-    client: { id: "client-a", name: "Artist", email: "artist@example.com" },
+    client: { id: "client-a", name: "Artist", email: "artist@example.com", connected: true },
     purchaseName: "Mix",
     refNumber: "SK-TEST",
     installments: amounts.map((amountCents, index) => ({

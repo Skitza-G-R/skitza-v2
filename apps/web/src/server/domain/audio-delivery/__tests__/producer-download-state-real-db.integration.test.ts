@@ -113,7 +113,8 @@ describeWithTestDatabase("SK-144 producer download-state batch — disposable te
           "clerk_user_id" text not null unique,
           "display_name" text,
           "timezone" text not null default 'UTC',
-          "autopilot_unpaid_reminder" boolean not null default true
+          "autopilot_unpaid_reminder" boolean not null default true,
+          "slug" text not null unique
         )`,
         `create table ${schema}."client_contacts" (
           "id" uuid primary key,
@@ -303,10 +304,12 @@ describeWithTestDatabase("SK-144 producer download-state batch — disposable te
 
       await activeAdminDb().execute(sql`
         insert into ${sql.raw(qualifiedTestTable("producers"))}
-          ("id", "clerk_user_id", "display_name", "timezone")
+          ("id", "clerk_user_id", "display_name", "timezone", "slug")
         values
-          (${producerId}, ${producerClerkUserId}, ${"Fixture producer"}, ${"UTC"}),
-          (${foreignProducerId}, ${foreignProducerClerkUserId}, ${"Foreign producer"}, ${"UTC"})
+          (${producerId}, ${producerClerkUserId}, ${"Fixture producer"}, ${"UTC"},
+            ${`sk144-${producerId}`}),
+          (${foreignProducerId}, ${foreignProducerClerkUserId}, ${"Foreign producer"}, ${"UTC"},
+            ${`sk144-foreign-${foreignProducerId}`})
       `);
       await activeAdminDb().execute(sql`
         insert into ${sql.raw(qualifiedTestTable("client_contacts"))}
