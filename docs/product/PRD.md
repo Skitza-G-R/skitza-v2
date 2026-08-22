@@ -1,7 +1,7 @@
 # Skitza — Product Requirements Document
 
-**Version:** 4.0  
-**Date:** April 2026  
+**Version:** 4.2
+**Date:** August 13, 2026
 **Status:** Source of truth. All build decisions defer to this document.
 
 ---
@@ -44,7 +44,7 @@ The producer's customer. Vocalist, rapper, band, label A&R, or indie artist look
 - **English default.** Only English in v1. next-intl is wired for future Hebrew/Arabic but only `en.json` is populated.
 - **No AI dependency.** No LLM API keys required to run Skitza.
 - **Skitza subdomains only.** No custom-domain feature. `/join/[slug]` is the permanent format.
-- **Desktop-first for producers.** Producer dashboard is desktop-only in v1. Artist song page has a dedicated mobile UI.
+- **Desktop-first for producers.** The complete producer workspace is available on the web and through the optional Mac and Windows desktop apps. Artist song pages keep their dedicated mobile web UI.
 
 ---
 
@@ -365,6 +365,43 @@ Tool for importing existing clients in bulk from a spreadsheet.
 - Uploading a valid CSV → creates client records in Clients/Projects for each row.
 - Errors or malformed rows are flagged for review before import is finalised.
 
+### 4.7 — Mac and Windows desktop apps
+
+Skitza has an optional producer-only **enhanced, speed-first** desktop app for
+macOS and Windows, built with Tauri 2. It uses the same producer account, web
+interface, backend, data, and permissions as the complete web dashboard. It is
+not a basic wrapper, a separate interface, or a full-offline product.
+
+- Artists and public visitors remain on the website.
+- Producers download signed Mac and Windows installers directly from the
+  Skitza website. App stores are not used.
+- Windows supports Windows 11 x64 only; Windows 10 and Windows ARM are not
+  supported. Mac supports Apple Silicon and Intel.
+- The live app looks the same as Skitza Web; only the OS window and native
+  menu-bar/tray menu differ.
+- Closing the window hides it. A Mac menu-bar or Windows system-tray icon
+  reopens it and shows current upload status and Quit.
+- Existing bounded, account-scoped safe-screen and recent-audio caches make
+  repeat opening and playback faster. Saved content appears first and refreshes
+  quietly online.
+- Uploads continue while the app process is running with its window hidden,
+  but are not guaranteed after Quit, crash, restart, shutdown, or sleep.
+- Full offline mode, offline drafts, native notifications, native media
+  controls, start-at-login, product/content deep links, and full-Quit upload
+  recovery are not included. A private authentication callback is still
+  required for secure social sign-in.
+- A 1–2-day Mac/Windows performance proof must show a noticeable improvement
+  over Skitza Web before the rest of the app is built.
+- The website, Mac app, and Windows app launch publicly together with no public
+  beta or staged platform rollout.
+
+Within this desktop scope, the detailed plan is normative; product-wide PRD
+decisions still take precedence. A conflict must be resolved in both files
+before implementation continues. The passing speed targets, security
+boundaries, non-goals, and 8–12-working-day internal-release-candidate target
+live in
+[the enhanced producer desktop app plan](producer-desktop-app.md).
+
 ---
 
 ## §5 — Producer Onboarding
@@ -472,7 +509,7 @@ The marketing landing at `/` is the front door for cold visitors. Signed-in prod
 | 12 | Pricing — 2 tiers, 14-day free trial, no credit card required |
 | 13 | FAQ — accordion |
 | 14 | Founder — personal pitch |
-| 15 | Download — PWA mobile install prompt |
+| 15 | Download — Mac and Windows downloads + PWA mobile install prompt |
 | 16 | FinalCTA — last conversion surface before the footer |
 | 17 | SiteFooter |
 
@@ -609,9 +646,9 @@ Locked. No swaps without a PRD update.
 | Error tracking | Sentry |
 | Product analytics | PostHog |
 | Email | Resend + React Email |
+| Desktop | Tauri 2 |
 
 **Removed from stack:**
-- Tauri desktop app — deleted in v3-clean D1+D2. Desktop app is not part of the product.
 - Documenso — deleted in v3-clean D5+D6. Contracts replaced by inline checkbox agreement (agreedAt timestamp).
 
 ---
@@ -625,7 +662,7 @@ Hard constraints. These are not deferred — they are explicitly out of scope.
 | AI Copilot / LLM calls | No API-key dependency at launch |
 | Custom domains | Skitza subdomains only — `/join/[slug]` is permanent format |
 | framer-motion or JS animation libraries | CSS-only — zero bundle cost |
-| Native iOS/Android app | Not in scope — web-only for v1 |
+| Native iOS/Android app | Not in scope — mobile remains web/PWA |
 | Multi-engineer / team mode | Revisit when first paying user asks for team access |
 | Beat licensing | Different business model entirely |
 | DAW integrations (Ableton, Logic, Pro Tools) | Too fragmented — not Skitza's moat |
@@ -636,4 +673,4 @@ Hard constraints. These are not deferred — they are explicitly out of scope.
 
 ---
 
-*Skitza PRD v4.0 · April 2026 · Source of truth for all build decisions*
+*Skitza PRD v4.2 · August 13, 2026 · Source of truth for all build decisions*

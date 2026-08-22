@@ -5,10 +5,8 @@ import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
-import {
-  ProjectRow,
-  type ProjectRowData,
-} from "~/components/dashboard/projects/project-row";
+import { ClientPaymentProofs } from "~/components/dashboard/clients/client-payment-proofs";
+import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -43,6 +41,18 @@ export default async function ClientDetailPage({ params }: PageProps) {
     detail = await caller.clientContacts.detail({ id });
   } catch {
     notFound();
+  }
+
+  let proofHistory: Awaited<ReturnType<typeof caller.producer.purchase.proofOfPayment.history>> = {
+    available: false,
+    proofs: [],
+  };
+  try {
+    proofHistory = await caller.producer.purchase.proofOfPayment.history({
+      clientContactId: id,
+    });
+  } catch (err) {
+    console.warn("[clients/detail] payment proof history failed", err);
   }
 
   let producerSlug = "";
@@ -91,8 +101,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   // client_contacts yet). linkState reads invitedAt / clerkUserId off
   // the detail payload — clerkUserId set ⇒ "active" (signed up),
   // else invitedAt set ⇒ "pending" (amber pill), else "none".
-  const heroLinkState: ClientSpaceHeroData["linkState"] = detail.contact
-    .clerkUserId
+  const heroLinkState: ClientSpaceHeroData["linkState"] = detail.contact.clerkUserId
     ? "active"
     : detail.contact.invitedAt
       ? "pending"
@@ -135,19 +144,17 @@ export default async function ClientDetailPage({ params }: PageProps) {
       deadline: formatDeadlineShort(p.nextSessionAt),
       status: STAGE_LABEL[stage],
       statusTone: tone,
-      currency: p.currency ?? producerCurrency,
+      currency: p.currency,
     };
   });
 
   return (
     <main className="sk-page-enter">
-      <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
+      <div className="mx-auto max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
         <SetTopBarBreadcrumb crumbs={[{ label: detail.contact.name }]} />
-        <ClientSpaceHero
-          client={heroData}
-          producerSlug={producerSlug}
-          products={products}
-        />
+        <ClientSpaceHero client={heroData} producerSlug={producerSlug} products={products} />
+
+        {proofHistory.available ? <ClientPaymentProofs proofs={proofHistory.proofs} /> : null}
 
         {projectRows.length === 0 ? (
           <div
@@ -173,10 +180,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
             quick scan rhythm. Kept lightweight; the hero already shows
             the KPI counts, this is a single-line schedule reminder. */}
         {nextSession ? (
-          <p
-            className="mt-4 text-[12px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
+          <p className="mt-4 text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
             Next session:{" "}
             <span style={{ color: "rgb(var(--fg-default))" }}>
               {formatSessionAt(nextSession.startsAt)}
@@ -231,10 +235,7 @@ export function pickNextSession(
   let best: { startsAt: Date; projectTitle: string } | null = null;
   for (const p of projects) {
     if (!p.nextSessionAt) continue;
-    const at =
-      p.nextSessionAt instanceof Date
-        ? p.nextSessionAt
-        : new Date(p.nextSessionAt);
+    const at = p.nextSessionAt instanceof Date ? p.nextSessionAt : new Date(p.nextSessionAt);
     if (Number.isNaN(at.getTime())) continue;
     if (!best || at.getTime() < best.startsAt.getTime()) {
       best = { startsAt: at, projectTitle: p.title };

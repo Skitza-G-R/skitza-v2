@@ -9,10 +9,7 @@ import type { ProjectRowData } from "~/components/dashboard/projects/project-row
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import {
-  reorderClientsAction,
-  reorderProjectsAction,
-} from "./clients-actions";
+import { reorderClientsAction, reorderProjectsAction } from "./clients-actions";
 
 // /dashboard/clients-projects — producer's "Clients & Projects"
 // workspace. Phase 1 redesign (Task 16) — the page now renders a single
@@ -64,9 +61,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   // ── Map project rows to the ProjectRowData shape ────────────────
   const projectRows: ProjectRowData[] =
-    projectsResult.view === "all-projects"
-      ? projectsResult.projects.map(toProjectRowData)
-      : [];
+    projectsResult.view === "all-projects" ? projectsResult.projects.map(toProjectRowData) : [];
 
   // ── Map client rows to the ClientCardData shape ─────────────────
   const clientRows: ClientCardData[] =
@@ -101,8 +96,8 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       : [];
 
   // ── KPIs ────────────────────────────────────────────────────────
-  // Earnings: lifetime sum (paid projects' price). Outstanding: sum
-  // across active projects. Needs attention: unresolved comments OR
+  // Earnings: paid invoice amounts whose paid timestamp is in the current
+  // month. Outstanding: sum across active projects. Needs attention: unresolved comments OR
   // non-zero balance on an active project. Next deadline: earliest
   // upcoming nextSessionAt across active projects. The project's
   // title is captured alongside the deadline so the KPI tile can
@@ -114,19 +109,13 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   let nextDeadlineProjectTitle: string | null = null;
   if (projectsResult.view === "all-projects") {
     for (const p of projectsResult.projects) {
-      earnings += p.lifetimeCents;
+      earnings += p.paidThisMonthCents;
       outstanding += p.outstandingCents;
-      if (
-        p.unresolvedComments > 0 ||
-        (p.outstandingCents > 0 && p.isActive)
-      ) {
+      if (p.unresolvedComments > 0 || (p.outstandingCents > 0 && p.isActive)) {
         needsAttention += 1;
       }
       if (p.nextSessionAt && p.isActive) {
-        const at =
-          p.nextSessionAt instanceof Date
-            ? p.nextSessionAt
-            : new Date(p.nextSessionAt);
+        const at = p.nextSessionAt instanceof Date ? p.nextSessionAt : new Date(p.nextSessionAt);
         if (!Number.isNaN(at.getTime())) {
           if (!nextDeadlineAt || at < nextDeadlineAt) {
             nextDeadlineAt = at;
@@ -148,9 +137,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     // Surface the project title on the Next deadline tile's sub line.
     // Spread-conditional keeps exactOptionalPropertyTypes happy when
     // there's no upcoming deadline at all.
-    ...(nextDeadlineProjectTitle
-      ? { nextDeadlineLabel: nextDeadlineProjectTitle }
-      : {}),
+    ...(nextDeadlineProjectTitle ? { nextDeadlineLabel: nextDeadlineProjectTitle } : {}),
   };
 
   return (
@@ -197,9 +184,7 @@ async function safeMe(
 // back to an empty list on any error — the modal renders an empty
 // state hint pointing at /dashboard/store in that case. The mapping
 // trims the wire shape down to exactly what the modal consumes.
-async function safeProducts(
-  caller: ReturnType<typeof appRouter.createCaller>,
-): Promise<
+async function safeProducts(caller: ReturnType<typeof appRouter.createCaller>): Promise<
   {
     id: string;
     name: string;
@@ -230,13 +215,7 @@ async function safeProducts(
 type EnrichedProject = {
   id: string;
   title: string;
-  stage:
-    | "lead"
-    | "booked"
-    | "in_production"
-    | "final_review"
-    | "paid"
-    | "archived";
+  stage: "lead" | "booked" | "in_production" | "final_review" | "paid" | "archived";
   client: { id: string | null; email: string; name: string };
   outstandingCents: number;
   currency: string;
@@ -292,9 +271,7 @@ function toProjectRowData(p: EnrichedProject): ProjectRowData {
     statusTone: tone,
     currency: p.currency,
     updatedAtIso:
-      p.updatedAt instanceof Date
-        ? p.updatedAt.toISOString()
-        : new Date(p.updatedAt).toISOString(),
+      p.updatedAt instanceof Date ? p.updatedAt.toISOString() : new Date(p.updatedAt).toISOString(),
     deadlineAtIso: p.nextSessionAt ? p.nextSessionAt.toISOString() : null,
   };
 }

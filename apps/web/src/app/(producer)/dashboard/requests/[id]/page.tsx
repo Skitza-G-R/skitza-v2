@@ -49,22 +49,22 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
   let detail: Awaited<ReturnType<typeof caller.producer.purchase.get>>;
   let paymentProof: PaymentProofReviewData | null = null;
   try {
-    const [requestDetail, pending] = await Promise.all([
+    const [requestDetail, history] = await Promise.all([
       caller.producer.purchase.get({ id }),
-      caller.producer.purchase.proofOfPayment.pending({ purchaseRequestId: id }),
+      caller.producer.purchase.proofOfPayment.history({ purchaseRequestId: id }),
     ]);
     detail = requestDetail;
 
     const selectedProof = requestedProofId
-      ? pending.proofs.find((proof) => proof.proofId === requestedProofId)
-      : pending.proofs[0];
+      ? history.proofs.find((proof) => proof.proofId === requestedProofId)
+      : history.proofs.find((proof) => proof.status === "pending");
 
     // A proof ID in the URL is trusted only after it appears in the
-    // producer-owned, request-filtered pending result. Foreign, stale, and
-    // guessed IDs all become the same 404 without leaking metadata or a URL.
+    // producer-owned, request-filtered history result. Foreign and guessed
+    // IDs all become the same 404 without leaking metadata or a signed URL.
     if (requestedProofId && !selectedProof) notFound();
 
-    if (pending.available && selectedProof) {
+    if (history.available && selectedProof) {
       const signedView = await caller.producer.purchase.proofOfPayment.view({
         proofId: selectedProof.proofId,
       });
@@ -75,10 +75,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
       };
     }
   } catch (error) {
-    if (
-      error instanceof TRPCError &&
-      (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")
-    ) {
+    if (error instanceof TRPCError && (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")) {
       notFound();
     }
     throw error;
@@ -92,7 +89,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
 
   return (
     <>
-      <ProofQueueRefresh enabled={!paymentProof} />
+      <ProofQueueRefresh enabled={paymentProof?.status !== "pending"} />
       <SetTopBarBreadcrumb crumbs={[{ label: request.artistName }]} />
       <main className="mx-auto w-full max-w-[720px] px-4 py-6 sm:px-6 sm:py-10">
         <Link
@@ -104,14 +101,14 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
 
         <header className="mt-4 border-b border-[rgb(var(--border-subtle))] pb-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <p className="font-mono text-[11px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
               {request.refNumber}
             </p>
-            <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-xs font-semibold capitalize text-[rgb(var(--fg-secondary))]">
+            <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-xs font-semibold text-[rgb(var(--fg-secondary))] capitalize">
               {request.status}
             </span>
           </div>
-          <h1 className="font-display mt-3 text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-extrabold tracking-[-0.035em] break-words text-[rgb(var(--fg-default))] [overflow-wrap:anywhere]">
+          <h1 className="font-display mt-3 text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-extrabold tracking-[-0.035em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
             {request.productNameSnapshot}
           </h1>
           <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
@@ -176,19 +173,19 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
             <dl className="mt-3 grid gap-3 text-sm">
               <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-3">
                 <dt className="font-medium text-[rgb(var(--fg-muted))]">Master</dt>
-                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.master}
                 </dd>
               </div>
               <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-3">
                 <dt className="font-medium text-[rgb(var(--fg-muted))]">Composition</dt>
-                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.composition}
                 </dd>
               </div>
             </dl>
             {request.royaltyTermsSnapshot?.notes ? (
-              <p className="mt-4 text-sm leading-relaxed break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              <p className="mt-4 text-sm leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                 {request.royaltyTermsSnapshot.notes}
               </p>
             ) : null}
@@ -202,13 +199,11 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
               Agreement snapshot
             </h2>
             {request.agreementTextSnapshot ? (
-              <p className="mt-3 text-sm leading-relaxed break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              <p className="mt-3 text-sm leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                 {request.agreementTextSnapshot}
               </p>
             ) : (
-              <p className="mt-3 text-sm text-[rgb(var(--fg-muted))]">
-                No inline agreement text.
-              </p>
+              <p className="mt-3 text-sm text-[rgb(var(--fg-muted))]">No inline agreement text.</p>
             )}
             {agreementUrlSnapshot ? (
               <a

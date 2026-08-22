@@ -180,6 +180,10 @@ export default async function DevScreenPage({ params }: Params) {
           <PaymentProofReview
             proof={{
               ...DEV_PENDING_PROOF,
+              status: "pending",
+              rejectionNote: null,
+              confirmedAt: null,
+              rejectedAt: null,
               signedUrl: "/icon",
               expiresInSeconds: 300,
             }}

@@ -6,6 +6,16 @@
 - Speak to Gili in simple, easy-to-understand English. Lead with the result and explain technical details only when they help a decision.
 - Gili currently makes the final product and engineering decisions. Work directly from her instructions and the Linear backlog; Raz is not a required gate unless Gili says so for a specific task.
 
+## Strict scope and initiative rule
+
+- This is a hard rule: do exactly what Gili asks and nothing more.
+- Unless Gili explicitly asks for suggestions, alternatives, improvements, or proactive work, do not provide them.
+- Do not suggest additional features, optional enhancements, follow-up tasks, or unrelated next steps.
+- Do not refactor, clean up, rename, reorganize, or change code outside the requested scope.
+- Raise something unrequested only when it is essential to complete the task safely or correctly, or when it reveals a serious security, data-loss, production, or requirements conflict. Keep that warning brief and directly relevant.
+- Do not broaden the task through assumptions. If a missing decision materially blocks the requested work, ask only the minimum necessary question.
+- Prefer the shortest path to the requested result. Avoid exploratory detours, repeated explanations, and token-heavy commentary unless Gili asks for detail.
+
 ## Sources and decisions
 
 - Use the current code to understand actual behavior.
@@ -30,6 +40,7 @@
 
 - Use Node `>=20.11`, pnpm `9.12.0`, and Corepack.
 - Before claiming a change is verified or opening/updating a PR, use `$skitza-verify`.
+- For implementation work, continue through browser-based visual verification. At handoff, state clearly whether the change is visually verified and ask Gili whether to promote it to production.
 - Add focused regression tests for bugs and behavior changes. Prove the test fails before the fix when practical.
 - Do not hide or ignore baseline failures. Report the exact failing command and enough output to diagnose it.
 
@@ -51,7 +62,8 @@
 
 ## Database safety
 
-- The production Neon project is `skitza` (`quiet-sun-92221754`). The old `skitza-v3` project is stale and is not production.
+- The current Neon database project is `skitza-v3` (`raspy-pine-96654399`). Gili reconfirmed this on 2026-07-29.
+- Neon project `quiet-sun-92221754` is named `OLD — DO NOT USE.` Never use it as a database source or migration target.
 - The Drizzle journal is out of sync with migrations 0019+. Do not run `drizzle-kit migrate` or `pnpm -F db db:migrate`.
 - Use `$skitza-migrate`, which runs `packages/db/apply-migrations.mjs` and requires an explicit target environment.
 - Never print database URLs or credentials. Never migrate production without Gili's explicit approval for that exact run.
