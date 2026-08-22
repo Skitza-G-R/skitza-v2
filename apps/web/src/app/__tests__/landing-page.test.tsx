@@ -182,18 +182,22 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     expect(html).not.toContain("height:71.64733502929566%");
   });
 
-  it("'Sign in' link points at /sign-in (nav-only)", async () => {
+  it("'Sign in' link points at /sign-in (nav + hero)", async () => {
     authMock.mockResolvedValue({ userId: null });
     const { default: HomePage } = await import("../page");
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    // /sign-in appears once in SSR (nav desktop). Mobile nav fold-out
-    // is gated by `menuOpen=false` and not rendered in the SSR pass.
+    // /sign-in appears twice in SSR: nav desktop + hero action group
+    // (SK-246). Mobile nav fold-out is gated by `menuOpen=false` and not
+    // rendered in the SSR pass, so the hero link is the only one visible
+    // on phones without opening the menu.
     const signInMatches = html.match(/href="\/sign-in"/g) ?? [];
-    expect(signInMatches.length).toBe(1);
+    expect(signInMatches.length).toBe(2);
     // And the link text is literally "Sign in".
     expect(html).toMatch(/href="\/sign-in"[^>]*>\s*Sign in\s*</);
+    // The hero copy of the link sits inside the hero action group.
+    expect(html).toMatch(/data-testid="hero-sign-in"[^>]*href="\/sign-in"/);
   });
 
   it("contains NO waitlist copy (PRD §3.5 — design source's WaitlistModal retired)", async () => {
