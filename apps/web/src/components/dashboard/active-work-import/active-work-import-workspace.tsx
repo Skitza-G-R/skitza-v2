@@ -14,6 +14,7 @@ import {
   prepareImportProofAction,
   restoreImportClientAction,
   saveImportRowAction,
+  type ImportActionResult,
 } from "~/app/(producer)/dashboard/clients-projects/bring-active-work/actions";
 
 import { ImportRowEditor, type ImportEditorStep } from "./import-row-editor";
@@ -41,6 +42,22 @@ type RowUpdater = (rows: WorkspaceImportRow[]) => WorkspaceImportRow[];
 
 function randomOperationKey(prefix: string): string {
   return `${prefix}:${crypto.randomUUID()}`;
+}
+
+const UNREACHABLE_ERROR = "Could not reach Skitza. Check your connection and try again.";
+
+// Server actions reject when the request never reaches Skitza (offline, timeout,
+// deploy in progress). Every caller reads a plain result instead, so no row or
+// button is ever left busy by an unhandled rejection.
+async function callAction<T>(
+  request: () => Promise<ImportActionResult<T>>,
+): Promise<ImportActionResult<T>> {
+  try {
+    return await request();
+  } catch (error) {
+    console.error("[active-work-import] action did not answer", error);
+    return { ok: false, error: UNREACHABLE_ERROR, code: "UNREACHABLE" };
+  }
 }
 
 type ImportProofContentType =
@@ -226,7 +243,7 @@ export function ActiveWorkImportWorkspace({
       setStarting(true);
       setPageError(null);
       try {
-        const result = await createImportBatchAction({ operationKey });
+        const result = await callAction(() => createImportBatchAction({ operationKey }));
         if (!result.ok) {
           setPageError(result.error);
           return null;
@@ -314,12 +331,14 @@ export function ActiveWorkImportWorkspace({
               : row,
           ),
         );
-        const result = await saveImportRowAction({
-          batchId: activeBatchId,
-          rowOperationKey: current.operationKey,
-          expectedRevision: current.revision,
-          draftPayload: toServerDraftPayload(current.draft),
-        });
+        const result = await callAction(() =>
+          saveImportRowAction({
+            batchId: activeBatchId,
+            rowOperationKey: current.operationKey,
+            expectedRevision: current.revision,
+            draftPayload: toServerDraftPayload(current.draft),
+          }),
+        );
 
         if (!result.ok) {
           const latest = rowsRef.current.find((row) => row.operationKey === operationKey);
@@ -434,12 +453,16 @@ export function ActiveWorkImportWorkspace({
   async function leaveWorkspace() {
     if (leaving) return;
     setLeaving(true);
-    const pendingAdd = addPromiseRef.current;
-    if (pendingAdd) await pendingAdd;
-    const saved = await flushPendingRows();
+    let saved = false;
+    try {
+      const pendingAdd = addPromiseRef.current;
+      if (pendingAdd) await pendingAdd;
+      saved = await flushPendingRows();
+    } finally {
+      if (!saved) setLeaving(false);
+    }
     if (!saved) {
       setPageError("We couldn't save every change. Please try again before leaving.");
-      setLeaving(false);
       return;
     }
     router.push("/dashboard/clients-projects");
@@ -553,11 +576,12 @@ export function ActiveWorkImportWorkspace({
       "Remove this draft? Created clients, projects, agreements, and payments cannot be removed here.",
     );
     if (!confirmed) return;
-    if (target.rowId && batchIdRef.current) {
-      const result = await deleteImportRowAction({
-        batchId: batchIdRef.current,
-        rowId: target.rowId,
-      });
+    const activeBatchId = batchIdRef.current;
+    const targetRowId = target.rowId;
+    if (targetRowId && activeBatchId) {
+      const result = await callAction(() =>
+        deleteImportRowAction({ batchId: activeBatchId, rowId: targetRowId }),
+      );
       if (!result.ok) {
         setPageError(result.error);
         return;
@@ -579,8 +603,12 @@ export function ActiveWorkImportWorkspace({
     if (restoringClientId) return;
     setRestoringClientId(client.id);
     setPageError(null);
-    const result = await restoreImportClientAction({ id: client.id });
-    setRestoringClientId(null);
+    let result: Awaited<ReturnType<typeof restoreImportClientAction>>;
+    try {
+      result = await callAction(() => restoreImportClientAction({ id: client.id }));
+    } finally {
+      setRestoringClientId(null);
+    }
     if (!result.ok) {
       setPageError(result.error);
       return;
@@ -606,8 +634,12 @@ export function ActiveWorkImportWorkspace({
     const activeBatchId = batchIdRef.current;
     if (!activeBatchId) return false;
     setLoadingSetup(true);
-    const result = await loadImportSetupOptionsAction({ batchId: activeBatchId });
-    setLoadingSetup(false);
+    let result: Awaited<ReturnType<typeof loadImportSetupOptionsAction>>;
+    try {
+      result = await callAction(() => loadImportSetupOptionsAction({ batchId: activeBatchId }));
+    } finally {
+      setLoadingSetup(false);
+    }
     if (!result.ok) {
       setSetupOptions(null);
       setReviewError(result.error);
@@ -628,17 +660,20 @@ export function ActiveWorkImportWorkspace({
     if (openingReview) return;
     setOpeningReview(true);
     setReviewError(null);
-    const saved = await flushPendingRows();
+    let saved = false;
+    try {
+      saved = await flushPendingRows();
+    } finally {
+      setOpeningReview(false);
+    }
     if (!saved) {
       setPageError("We couldn't save every change. Please try again before reviewing.");
-      setOpeningReview(false);
       return;
     }
     const hasCreated = rowsRef.current.some((row) => row.materializedAtIso !== null);
     const hasUnfinished = rowsRef.current.some((row) => row.materializedAtIso === null);
     setReviewStage(hasUnfinished ? "review" : "setup");
     setReviewOpen(true);
-    setOpeningReview(false);
     if (!hasUnfinished && hasCreated && !setupOptions) {
       await loadSetupOptions();
     }
@@ -671,12 +706,18 @@ export function ActiveWorkImportWorkspace({
 
     setCreating(true);
     setReviewError(null);
-    const result = await materializeImportRowsAction({
-      batchId: activeBatchId,
-      rows: requests,
-    });
-    if (!result.ok) {
+    let result: Awaited<ReturnType<typeof materializeImportRowsAction>>;
+    try {
+      result = await callAction(() =>
+        materializeImportRowsAction({
+          batchId: activeBatchId,
+          rows: requests,
+        }),
+      );
+    } finally {
       setCreating(false);
+    }
+    if (!result.ok) {
       setReviewError(result.error);
       return;
     }
@@ -735,7 +776,6 @@ export function ActiveWorkImportWorkspace({
         return { ...row, materializeError: outcome.message };
       }),
     );
-    setCreating(false);
 
     const createdTotal = rowsRef.current.filter((row) => row.materializedAtIso !== null).length;
     const failedTotal = result.data.outcomes.filter(
@@ -799,14 +839,18 @@ export function ActiveWorkImportWorkspace({
         }));
         return false;
       }
-      const prepared = await prepareImportProofAction({
-        batchId: batchIdRef.current,
-        rowId: row.rowId,
-        paymentOperationKey,
-        originalFileName: file.name,
-        contentType,
-        sizeBytes: file.size,
-      });
+      const activeBatchId = batchIdRef.current;
+      const activeRowId = row.rowId;
+      const prepared = await callAction(() =>
+        prepareImportProofAction({
+          batchId: activeBatchId,
+          rowId: activeRowId,
+          paymentOperationKey,
+          originalFileName: file.name,
+          contentType,
+          sizeBytes: file.size,
+        }),
+      );
       if (!prepared.ok) {
         setProofUploads((current) => ({
           ...current,
@@ -882,13 +926,19 @@ export function ActiveWorkImportWorkspace({
     setSetupAttempted(true);
     setFinishing(true);
     setReviewError(null);
-    const result = await finishImportSetupAction({
-      batchId: activeBatchId,
-      operationKey,
-      expectedSetupDigest: setupOptions.setupDigest,
-      selectedClientContactIds: [...selectedClientIds],
-    });
-    setFinishing(false);
+    let result: Awaited<ReturnType<typeof finishImportSetupAction>>;
+    try {
+      result = await callAction(() =>
+        finishImportSetupAction({
+          batchId: activeBatchId,
+          operationKey,
+          expectedSetupDigest: setupOptions.setupDigest,
+          selectedClientContactIds: [...selectedClientIds],
+        }),
+      );
+    } finally {
+      setFinishing(false);
+    }
     if (!result.ok) {
       if (result.code === "CONFLICT") {
         finishOperationKeyRef.current = null;

@@ -1650,6 +1650,73 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
   });
 });
 
+describe("ActiveWorkImportWorkspace when Skitza cannot be reached", () => {
+  const unreachable = "Could not reach Skitza. Check your connection and try again.";
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  it("marks a draft save that never answered as an error instead of leaving it Saving", async () => {
+    mocks.saveRow.mockRejectedValue(new Error("fetch failed"));
+    renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Typed while offline" },
+    });
+
+    await screen.findByText("Could not save — try again");
+    expect(screen.getByRole("alert").textContent).toContain(unreachable);
+    expect(screen.queryByText("Saving…")).toBeNull();
+  });
+
+  it("re-enables Create and explains the failure when creation never answered", async () => {
+    mocks.materializeRows.mockRejectedValue(new Error("fetch failed"));
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    const create = screen.getByRole("button", { name: "Create 1 ready item" });
+    await user.click(create);
+
+    await screen.findByText(unreachable);
+    await waitFor(() => {
+      expect((create as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(screen.getByRole("button", { name: "Create 1 ready item" })).not.toBeNull();
+  });
+
+  it("re-enables Finish setup and explains the failure when finishing never answered", async () => {
+    mocks.finishSetup.mockRejectedValue(new Error("fetch failed"));
+    const user = userEvent.setup();
+    renderWorkspace(createdBatch(), { initialSetupOptions: freshSetupOptions() });
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+    await screen.findByRole("heading", { name: "Finish setup" });
+    const done = screen.getByRole("button", { name: "Finish setup" });
+
+    await user.click(done);
+
+    await screen.findByText(unreachable);
+    await waitFor(() => {
+      expect((done as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("offers Try again when the next steps could not be loaded", async () => {
+    mocks.loadSetup.mockRejectedValue(new Error("fetch failed"));
+    const user = userEvent.setup();
+    renderWorkspace(createdBatch(), { initialSetupOptions: null });
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await screen.findByText(unreachable);
+    expect(screen.getByText("Could not load the next steps")).not.toBeNull();
+    const retry = screen.getByRole("button", { name: "Try again" });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe("ActiveWorkImportWorkspace required reminder setup", () => {
   async function openCreatedSetup(options = setupOptions()) {
     const user = userEvent.setup();
