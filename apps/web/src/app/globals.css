@@ -2675,6 +2675,18 @@ html[data-theme="dark"] .sk-auth-shell {
  * FormColumn) so no other Clerk surface (UserButton popover etc.)
  * is affected.
  * ---------------------------------------------------------------- */
+/* SK-256 — Clerk paints social buttons ("Continue with Google") with
+   its neutral colour at ~60% alpha, which reads as disabled on the
+   dark card. Same unlayered-CSS reason as above: the Tailwind colour
+   classes in `appearance.elements` lose to Clerk's runtime CSS. */
+.sk-auth-form .cl-socialButtonsBlockButton {
+  color: rgb(var(--fg-primary)) !important;
+  border-color: rgb(var(--border-strong)) !important;
+}
+.sk-auth-form .cl-socialButtonsBlockButtonText {
+  color: inherit !important;
+}
+
 @media (max-width: 1023px) {
   /* rootBox MUST get an explicit width: Clerk leaves it fit-content
      while cardBox is 100%-of-parent — a sizing cycle Chrome resolves
