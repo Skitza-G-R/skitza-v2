@@ -727,6 +727,51 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(screen.getByText("Add the real payment date.")).not.toBeNull();
   });
 
+  it("keeps the item's step when the layout switches between desktop and phone", async () => {
+    // A resize or browser-zoom across 1024px swaps the desktop pane for the phone
+    // dialog (different component instances). The producer must not be sent back
+    // to step 1 when that happens.
+    const listeners: Array<() => void> = [];
+    let matches = false;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockImplementation(() => ({
+        get matches() {
+          return matches;
+        },
+        media: "(max-width: 1023px)",
+        onchange: null,
+        addEventListener: (_: string, listener: () => void) => listeners.push(listener),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await screen.findByRole("heading", { name: "Agreement" });
+
+    act(() => {
+      matches = true;
+      listeners.forEach((listener) => {
+        listener();
+      });
+    });
+    act(() => {
+      matches = false;
+      listeners.forEach((listener) => {
+        listener();
+      });
+    });
+
+    await screen.findByRole("heading", { name: "Agreement" });
+    expect(screen.getByText("Step 2 of 3")).not.toBeNull();
+    expect(document.querySelectorAll('[aria-label^="Edit item"]')).toHaveLength(1);
+  });
+
   it("makes Save payment the only primary action while its inline editor is open", async () => {
     const user = userEvent.setup();
     renderWorkspace();

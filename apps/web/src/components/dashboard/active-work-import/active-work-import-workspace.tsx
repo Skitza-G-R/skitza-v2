@@ -18,7 +18,7 @@ import {
   type ImportActionResult,
 } from "~/app/(producer)/dashboard/clients-projects/bring-active-work/actions";
 
-import { ImportRowEditor, type ImportEditorStep } from "./import-row-editor";
+import { ImportRowEditor, type ImportEditorStep, type ImportEditorMemory } from "./import-row-editor";
 import { ImportRowList } from "./import-row-list";
 import {
   isRowReady,
@@ -171,6 +171,7 @@ export function ActiveWorkImportWorkspace({
   const [proofUploads, setProofUploads] = useState<Record<string, ProofUploadView>>({});
 
   const rowsRef = useRef(rows);
+  const editorMemoryRef = useRef(new Map<string, ImportEditorMemory>());
   const batchIdRef = useRef(batchId);
   const savePromises = useRef(new Map<string, Promise<boolean>>());
   const batchOperationKeyRef = useRef<string | null>(null);
@@ -1267,6 +1268,7 @@ export function ActiveWorkImportWorkspace({
                   onChange={(draft) => {
                     changeDraft(selectedRow.operationKey, draft);
                   }}
+                  editorMemory={editorMemoryRef.current}
                   onContinueStep={(step) => continueEditorStep(selectedRow.operationKey, step)}
                   onFinishItem={() => finishItem(selectedRow.operationKey)}
                   onSaveForLater={() => saveForLater(selectedRow.operationKey)}
@@ -1307,6 +1309,7 @@ export function ActiveWorkImportWorkspace({
                   onChange={(draft) => {
                     changeDraft(selectedRow.operationKey, draft);
                   }}
+                  editorMemory={editorMemoryRef.current}
                   onContinueStep={(step) => continueEditorStep(selectedRow.operationKey, step)}
                   onFinishItem={() => finishItem(selectedRow.operationKey)}
                   onSaveForLater={() => saveForLater(selectedRow.operationKey)}

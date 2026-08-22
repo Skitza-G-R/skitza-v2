@@ -32,6 +32,12 @@ import { PaymentHistoryEditor, type ProofUploadView } from "./payment-history-ed
 const FIELD_CLASS =
   "sk-native-field min-h-11 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-10 sm:rounded-[var(--radius-md)] sm:text-[13px]";
 
+export type ImportEditorMemory = {
+  activeStepIndex: number;
+  completedThrough: number;
+  revealedSteps: readonly number[];
+};
+
 export const IMPORT_EDITOR_STEPS = ["Client & Project", "Agreement", "Payments"] as const;
 export type ImportEditorStep = (typeof IMPORT_EDITOR_STEPS)[number];
 
@@ -188,6 +194,7 @@ export function ImportRowEditor({
   onRestoreClient,
   proofUploads,
   onUploadProof,
+  editorMemory,
 }: {
   row: WorkspaceImportRow;
   index: number;
@@ -206,11 +213,21 @@ export function ImportRowEditor({
   onRestoreClient: (client: ArchivedClientOption) => void;
   proofUploads: Readonly<Record<string, ProofUploadView>>;
   onUploadProof: (paymentOperationKey: string, file: File) => void;
+  /**
+   * Where this item's editor progress lives across remounts. The desktop pane and
+   * the phone dialog are different component instances, so a layout switch
+   * (window resize, browser zoom, orientation) would otherwise reset the
+   * producer to step 1. Keyed by row operation key.
+   */
+  editorMemory?: Map<string, ImportEditorMemory>;
 }) {
   const { draft } = row;
-  const [activeStepIndex, setActiveStepIndex] = useState(0);
-  const [completedThrough, setCompletedThrough] = useState(-1);
-  const [revealedSteps, setRevealedSteps] = useState<Set<number>>(new Set());
+  const remembered = editorMemory?.get(row.operationKey);
+  const [activeStepIndex, setActiveStepIndex] = useState(remembered?.activeStepIndex ?? 0);
+  const [completedThrough, setCompletedThrough] = useState(remembered?.completedThrough ?? -1);
+  const [revealedSteps, setRevealedSteps] = useState<Set<number>>(
+    () => new Set(remembered?.revealedSteps ?? []),
+  );
   const [stepBusy, setStepBusy] = useState(false);
   const [paymentEditing, setPaymentEditing] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(() => draft.client.phone.trim().length > 0);
@@ -241,11 +258,21 @@ export function ImportRowEditor({
   const issueId = (field: string) => `import-${field}-issues-${row.operationKey}`;
 
   useEffect(() => {
-    setActiveStepIndex(0);
-    setCompletedThrough(-1);
-    setRevealedSteps(new Set());
+    const memory = editorMemory?.get(row.operationKey);
+    setActiveStepIndex(memory?.activeStepIndex ?? 0);
+    setCompletedThrough(memory?.completedThrough ?? -1);
+    setRevealedSteps(new Set(memory?.revealedSteps ?? []));
     setPaymentEditing(false);
-  }, [row.operationKey]);
+    // editorMemory is a stable ref-backed map; only the row identity matters here.
+  }, [editorMemory, row.operationKey]);
+
+  useEffect(() => {
+    editorMemory?.set(row.operationKey, {
+      activeStepIndex,
+      completedThrough,
+      revealedSteps: Array.from(revealedSteps),
+    });
+  }, [editorMemory, row.operationKey, activeStepIndex, completedThrough, revealedSteps]);
 
   useEffect(() => {
     if (mobile) editorRef.current?.focus();
