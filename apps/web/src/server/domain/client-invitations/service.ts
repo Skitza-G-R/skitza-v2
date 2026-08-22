@@ -349,8 +349,13 @@ export async function deliverClientInvitation(
         failedAt,
         failureCode: failureCode(error),
       });
-    } catch {
+    } catch (markError) {
       // A completion racing this failure owns the row now; never overwrite it.
+      console.error("[client-invitations] failure marking failed", {
+        clientContactId: claim.delivery.clientContactId,
+        deliveryId: claim.delivery.id,
+        error: markError,
+      });
     }
     throw error;
   }

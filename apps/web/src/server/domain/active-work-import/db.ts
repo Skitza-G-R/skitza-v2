@@ -660,7 +660,11 @@ export async function cleanupUnpersistedActiveWorkImportProof(
       await input.deleteProof(input.storageKey);
       return "deleted" as const;
     });
-  } catch {
+  } catch (error) {
+    console.error("[active-work-import] proof cleanup preserved object", {
+      storageKey: input.storageKey,
+      error,
+    });
     return "preserved";
   }
 }
