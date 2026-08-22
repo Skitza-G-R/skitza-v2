@@ -134,16 +134,36 @@ describeWithTestDatabase("SK-144 producer download-state batch — disposable te
           "producer_id" uuid not null,
           "project_id" uuid not null,
           "client_contact_id" uuid not null,
+          "source_kind" text not null default 'store_product',
           "currency" text not null,
           "total_cents" integer not null,
           "payment_plan_kind" text,
           "lifecycle_status" text not null,
-          "accepted_at" timestamptz not null,
+          "accepted_at" timestamptz,
+          "commercial_established_at" timestamptz not null,
           "activated_at" timestamptz,
           "canceled_at" timestamptz,
           "ref_number" text not null,
-          "commercial_snapshot" jsonb not null
+          "commercial_snapshot" jsonb not null,
+          constraint "purchases_commercial_establishment_shape" check ((
+            ("source_kind" = 'imported_existing_work' and "accepted_at" is null)
+            or ("source_kind" <> 'imported_existing_work'
+              and "accepted_at" = "commercial_established_at")
+          ) is true)
         )`,
+        // Mirrors migration 0055: accepted Purchases inserted without an explicit
+        // establishment time are established at Artist acceptance.
+        `create function ${schema}."default_purchase_commercial_established_at"()
+        returns trigger as $function$
+        begin
+          new."commercial_established_at" :=
+            coalesce(new."commercial_established_at", new."accepted_at");
+          return new;
+        end;
+        $function$ language plpgsql`,
+        `create trigger "purchases_default_commercial_established_at"
+          before insert on ${schema}."purchases"
+          for each row execute function ${schema}."default_purchase_commercial_established_at"()`,
         `create table ${schema}."project_tracks" (
           "id" uuid primary key,
           "project_id" uuid not null,
