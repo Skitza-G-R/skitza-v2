@@ -1,147 +1,163 @@
 # CLAUDE.md — Skitza
 
+## Read this first
+
+`AGENTS.md` (repo root) is the source of truth for how to work in this repo. This file is the
+Claude-side companion: it carries the same safety rules plus repo orientation. If the two
+disagree, AGENTS.md wins.
+
+- Durable product rules: `docs/product/PRD.md` (v5.2, 13 Aug 2026).
+- Task scope: the current Linear issue. Visual intent: the linked Miro frame.
+- Dated files in `docs/plans/` and `docs/session_recap.md` are context, not automatic truth.
+  `README.md` is stale (it still claims Stripe Connect) — do not trust it.
+- When sources conflict, do not silently pick one. Explain the conflict, recommend, and ask Gili.
+- Gili makes the final product and engineering calls. Raz is not a required gate unless Gili
+  says so for a specific task.
+
 ## What Skitza is
-SaaS for solo music producers. One link → artists listen, sign up, book, pay.
-PRD: docs/product/PRD.md (read this for all product decisions — v4, April 2026)
 
-## Producer platform — 6 pages
-- /dashboard — Overview (3 urgent projects, recent uploads, KPI block, the link)
-- /dashboard/profile — Storefront (store products + portfolio)
-- /dashboard/calendar — Calendar (availability settings + sessions management)
-- /dashboard/clients-projects — Clients & Projects (tab nav: clients accordion / projects list)
-- /dashboard/music — Music library (3-level: library → project → song page)
-- /dashboard/settings — Settings (account identity + integrations — minimal)
+SaaS for solo music producers. One public link lets artists listen, sign up, book, and pay
+externally, while Skitza keeps the work, agreement, payment, and delivery history in one place.
 
-## Artist platform — 5 sections
-- /artist — Dashboard (upcoming sessions, recent uploads, balances)
-- /artist/music — Music library + song detail (desktop waveform / mobile Spotify-style)
-- /artist/book — Book sessions
-- /artist/store — Storefront browse
-- /artist/settings — Artist settings
+Approved workflow: store product or private offer → project and purchase → agreement and payment
+plan → payment proof → active project → songs and sessions → exact-version artist approval →
+full payment → download → completion or cancellation.
 
-## Public routes
-- / — Landing page (warm aesthetic, Outfit + Syne fonts, CSS-only animations)
-- /join/[slug] — Producer public profile (the conversion funnel)
-- /sign-in, /sign-up — Auth (Clerk)
-- /privacy, /terms, /about — Legal
+## Repo layout
 
-## v1 scope — real vs placeholder
-- Auth (Clerk): real
-- Database (Neon + Drizzle): real — fresh skitza-v3 project, schema not yet migrated (Phase 2)
-- Audio uploads (Cloudflare R2): real
-- Email (Resend + React Email): real — 8 templates exist, not all wired yet
-- Analytics (Sentry + PostHog): real
-- Payments (Stripe Connect): UI placeholder — "Connect payment provider (coming soon)"
-- Bookings: create project with invoice.status='pending', producer marks paid manually
-- GCal sync: UI placeholder — "Connect Google Calendar (coming soon)"
-- Green Invoice: UI placeholder — "Coming soon (IL only)"
-- Language: English only — next-intl wired, only en.json populated
-- Desktop only for producer. Artist song page has dedicated mobile UI.
+- `apps/web/` — Next.js 15 App Router, React 19, tRPC v11, Clerk v7, Tailwind v4, Vitest.
+  ~94 pages and ~24 API routes. This is the product.
+- `apps/desktop/` — Tauri 2 producer desktop shell (SK-231, PRD §4.7). Mac + Windows 11 x64,
+  loads the same live web origin; Rust lives in `src-tauri/`. Optional and producer-only.
+  **This is current, not removed.**
+- `apps/admin/` — separate Next.js founder console on port 3001, behind Cloudflare Access +
+  Clerk + MFA + inactivity lock. Environment-scoped routes for users, payments, system health.
+- `packages/db/` — Drizzle schema (`src/schema.ts`, ~61 tables) and 57 SQL migrations
+  through `0053`.
+- `docs/` — `product/PRD.md`, `design/buttons.md`, `runbooks/`, `plans/active/`,
+  `architecture/adr-*.md`.
 
-## Tech stack
-Next.js 15 App Router, tRPC v11, Drizzle + Neon, Clerk v7,
-Cloudflare R2, wavesurfer.js, Resend + React Email,
-Tailwind v4 + shadcn/ui, Vitest, Sentry, PostHog
+## Route surface
 
-## What was removed (Phase 1 demolition — do not re-add)
-- Tauri desktop app (D1+D2) — deleted, not coming back in v1
-- BMAD enforcement (D3) — deleted
-- Desktop CI workflows (D4) — deleted
-- PDF signing + Documenso (D5+D6) — deleted, replaced by inline checkbox agreement
-- Magic links / per-recipient share tokens (D7) — deleted, /join/[slug] is the only share URL
-- Waitlist table (D8) — deleted
-- /dashboard/booking route shell (D9) — deleted, components stay for Calendar page
-- /share/[token] routes (D10) — deleted
-- Stale plan archives (D11) — deleted
+Do not assume a small fixed page list — read the tree under `apps/web/src/app`. Route groups:
 
-## How to work here
-1. Read the task brief Raz wrote.
-2. Build only what's in the brief. Do not add unrequested features.
-3. Before claiming "verified" or pushing, run the full gate: `pnpm typecheck && pnpm -F web lint && pnpm test`. All three must pass — Vercel's build runs ESLint with `--max-warnings 0` so lint failures break the deploy. Equivalent shortcut: `/skitza-verify`.
-4. No planning ceremonies. No stories. No epics. Just code.
+- `(producer)/dashboard` — overview, clients-projects, music, calendar, payments, requests,
+  store, profile, portfolio, settings.
+- `(artist)/artist` — home, music, sessions, book, store, purchase flow, payments and proofs,
+  offers, settings (incl. per-studio views).
+- `(onboarding)` — producer setup wizard (its own group on purpose; nesting it under
+  `(producer)` loops incomplete producers).
+- `(public)` — landing, `/join/[slug]`, auth, legal, changelog. `(guest-song)` serves public
+  song links (`/guest-song/[versionId]`, `/listen/[token]`). `/get-started` is a marketing ad
+  funnel that posts to an external webhook (no DB write).
+- `dev/*` — internal screen previews, not product surface.
 
-## Auth + role guard
-Two roles: producer and artist. Set in Clerk publicMetadata.role on signup via webhook.
-Entry point determines role: /join/[slug] signup = artist. Direct signup = producer.
-Every protected layout calls requireRole('producer'|'artist').
-Producer cannot reach /artist/*. Artist cannot reach /dashboard/*.
+## Roles and access
 
-## Key code patterns
-- Server data fetching: tRPC server-side caller in page.tsx
-- Client mutations: tRPC via useMutation in client components
-- File uploads: presigned R2 URL, direct browser PUT, multipart for audio
-- Emails: apps/web/src/server/email/send.tsx dispatcher → Resend
-- DB schema: packages/db/src/schema.ts (single source of truth)
-- Migrations: packages/db/drizzle/ (run via pnpm -F db db:migrate)
+- Producer and artist are **additive DB memberships**, resolved from `producers` and
+  `client_contacts` — not a Clerk `publicMetadata.role`. One account can hold both and switch
+  at `/auth/switch`.
+- `requireRole()` in `apps/web/src/server/auth/role.ts` is the single gate. Every protected
+  layout calls it. Do not re-implement route guards locally.
+- Producer access is **invitation-only**: Skitza grants it only after the server verifies an
+  accepted Clerk application invitation. Ordinary signup, a button click, a URL/query value,
+  and client-writeable metadata never grant producer.
+- Artist access comes only through a valid producer join flow, and never falls back to producer.
 
-## Design system
-- Button & rectangle shape: `docs/design/buttons.md` — every text rectangle uses `rounded-[var(--radius-lg)]` (16px). `rounded-full` is reserved for square elements (avatars, icon-only buttons, dots, play buttons).
+## What is real
 
-## Phase context
-Phase 1 (demolition): COMPLETE — D1 through D12.
-Phase 2 (foundation): Raz handles — schema reset, routing consolidation, auth hardening.
-Phase 3 (features): Gili builds — one task brief at a time from Raz.
+- Auth (Clerk v7): real, invitation-gated for producers.
+- Database (Neon + Drizzle): real, migrated through `0053`.
+- **Payments: real, external-only.** Producer publishes payment instructions, artist uploads a
+  payment proof, producer verifies in the producer Payments workspace (Needs review / Due and
+  overdue / Upcoming / History). Purchases, installments, corrections, waivers, cancellations,
+  and reminders all live in the schema. There is **no** in-app card processing: Stripe and
+  Tranzila were removed by SK-90, and SK-6 boundary tests keep them out. Do not re-add a
+  processor.
+- **Google Calendar: real two-way sync.** Producer-only OAuth, chosen write calendar plus
+  privacy-safe busy reads, linked events, provider webhook, and a nightly `/api/cron/calendar-sync`.
+- Audio (Cloudflare R2): real. Presigned upload, multipart for audio, private presigned
+  delivery, wavesurfer.js playback, peaks, artwork.
+- Email (Resend + React Email): real, 15 templates under `src/server/email/templates/`.
+- Push + PWA: real. Web Push (VAPID), `src/app/manifest.ts`, `public/sw.js`, offline page,
+  install invitation (SK-249).
+- Analytics: Sentry + PostHog, real.
+- **Mobile is real and in scope** for both producer and artist, plus the installable PWA.
+  "Desktop only" is obsolete.
+- i18n: next-intl in cookie-driven mode (no URL prefix), mounted only on authenticated
+  surfaces. `en` and `he` are both populated with a shipped language switcher and RTL; `ar` is
+  a stub. Note: PRD §18 still says "English-only v1" — flag that conflict to Gili rather than
+  resolving it in code.
 
-After D12: Gili waits. Raz starts Phase 2.
+## Verification gate
 
-## Hard rules during the build
-- Phase 2: Raz handles routing, schema, auth. Do not touch.
-- Phase 3: one task brief at a time. Files outside the brief are off-limits.
-- No new features without a brief from Raz.
-- No refactoring 'while you're there'.
-- No commits to main. All work on v3-clean.
-- No BMAD. No stories. No epics. Claude Code is a builder, not a project manager.
+Use `$skitza-verify` before claiming a change is verified or opening/updating a PR. Manual
+equivalent: from `apps/web` run `pnpm typecheck`, `pnpm lint`, `pnpm test`; then
+`pnpm typecheck` in `packages/db`. Vercel runs ESLint with `--max-warnings 0`, so warnings
+break the deploy. Node `>=20.11`, pnpm `9.12.0`, Corepack.
 
-## Linear integration
+Add focused regression tests for bugs and behavior changes; prove the test fails before the fix
+when practical. Never hide a baseline failure — report the exact failing command.
 
-Every code change traces to a Linear issue. Board: https://linear.app/raz-stamper/project/skitza-v3-0430cd4ae2fa
+## Database safety
 
-### The rule
+- **Never run `pnpm -F db db:migrate` or `drizzle-kit migrate`.** The Drizzle journal stops
+  tracking around `0018` while the SQL set runs to `0053`, so drizzle-kit silently skips
+  migrations.
+- Use `$skitza-migrate`, which runs `packages/db/apply-migrations.mjs` against an explicitly
+  confirmed target environment. If the target is unclear, stop and ask.
+- The canonical live Neon project is `skitza-v3`. The project labeled `OLD — DO NOT USE.` is
+  frozen: no writes, no repointing production to it, no merge or backfill from it. See
+  `docs/runbooks/canonical-database-gate.md`.
+- Never print database URLs, credentials, raw Neon project/branch/endpoint identifiers, or
+  storage object keys.
+- Never migrate, reset, promote, or repoint production without Gili's explicit approval for
+  that exact run.
 
-Every PR has a Linear issue. **If one doesn't exist for the change you're about to make, create it first** — then branch, work, PR. No exceptions for code changes. Trivial docs/typo commits direct to v3-clean are still allowed without an issue, but anything that touches `apps/`, `packages/`, or schema needs one.
+## Code patterns
 
-Create issues in the `Skitza v3` project under team `Skitza` (key: `SK`). Title clearly, drop a 2-line description, set status to `In Progress` when you start.
+- Server data: tRPC server-side caller in `page.tsx`. Client mutations: tRPC `useMutation`
+  (or a thin server action wrapper where there is no tRPC provider).
+- **Scope every producer query by `ctx.producerId`.** `producerProcedure`
+  (`apps/web/src/server/trpc/producer-procedure.ts`) resolves it once per caller;
+  `artistProcedure` handles artist reads. Preserve the producer/artist isolation.
+- New business rules belong in a focused service under `apps/web/src/server/domain/<area>/`
+  with focused tests. Routers, server actions, cron routes, and components stay limited to
+  auth, validation, authorization, orchestration, and response mapping.
+- Uploads: presigned R2 URL, direct browser PUT, multipart for audio.
+- Email: `apps/web/src/server/email/send.tsx` dispatcher → Resend.
+- Schema: `packages/db/src/schema.ts` is the single source of truth.
 
-### Branch names
+## UI rules
 
-Use the branch name Linear auto-generates on each issue page (the "Copy git branch name" button). The pattern is:
+- Color tokens are **bare RGB triplets**. Always write `rgb(var(--token))`, never bare
+  `var(--token)`.
+- `docs/design/buttons.md` is locked. Radius scales with element height: `--radius-sm` 8px
+  (<36px), `--radius-md` 12px (36–44px), `--radius-lg` 16px (≥44px). `rounded-full` is reserved
+  for square elements — avatars, dots, play buttons, icon-only controls. Never on a text
+  rectangle.
+- No Framer Motion and no new animation library. Prefer existing CSS motion primitives and gate
+  new motion behind `prefers-reduced-motion: reduce`.
+- For mobile work verify true 390px and 360px, then check desktop separately. Do not judge phone
+  layout from a browser window clamped below 500px.
 
-    razstamper9/sk-{N}-{short-slug}
+## Branch, issue, and PR workflow
 
-Examples:
-- razstamper9/sk-17-every-booked-session-creates-a-new-project
-- razstamper9/sk-5-no-payment-confirmation-message-shown-after-successful
+- `v3-clean` is the development base and PR target. **Never commit to `main`** — it is dead and
+  stopped receiving work long ago.
+- Every change under `apps/`, `packages/`, or the schema needs an issue in Linear project
+  `Skitza v3`, team `Skitza` (`SK`). Read the full issue, move it to `In Progress`, and use
+  Linear's exact generated branch name (do not invent or shorten it).
+- Conventional commit messages (`feat(scope): …`, `fix(scope): …`, `test(scope): …`,
+  `docs(scope): …`). PR titles start with the issue ID: `SK-N: short imperative description`.
+- Always ask Gili before merging. Never promote a deployment or point `skitza.app` at a new
+  deployment without Gili's explicit approval for that deployment.
 
-Don't invent your own branch name. Don't shorten the slug. Copy it from Linear so the GitHub integration links the branch cleanly.
+## Stay in scope
 
-Note: the prefix is whatever Linear generates for your own account. Raz's branches start with `razstamper9/`, Gili's branches start with `giasraf/`. Either is fine — just use what Linear gives you on the issue page.
-
-### PR titles
-
-PR titles start with the Linear issue ID, colon, then a short imperative description:
-
-    SK-17: attach new session to existing project instead of creating new one
-    SK-5: surface success banner on /artist after payment redirect
-
-This is what triggers Linear's GitHub integration — the PR auto-links to the issue, status moves to `In Review` on PR open and `Done` on merge.
-
-### Commit messages
-
-Not required to include the Linear ID. Keep the existing conventional-commit style (`fix:`, `feat:`, `chore:`, `docs:`). The PR title carries the issue link.
-
-### Workflow
-
-1. Pick or create a Linear issue in `Skitza v3`
-2. Move it to `In Progress`
-3. Copy the branch name from the issue page
-4. Branch off v3-clean, push, open PR with `SK-N: ...` title
-5. Merge to v3-clean (no commits to main — existing rule still applies)
-6. Linear moves the issue to `Done` automatically on merge
-
-### Claude's behavior
-
-When Gili gives a task that references a Linear issue (e.g. "do SK-17", "work on the store bug"):
-1. Read the full Linear issue first (via the Linear MCP `get_issue` tool) — title, description, acceptance criteria, attached PRs.
-2. Move the issue to `In Progress` before starting code.
-3. Use the branch name from the issue page (don't invent one).
-4. If the work needed isn't covered by any existing issue, create one in `Skitza v3` first, then proceed.
+- Build only what the issue asks. No unrequested features, no opportunistic refactors, no
+  planning ceremonies.
+- Do not re-add BMAD, Documenso/PDF signing, magic-link share tokens, `/share/[token]`, the
+  waitlist table, the old `/dashboard/booking` shell, or in-app card processing, unless Gili
+  explicitly changes the product decision.
+- Tauri is the exception to that list — the desktop app came back deliberately as `apps/desktop`.
