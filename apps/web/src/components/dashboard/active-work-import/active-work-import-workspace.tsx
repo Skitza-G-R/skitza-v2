@@ -1254,7 +1254,7 @@ export function ActiveWorkImportWorkspace({
             />
 
             <div className="hidden min-w-0 lg:block lg:h-full lg:min-h-0">
-              {selectedRow ? (
+              {selectedRow && !mobileEditorVisible ? (
                 <ImportRowEditor
                   key={selectedRow.operationKey}
                   row={selectedRow}

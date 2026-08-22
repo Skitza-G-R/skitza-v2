@@ -2338,6 +2338,25 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
 });
 
 describe.each([360, 390, 768, 1023])("ActiveWorkImportWorkspace below 1024px at %ipx", (width) => {
+  it("renders the editor once so labels point at the visible phone fields", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const list = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(list).getAllByRole("button")[0] as HTMLButtonElement);
+    const mobileEditor = await screen.findByRole("dialog", { name: "Edit item 1" });
+
+    // Only one editor instance may exist: a hidden desktop copy would duplicate every
+    // field id, so the phone labels and error messages would target the hidden copy.
+    expect(document.querySelectorAll('[aria-label^="Edit item"]')).toHaveLength(1);
+    const ids = Array.from(document.querySelectorAll("[id]"), (node) => node.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const clientName = within(mobileEditor).getByLabelText("Client name", { exact: true });
+    expect(mobileEditor.contains(clientName)).toBe(true);
+  });
+
   it("opens a modal editor, isolates the queue, and returns focus on close", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
     installMatchMedia(true);
