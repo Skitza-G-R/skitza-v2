@@ -18,15 +18,21 @@ type ReminderOverrides = Readonly<{
   installmentEnabled?: boolean;
   pendingProof?: boolean;
   lifecycleStatus?: "waiting_for_payment" | "active" | "canceled";
-  dueAt?: Date;
+  sourceKind?: "store_product" | "imported_existing_work";
+  dueTrigger?: "acceptance" | "producer_import" | "monthly_anniversary" | "artist_approval";
+  dueAt?: Date | null;
+  triggeredAt?: Date | null;
   email?: string;
   amountCents?: number;
   timeZone?: string;
+  connected?: boolean;
 }>;
 
 function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): ReconciledPurchaseLedger {
   const amountCents = overrides.amountCents ?? 1_000;
   const lifecycleStatus = overrides.lifecycleStatus ?? "active";
+  const sourceKind = overrides.sourceKind ?? "store_product";
+  const establishedAt = new Date("2026-07-01T10:00:00.000Z");
   const snapshot: PurchaseLedgerSnapshot = {
     purchase: {
       id: "purchase-a",
@@ -37,8 +43,10 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
       totalCents: amountCents,
       plan: "full",
       lifecycleStatus,
-      acceptedAt: new Date("2026-07-01T10:00:00.000Z"),
-      activatedAt: new Date("2026-07-01T10:00:00.000Z"),
+      sourceKind,
+      acceptedAt: sourceKind === "imported_existing_work" ? null : establishedAt,
+      commercialEstablishedAt: establishedAt,
+      activatedAt: establishedAt,
       canceledAt: lifecycleStatus === "canceled" ? new Date("2026-07-19T10:00:00.000Z") : null,
     },
     project: {
@@ -52,8 +60,14 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
       timeZone: overrides.timeZone ?? "UTC",
       automaticRemindersEnabled: overrides.globalEnabled ?? true,
       displayName: "Producer",
+      slug: "producer-a",
     },
-    client: { id: "client-a", name: "Artist", email: overrides.email ?? "artist@example.com" },
+    client: {
+      id: "client-a",
+      name: "Artist",
+      email: overrides.email ?? "artist@example.com",
+      connected: overrides.connected ?? true,
+    },
     purchaseName: "Mix",
     refNumber: "SK-REMINDER",
     installments: [
@@ -64,9 +78,10 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
         position: 1,
         amountCents,
         currency: "USD",
-        dueTrigger: "acceptance",
-        dueAt: overrides.dueAt ?? new Date("2026-07-20T10:00:00.000Z"),
-        triggeredAt: new Date("2026-07-01T10:00:00.000Z"),
+        dueTrigger: overrides.dueTrigger ?? "acceptance",
+        dueAt:
+          overrides.dueAt === undefined ? new Date("2026-07-20T10:00:00.000Z") : overrides.dueAt,
+        triggeredAt: overrides.triggeredAt === undefined ? establishedAt : overrides.triggeredAt,
         requiredForActivation: true,
         status: lifecycleStatus === "canceled" ? "overdue" : "not_paid",
         remindersEnabled: overrides.installmentEnabled ?? true,
@@ -334,6 +349,8 @@ function provider(events?: string[]): {
 
 const paymentUrlForPurchase = (purchaseId: string) =>
   `https://skitza.app/artist/payments/${purchaseId}`;
+const joinUrlForProducer = (producerSlug: string) => `https://skitza.app/join/${producerSlug}`;
+const reminderUrls = { paymentUrlForPurchase, joinUrlForProducer };
 
 describe("purchase reminders", () => {
   it("durably reserves before send and completes one auditable success", async () => {
@@ -341,7 +358,7 @@ describe("purchase reminders", () => {
     const repository = new MemoryReminderRepository(reminderLedger(asOf));
     const mail = provider(repository.events);
     const run = () =>
-      sendAutomaticPurchaseReminders(repository, mail.send, { asOf, paymentUrlForPurchase });
+      sendAutomaticPurchaseReminders(repository, mail.send, { asOf, ...reminderUrls });
 
     const first = await run();
     const retry = await run();
@@ -373,7 +390,7 @@ describe("purchase reminders", () => {
     const mail = provider();
     const result = await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     expect(result.reconciled).toBe(1);
     expect(repository.loadCount).toBe(1);
@@ -383,19 +400,123 @@ describe("purchase reminders", () => {
 
   it("does not send an automatic reminder while payment proof awaits review", async () => {
     const asOf = new Date("2026-07-17T12:00:00.000Z");
-    const repository = new MemoryReminderRepository(
-      reminderLedger(asOf, { pendingProof: true }),
-    );
+    const repository = new MemoryReminderRepository(reminderLedger(asOf, { pendingProof: true }));
     const mail = provider();
 
     const result = await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
 
     expect(result).toMatchObject({ reconciled: 1, eligible: 0, sent: 0, errored: 0 });
     expect(mail.calls).toHaveLength(0);
     expect(repository.deliveries).toHaveLength(0);
+  });
+
+  it("points a client who never joined to the producer's public join link, not the artist app", async () => {
+    const asOf = new Date("2026-07-17T12:00:00.000Z");
+    const repository = new MemoryReminderRepository(
+      reminderLedger(asOf, { sourceKind: "imported_existing_work", connected: false }),
+    );
+    const mail = provider();
+
+    const result = await sendAutomaticPurchaseReminders(repository, mail.send, {
+      asOf,
+      ...reminderUrls,
+    });
+
+    expect(result).toMatchObject({ eligible: 1, sent: 1 });
+    expect(mail.calls[0]?.props).toMatchObject({
+      paymentUrl: "https://skitza.app/join/producer-a",
+      joinRequired: true,
+    });
+    expect(repository.deliveries[0]?.messageSnapshot.props).toMatchObject({
+      paymentUrl: "https://skitza.app/join/producer-a",
+      joinRequired: true,
+    });
+
+    const connected = new MemoryReminderRepository(reminderLedger(asOf));
+    const connectedMail = provider();
+    await sendAutomaticPurchaseReminders(connected, connectedMail.send, { asOf, ...reminderUrls });
+    expect(connectedMail.calls[0]?.props.paymentUrl).toBe(
+      "https://skitza.app/artist/payments/purchase-a",
+    );
+    expect(connectedMail.calls[0]?.props).not.toHaveProperty("joinRequired");
+  });
+
+  it("sends a manual reminder to a client who never joined through the join link and replays it", async () => {
+    const requestedAt = new Date("2026-07-20T12:00:00.000Z");
+    const repository = new MemoryReminderRepository(
+      reminderLedger(requestedAt, { sourceKind: "imported_existing_work", connected: false }),
+    );
+    const mail = provider();
+    const input = {
+      producerId: "producer-a",
+      purchaseId: "purchase-a",
+      installmentId: "installment-a",
+      operationKey: "manual-join-1",
+      actorId: "clerk-producer",
+      paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
+      requestedAt,
+    };
+
+    const first = await sendManualPurchaseReminder(repository, mail.send, input);
+    const retry = await sendManualPurchaseReminder(repository, mail.send, {
+      ...input,
+      requestedAt: new Date("2026-07-20T12:05:00.000Z"),
+    });
+
+    expect(first.created).toBe(true);
+    expect(retry.created).toBe(false);
+    expect(mail.calls).toHaveLength(1);
+    expect(mail.calls[0]?.props).toMatchObject({
+      paymentUrl: "https://skitza.app/join/producer-a",
+      joinRequired: true,
+    });
+  });
+
+  it("keeps an enabled imported final-50 reminder silent until real Artist approval makes it due", async () => {
+    const asOf = new Date("2026-07-20T12:00:00.000Z");
+    const beforeApproval = new MemoryReminderRepository(
+      reminderLedger(asOf, {
+        sourceKind: "imported_existing_work",
+        dueTrigger: "artist_approval",
+        dueAt: null,
+        triggeredAt: null,
+        installmentEnabled: true,
+      }),
+    );
+    const beforeMail = provider();
+
+    const before = await sendAutomaticPurchaseReminders(beforeApproval, beforeMail.send, {
+      asOf,
+      ...reminderUrls,
+    });
+
+    expect(before).toMatchObject({ reconciled: 1, eligible: 0, sent: 0 });
+    expect(beforeMail.calls).toHaveLength(0);
+    expect(beforeApproval.deliveries).toHaveLength(0);
+
+    const approvalAt = new Date("2026-07-20T10:00:00.000Z");
+    const afterApproval = new MemoryReminderRepository(
+      reminderLedger(asOf, {
+        sourceKind: "imported_existing_work",
+        dueTrigger: "artist_approval",
+        dueAt: approvalAt,
+        triggeredAt: approvalAt,
+        installmentEnabled: true,
+      }),
+    );
+    const afterMail = provider();
+
+    const after = await sendAutomaticPurchaseReminders(afterApproval, afterMail.send, {
+      asOf,
+      ...reminderUrls,
+    });
+
+    expect(after).toMatchObject({ reconciled: 1, eligible: 1, sent: 1 });
+    expect(afterMail.calls).toHaveLength(1);
   });
 
   it("selects today's producer-local occurrence before the exact due wall-clock time", async () => {
@@ -409,7 +530,7 @@ describe("purchase reminders", () => {
     const mail = provider();
     const result = await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     expect(result).toMatchObject({ eligible: 1, sent: 1 });
     expect(repository.logs[0]?.kind).toBe("automatic_due");
@@ -422,7 +543,7 @@ describe("purchase reminders", () => {
     const withinMail = provider();
     const sent = await sendAutomaticPurchaseReminders(within, withinMail.send, {
       asOf: twoDaysLater,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     expect(sent).toMatchObject({ eligible: 1, sent: 1 });
     expect(within.logs[0]?.scheduledFor).toEqual(occurrenceDate);
@@ -433,7 +554,7 @@ describe("purchase reminders", () => {
     );
     const pastResult = await sendAutomaticPurchaseReminders(past, provider().send, {
       asOf: threeDaysLater,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     // The old -3 occurrence is outside catch-up; today's due occurrence is
     // still selected even before its wall-clock time.
@@ -451,7 +572,7 @@ describe("purchase reminders", () => {
         calls.push(email);
         return Promise.reject(new Error("provider unavailable"));
       },
-      { asOf: firstAt, paymentUrlForPurchase },
+      { asOf: firstAt, ...reminderUrls },
     );
     expect(first).toMatchObject({ sent: 0, errored: 1 });
     expect(repository.deliveries).toHaveLength(1);
@@ -463,7 +584,7 @@ describe("purchase reminders", () => {
         calls.push(email);
         return Promise.reject(new Error("provider still unavailable"));
       },
-      { asOf: new Date("2026-07-17T12:30:00.000Z"), paymentUrlForPurchase },
+      { asOf: new Date("2026-07-17T12:30:00.000Z"), ...reminderUrls },
     );
     expect(failedRecovery).toMatchObject({
       recovery: { candidates: 1, sent: 0, errored: 1 },
@@ -480,7 +601,7 @@ describe("purchase reminders", () => {
         calls.push(email);
         return Promise.resolve("provider-retry");
       },
-      { asOf: new Date("2026-07-17T13:00:00.000Z"), paymentUrlForPurchase },
+      { asOf: new Date("2026-07-17T13:00:00.000Z"), ...reminderUrls },
     );
     expect(retry).toMatchObject({
       recovery: { candidates: 1, sent: 1, dedupeExpired: 0, errored: 0 },
@@ -500,7 +621,7 @@ describe("purchase reminders", () => {
     const mail = provider();
     const first = await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf: firstAt,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     expect(repository.deliveries[0]?.status).toBe("sending");
     repository.ledger = reminderLedger(new Date("2026-07-17T12:06:00.000Z"), {
@@ -512,7 +633,7 @@ describe("purchase reminders", () => {
     });
     const retry = await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf: new Date("2026-07-17T12:06:00.000Z"),
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     expect(first).toMatchObject({ sent: 0, errored: 1 });
     expect(retry).toMatchObject({
@@ -539,11 +660,11 @@ describe("purchase reminders", () => {
     const mail = provider();
     await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf: firstAt,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     const afterWindow = await sendAutomaticPurchaseReminders(repository, mail.send, {
       asOf: new Date("2026-07-18T00:31:00.000Z"),
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     expect(afterWindow).toMatchObject({
       recovery: { candidates: 1, sent: 0, dedupeExpired: 1, errored: 0 },
@@ -566,6 +687,7 @@ describe("purchase reminders", () => {
       operationKey: "manual-click-1",
       actorId: "clerk-producer",
       paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
       requestedAt,
     };
     const first = await sendManualPurchaseReminder(repository, mail.send, input);
@@ -601,6 +723,7 @@ describe("purchase reminders", () => {
         operationKey: "manual-proof-review",
         actorId: "clerk-producer",
         paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
         requestedAt,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -620,6 +743,7 @@ describe("purchase reminders", () => {
       operationKey: "manual-uncertain-1",
       actorId: "clerk-producer",
       paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
       requestedAt,
     };
     await expect(sendManualPurchaseReminder(repository, mail.send, input)).rejects.toThrow(
@@ -655,6 +779,7 @@ describe("purchase reminders", () => {
       operationKey: "manual-recovery-1",
       actorId: "clerk-producer",
       paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
       requestedAt,
     };
     await expect(
@@ -678,7 +803,7 @@ describe("purchase reminders", () => {
         calls.push(email);
         return Promise.resolve("provider-manual-recovery");
       },
-      { asOf: new Date("2026-07-20T13:00:00.000Z"), paymentUrlForPurchase },
+      { asOf: new Date("2026-07-20T13:00:00.000Z"), ...reminderUrls },
     );
     expect(recovered).toMatchObject({
       recovery: { candidates: 1, sent: 1, errored: 0 },
@@ -704,6 +829,7 @@ describe("purchase reminders", () => {
         operationKey: "old-unsent-1",
         actorId: "clerk-producer",
         paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
         requestedAt: reservedAt,
       }),
     ).rejects.toThrow("seed failure");
@@ -729,7 +855,7 @@ describe("purchase reminders", () => {
         recoveryCalls.push(email);
         return Promise.resolve("must-not-send");
       },
-      { asOf: new Date("2026-07-20T12:00:00.000Z"), paymentUrlForPurchase },
+      { asOf: new Date("2026-07-20T12:00:00.000Z"), ...reminderUrls },
     );
     expect(result).toMatchObject({
       recovery: {
@@ -755,6 +881,7 @@ describe("purchase reminders", () => {
       operationKey: "manual-click-1",
       actorId: "clerk-producer",
       paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+      joinUrlForProducer,
       requestedAt,
     };
     await sendManualPurchaseReminder(repository, mail.send, input);
@@ -786,12 +913,12 @@ describe("purchase reminders", () => {
     };
     const first = sendAutomaticPurchaseReminders(repository, send, {
       asOf,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     await providerStarted;
     const second = sendAutomaticPurchaseReminders(repository, send, {
       asOf,
-      paymentUrlForPurchase,
+      ...reminderUrls,
     });
     if (!releaseProvider) throw new Error("provider was not started");
     releaseProvider("provider-1");

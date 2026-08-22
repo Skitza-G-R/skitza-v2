@@ -754,6 +754,7 @@ describe("SK-90 purchase-level schema", () => {
     expect(schema.purchasePaymentPlanKind.enumValues).toEqual(["full", "split_50_50", "monthly"]);
     expect(schema.purchaseInstallmentDueTrigger.enumValues).toEqual([
       "acceptance",
+      "producer_import",
       "monthly_anniversary",
       "artist_approval",
     ]);

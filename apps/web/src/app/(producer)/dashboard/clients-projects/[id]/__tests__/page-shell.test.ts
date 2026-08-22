@@ -115,6 +115,37 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("upcomingCount");
   });
 
+  it("passes honest imported-agreement provenance to the project purchase card", () => {
+    expect(SRC).toContain('purchase.provenance.kind === "producer_import"');
+    expect(SRC).toContain("purchase.provenance.notice");
+    expect(SRC).not.toMatch(/provenanceNotice:\s*[^\n]*accepted/i);
+  });
+
+  it("keeps a date-only project deadline on its reviewed UTC calendar day", () => {
+    const deadlineFormatter = SRC.slice(
+      SRC.indexOf("const deadline ="),
+      SRC.indexOf("const now ="),
+    );
+
+    expect(deadlineFormatter).toContain('timeZone: "UTC"');
+
+    const midnightUtc = new Date("2026-08-20T00:00:00.000Z");
+    expect(
+      new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(midnightUtc),
+    ).toBe("Aug 20");
+    expect(
+      new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "America/Los_Angeles",
+      }).format(midnightUtc),
+    ).toBe("Aug 19");
+  });
+
   it("renders the compact Project Space for one-song and multi-song projects", () => {
     expect(SRC).not.toMatch(
       /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,

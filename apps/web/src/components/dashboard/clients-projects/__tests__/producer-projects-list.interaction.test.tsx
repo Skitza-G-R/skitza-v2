@@ -100,7 +100,6 @@ function Harness({
       onViewChange={setView}
       onSortChange={setSort}
       onSearchChange={setSearch}
-      onNewProject={vi.fn()}
     />
   );
 }
@@ -241,7 +240,10 @@ describe("ProducerProjectsList", () => {
   it("renders the three exact non-loading empty states", () => {
     const { rerender } = render(<Harness projects={[]} />);
     expect(screen.getByText("No current projects")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New project" })).toBeTruthy();
+    expect(
+      screen.getByText(/New work appears here after an artist starts through your Skitza link/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New project" })).toBeNull();
 
     rerender(<Harness key="archived" projects={[]} initialView="archived" />);
     expect(screen.getByText("No archived projects")).toBeTruthy();

@@ -86,7 +86,13 @@ function isDueNow(installment: ClientPaymentInstallmentData, asOfIso: string): b
   ) {
     return false;
   }
-  if (installment.status === "overdue" || installment.dueTrigger === "acceptance") return true;
+  if (
+    installment.status === "overdue" ||
+    installment.dueTrigger === "acceptance" ||
+    installment.dueTrigger === "producer_import"
+  ) {
+    return true;
+  }
   const asOf = Date.parse(asOfIso);
   const dueAt = installment.dueAtIso ? Date.parse(installment.dueAtIso) : Number.NaN;
   if (Number.isFinite(asOf) && Number.isFinite(dueAt) && dueAt <= asOf) return true;
@@ -99,6 +105,7 @@ function waitsOnMilestone(installment: ClientPaymentInstallmentData): boolean {
     installment.dueAtIso === null &&
     installment.triggeredAtIso === null &&
     installment.dueTrigger !== "acceptance" &&
+    installment.dueTrigger !== "producer_import" &&
     installment.status !== "confirmed" &&
     installment.status !== "waived" &&
     installment.status !== "canceled"

@@ -254,7 +254,7 @@ export function UploadProofScreen({
               {formatPurchaseMoney(thisProofCents, currency)}
             </p>
             <p className="mt-2 text-[11.5px] leading-relaxed text-white/55">
-              This amount comes from your accepted installment and cannot be edited here.
+              This amount is locked by the installment and cannot be edited here.
             </p>
           </section>
 

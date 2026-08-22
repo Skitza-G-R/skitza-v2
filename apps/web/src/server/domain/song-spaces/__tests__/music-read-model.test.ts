@@ -252,6 +252,7 @@ describe("music song-space ownership", () => {
             projectId: "project-artist",
             lifecycleStatus: "active",
             acceptedAt: now,
+            commercialEstablishedAt: now,
             productId: "product-private-to-producer-read",
             currency: "ILS",
             commercialSnapshot: { includedSongSpaces: 1 },
@@ -334,6 +335,7 @@ describe("music song-space projection", () => {
         clientContactId: "client-active",
         lifecycleStatus: "active",
         acceptedAt: new Date("2026-07-10T09:00:00Z"),
+        commercialEstablishedAt: new Date("2026-07-10T09:00:00Z"),
         productId: "product-reusable",
         sourceProductId: "product-reusable",
         sourceProductProducerId: "producer-owned",
@@ -347,6 +349,7 @@ describe("music song-space projection", () => {
         clientContactId: "client-active",
         lifecycleStatus: "waiting_for_payment",
         acceptedAt: new Date("2026-07-11T09:00:00Z"),
+        commercialEstablishedAt: new Date("2026-07-11T09:00:00Z"),
         commercialSnapshot: { includedSongSpaces: 2 },
       },
       {
@@ -356,6 +359,7 @@ describe("music song-space projection", () => {
         clientContactId: "client-active",
         lifecycleStatus: "canceled",
         acceptedAt: new Date("2026-07-12T09:00:00Z"),
+        commercialEstablishedAt: new Date("2026-07-12T09:00:00Z"),
         commercialSnapshot: { includedSongSpaces: 2 },
       },
       {
@@ -365,6 +369,7 @@ describe("music song-space projection", () => {
         clientContactId: "client-virtual",
         lifecycleStatus: "active",
         acceptedAt: new Date("2026-07-10T10:00:00Z"),
+        commercialEstablishedAt: new Date("2026-07-10T10:00:00Z"),
         commercialSnapshot: { includedSongSpaces: 1 },
       },
       {
@@ -374,6 +379,7 @@ describe("music song-space projection", () => {
         clientContactId: "client-waiting",
         lifecycleStatus: "waiting_for_payment",
         acceptedAt: new Date("2026-07-10T11:00:00Z"),
+        commercialEstablishedAt: new Date("2026-07-10T11:00:00Z"),
         commercialSnapshot: { includedSongSpaces: 4 },
       },
     ];
@@ -786,6 +792,7 @@ describe("music song-space projection", () => {
         clientContactId: "client-owned",
         lifecycleStatus: "active",
         acceptedAt: now,
+        commercialEstablishedAt: now,
         productId: "product-source",
         sourceProductId: "product-source",
         sourceProductProducerId: "producer-owned",

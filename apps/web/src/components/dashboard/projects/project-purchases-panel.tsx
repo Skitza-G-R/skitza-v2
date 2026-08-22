@@ -21,7 +21,8 @@ export type ProjectPurchaseSourceKind =
   | "private_offer"
   | "session_product"
   | "paid_add_on"
-  | "no_charge_add_on";
+  | "no_charge_add_on"
+  | "imported_existing_work";
 
 export type ProjectPurchaseLifecycleStatus = "waiting_for_payment" | "active" | "canceled";
 
@@ -54,6 +55,7 @@ export interface ProjectPurchaseSummary {
   currency: string;
   installments: readonly ProjectPurchaseInstallment[];
   reference?: string | null | undefined;
+  provenanceNotice?: string | null | undefined;
 }
 
 export interface ProjectPurchasesPanelProps {
@@ -69,6 +71,7 @@ const SOURCE_LABELS: Record<ProjectPurchaseSourceKind, string> = {
   session_product: "Session product",
   paid_add_on: "Paid add-on",
   no_charge_add_on: "No-charge add-on",
+  imported_existing_work: "Existing agreement",
 };
 
 const PURCHASE_STATUS_LABELS: Record<ProjectPurchaseLifecycleStatus, string> = {
@@ -156,6 +159,11 @@ export function ProjectPurchasesPanel({
                       {SOURCE_LABELS[purchase.sourceKind]}
                       {purchase.reference ? ` · ${purchase.reference}` : ""}
                     </p>
+                    {purchase.provenanceNotice ? (
+                      <p className="mt-2 max-w-[52ch] rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.07)] px-2.5 py-2 text-[11.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+                        {purchase.provenanceNotice}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end sm:gap-2">

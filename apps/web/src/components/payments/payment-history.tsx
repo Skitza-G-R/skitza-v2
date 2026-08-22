@@ -68,9 +68,10 @@ export interface PaymentHistoryFrozenTerms {
   agreementPdfFileName?: string | null;
 }
 
-export interface PaymentHistoryAcceptance {
-  acceptedAtIso: string;
-  acceptedByLabel: string | null;
+export interface PaymentHistoryAgreementRecord {
+  kind: "artist_acceptance" | "producer_import";
+  establishedAtIso: string;
+  headline: string;
   statement: string | null;
 }
 
@@ -191,7 +192,7 @@ export interface PaymentHistoryPurchase {
   totalRemainingCents: number;
   delivery: PaymentDeliveryState;
   frozenTerms: PaymentHistoryFrozenTerms;
-  acceptance: PaymentHistoryAcceptance;
+  agreementRecord: PaymentHistoryAgreementRecord;
   plan: PaymentHistoryPlan;
   schedule: readonly PaymentHistoryInstallment[];
   nextPayment: PaymentHistoryNextPayment | null;
@@ -456,7 +457,7 @@ export function PaymentHistoryPurchaseDetails({
         purchaseId={purchase.id}
         headingId={`${idPrefix}-frozen-terms`}
       />
-      <AcceptanceAndPlan acceptance={purchase.acceptance} plan={purchase.plan} />
+      <AgreementRecordAndPlan record={purchase.agreementRecord} plan={purchase.plan} />
       <InstallmentSchedule
         schedule={purchase.schedule}
         currency={purchase.currency}
@@ -703,7 +704,7 @@ function FrozenAgreement({
           {terms.detailRows.length > 0 ? (
             <div>
               <p className="text-[11px] font-bold text-[rgb(var(--fg-default))]">
-                Accepted details
+                Agreement details
               </p>
               <dl className="mt-1.5 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
                 {terms.detailRows.map((detail) => (
@@ -741,31 +742,31 @@ function FrozenAgreement({
   );
 }
 
-function AcceptanceAndPlan({
-  acceptance,
+function AgreementRecordAndPlan({
+  record,
   plan,
 }: {
-  acceptance: PaymentHistoryAcceptance;
+  record: PaymentHistoryAgreementRecord;
   plan: PaymentHistoryPlan;
 }) {
+  const artistAccepted = record.kind === "artist_acceptance";
+
   return (
     <section
       className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2"
-      aria-label="Acceptance and plan"
+      aria-label="Agreement record and payment plan"
     >
       <div className="min-w-0 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3">
-        <Eyebrow>Acceptance</Eyebrow>
+        <Eyebrow>{artistAccepted ? "Acceptance" : "Agreement record"}</Eyebrow>
         <p className="mt-2 text-[12px] font-bold text-[rgb(var(--fg-default))]">
-          Accepted {formatDate(acceptance.acceptedAtIso)}
+          {artistAccepted ? "Accepted" : "Added"} {formatDate(record.establishedAtIso)}
         </p>
-        {acceptance.acceptedByLabel ? (
-          <p className="mt-1 text-[11.5px] break-words text-[rgb(var(--fg-secondary))]">
-            {acceptance.acceptedByLabel}
-          </p>
-        ) : null}
-        {acceptance.statement ? (
+        <p className="mt-1 text-[11.5px] break-words text-[rgb(var(--fg-secondary))]">
+          {record.headline}
+        </p>
+        {record.statement ? (
           <p className="mt-1 text-[11.5px] leading-relaxed break-words text-[rgb(var(--fg-muted))]">
-            {acceptance.statement}
+            {record.statement}
           </p>
         ) : null}
       </div>
@@ -804,7 +805,7 @@ function InstallmentSchedule({
       <Eyebrow>Schedule</Eyebrow>
       {schedule.length === 0 ? (
         <p className="mt-2 text-[12px] text-[rgb(var(--fg-muted))]">
-          No installments were created because this accepted purchase requires no payment.
+          No installments were created because this agreement requires no payment.
         </p>
       ) : (
         <ol className="mt-2 min-w-0 space-y-2">

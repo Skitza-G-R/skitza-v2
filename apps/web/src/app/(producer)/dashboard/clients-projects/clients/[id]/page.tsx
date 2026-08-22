@@ -9,6 +9,7 @@ import {
   type ClientSpacePaymentTotal,
 } from "~/components/dashboard/clients/client-space-workspace";
 import { toClientPaymentsData } from "~/components/dashboard/clients/client-payments-data";
+import { clientInvitationLinkState } from "~/components/dashboard/clients/client-invitation-state";
 import type { ClientSpaceProjectData } from "~/components/dashboard/clients/client-space-project-row";
 import { resolveClientSpaceInitialTab } from "~/components/dashboard/clients/client-space-tabs";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
@@ -80,11 +81,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
         ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
         : null,
     canPermanentlyDelete: detail.contact.canPermanentlyDelete,
-    linkState: detail.contact.clerkUserId
-      ? "active"
-      : detail.contact.invitedAt
-        ? "pending"
-        : "none",
+    linkState: clientInvitationLinkState(detail.contact.invitationState),
     joinedAtIso: toIso(detail.contact.firstSeenAt),
   };
 

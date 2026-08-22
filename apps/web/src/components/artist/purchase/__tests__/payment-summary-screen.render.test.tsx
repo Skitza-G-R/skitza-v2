@@ -55,9 +55,10 @@ const PURCHASE_RECORD = {
     rights: ["Artist owns the approved master"],
     agreementText: "Credit North Room in the release metadata.",
   },
-  acceptance: {
-    acceptedAtIso: "2026-07-01T09:00:00.000Z",
-    acceptedByLabel: "Maya Cohen accepted the exact terms",
+  agreementRecord: {
+    kind: "artist_acceptance",
+    establishedAtIso: "2026-07-01T09:00:00.000Z",
+    headline: "Maya Cohen accepted the exact terms",
     statement: "The exact agreement and payment plan are frozen.",
   },
   plan: {
@@ -159,6 +160,16 @@ const PURCHASE_RECORD = {
   downloadOverrideHistory: [],
 } satisfies PaymentHistoryPurchase;
 
+const IMPORTED_PURCHASE_RECORD = {
+  ...PURCHASE_RECORD,
+  agreementRecord: {
+    kind: "producer_import",
+    establishedAtIso: "2026-08-20T09:00:00.000Z",
+    headline: "Added by producer from an existing agreement",
+    statement: null,
+  },
+} satisfies PaymentHistoryPurchase;
+
 function renderSummary(
   proofUploadAvailability: ArtistProofUploadAvailability | null,
   options: {
@@ -166,6 +177,7 @@ function renderSummary(
     totalCents?: number;
     verifiedCents?: number;
     remainingCents?: number;
+    purchaseRecord?: PaymentHistoryPurchase;
   } = {},
 ): string {
   const recordStatus = options.recordStatus ?? "open";
@@ -183,7 +195,7 @@ function renderSummary(
       recordStatus={recordStatus}
       proofUploadAvailability={proofUploadAvailability}
       proofs={[]}
-      purchaseRecord={{ ...PURCHASE_RECORD, recordStatus }}
+      purchaseRecord={{ ...(options.purchaseRecord ?? PURCHASE_RECORD), recordStatus }}
     />,
   );
 }
@@ -245,7 +257,7 @@ describe("artist payment summary entry", () => {
     expect(staleAvailability).not.toContain("Payment fully verified");
   });
 
-  it("keeps a zero-total accepted record reachable without an installment uploader", () => {
+  it("keeps a zero-total agreement reachable without an installment uploader", () => {
     const html = renderSummary(null, {
       recordStatus: "no_payment_required",
       totalCents: 0,
@@ -254,12 +266,12 @@ describe("artist payment summary entry", () => {
     });
 
     expect(html).toContain("No payment required");
-    expect(html).toContain("View the frozen accepted terms below");
+    expect(html).toContain("View the frozen terms below");
     expect(html).not.toContain("Payment fully verified");
     expect(html).not.toContain("Pay &amp; upload proof");
   });
 
-  it("keeps the complete accepted plan, schedule, and audit history reachable", () => {
+  it("keeps the complete agreement, plan, schedule, and audit history reachable", () => {
     const html = renderSummary({ status: "available" });
 
     expect(html).toContain("Full purchase record");
@@ -271,6 +283,25 @@ describe("artist payment summary entry", () => {
     expect(html).toContain("Corrected the recorded cash amount.");
     expect(html).toContain("Waived the unused session balance.");
     expect(html).toContain("Canceled after the first milestone.");
+  });
+
+  it("renders imported agreement provenance without inventing Artist acceptance", () => {
+    const html = renderSummary(
+      { status: "available" },
+      {
+        purchaseRecord: IMPORTED_PURCHASE_RECORD,
+      },
+    );
+
+    expect(html).toContain("Added by producer from an existing agreement");
+    for (const falseAcceptance of [
+      "Accepted record",
+      "accepted purchase",
+      "Accepted terms",
+      "accepted installment",
+    ]) {
+      expect(html).not.toContain(falseAcceptance);
+    }
   });
 
   it("uses the standing Artist shell spacing instead of nesting another main landmark", () => {

@@ -66,7 +66,7 @@ export function ClientCompactRow({
       }}
     >
       {/* Whole-row click target — sits at z-0 so per-cell interactive
-          elements (LinkPill in 'none' state, drag handle) stay
+          elements (actionable LinkPill states and the actions menu) stay
           clickable on top via z-10. */}
       <Link
         href={`/dashboard/clients-projects/clients/${id}`}
@@ -105,7 +105,7 @@ export function ClientCompactRow({
           {email ?? "—"}
         </span>
 
-        {/* Link state (LINK column) — interactive only when state='none' */}
+        {/* Link state (LINK column) — connected stays read-only. */}
         <span className="relative z-10 inline-flex">
           {onInvite ? (
             <LinkPill

@@ -50,8 +50,10 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toMatch(/md:h-24\b.*md:w-24|md:w-24\b.*md:h-24/);
   });
 
-  it("renders the '+ New project' CTA on the right side", () => {
-    expect(SRC).toMatch(/New project/);
+  it("does not expose manual project creation", () => {
+    expect(SRC).not.toContain("New project");
+    expect(SRC).not.toContain("NewProjectModal");
+    expect(SRC).not.toContain("setNewProjectOpen");
   });
 
   it("places the dark hero background via inline style with heroBg(token)", () => {
@@ -100,44 +102,10 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toContain("Unavailable");
   });
 
-  // ── Phase 1 G7 — NewProjectModal wiring ─────────────────────────
-  // The "+ New project" pill used to be a <Link> to the legacy /new
-  // page. It now opens NewProjectModal in lockedClient mode so the
-  // producer can't accidentally repoint the project to a different
-  // client.
-  it("imports NewProjectModal from the clients folder (G7)", () => {
-    expect(SRC).toContain("NewProjectModal");
-    expect(SRC).toContain("./new-project-modal");
-  });
-
-  it("renders the '+ New project' pill as a <button> (not a <Link>)", () => {
-    // Range widened to {0,900} to accommodate the disabled-state
-    // styling + title prop added in the email-null guard.
-    // Range widened to {0,1400} for the SK-60 mobile classes + comment.
-    expect(SRC).toMatch(/<button[\s\S]{0,1400}New project/);
-    expect(SRC).not.toMatch(/<Link[\s\S]{0,200}newProjectHref/);
-  });
-
   it("turns the primary action into Add email when the client has no email", () => {
-    // Project creation still requires an artist email, but the producer
-    // now gets a useful next action instead of a disabled button.
-    expect(SRC).toMatch(/else if\s*\(!email\)\s*\{\s*setEditOpen\(true\)/);
-    expect(SRC).toContain('!email ? "Add email" : "New project"');
-  });
-
-  it("manages NewProjectModal open state via local useState (setNewProjectOpen)", () => {
-    expect(SRC).toContain("setNewProjectOpen");
-    expect(SRC).toContain("newProjectOpen");
-  });
-
-  it("mounts <NewProjectModal> with lockedClient set to the current client", () => {
-    expect(SRC).toMatch(/<NewProjectModal/);
-    expect(SRC).toMatch(/lockedClient=\{/);
-  });
-
-  it("does not pass commercial product terms into NewProjectModal", () => {
-    expect(SRC).not.toMatch(/products:\s*NewProjectModalProductOption/);
-    expect(SRC).not.toMatch(/products=\{products\}/);
+    expect(SRC).toMatch(/archived\s*\|\|\s*!email/);
+    expect(SRC).toContain('archived ? "Restore client" : "Add email"');
+    expect(SRC).toMatch(/else setEditOpen\(true\)/);
   });
 });
 
@@ -171,8 +139,7 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
     expect(SRC).toMatch(/md:rounded-\[22px\]/);
   });
 
-  it("G14: '+ New project' CTA is solid white (not frosted glass)", () => {
-    // The same solid button adapts to Restore, Add email, or New project.
+  it("G14: the Restore / Add email recovery CTA is solid white", () => {
     const decisionAnchor = SRC.indexOf("if (archived)");
     expect(decisionAnchor).toBeGreaterThan(0);
     const buttonStart = SRC.lastIndexOf("<button", decisionAnchor);
@@ -195,8 +162,8 @@ describe("ClientSpaceHero — visible client management actions", () => {
     expect(SRC).toContain("./client-archive-confirm-modal");
   });
 
-  it("imports the icons for the three contextual primary states", () => {
-    expect(SRC).toMatch(/\bPlus\b/);
+  it("imports icons for the two remaining contextual recovery states", () => {
+    expect(SRC).not.toMatch(/\bPlus\b/);
     expect(SRC).toMatch(/Pencil/);
     expect(SRC).toMatch(/ArchiveRestore/);
   });
@@ -235,7 +202,7 @@ describe("ClientSpaceHero — visible client management actions", () => {
   });
 
   it("turns the archived client's primary action into Restore client", () => {
-    expect(SRC).toMatch(/if\s*\(archived\)\s*\{\s*setArchiveOpen\(true\)/);
+    expect(SRC).toMatch(/if\s*\(archived\)\s*setArchiveOpen\(true\)/);
     expect(SRC).toContain('archived ? "Restore client"');
   });
 
@@ -245,9 +212,9 @@ describe("ClientSpaceHero — visible client management actions", () => {
   });
 });
 
-describe("ClientSpaceHero — inline link-state meta (Resend / Active in artist app)", () => {
+describe("ClientSpaceHero — inline link-state meta (Resend / Connected to artist app)", () => {
   // HTML mockup hero meta row includes the link state as inline text
-  // ("Invitation sent · Resend invite link" / "Active in artist app").
+  // ("Invitation sent · Resend invite email" / "Connected to artist app").
   // The LinkPill next to the h1 is the at-a-glance signal; this line
   // adds the verb so the producer can one-click resend a pending invite
   // without re-opening the modal.
@@ -260,19 +227,41 @@ describe("ClientSpaceHero — inline link-state meta (Resend / Active in artist 
     expect(SRC).toMatch(/useTransition/);
   });
 
-  it("renders the 'Resend invite link' affordance for pending state", () => {
+  it("renders the 'Resend invite email' affordance for pending state", () => {
     expect(SRC).toMatch(/linkState\s*===\s*["']pending["']/);
-    expect(SRC).toContain("Resend invite link");
+    expect(SRC).toContain("Resend invite email");
+    expect(SRC).not.toContain("Resend invite link");
     expect(SRC).toContain("Invitation sent");
+    expect(SRC).toMatch(/animate-pulse rounded-full motion-reduce:animate-none/);
   });
 
-  it("renders the 'Active in artist app' affirmation for active state", () => {
+  it("renders the 'Connected to artist app' affirmation for active state", () => {
     expect(SRC).toMatch(/linkState\s*===\s*["']active["']/);
-    expect(SRC).toContain("Active in artist app");
+    expect(SRC).toContain("Connected to artist app");
   });
 
-  it("wires the resend handler through sendClientInviteAction({ via: 'email' })", () => {
-    expect(SRC).toMatch(/sendClientInviteAction\([\s\S]*?via:\s*["']email["']/);
+  it("wires email resend with a stable operation key", () => {
+    expect(SRC).toMatch(/operationKey = `client-invite:\$\{id\}:\$\{crypto\.randomUUID\(\)\}`/);
+    expect(SRC).toMatch(/resendAttemptRef\.current = \{[\s\S]*?operationKey,/);
+    expect(SRC).toMatch(/sendClientInviteAction\(\{ id, via: "email", operationKey \}\)/);
+  });
+
+  it("rotates a conflicted operation only on the next deliberate resend", () => {
+    expect(SRC).toMatch(/res\.code === "new_operation_required"[\s\S]*?rotateOnNextClick = true/);
+    expect(SRC).toMatch(/currentAttempt\.rotateOnNextClick[\s\S]*?crypto\.randomUUID\(\)/);
+    expect(SRC).not.toMatch(/rotateOnNextClick = true[\s\S]{0,300}sendClientInviteAction/);
+    expect(SRC).toContain("Try a new send");
+  });
+
+  it("shows success only when the email has provider acceptance evidence", () => {
+    expect(SRC).toMatch(
+      /res\.data\.deliveryState !== "provider_accepted"\s*\|\|\s*!res\.data\.providerAcceptedAtIso/,
+    );
+    expect(SRC).toMatch(
+      /resendAttemptRef\.current = null;[\s\S]{0,120}toast\("Invitation email sent again", "success"\)/,
+    );
+    expect(SRC).toContain("The invitation email is still sending. Try again in a moment.");
+    expect(SRC).toContain("Check send status");
   });
 
   it("uses useToast for resend success / error feedback", () => {

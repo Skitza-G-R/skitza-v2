@@ -45,6 +45,7 @@ const {
     projectId: { __column: "purchases.project_id" },
     lifecycleStatus: { __column: "purchases.lifecycle_status" },
     acceptedAt: { __column: "purchases.accepted_at" },
+    commercialEstablishedAt: { __column: "purchases.commercial_established_at" },
     commercialSnapshot: { __column: "purchases.commercial_snapshot" },
   };
   const purchaseInstallments = {
@@ -106,6 +107,7 @@ const {
           projectId: PROJECT_ID,
           lifecycleStatus: "active",
           acceptedAt: new Date("2026-07-17T10:00:00.000Z"),
+          commercialEstablishedAt: new Date("2026-07-17T10:00:00.000Z"),
           commercialSnapshot: { includedSongSpaces: 1 },
         },
       ],

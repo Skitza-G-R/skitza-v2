@@ -1,6 +1,7 @@
 import { render } from "@react-email/components";
 
 import { FROM_ADDRESS, getResend, SITE_URL } from "./client";
+import { EmailDeliveryError } from "./delivery-error";
 import {
   BookingCancelledOrRescheduled,
   type BookingCancelledOrRescheduledProps,
@@ -178,24 +179,44 @@ export async function sendBookingCancelledOrRescheduledEmail(
   });
 }
 
-// Clients & Projects v3 redesign — Phase 1 Task 13. Producer sends a
-// contact an invite from the LinkPill "Invite to app" CTA. Subject is
-// the same shape as the other transactional sends so the producer's
-// inbox stays consistent. Caller MUST wrap in try/catch + console.warn
-// so a transient Resend failure doesn't break the primary write
-// (invited_at stamp).
-export async function sendClientInviteEmail(to: string, props: ClientInviteProps): Promise<void> {
+// Producer sends a Client an intentional Skitza invitation. The durable
+// invitation outbox owns retries and provider evidence, so provider failures
+// intentionally throw back into that state machine. A returned id proves only
+// that Resend accepted the request; it does not claim inbox delivery.
+export async function sendClientInviteEmail(
+  to: string,
+  props: ClientInviteProps,
+  idempotencyKey: string,
+): Promise<string> {
   const html = await render(<ClientInvite {...props} />);
-  const result = await getResend().emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `${props.producerName} invited you to Skitza`,
-    html,
-  });
+  const result = await getResend().emails.send(
+    {
+      from: FROM_ADDRESS,
+      to,
+      subject: `${props.producerName} invited you to Skitza`,
+      html,
+    },
+    { idempotencyKey },
+  );
 
   if (result.error) {
+    throw new EmailDeliveryError({
+      name: result.error.name,
+      message: result.error.message,
+      statusCode: result.error.statusCode,
+    });
+  }
+  const responseData: unknown = result.data;
+  if (
+    responseData === null ||
+    typeof responseData !== "object" ||
+    !("id" in responseData) ||
+    typeof responseData.id !== "string" ||
+    responseData.id.length === 0
+  ) {
     throw new Error("Email delivery failed");
   }
+  return responseData.id;
 }
 
 export type PrivateOfferNotificationSendProps = Omit<PrivateOfferNotificationProps, "openUrl"> & {

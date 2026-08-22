@@ -44,10 +44,12 @@ describe("SK-93 client workspace", () => {
     expect(source).toContain("No clients match");
   });
 
-  it("never offers archived clients when creating a project", () => {
-    expect(source).toMatch(
-      /clients[\s\S]*?filter\(\(client\)\s*=>\s*!client\.archived\s*&&\s*client\.email\s*!==\s*null/,
-    );
+  it("uses the public link and active-work import instead of a manual project creator", () => {
+    expect(source).toContain("Copy my Skitza link");
+    expect(source).toContain("Bring in active work");
+    expect(source).toContain("buildJoinUrl");
+    expect(source).not.toContain("NewProjectModal");
+    expect(source).not.toContain("onNewProject");
   });
 
   it("chooses a recent-first client order with no client layout or sort decision", () => {

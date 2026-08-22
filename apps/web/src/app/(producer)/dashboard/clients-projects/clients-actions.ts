@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
@@ -9,6 +10,24 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+export type ClientInviteActionResult =
+  | {
+      ok: true;
+      data:
+        | { via: "link"; deliveryState: null; providerAcceptedAtIso: null }
+        | { via: "email"; deliveryState: "sending"; providerAcceptedAtIso: null }
+        | {
+            via: "email";
+            deliveryState: "provider_accepted";
+            providerAcceptedAtIso: string;
+          };
+    }
+  | {
+      ok: false;
+      error: string;
+      code?: "new_operation_required";
+    };
 
 const CLIENTS_PATH = "/dashboard/clients-projects";
 
@@ -50,11 +69,9 @@ function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
-// Thin wrapper for clientContacts.sendInvite. The Invite-to-App modal
-// calls this with via='email' (real Resend dispatch) or via='link'
-// (the producer copied the URL to clipboard — server side only stamps
-// invited_at). On success, revalidates the list path so the LinkPill
-// flips from "Invite to app" → "Invited" without a hard reload.
+// Thin wrapper for clientContacts.sendInvite. An email is "Invited" only
+// after the provider accepts it. Copying a link keeps the deletion-safety
+// stamp but never creates invitation evidence for the UI.
 //
 // All other server actions from the pre-Phase-1 panels (createClient /
 // removeClient / updateClient / fetchClientDetail) were dropped along
@@ -62,24 +79,45 @@ function toMessage(err: unknown): string {
 export async function sendClientInviteAction(input: {
   id: string;
   via: "email" | "link";
-}): Promise<ActionDataResult<{ invitedAtIso: string; via: "email" | "link" }>> {
+  operationKey: string;
+}): Promise<ClientInviteActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
     const res = await c.caller.clientContacts.sendInvite(input);
     revalidatePath(CLIENTS_PATH);
+    if (!("deliveryState" in res)) {
+      if (res.via !== "link") {
+        return { ok: false, error: "Skitza could not verify this send. Try again." };
+      }
+      return {
+        ok: true,
+        data: { via: "link", deliveryState: null, providerAcceptedAtIso: null },
+      };
+    }
+    if (res.deliveryState === "sending") {
+      return {
+        ok: true,
+        data: { via: "email", deliveryState: "sending", providerAcceptedAtIso: null },
+      };
+    }
     return {
       ok: true,
       data: {
-        invitedAtIso:
-          res.invitedAt instanceof Date
-            ? res.invitedAt.toISOString()
-            : new Date(res.invitedAt).toISOString(),
-        via: res.via,
+        via: "email",
+        deliveryState: "provider_accepted",
+        providerAcceptedAtIso: res.providerAcceptedAt.toISOString(),
       },
     };
   } catch (err) {
     console.error("[clients-actions]", err);
+    if (err instanceof TRPCError && err.code === "CONFLICT") {
+      return {
+        ok: false,
+        error: "This send can’t be retried. Choose Try a new send.",
+        code: "new_operation_required",
+      };
+    }
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -91,13 +129,9 @@ export async function sendClientInviteAction(input: {
 // invite. On `existed: true` the modal redirects to the client's space
 // instead of pretending an invite went out.
 //
-// Create + sendInvite are decoupled: a failed email send (Resend
-// sandbox / unverified domain / rate-limit) still reports the create
-// as a success with `inviteEmailFailed: true` so the producer doesn't
-// see a generic toast and assume nothing happened. The DB row exists
-// and invited_at stays NULL (sendInvite sends email before stamping),
-// so the LinkPill on the client space shows "Invite to app" and the
-// producer can retry from there.
+// Create + sendInvite are decoupled: provider acceptance, an in-flight
+// delivery, and a failed delivery remain distinct. The client row stays
+// saved in every case; only provider acceptance becomes Invited evidence.
 //
 // Field defaults: phone/notes are forwarded straight through. The
 // tRPC procedure trims + nulls whitespace and clamps the size — we
@@ -113,10 +147,11 @@ export async function createClientAction(input: {
     | {
         existed: false;
         id: string;
-        inviteEmailFailed: false;
+        invitationState: "provider_accepted";
         invitedAtIso: string;
       }
-    | { existed: false; id: string; inviteEmailFailed: true }
+    | { existed: false; id: string; invitationState: "sending" }
+    | { existed: false; id: string; invitationState: "failed" }
   >
 > {
   const c = await callerOrError();
@@ -135,25 +170,31 @@ export async function createClientAction(input: {
     console.error("[clients-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
-  // Client row is in the DB. From here, an email failure is reported
-  // as a soft failure (ok:true + inviteEmailFailed) so the modal can
-  // tell the producer the client was added but the email didn't go.
+  // Client row is in the DB. From here, invitation delivery remains a
+  // soft outcome so the modal can report the saved client separately.
   try {
     const sent = await c.caller.clientContacts.sendInvite({
       id: createdId,
       via: "email",
+      operationKey: `new-client-invite:${createdId}:${randomUUID()}`,
     });
     revalidatePath(CLIENTS_PATH);
+    if (!("deliveryState" in sent)) {
+      throw new Error("Invitation provider state is missing");
+    }
+    if (sent.deliveryState === "sending") {
+      return {
+        ok: true,
+        data: { existed: false, id: createdId, invitationState: "sending" },
+      };
+    }
     return {
       ok: true,
       data: {
         existed: false,
         id: createdId,
-        inviteEmailFailed: false,
-        invitedAtIso:
-          sent.invitedAt instanceof Date
-            ? sent.invitedAt.toISOString()
-            : new Date(sent.invitedAt).toISOString(),
+        invitationState: "provider_accepted",
+        invitedAtIso: sent.providerAcceptedAt.toISOString(),
       },
     };
   } catch (sendErr) {
@@ -161,7 +202,7 @@ export async function createClientAction(input: {
     revalidatePath(CLIENTS_PATH);
     return {
       ok: true,
-      data: { existed: false, id: createdId, inviteEmailFailed: true },
+      data: { existed: false, id: createdId, invitationState: "failed" },
     };
   }
 }

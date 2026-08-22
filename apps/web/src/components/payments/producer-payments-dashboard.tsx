@@ -224,6 +224,7 @@ function nextPaymentTiming(next: ProducerPaymentArtistNextPayment, timeZone: str
     return next.triggeredAtIso ? "Final approval reached" : "After final approval";
   }
   if (next.dueTrigger === "acceptance") return "At acceptance";
+  if (next.dueTrigger === "producer_import") return "When added to Skitza";
   return next.triggeredAtIso ? "Monthly payment due" : "After the first payment";
 }
 

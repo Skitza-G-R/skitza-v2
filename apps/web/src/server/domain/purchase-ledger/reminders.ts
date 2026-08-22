@@ -54,9 +54,32 @@ export type PaymentReminderEmail = Readonly<{
     dueAt: Date;
     producerTimezone: string;
     paymentUrl: string;
+    /** Set when the Client has no Skitza account yet and `paymentUrl` is the join link. */
+    joinRequired?: boolean;
   }>;
   idempotencyKey: string;
 }>;
+
+type ReminderCtaUrls = Readonly<{
+  paymentUrlForPurchase: (purchaseId: string) => string;
+  joinUrlForProducer: (producerSlug: string) => string;
+}>;
+
+type ReminderCta = Readonly<{ paymentUrl: string; joinRequired: boolean }>;
+
+/**
+ * A Client who never joined Skitza cannot open /artist/*; the producer's
+ * public join link is the only entry that works for them.
+ */
+function reminderCta(ledger: ReconciledPurchaseLedger, urls: ReminderCtaUrls): ReminderCta {
+  if (ledger.snapshot.client.connected) {
+    return {
+      paymentUrl: urls.paymentUrlForPurchase(ledger.snapshot.purchase.id),
+      joinRequired: false,
+    };
+  }
+  return { paymentUrl: urls.joinUrlForProducer(ledger.snapshot.producer.slug), joinRequired: true };
+}
 
 type StoredReminderMessage = Readonly<{
   to: string;
@@ -268,7 +291,9 @@ function assertManualDeliveryIntent(
     delivery.operationKey !== input.operationKey ||
     delivery.kind !== "manual" ||
     delivery.sentByClerkUserId !== input.actorId ||
-    delivery.messageSnapshot.props.paymentUrl !== input.paymentUrl
+    // A join-link snapshot was derived by the server, not from caller intent.
+    (!delivery.messageSnapshot.props.joinRequired &&
+      delivery.messageSnapshot.props.paymentUrl !== input.paymentUrl)
   ) {
     throw new PurchaseLedgerDomainError(
       "OPERATION_KEY_CONFLICT",
@@ -307,7 +332,7 @@ function messageFor(
   ledger: ReconciledPurchaseLedger,
   installmentId: string,
   amountCents: number,
-  paymentUrl: string,
+  cta: ReminderCta,
 ): StoredReminderMessage {
   const installment = ledger.snapshot.installments.find((row) => row.id === installmentId);
   if (!installment?.dueAt) {
@@ -324,7 +349,8 @@ function messageFor(
       amountCents,
       dueAt: installment.dueAt.toISOString(),
       producerTimezone: ledger.snapshot.producer.timeZone,
-      paymentUrl,
+      paymentUrl: cta.paymentUrl,
+      ...(cta.joinRequired ? { joinRequired: true } : {}),
     },
   };
 }
@@ -434,7 +460,7 @@ export type AutomaticReminderRunResult = Readonly<{
 export async function sendAutomaticPurchaseReminders(
   repository: PaymentReminderRepository,
   send: SendPaymentReminder,
-  input: Readonly<{ asOf?: Date; paymentUrlForPurchase: (purchaseId: string) => string }>,
+  input: Readonly<{ asOf?: Date }> & ReminderCtaUrls,
 ): Promise<AutomaticReminderRunResult> {
   const asOf = input.asOf ?? new Date();
   if (Number.isNaN(asOf.getTime())) {
@@ -541,7 +567,7 @@ export async function sendAutomaticPurchaseReminders(
           ledger,
           stored.id,
           projected.remainingCents,
-          input.paymentUrlForPurchase(scope.purchaseId),
+          reminderCta(ledger, input),
         );
         const operationDigest = reminderDigest({
           purchaseId: scope.purchaseId,
@@ -595,6 +621,7 @@ export async function sendManualPurchaseReminder(
     operationKey: string;
     actorId: string;
     paymentUrl: string;
+    joinUrlForProducer: (producerSlug: string) => string;
     requestedAt?: Date;
   }>,
 ): Promise<Readonly<{ log: PurchaseReminderLogRecord; created: boolean }>> {
@@ -666,7 +693,15 @@ export async function sendManualPurchaseReminder(
     throw new PurchaseLedgerDomainError("CONFLICT", "This installment has no remaining debt");
   }
 
-  const messageSnapshot = messageFor(ledger, installmentId, projected.remainingCents, paymentUrl);
+  const messageSnapshot = messageFor(
+    ledger,
+    installmentId,
+    projected.remainingCents,
+    reminderCta(ledger, {
+      paymentUrlForPurchase: () => paymentUrl,
+      joinUrlForProducer: rawInput.joinUrlForProducer,
+    }),
+  );
   const operationDigest = reminderDigest({
     purchaseId,
     installmentId,

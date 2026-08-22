@@ -7,6 +7,7 @@ import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer
 
 import { ClientActionsMenu } from "./client-actions-menu";
 import type { ClientCardData } from "./client-card";
+import { canOpenClientInvitation } from "./client-invitation-state";
 import { LinkPill } from "./link-pill";
 
 // MobileClientRow — phone rendering of a client in the workspace list
@@ -49,7 +50,8 @@ export function MobileClientRow({
     projects > 0
       ? `${String(projects)} ${projects === 1 ? "project" : "projects"}`
       : "No projects yet";
-  const showInvite = linkState === "none";
+  const showInviteAction = canOpenClientInvitation(linkState);
+  const showStatusDot = linkState === "active" || linkState === "pending";
 
   return (
     <div
@@ -62,7 +64,7 @@ export function MobileClientRow({
         <Link
           href={`/dashboard/clients-projects/clients/${id}`}
           className="absolute inset-0 z-10 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
-          aria-label={`Open ${name}${linkState === "active" ? ", linked" : linkState === "pending" ? ", invited" : ""}`}
+          aria-label={`Open ${name}${linkState === "active" ? ", connected" : linkState === "pending" ? ", invited" : linkState === "sending" ? ", invitation sending" : linkState === "failed" ? ", invitation failed" : ""}`}
         />
 
         <span className="relative shrink-0" aria-hidden>
@@ -72,7 +74,7 @@ export function MobileClientRow({
           >
             {producerInitials(name)}
           </span>
-          {linkState !== "none" ? (
+          {showStatusDot ? (
             <span
               className="absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full text-white ring-2 ring-[rgb(var(--bg-elevated))]"
               style={{
@@ -81,7 +83,7 @@ export function MobileClientRow({
                     ? "rgb(var(--fg-success-text))"
                     : "rgb(var(--brand-primary-text))",
               }}
-              title={linkState === "active" ? "Linked" : "Invited"}
+              title={linkState === "active" ? "Connected" : "Invited"}
             >
               {linkState === "active" ? (
                 <Check size={10} strokeWidth={3} />
@@ -102,9 +104,9 @@ export function MobileClientRow({
         </div>
 
         <div className="relative z-20 flex shrink-0 items-center gap-1.5 has-[[aria-expanded=true]]:z-30">
-          {showInvite && onInvite ? (
+          {showInviteAction && onInvite ? (
             <LinkPill
-              state="none"
+              state={linkState}
               onInvite={() => {
                 onInvite(client);
               }}

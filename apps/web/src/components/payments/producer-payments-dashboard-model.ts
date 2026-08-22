@@ -25,7 +25,11 @@ export type ProducerPaymentInstallmentStatus =
   | "waived"
   | "canceled";
 
-export type ProducerPaymentDueTrigger = "acceptance" | "monthly_anniversary" | "artist_approval";
+export type ProducerPaymentDueTrigger =
+  | "acceptance"
+  | "producer_import"
+  | "monthly_anniversary"
+  | "artist_approval";
 
 export interface ProducerPaymentInstallment {
   id: string;
@@ -103,6 +107,7 @@ export interface ProducerPaymentRecord {
   purchaseTitle: string;
   purchaseReference: string;
   purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
+  isImportedExistingWork: boolean;
   currency: string;
   totalCents: number;
   paidCents: number;
@@ -343,6 +348,7 @@ export function waitingOnMilestonesCents(record: ProducerPaymentRecord): number 
       installment.dueAtIso !== null ||
       installment.triggeredAtIso !== null ||
       installment.dueTrigger === "acceptance" ||
+      installment.dueTrigger === "producer_import" ||
       installment.status === "confirmed" ||
       installment.status === "waived" ||
       installment.status === "canceled"
@@ -606,7 +612,12 @@ export function buildProducerPaymentHistory(
         occurredAtIso: payment.paidAtIso,
         amountCents: payment.effectiveAmountCents,
         previousAmountCents: null,
-        statusLabel: payment.source === "proof" ? "Confirmed" : "Recorded manually",
+        statusLabel:
+          payment.source === "proof"
+            ? "Confirmed"
+            : record.isImportedExistingWork
+              ? "Confirmed by producer"
+              : "Recorded manually",
         detail: payment.note,
         proofId: payment.proofId,
       });

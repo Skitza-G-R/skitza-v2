@@ -1,7 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Copy, Plus, X } from "lucide-react";
+import { ArrowRight, Copy, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -297,15 +297,15 @@ export function AddSongDialog({
                 You need an active project first.
               </p>
               <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-                Create the project, then its purchase can provide the first song space.
+                Projects start through your Skitza link, or when you bring in active work.
               </p>
               <Link
-                href="/dashboard/clients-projects?newProject=1"
+                href="/dashboard/clients-projects"
                 onClick={onClose}
-                className="mt-4 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))]"
+                className="mt-4 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary)/0.65)] hover:bg-[rgb(var(--brand-primary)/0.055)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
               >
-                <Plus size={14} />
-                New Project
+                Open Clients &amp; Projects
+                <ArrowRight size={14} aria-hidden />
               </Link>
             </div>
           ) : (

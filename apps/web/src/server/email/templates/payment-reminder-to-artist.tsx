@@ -23,6 +23,8 @@ export interface PaymentReminderToArtistProps {
   dueAt: Date;
   producerTimezone: string;
   paymentUrl: string;
+  /** The Client has no Skitza account yet; `paymentUrl` is the producer's join link. */
+  joinRequired?: boolean | undefined;
 }
 
 function formatDueDate(dueAt: Date, producerTimezone: string): string {
@@ -99,6 +101,12 @@ export function PaymentReminderToArtist(props: PaymentReminderToArtistProps) {
               <strong>Due date</strong> · {formattedDueDate} ({props.producerTimezone})
             </Text>
           </Section>
+          {props.joinRequired ? (
+            <Text style={{ fontSize: 15, lineHeight: "24px", margin: "0 0 12px" }}>
+              Join {props.producerName}&apos;s studio on Skitza with this email address to see
+              the payment details and send your payment confirmation.
+            </Text>
+          ) : null}
           <Button
             href={props.paymentUrl}
             style={{
@@ -111,7 +119,7 @@ export function PaymentReminderToArtist(props: PaymentReminderToArtistProps) {
               marginTop: 4,
             }}
           >
-            View payment details
+            {props.joinRequired ? "Join on Skitza" : "View payment details"}
           </Button>
           <Hr style={{ borderColor: "#E6DDCF", margin: "20px 0" }} />
           <Text style={{ fontSize: 12, color: "#8A8073", margin: 0 }}>

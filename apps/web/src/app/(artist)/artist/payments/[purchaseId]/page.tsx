@@ -22,14 +22,14 @@ export const metadata: Metadata = { title: "Payment summary" };
 
 const DETAIL_SECTION = {
   id: "artist-payment-record",
-  eyebrow: "Accepted purchase",
+  eyebrow: "Agreement",
   title: "Payment record",
-  description: "The complete accepted agreement and money history.",
+  description: "The complete frozen agreement and money history.",
   emptyTitle: "Payment record not found",
-  emptyDescription: "This accepted purchase is not available.",
+  emptyDescription: "This agreement is not available.",
 } as const;
 
-/** Standing entry for one owned accepted purchase and its proof history. */
+/** Standing entry for one owned agreement and its proof history. */
 export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) notFound();

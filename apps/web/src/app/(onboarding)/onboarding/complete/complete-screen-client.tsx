@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowRight, Check, Copy, ExternalLink, Landmark, Link2, Share2 } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  Copy,
+  ExternalLink,
+  FolderInput,
+  Landmark,
+  Link2,
+  Share2,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -208,6 +217,28 @@ export function CompleteScreenClient({
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Link
+              href="/dashboard/clients-projects/bring-active-work"
+              className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.055)] p-4 hover:border-[rgb(var(--brand-primary)/0.65)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none sm:col-span-2 sm:flex sm:items-center sm:gap-4"
+            >
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
+                <FolderInput aria-hidden size={18} />
+              </span>
+              <span className="mt-4 block min-w-0 flex-1 sm:mt-0">
+                <span className="block text-[15px] font-extrabold text-[rgb(var(--fg-default))]">
+                  Bring in your active work
+                </span>
+                <span className="mt-1.5 block text-[12px] leading-5 text-[rgb(var(--fg-muted))]">
+                  Add the clients and projects you already started. Nothing is sent while you set
+                  things up. Reminders turn on for unpaid payments only when you finish setup.
+                </span>
+              </span>
+              <span className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-3.5 text-[12.5px] font-bold text-[rgb(var(--bg-background))] sm:mt-0 sm:shrink-0">
+                Add active work
+                <ArrowRight aria-hidden size={14} />
+              </span>
+            </Link>
+
             <Link
               href={portfolioHref}
               className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 hover:border-[rgb(var(--brand-primary)/0.55)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"

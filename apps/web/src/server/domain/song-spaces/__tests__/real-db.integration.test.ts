@@ -220,11 +220,17 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
         "tax_cents" integer not null default 0,
         "total_cents" integer not null default 0,
         "currency" text not null default 'ILS',
-        "accepted_at" timestamptz not null,
+        "accepted_at" timestamptz,
+        "commercial_established_at" timestamptz not null,
         "activated_at" timestamptz,
         "canceled_at" timestamptz,
         "created_at" timestamptz not null default now(),
         "updated_at" timestamptz not null default now(),
+        constraint "purchases_commercial_establishment_shape" check ((
+          ("source_kind" = 'imported_existing_work' and "accepted_at" is null)
+          or ("source_kind" <> 'imported_existing_work'
+            and "accepted_at" = "commercial_established_at")
+        ) is true),
         constraint "purchases_id_project_unique" unique ("id", "project_id"),
         constraint "purchases_id_producer_client_unique" unique
           ("id", "producer_id", "client_contact_id"),
@@ -240,6 +246,19 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
         constraint "purchases_product_owner_fk" foreign key ("product_id", "producer_id")
           references ${schema}."products"("id", "producer_id") on delete restrict
       )`,
+      // Mirrors migration 0055: accepted Purchases inserted without an explicit
+      // establishment time are established at Artist acceptance.
+      `create function ${schema}."default_purchase_commercial_established_at"()
+      returns trigger as $function$
+      begin
+        new."commercial_established_at" :=
+          coalesce(new."commercial_established_at", new."accepted_at");
+        return new;
+      end;
+      $function$ language plpgsql`,
+      `create trigger "purchases_default_commercial_established_at"
+        before insert on ${schema}."purchases"
+        for each row execute function ${schema}."default_purchase_commercial_established_at"()`,
       `create table ${schema}."purchase_acceptances" (
         "id" uuid primary key default gen_random_uuid(),
         "purchase_id" uuid not null,

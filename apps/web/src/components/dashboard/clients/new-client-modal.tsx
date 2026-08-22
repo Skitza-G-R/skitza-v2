@@ -116,15 +116,14 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
           onClose();
           return;
         }
-        if (res.data.inviteEmailFailed) {
-          // Client row was inserted but the invite email didn't send
-          // (Resend rejection, sandbox limit, etc). Tell the producer
-          // it's saved and they can retry the invite from the client's
-          // space. The LinkPill there shows "Invite to app" because the
-          // procedure never stamped invited_at.
+        if (res.data.invitationState === "failed") {
+          // The client is saved even when provider delivery fails. Keep
+          // that separate from provider-accepted invitation evidence.
           toast("Client added — invite email couldn't be sent. Try again from their page.", "info");
+        } else if (res.data.invitationState === "sending") {
+          toast("Client added — the invitation email is still sending.", "info");
         } else {
-          toast("Client added — invite sent", "success");
+          toast("Client added — invitation email sent", "success");
         }
         onCreated?.();
         // Server Action already called revalidatePath, but a manual

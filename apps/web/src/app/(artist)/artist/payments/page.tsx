@@ -10,11 +10,11 @@ export const metadata = { title: "Payments" };
 const SECTIONS = {
   waiting: {
     id: "waiting-for-payment",
-    eyebrow: "Accepted purchases",
+    eyebrow: "Agreements",
     title: "Waiting for payment",
-    description: "Accepted work waiting for its required first payment or producer proof review.",
+    description: "Work waiting for its required first payment or producer proof review.",
     emptyTitle: "Nothing is waiting",
-    emptyDescription: "New accepted purchases will appear here when payment is needed.",
+    emptyDescription: "New agreements will appear here when payment is needed.",
   },
   active: {
     id: "active-balances",
@@ -30,7 +30,7 @@ const SECTIONS = {
     eyebrow: "Immutable records",
     title: "History",
     description:
-      "Paid and canceled purchases stay available with their accepted terms and payment history.",
+      "Paid and canceled purchases stay available with their frozen terms and payment history.",
     emptyTitle: "No payment history yet",
     emptyDescription: "Paid and canceled purchases will remain here.",
   },

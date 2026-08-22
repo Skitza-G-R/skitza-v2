@@ -155,11 +155,15 @@ function sourceForRow(row: {
     | "private_offer"
     | "session_product"
     | "paid_add_on"
-    | "no_charge_add_on";
+    | "no_charge_add_on"
+    | "imported_existing_work";
   productId: string | null;
   privateOfferId: string | null;
   purchaseRequestId: string | null;
 }): PurchaseSource {
+  if (row.sourceKind === "imported_existing_work") {
+    throw new Error("An imported purchase cannot be loaded as an accepted purchase");
+  }
   if (row.sourceKind === "store_product" || row.sourceKind === "session_product") {
     if (row.productId === null || row.purchaseRequestId === null || row.privateOfferId !== null) {
       throw new Error("Stored Store purchase source is invalid");
@@ -207,6 +211,12 @@ async function loadAcceptedPurchase(
   const frozen = snapshotCommercialTerms(row.commercialSnapshot);
   if (frozen.digest !== row.snapshotDigest) {
     throw new Error("Stored commercial snapshot digest is invalid");
+  }
+  if (
+    row.acceptedAt === null ||
+    row.commercialEstablishedAt.getTime() !== row.acceptedAt.getTime()
+  ) {
+    throw new Error("An accepted purchase is missing immutable Artist acceptance");
   }
   const lifecycleChangedAt =
     row.lifecycleStatus === "active"
@@ -438,6 +448,7 @@ function transactionAdapter(tx: PurchaseTransactionDb): PurchaseAtomicTransactio
           totalCents: snapshot.totalCents,
           currency: snapshot.currency,
           acceptedAt: input.acceptedAt,
+          commercialEstablishedAt: input.acceptedAt,
           activatedAt: input.activatedAt,
           updatedAt: input.acceptedAt,
         })

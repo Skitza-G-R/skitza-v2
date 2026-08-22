@@ -330,7 +330,7 @@ async function buildProjectReadModels(
       projectId: purchases.projectId,
       clientContactId: purchases.clientContactId,
       lifecycleStatus: purchases.lifecycleStatus,
-      acceptedAt: purchases.acceptedAt,
+      commercialEstablishedAt: purchases.commercialEstablishedAt,
       productId: purchases.productId,
       sourceProductId: products.id,
       sourceProductProducerId: products.producerId,
@@ -343,7 +343,7 @@ async function buildProjectReadModels(
       and(eq(products.id, purchases.productId), eq(products.producerId, purchases.producerId)),
     )
     .where(inArray(purchases.projectId, projectIds))
-    .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+    .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
   const trackRows = await db
     .select({
       id: projectTracks.id,
@@ -463,7 +463,7 @@ async function buildProjectReadModels(
         purchaseId: purchase.purchaseId,
         lifecycleStatus: purchase.lifecycleStatus,
         includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
-        acceptedAt: purchase.acceptedAt,
+        commercialEstablishedAt: purchase.commercialEstablishedAt,
       })),
       tracks: projectTracksList.map((track) => ({
         id: track.id,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Plus, Mail, Phone, FolderOpen, Calendar, Pencil, ArchiveRestore } from "lucide-react";
+import { Mail, Phone, FolderOpen, Calendar, Pencil, ArchiveRestore } from "lucide-react";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
@@ -17,14 +17,13 @@ import { ClientActionsMenu } from "./client-actions-menu";
 import { ClientArchiveConfirmModal } from "./client-archive-confirm-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
-import { NewProjectModal } from "./new-project-modal";
 import { RemoveClientConfirmModal } from "./remove-client-confirm-modal";
 
 // The Client Space hero replaces the old 4-tab header. One big dark
 // gradient band: compact avatar tile, eyebrow CLIENT, name + LinkPill
 // inline, meta strip (email · phone · projects · joined date), then a
 // 4-tile stats row (Lifetime · Outstanding · Active projects · Joined).
-// Right-side "+ New project" pill links to the new-project form.
+// Right-side management actions stay limited to client maintenance.
 //
 // Phase 1 Task 17 — the hero owns the InviteToAppModal mount (same
 // pattern as WorkspaceListView). When LinkPill is in the "none" state
@@ -140,33 +139,65 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
     setInviteOpen(false);
   };
 
-  // Phase 1 G7 — NewProjectModal state. The "+ New project" pill in the
-  // hero used to be a <Link> to the legacy /new page; it now opens this
-  // modal in `lockedClient` mode so the project is always created
-  // against the client whose space we're on.
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
-
-  // Inline "Resend invite link" affordance — matches the HTML mockup's
+  // Inline "Resend invite email" affordance — matches the HTML mockup's
   // hero meta line for `pending` clients. Re-runs sendClientInviteAction
   // with via='email'; same shape as the InviteToAppModal email path so
   // the producer doesn't have to open the modal just to resend.
   const { toast } = useToast();
   const online = useOnlineStatus();
   const [resendPending, startResendTransition] = useTransition();
+  const [resendState, setResendState] = useState<"idle" | "sending" | "new_operation_required">(
+    "idle",
+  );
+  const resendAttemptRef = useRef<{
+    clientId: string;
+    operationKey: string;
+    rotateOnNextClick: boolean;
+  } | null>(null);
   const handleResend = () => {
     if (!online) {
       toast("Reconnect to resend this invite.", "error");
       return;
     }
+    const currentAttempt = resendAttemptRef.current;
+    let operationKey = currentAttempt?.operationKey;
+    if (!currentAttempt || currentAttempt.clientId !== id || currentAttempt.rotateOnNextClick) {
+      operationKey = `client-invite:${id}:${crypto.randomUUID()}`;
+      resendAttemptRef.current = {
+        clientId: id,
+        operationKey,
+        rotateOnNextClick: false,
+      };
+    }
+    if (!operationKey) return;
+    setResendState("idle");
     startResendTransition(async () => {
       try {
-        const res = await sendClientInviteAction({ id, via: "email" });
+        const res = await sendClientInviteAction({ id, via: "email", operationKey });
         if (!res.ok) {
+          if (res.code === "new_operation_required") {
+            if (resendAttemptRef.current?.operationKey === operationKey) {
+              resendAttemptRef.current.rotateOnNextClick = true;
+            }
+            setResendState("new_operation_required");
+          }
           toast(res.error, "error");
           return;
         }
-        toast("Invite re-sent", "success");
+        if (
+          res.data.via !== "email" ||
+          res.data.deliveryState !== "provider_accepted" ||
+          !res.data.providerAcceptedAtIso
+        ) {
+          setResendState("sending");
+          toast("The invitation email is still sending. Try again in a moment.", "info");
+          return;
+        }
+        resendAttemptRef.current = null;
+        setResendState("idle");
+        toast("Invitation email sent again", "success");
       } catch {
+        setResendState("idle");
         toast("Could not resend this invite. Try again.", "error");
       }
     });
@@ -274,7 +305,7 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
 
             {/* Inline link-state line — DESIGN.md hero meta row, third
                 children. For pending clients, surface a one-click
-                "Resend invite link" so producers don't have to re-open
+                "Resend invite email" so producers don't have to re-open
                 the invite modal. For active clients, a quiet "Active in
                 artist app" affirmation. The LinkPill itself sits next
                 to the h1 above; this line adds the verb. */}
@@ -282,7 +313,7 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
               <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-white/78">
                 <span
                   aria-hidden
-                  className="h-1.5 w-1.5 animate-pulse rounded-full"
+                  className="h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none"
                   style={{ background: "rgb(var(--brand-primary))" }}
                 />
                 <span>
@@ -293,7 +324,13 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
                     disabled={resendPending}
                     className="font-semibold text-white underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none disabled:opacity-50"
                   >
-                    {resendPending ? "Resending…" : "Resend invite link"}
+                    {resendPending
+                      ? "Sending…"
+                      : resendState === "new_operation_required"
+                        ? "Try a new send"
+                        : resendState === "sending"
+                          ? "Check send status"
+                          : "Resend invite email"}
                   </button>
                 </span>
               </p>
@@ -304,42 +341,35 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
                   className="h-1.5 w-1.5 rounded-full"
                   style={{ background: "rgb(var(--fg-success))" }}
                 />
-                Active in artist app
+                Connected to artist app
               </p>
             ) : null}
           </div>
         </div>
 
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex md:w-auto md:shrink-0 md:self-end">
-          <button
-            ref={primaryActionRef}
-            type="button"
-            onClick={() => {
-              actionReturnFocusRef.current = primaryActionRef.current;
-              if (archived) {
-                setArchiveOpen(true);
-              } else if (!email) {
-                setEditOpen(true);
-              } else {
-                setNewProjectOpen(true);
-              }
-            }}
-            // Solid-white primary pill — G14: the client hero's only
-            // primary CTA should match the design's `btn-light`
-            // (background:#fff; color:#111009) for max prominence.
-            // <md it stretches full-width at a 44px touch height.
-            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:flex-none md:justify-start md:rounded-[var(--radius-md)]"
-            style={{ color: "rgb(var(--bg-sidebar))" }}
-          >
-            {archived ? (
-              <ArchiveRestore size={14} aria-hidden />
-            ) : !email ? (
-              <Pencil size={14} aria-hidden />
-            ) : (
-              <Plus size={14} aria-hidden />
-            )}
-            {archived ? "Restore client" : !email ? "Add email" : "New project"}
-          </button>
+        <div className="flex w-full items-center justify-end gap-2 md:w-auto md:shrink-0 md:self-end">
+          {archived || !email ? (
+            <button
+              ref={primaryActionRef}
+              type="button"
+              onClick={() => {
+                actionReturnFocusRef.current = primaryActionRef.current;
+                if (archived) setArchiveOpen(true);
+                else setEditOpen(true);
+              }}
+              // Solid-white maintenance action for the two states that
+              // need a direct recovery path: Restore or Add email.
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:flex-none md:justify-start md:rounded-[var(--radius-md)]"
+              style={{ color: "rgb(var(--bg-sidebar))" }}
+            >
+              {archived ? (
+                <ArchiveRestore size={14} aria-hidden />
+              ) : (
+                <Pencil size={14} aria-hidden />
+              )}
+              {archived ? "Restore client" : "Add email"}
+            </button>
+          ) : null}
 
           <ClientActionsMenu
             name={name}
@@ -415,28 +445,9 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
             gradient: avatarBg,
           }}
           producerSlug={producerSlug}
+          invitationState={linkState}
         />
       ) : null}
-
-      <NewProjectModal
-        open={newProjectOpen}
-        onClose={() => {
-          setNewProjectOpen(false);
-        }}
-        clients={[]}
-        lockedClient={{
-          id,
-          name,
-          // The artistEmail snapshot on the project requires a string;
-          // a hero-rendered client without an email is a no-go for v1
-          // (we won't ever open the modal in lockedClient mode without
-          // one), so fall back to an empty string defensively.
-          email: email ?? "",
-        }}
-        onCreated={() => {
-          setNewProjectOpen(false);
-        }}
-      />
 
       <EditClientModal
         open={editOpen}

@@ -35,7 +35,7 @@ export function toProducerPaymentWorkspaceBuckets(
         title: label,
         description: "",
         emptyTitle: "No payment records",
-        emptyDescription: "Accepted purchases will appear here.",
+        emptyDescription: "Agreements will appear here.",
       },
       "producer",
     ).projects,

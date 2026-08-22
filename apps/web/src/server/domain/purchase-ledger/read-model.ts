@@ -61,7 +61,8 @@ export type PaymentReadPurchaseRecord = Readonly<{
     | "private_offer"
     | "session_product"
     | "paid_add_on"
-    | "no_charge_add_on";
+    | "no_charge_add_on"
+    | "imported_existing_work";
   lifecycleStatus: "waiting_for_payment" | "active" | "canceled";
   paymentPlanKind: "full" | "split_50_50" | "monthly" | null;
   commercialSnapshot: PurchaseCommercialSnapshot;
@@ -70,7 +71,8 @@ export type PaymentReadPurchaseRecord = Readonly<{
   taxCents: number;
   totalCents: number;
   currency: string;
-  acceptedAt: Date;
+  acceptedAt: Date | null;
+  commercialEstablishedAt: Date;
   activatedAt: Date | null;
   canceledAt: Date | null;
   createdAt: Date;
@@ -86,6 +88,16 @@ export type PaymentReadAcceptanceRecord = Readonly<{
   acceptedAt: Date;
 }>;
 
+export type PaymentReadImportAttestationRecord = Readonly<{
+  id: string;
+  purchaseId: string;
+  producerId: string;
+  clientContactId: string;
+  importedSnapshot: PurchaseCommercialSnapshot;
+  snapshotDigest: string;
+  importedAt: Date;
+}>;
+
 export type PaymentReadInstallmentRecord = Readonly<{
   id: string;
   purchaseId: string;
@@ -93,7 +105,7 @@ export type PaymentReadInstallmentRecord = Readonly<{
   position: number;
   amountCents: number;
   currency: string;
-  dueTrigger: "acceptance" | "monthly_anniversary" | "artist_approval";
+  dueTrigger: "acceptance" | "producer_import" | "monthly_anniversary" | "artist_approval";
   dueAt: Date | null;
   triggeredAt: Date | null;
   requiredForActivation: boolean;
@@ -193,6 +205,7 @@ export type PaymentLedgerReadSnapshot = Readonly<{
   projects: readonly PaymentReadProjectRecord[];
   purchases: readonly PaymentReadPurchaseRecord[];
   acceptances: readonly PaymentReadAcceptanceRecord[];
+  importAttestations: readonly PaymentReadImportAttestationRecord[];
   installments: readonly PaymentReadInstallmentRecord[];
   payments: readonly PaymentReadPaymentRecord[];
   corrections: readonly PaymentReadCorrectionRecord[];
@@ -220,6 +233,24 @@ export type PaymentInstallmentProjection = PaymentReadInstallmentRecord &
 export type PaymentProjection = PaymentReadPaymentRecord &
   Readonly<{ effectiveAmountCents: number }>;
 
+export const IMPORTED_EXISTING_WORK_NOTICE =
+  "Added by producer from an existing agreement" as const;
+
+export type PaymentPurchaseProvenance =
+  | Readonly<{
+      kind: "artist_acceptance";
+      id: string;
+      acceptedAt: Date;
+      acceptedSnapshot: PurchaseCommercialSnapshot;
+    }>
+  | Readonly<{
+      kind: "producer_import";
+      id: string;
+      importedAt: Date;
+      importedSnapshot: PurchaseCommercialSnapshot;
+      notice: typeof IMPORTED_EXISTING_WORK_NOTICE;
+    }>;
+
 export type PaymentPurchaseProjection = Readonly<{
   id: string;
   producerId: string;
@@ -232,16 +263,12 @@ export type PaymentPurchaseProjection = Readonly<{
   lifecycleStatus: PaymentReadPurchaseRecord["lifecycleStatus"];
   paymentPlanKind: PaymentReadPurchaseRecord["paymentPlanKind"];
   commercialSnapshot: PurchaseCommercialSnapshot;
-  acceptance: Readonly<{
-    id: string;
-    acceptedAt: Date;
-    acceptedSnapshot: PurchaseCommercialSnapshot;
-  }>;
+  provenance: PaymentPurchaseProvenance;
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
   currency: string;
-  acceptedAt: Date;
+  commercialEstablishedAt: Date;
   activatedAt: Date | null;
   canceledAt: Date | null;
   paidCents: number;
@@ -425,18 +452,27 @@ function installmentIsDueNow(
   ) {
     return false;
   }
-  if (installment.status === "overdue" || installment.dueTrigger === "acceptance") return true;
+  if (
+    installment.status === "overdue" ||
+    installment.dueTrigger === "acceptance" ||
+    installment.dueTrigger === "producer_import"
+  ) {
+    return true;
+  }
   if (installment.dueAt !== null && installment.dueAt.getTime() <= asOf.getTime()) return true;
   return installment.dueTrigger === "artist_approval" && installment.triggeredAt !== null;
 }
 
 function sameSnapshot(
   purchase: PaymentReadPurchaseRecord,
-  acceptance: PaymentReadAcceptanceRecord,
+  provenance: Readonly<{
+    snapshotDigest: string;
+    snapshot: PurchaseCommercialSnapshot;
+  }>,
 ): boolean {
   return (
-    acceptance.snapshotDigest === purchase.snapshotDigest &&
-    JSON.stringify(acceptance.acceptedSnapshot) === JSON.stringify(purchase.commercialSnapshot)
+    provenance.snapshotDigest === purchase.snapshotDigest &&
+    JSON.stringify(provenance.snapshot) === JSON.stringify(purchase.commercialSnapshot)
   );
 }
 
@@ -451,6 +487,7 @@ export function buildPaymentReadModel(
   const projects = uniqueById(snapshot.projects, "Project");
   const purchases = uniqueById(snapshot.purchases, "Purchase");
   const acceptances = uniqueById(snapshot.acceptances, "Acceptance");
+  const importAttestations = uniqueById(snapshot.importAttestations, "Import attestation");
   const installments = uniqueById(snapshot.installments, "Installment");
   const payments = uniqueById(snapshot.payments, "Payment");
   uniqueById(snapshot.corrections, "Correction");
@@ -506,6 +543,13 @@ export function buildPaymentReadModel(
       fail("INTEGRITY_ERROR", "Purchase has duplicate acceptance history");
     }
     acceptanceByPurchase.set(acceptance.purchaseId, acceptance);
+  }
+  const importAttestationByPurchase = new Map<string, PaymentReadImportAttestationRecord>();
+  for (const attestation of importAttestations.values()) {
+    if (importAttestationByPurchase.has(attestation.purchaseId)) {
+      fail("INTEGRITY_ERROR", "Purchase has duplicate import attestation history");
+    }
+    importAttestationByPurchase.set(attestation.purchaseId, attestation);
   }
 
   const installmentsByPurchase = new Map<string, PaymentReadInstallmentRecord[]>();
@@ -592,19 +636,62 @@ export function buildPaymentReadModel(
     const client = clients.get(purchase.clientContactId);
     const producer = producers.get(purchase.producerId);
     const acceptance = acceptanceByPurchase.get(purchase.id);
+    const importAttestation = importAttestationByPurchase.get(purchase.id);
     if (
       !project ||
       !client ||
       !producer ||
-      !acceptance ||
       project.producerId !== purchase.producerId ||
       project.clientContactId !== purchase.clientContactId ||
-      client.producerId !== purchase.producerId ||
-      acceptance.producerId !== purchase.producerId ||
-      acceptance.clientContactId !== purchase.clientContactId ||
-      !sameSnapshot(purchase, acceptance)
+      client.producerId !== purchase.producerId
     ) {
-      fail("INTEGRITY_ERROR", "Purchase escaped its accepted owner scope");
+      fail("INTEGRITY_ERROR", "Purchase escaped its commercial owner scope");
+    }
+    let provenance: PaymentPurchaseProvenance;
+    if (purchase.sourceKind === "imported_existing_work") {
+      if (
+        acceptance ||
+        !importAttestation ||
+        purchase.acceptedAt !== null ||
+        importAttestation.producerId !== purchase.producerId ||
+        importAttestation.clientContactId !== purchase.clientContactId ||
+        importAttestation.importedAt.getTime() !== purchase.commercialEstablishedAt.getTime() ||
+        !sameSnapshot(purchase, {
+          snapshotDigest: importAttestation.snapshotDigest,
+          snapshot: importAttestation.importedSnapshot,
+        })
+      ) {
+        fail("INTEGRITY_ERROR", "Imported purchase is missing immutable Producer attestation");
+      }
+      provenance = Object.freeze({
+        kind: "producer_import" as const,
+        id: importAttestation.id,
+        importedAt: importAttestation.importedAt,
+        importedSnapshot: importAttestation.importedSnapshot,
+        notice: IMPORTED_EXISTING_WORK_NOTICE,
+      });
+    } else {
+      if (
+        importAttestation ||
+        !acceptance ||
+        purchase.acceptedAt === null ||
+        purchase.acceptedAt.getTime() !== purchase.commercialEstablishedAt.getTime() ||
+        acceptance.producerId !== purchase.producerId ||
+        acceptance.clientContactId !== purchase.clientContactId ||
+        acceptance.acceptedAt.getTime() !== purchase.acceptedAt.getTime() ||
+        !sameSnapshot(purchase, {
+          snapshotDigest: acceptance.snapshotDigest,
+          snapshot: acceptance.acceptedSnapshot,
+        })
+      ) {
+        fail("INTEGRITY_ERROR", "Accepted purchase is missing immutable Artist acceptance");
+      }
+      provenance = Object.freeze({
+        kind: "artist_acceptance" as const,
+        id: acceptance.id,
+        acceptedAt: acceptance.acceptedAt,
+        acceptedSnapshot: acceptance.acceptedSnapshot,
+      });
     }
 
     const purchaseInstallments = [...(installmentsByPurchase.get(purchase.id) ?? [])].sort(
@@ -779,16 +866,12 @@ export function buildPaymentReadModel(
         lifecycleStatus: purchase.lifecycleStatus,
         paymentPlanKind: purchase.paymentPlanKind,
         commercialSnapshot: purchase.commercialSnapshot,
-        acceptance: Object.freeze({
-          id: acceptance.id,
-          acceptedAt: acceptance.acceptedAt,
-          acceptedSnapshot: acceptance.acceptedSnapshot,
-        }),
+        provenance,
         subtotalCents: purchase.subtotalCents,
         taxCents: purchase.taxCents,
         totalCents: purchase.totalCents,
         currency: purchase.currency,
-        acceptedAt: purchase.acceptedAt,
+        commercialEstablishedAt: purchase.commercialEstablishedAt,
         activatedAt: purchase.activatedAt,
         canceledAt: purchase.canceledAt,
         paidCents: ledger.paidCents,
@@ -858,7 +941,10 @@ export function buildPaymentReadModel(
     .map((project): PaymentProjectProjection => {
       const projectPurchases = [...mappedPurchases.values()]
         .filter((purchase) => purchase.projectId === project.id)
-        .sort((left, right) => right.acceptedAt.getTime() - left.acceptedAt.getTime());
+        .sort(
+          (left, right) =>
+            right.commercialEstablishedAt.getTime() - left.commercialEstablishedAt.getTime(),
+        );
       return Object.freeze({
         id: project.id,
         producerId: project.producerId,

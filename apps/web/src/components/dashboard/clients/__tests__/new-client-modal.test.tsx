@@ -148,14 +148,17 @@ describe("NewClientModal", () => {
     expect(SRC).toMatch(/event\.preventDefault\(\)[\s\S]*?onClose\(\)/);
   });
 
-  it("handles the inviteEmailFailed soft case with an info toast", () => {
+  it("keeps failed and in-flight invitation outcomes honest", () => {
     // Action decoupling: when the client row is created but the
     // invite email fails, the action returns ok:true with
-    // inviteEmailFailed:true. The modal must show a softer toast
+    // invitationState:failed. The modal must show a softer toast
     // (info, not success) instead of pretending the email went out.
-    expect(SRC).toMatch(/inviteEmailFailed/);
+    expect(SRC).toMatch(/invitationState === ["']failed["']/);
     expect(SRC).toMatch(/invite email couldn't be sent[\s\S]*?Try again from their page/);
     // The fallback toast is `info`, not `success`.
     expect(SRC).toMatch(/toast\([\s\S]*?invite email could[\s\S]*?["']info["']/);
+    expect(SRC).toMatch(
+      /invitationState === ["']sending["']\)\s*\{\s*toast\([\s\S]*?the invitation email is still sending[\s\S]*?["']info["']\)/,
+    );
   });
 });

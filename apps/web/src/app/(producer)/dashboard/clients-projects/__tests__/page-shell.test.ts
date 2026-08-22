@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
+const LEGACY_NEW_ROUTE = readFileSync(join(here, "..", "new", "page.tsx"), "utf-8");
 
 describe("clients-projects/page.tsx — SK-202 root list", () => {
   it("imports the new WorkspaceListView", () => {
@@ -29,12 +30,16 @@ describe("clients-projects/page.tsx — SK-202 root list", () => {
     expect(SRC).not.toContain("reorderProjectsAction");
   });
 
-  // Phase 1 G7 — page must pass the producer's product list so the
-  // "+ New project" CTA inside WorkspaceListView can drive the modal's
-  // product picker without an extra client-side fetch.
-  it("passes products to the view (NewProjectModal picker source)", () => {
+  it("does not fetch modal-only products for the retired manual project flow", () => {
     expect(SRC).not.toMatch(/products=\{/);
     expect(SRC).not.toContain("booking.products.list");
+  });
+
+  it("does not auto-open manual project creation from query params or the legacy route", () => {
+    expect(SRC).not.toContain("newProject");
+    expect(SRC).not.toContain("initialNewProjectOpen");
+    expect(LEGACY_NEW_ROUTE).toContain('redirect("/dashboard/clients-projects")');
+    expect(LEGACY_NEW_ROUTE).not.toContain("?newProject=1");
   });
 
   it("uses lifecycle status and the fail-closed commercial projection", () => {
@@ -67,6 +72,16 @@ describe("clients-projects/page.tsx — SK-202 root list", () => {
 
   it("fetches the producer's slug via producer.me()", () => {
     expect(SRC).toContain("producer.me");
+  });
+
+  it("maps the server-owned durable invitation state without legacy inference", () => {
+    expect(SRC).toContain("clientInvitationLinkState(c.invitationState)");
+
+    const clientMapping = SRC.slice(
+      SRC.indexOf("const clientRows"),
+      SRC.indexOf("let needsAttention"),
+    );
+    expect(clientMapping).not.toMatch(/linkState:[^,]*(?:clerkUserId|invitedAt)/);
   });
 
   it("does not restore the removed legacy ProjectsList implementation", () => {

@@ -206,7 +206,7 @@ describe("PrivateOfferResponse", () => {
     expect(html).toContain("First payment due at acceptance");
     expect(html).toContain("Triggered by offer acceptance");
     expect(html).toContain("Monthly payment 2");
-    expect(html).toContain("Triggered on a monthly anniversary after acceptance");
+    expect(html).toContain("Triggered on a monthly anniversary after the agreement started");
     expect(html).toContain("$0.05");
     expect(html.match(/\$0\.03/g)).toHaveLength(2);
   });

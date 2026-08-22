@@ -80,7 +80,7 @@ describe("ClientSpaceWorkspace tabs", () => {
     expect(stickyTabs).not.toContain("data-tab-swipe-surface");
     expect(stickyTabs).not.toContain("data-tab-swipe-panel");
 
-    const swipePanel = sourceBetween(WORKSPACE, "data-tab-swipe-panel", "<Sheet");
+    const swipePanel = sourceBetween(WORKSPACE, "data-tab-swipe-panel", "<InviteToAppModal");
     expect(swipePanel).toMatch(/role="tabpanel"/);
     expect(swipePanel).toMatch(/aria-labelledby=\{`client-space-tab-\$\{activeTab\}`\}/);
   });
@@ -114,9 +114,13 @@ describe("ClientSpaceWorkspace compact content contracts", () => {
     );
     expect(WORKSPACE).toMatch(/onPayments=\{\(\) => \{\s*setActiveTab\("payments"\)/);
     expect(WORKSPACE).toMatch(/\.\.\.\(canInvite[\s\S]*?onInvite:/);
+    expect(WORKSPACE).toContain("canOpenClientInvitation(client.linkState)");
     expect(header).toMatch(
-      /client\.linkState === "none"[\s\S]*?onInvite \?[\s\S]*?<LinkPill state="none"[\s\S]*?Not connected/,
+      /<LinkPill[\s\S]*?state=\{client\.linkState\}[\s\S]*?\{\.\.\.\(onInvite \? \{ onInvite \} : \{\}\)\}/,
     );
+    expect(header).toMatch(/client\.linkState === "none" && !onInvite[\s\S]*?Not connected/);
+    expect(WORKSPACE).toContain("Invitation sending");
+    expect(WORKSPACE).toContain("Invitation failed");
     expect(WORKSPACE).toMatch(/if \(due\.length === 0 && needsReviewCount === 0\) return null/);
     expect(WORKSPACE).not.toMatch(/StatTile|HeroGlowOrbs|heroBg\(/);
   });
@@ -148,5 +152,58 @@ describe("ClientSpaceWorkspace compact content contracts", () => {
     expect(details).toMatch(/client\.tags\.map/);
     expect(details).toMatch(/connectionLabel\(client\.linkState\)/);
     expect(details).toMatch(/offers\.offers\.map/);
+  });
+
+  it("keeps manual New project and New offer actions out of Client Space", () => {
+    const header = sourceBetween(
+      WORKSPACE,
+      "function CompactClientHeader",
+      "function ProjectsPanel",
+    );
+
+    expect(header).not.toContain("Add for");
+    expect(WORKSPACE).not.toContain("NewProjectModal");
+    expect(WORKSPACE).not.toContain("PrivateOfferComposer");
+    expect(WORKSPACE).not.toContain("client-add-sheet");
+    expect(WORKSPACE).not.toContain('label="New Offer"');
+    expect(WORKSPACE).not.toContain('label="New Project"');
+    expect(WORKSPACE).toContain(
+      "New work appears here after the artist starts through your Skitza link.",
+    );
+  });
+});
+
+describe("ClientSpaceWorkspace resend invitation evidence", () => {
+  it("keeps one operation key for ordinary and in-flight retries", () => {
+    expect(WORKSPACE).toMatch(/const resendAttemptRef = useRef<\{/);
+    expect(WORKSPACE).toMatch(
+      /operationKey = `client-invite:\$\{client\.id\}:\$\{crypto\.randomUUID\(\)\}`/,
+    );
+    expect(WORKSPACE).toMatch(/resendAttemptRef\.current = \{[\s\S]*?operationKey,/);
+    expect(WORKSPACE).toMatch(
+      /sendClientInviteAction\(\{\s*id: client\.id,\s*via: "email",\s*operationKey,\s*\}\)/,
+    );
+    expect(WORKSPACE).toMatch(
+      /result\.data\.deliveryState !== "provider_accepted"[\s\S]*?invitation email is still sending/,
+    );
+    expect(WORKSPACE).toContain("Check send status");
+  });
+
+  it("rotates only after a conflict and only on the next deliberate resend", () => {
+    expect(WORKSPACE).toMatch(
+      /result\.code === "new_operation_required"[\s\S]*?rotateOnNextClick = true/,
+    );
+    expect(WORKSPACE).toContain("Try a new send");
+    expect(WORKSPACE).toMatch(/currentAttempt\.rotateOnNextClick[\s\S]*?crypto\.randomUUID\(\)/);
+    expect(WORKSPACE).not.toMatch(/rotateOnNextClick = true[\s\S]{0,300}sendClientInviteAction/);
+  });
+
+  it("shows sent success only with provider acceptance evidence", () => {
+    expect(WORKSPACE).toMatch(
+      /result\.data\.deliveryState !== "provider_accepted"\s*\|\|\s*!result\.data\.providerAcceptedAtIso/,
+    );
+    expect(WORKSPACE).toMatch(
+      /resendAttemptRef\.current = null;[\s\S]{0,120}toast\("Invitation email sent again", "success"\)/,
+    );
   });
 });

@@ -658,8 +658,8 @@ export function ProducerPaymentWorkspace({
   const [currency, setCurrency] = useState("all");
   const [projectId, setProjectId] = useState("all");
   const [counterpartyId, setCounterpartyId] = useState("all");
-  const [acceptedFrom, setAcceptedFrom] = useState("");
-  const [acceptedTo, setAcceptedTo] = useState("");
+  const [establishedFrom, setEstablishedFrom] = useState("");
+  const [establishedTo, setEstablishedTo] = useState("");
   const [advancedFiltersExpanded, setAdvancedFiltersExpanded] = useState(false);
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -689,7 +689,7 @@ export function ProducerPaymentWorkspace({
       .sort((left, right) => left.label.localeCompare(right.label));
   }, [allRows]);
 
-  const dateRangeValid = isPaymentWorkspaceDateRangeValid(acceptedFrom, acceptedTo);
+  const dateRangeValid = isPaymentWorkspaceDateRangeValid(establishedFrom, establishedTo);
   const scopeFilteredRows = useMemo(
     () =>
       filterPaymentWorkspaceRows(allRows, {
@@ -698,10 +698,10 @@ export function ProducerPaymentWorkspace({
         currency,
         projectId,
         counterpartyId,
-        acceptedFrom,
-        acceptedTo,
+        establishedFrom,
+        establishedTo,
       }),
-    [acceptedFrom, acceptedTo, allRows, counterpartyId, currency, projectId, search.value],
+    [establishedFrom, establishedTo, allRows, counterpartyId, currency, projectId, search.value],
   );
   const scopeSummary = useMemo(
     () => summarizePaymentWorkspaceRows(scopeFilteredRows),
@@ -718,10 +718,19 @@ export function ProducerPaymentWorkspace({
         currency,
         projectId,
         counterpartyId,
-        acceptedFrom,
-        acceptedTo,
+        establishedFrom,
+        establishedTo,
       }),
-    [acceptedFrom, acceptedTo, allRows, counterpartyId, currency, projectId, search.value, view],
+    [
+      establishedFrom,
+      establishedTo,
+      allRows,
+      counterpartyId,
+      currency,
+      projectId,
+      search.value,
+      view,
+    ],
   );
   const actionRows = useMemo(
     () => (scope === "global" ? filteredRows.filter((row) => row.bucketId === "needs_review") : []),
@@ -744,8 +753,8 @@ export function ProducerPaymentWorkspace({
             currency,
             projectId,
             counterpartyId: "all",
-            acceptedFrom: "",
-            acceptedTo: "",
+            establishedFrom: "",
+            establishedTo: "",
           })
         : [],
     [allRows, clientTabPresentation, currency, projectId, search.value],
@@ -763,8 +772,8 @@ export function ProducerPaymentWorkspace({
     currency !== "all" ||
     projectId !== "all" ||
     counterpartyId !== "all" ||
-    acceptedFrom.length > 0 ||
-    acceptedTo.length > 0;
+    establishedFrom.length > 0 ||
+    establishedTo.length > 0;
   const emptyDefaultView = !filtersChanged && filteredRows.length === 0;
   const tableCaption =
     scope === "client"
@@ -777,8 +786,8 @@ export function ProducerPaymentWorkspace({
     setCurrency("all");
     setProjectId("all");
     setCounterpartyId("all");
-    setAcceptedFrom("");
-    setAcceptedTo("");
+    setEstablishedFrom("");
+    setEstablishedTo("");
     setAdvancedFiltersExpanded(false);
     setExpandedPurchaseId(null);
     setHistoryExpanded(false);
@@ -901,31 +910,31 @@ export function ProducerPaymentWorkspace({
               </label>
 
               <label className="min-w-0 text-[10px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                Accepted from
+                Agreement from
                 <input
                   type="date"
-                  value={acceptedFrom}
-                  max={acceptedTo || undefined}
+                  value={establishedFrom}
+                  max={establishedTo || undefined}
                   onChange={(event) => {
-                    setAcceptedFrom(event.target.value);
+                    setEstablishedFrom(event.target.value);
                     setExpandedPurchaseId(null);
                   }}
-                  aria-label="Accepted from"
+                  aria-label="Agreement from"
                   className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
                 />
               </label>
 
               <label className="min-w-0 text-[10px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                Accepted to
+                Agreement to
                 <input
                   type="date"
-                  value={acceptedTo}
-                  min={acceptedFrom || undefined}
+                  value={establishedTo}
+                  min={establishedFrom || undefined}
                   onChange={(event) => {
-                    setAcceptedTo(event.target.value);
+                    setEstablishedTo(event.target.value);
                     setExpandedPurchaseId(null);
                   }}
-                  aria-label="Accepted to"
+                  aria-label="Agreement to"
                   className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
                 />
               </label>
@@ -1049,11 +1058,11 @@ export function ProducerPaymentWorkspace({
           className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-9 text-center"
         >
           <p className="text-[14px] font-extrabold text-[rgb(var(--fg-default))]">
-            No accepted purchases yet
+            No agreements yet
           </p>
           <p className="mx-auto mt-1 max-w-[46ch] text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            Accepted purchases{clientLabel ? ` for ${clientLabel}` : ""} will appear here with their
-            payment schedule and current balance.
+            Agreements{clientLabel ? ` for ${clientLabel}` : ""} will appear here with their payment
+            schedule and current balance.
           </p>
         </div>
       ) : !dateRangeValid ? null : filteredRows.length === 0 ? (

@@ -10,6 +10,7 @@ import {
   projectPaymentPauseEvents,
   projects,
   purchaseAcceptances,
+  purchaseImportAttestations,
   purchaseCancellations,
   purchaseDownloadOverrideEvents,
   purchaseInstallments,
@@ -169,6 +170,7 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
                     totalCents: purchases.totalCents,
                     currency: purchases.currency,
                     acceptedAt: purchases.acceptedAt,
+                    commercialEstablishedAt: purchases.commercialEstablishedAt,
                     activatedAt: purchases.activatedAt,
                     canceledAt: purchases.canceledAt,
                     createdAt: purchases.createdAt,
@@ -200,6 +202,7 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
                     totalCents: purchases.totalCents,
                     currency: purchases.currency,
                     acceptedAt: purchases.acceptedAt,
+                    commercialEstablishedAt: purchases.commercialEstablishedAt,
                     activatedAt: purchases.activatedAt,
                     canceledAt: purchases.canceledAt,
                     createdAt: purchases.createdAt,
@@ -222,6 +225,7 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
               projects: projectRows,
               purchases: [],
               acceptances: [],
+              importAttestations: [],
               installments: [],
               payments: [],
               corrections: [],
@@ -243,6 +247,7 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
 
           const [
             acceptanceRows,
+            importAttestationRows,
             installmentRows,
             paymentRows,
             correctionRows,
@@ -265,6 +270,23 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
               .from(purchaseAcceptances)
               .where(
                 producerBoundary(purchaseAcceptances.producerId, purchaseAcceptances.purchaseId),
+              ),
+            tx
+              .select({
+                id: purchaseImportAttestations.id,
+                purchaseId: purchaseImportAttestations.purchaseId,
+                producerId: purchaseImportAttestations.producerId,
+                clientContactId: purchaseImportAttestations.clientContactId,
+                importedSnapshot: purchaseImportAttestations.importedSnapshot,
+                snapshotDigest: purchaseImportAttestations.snapshotDigest,
+                importedAt: purchaseImportAttestations.importedAt,
+              })
+              .from(purchaseImportAttestations)
+              .where(
+                producerBoundary(
+                  purchaseImportAttestations.producerId,
+                  purchaseImportAttestations.purchaseId,
+                ),
               ),
             tx
               .select({
@@ -422,6 +444,7 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
             projects: projectRows,
             purchases: purchaseRows,
             acceptances: acceptanceRows,
+            importAttestations: importAttestationRows,
             installments: installmentRows,
             payments: paymentRows,
             corrections: correctionRows,

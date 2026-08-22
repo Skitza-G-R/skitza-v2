@@ -1,6 +1,16 @@
 "use client";
 
-import { FolderKanban, Plus, Search, Users, X } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Copy,
+  FolderInput,
+  FolderKanban,
+  Search,
+  Users,
+  X,
+} from "lucide-react";
+import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
@@ -10,11 +20,11 @@ import { ClientCompactRow } from "~/components/dashboard/clients/client-compact-
 import { EditClientModal } from "~/components/dashboard/clients/edit-client-modal";
 import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
 import { MobileClientRow } from "~/components/dashboard/clients/mobile-client-row";
-import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
-import { NewProjectModal } from "~/components/dashboard/clients/new-project-modal";
+import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { buildJoinUrl } from "~/lib/share/public-url";
 
 import { ClientsTableHeader } from "./clients-table-header";
 import { ProducerProjectsList, type ProjectListView } from "./producer-projects-list";
@@ -65,7 +75,6 @@ export interface WorkspaceListViewProps {
   projects: ProjectRowData[];
   clients: ClientCardData[];
   producerSlug: string;
-  initialNewProjectOpen?: boolean;
 }
 
 const HEADER_CTA_CLASS =
@@ -77,18 +86,11 @@ function isoMs(value: string | null | undefined): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-export function WorkspaceListView({
-  projects,
-  clients,
-  producerSlug,
-  initialNewProjectOpen = false,
-}: WorkspaceListViewProps) {
+export function WorkspaceListView({ projects, clients, producerSlug }: WorkspaceListViewProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const initialUrlState = parseWorkspaceUrlState(searchParams.toString());
-  const [tab, setTab] = useState<Tab>(
-    initialNewProjectOpen && !searchParams.has("tab") ? "projects" : initialUrlState.tab,
-  );
+  const [tab, setTab] = useState<Tab>(initialUrlState.tab);
   const [projectView, setProjectView] = useState<ProjectListView>(initialUrlState.projectView);
   const [projectSort, setProjectSort] = useState<ProjectListSort>(initialUrlState.projectSort);
   const [clientFilter, setClientFilter] = useState<ClientFilter>(initialUrlState.clientFilter);
@@ -98,9 +100,7 @@ export function WorkspaceListView({
 
   useEffect(() => {
     const next = parseWorkspaceUrlState(searchParams.toString());
-    setTab(
-      searchParams.get("newProject") === "1" && !searchParams.has("tab") ? "projects" : next.tab,
-    );
+    setTab(next.tab);
     setProjectView(next.projectView);
     setProjectSort(next.projectSort);
     setClientFilter(next.clientFilter);
@@ -202,9 +202,35 @@ export function WorkspaceListView({
   const [inviteTarget, setInviteTarget] = useState<ClientCardData | null>(null);
   const [editTarget, setEditTarget] = useState<ClientCardData | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<ClientCardData | null>(null);
-  const [newClientOpen, setNewClientOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(initialNewProjectOpen);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clientActionReturnFocusRef = useRef<HTMLElement | null>(null);
+  const skitzaLink = producerSlug ? buildJoinUrl(producerSlug) : null;
+
+  useEffect(
+    () => () => {
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    },
+    [],
+  );
+
+  async function copySkitzaLink() {
+    if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    const clipboard = (navigator as { clipboard?: Clipboard }).clipboard;
+    const writeText = clipboard ? clipboard.writeText.bind(clipboard) : undefined;
+    const copied = skitzaLink ? await copyPublicLink(skitzaLink, writeText) : false;
+
+    setCopyState(copied ? "copied" : "error");
+    copyResetRef.current = setTimeout(
+      () => {
+        setCopyState("idle");
+      },
+      copied ? 1800 : 2800,
+    );
+  }
+
+  const linkCopied = copyState === "copied";
+  const linkCopyFailed = copyState === "error";
 
   return (
     <div className="flex min-w-0 flex-col gap-4 sm:gap-5">
@@ -220,21 +246,55 @@ export function WorkspaceListView({
             {tab === "projects" ? "Projects" : "Clients"}
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (tab === "projects") setNewProjectOpen(true);
-            else setNewClientOpen(true);
-          }}
-          className={HEADER_CTA_CLASS}
-          style={{
-            background: "rgb(var(--brand-primary))",
-            color: "rgb(var(--bg-sidebar))",
-          }}
-        >
-          <Plus size={15} strokeWidth={2.4} aria-hidden />
-          {tab === "projects" ? "New project" : "New client"}
-        </button>
+        <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-[auto_auto] sm:items-center">
+          <button
+            type="button"
+            disabled={!skitzaLink}
+            onClick={() => {
+              void copySkitzaLink();
+            }}
+            aria-live="polite"
+            aria-label={
+              !skitzaLink
+                ? "Your Skitza link is unavailable. Refresh this page to try again."
+                : linkCopyFailed
+                  ? "Copy failed. Try copying your Skitza link again."
+                  : undefined
+            }
+            className={`${HEADER_CTA_CLASS} w-full border disabled:cursor-not-allowed disabled:opacity-55 sm:w-auto ${
+              linkCopyFailed
+                ? "border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.08)] text-[rgb(var(--fg-danger-text))] shadow-none"
+                : "border-transparent bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
+            }`}
+          >
+            {linkCopied ? (
+              <Check size={15} strokeWidth={2.5} aria-hidden />
+            ) : linkCopyFailed || !skitzaLink ? (
+              <CircleAlert size={15} strokeWidth={2.3} aria-hidden />
+            ) : (
+              <Copy size={15} strokeWidth={2.3} aria-hidden />
+            )}
+            {!skitzaLink
+              ? "Link unavailable"
+              : linkCopied
+                ? "Copied"
+                : linkCopyFailed
+                  ? "Try copy again"
+                  : "Copy my Skitza link"}
+          </button>
+          <Link
+            href="/dashboard/clients-projects/bring-active-work"
+            className="sk-press inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-[border-color,background-color,transform] hover:border-[rgb(var(--brand-primary)/0.65)] hover:bg-[rgb(var(--brand-primary)/0.055)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:w-auto"
+          >
+            <FolderInput size={15} strokeWidth={2.2} aria-hidden />
+            Bring in active work
+          </Link>
+        </div>
+        {linkCopyFailed ? (
+          <span role="alert" className="sr-only">
+            Your Skitza link could not be copied. Try again.
+          </span>
+        ) : null}
       </header>
 
       <div
@@ -291,9 +351,6 @@ export function WorkspaceListView({
               onViewChange={updateProjectView}
               onSortChange={updateProjectSort}
               onSearchChange={updateSearch}
-              onNewProject={() => {
-                setNewProjectOpen(true);
-              }}
             />
           ) : (
             <section aria-label="Clients" className="min-w-0">
@@ -373,9 +430,6 @@ export function WorkspaceListView({
                   onClearSearch={() => {
                     updateSearch("");
                   }}
-                  onAddClient={() => {
-                    setNewClientOpen(true);
-                  }}
                   onViewActive={() => {
                     updateClientFilter("active");
                   }}
@@ -438,6 +492,7 @@ export function WorkspaceListView({
             gradient: producerGradient(inviteTarget.name),
           }}
           producerSlug={producerSlug}
+          invitationState={inviteTarget.linkState}
         />
       ) : null}
 
@@ -474,33 +529,6 @@ export function WorkspaceListView({
           returnFocusRef={clientActionReturnFocusRef}
         />
       ) : null}
-
-      <NewClientModal
-        open={newClientOpen}
-        onClose={() => {
-          setNewClientOpen(false);
-        }}
-        onCreated={() => {
-          setNewClientOpen(false);
-        }}
-      />
-
-      <NewProjectModal
-        open={newProjectOpen}
-        onClose={() => {
-          setNewProjectOpen(false);
-        }}
-        clients={clients
-          .filter((client) => !client.archived && client.email !== null && client.email !== "")
-          .map((client) => ({
-            id: client.id,
-            name: client.name,
-            email: client.email ?? "",
-          }))}
-        onCreated={() => {
-          setNewProjectOpen(false);
-        }}
-      />
     </div>
   );
 }
@@ -509,13 +537,11 @@ function ClientEmptyState({
   archived,
   hasSearch,
   onClearSearch,
-  onAddClient,
   onViewActive,
 }: {
   archived: boolean;
   hasSearch: boolean;
   onClearSearch: () => void;
-  onAddClient: () => void;
   onViewActive: () => void;
 }) {
   const title = hasSearch
@@ -533,6 +559,11 @@ function ClientEmptyState({
       <h2 className="font-syne mt-3 text-[18px] font-bold text-[rgb(var(--fg-default))]">
         {title}
       </h2>
+      {!hasSearch && !archived ? (
+        <p className="mx-auto mt-2 max-w-sm text-[13px] leading-5 text-[rgb(var(--fg-muted))]">
+          Share your Skitza link to welcome your first client.
+        </p>
+      ) : null}
       {hasSearch ? (
         <button
           type="button"
@@ -549,16 +580,7 @@ function ClientEmptyState({
         >
           View active clients
         </button>
-      ) : (
-        <button
-          type="button"
-          onClick={onAddClient}
-          className="mt-5 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))]"
-        >
-          <Plus size={14} aria-hidden />
-          New client
-        </button>
-      )}
+      ) : null}
     </div>
   );
 }

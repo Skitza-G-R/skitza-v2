@@ -119,6 +119,7 @@ const {
     referralSource: column("client_contacts.referral_source"),
     invitedAt: column("client_contacts.invited_at"),
     clerkUserId: column("client_contacts.clerk_user_id"),
+    archivedAt: column("client_contacts.archived_at"),
     position: column("client_contacts.position"),
   };
 
@@ -448,6 +449,11 @@ vi.mock("@skitza/db", () => ({
 vi.mock("~/server/domain/client-management/db", () => ({
   clientManagementRepository: vi.fn(),
 }));
+vi.mock("~/server/domain/client-invitations/db", () => ({
+  clientInvitationDeliveryRepository: vi.fn(),
+  loadCurrentClientInvitationStates: vi.fn(() => Promise.resolve(new Map())),
+  reserveClientInvitationEmail: vi.fn(),
+}));
 vi.mock("~/server/domain/client-management/service", () => ({
   archiveClient: vi.fn(),
   editClient: vi.fn(),
@@ -566,7 +572,9 @@ describe("clientContacts.listWithProjects workspace runtime", () => {
             tags: ["album"],
             notes: "Representative owned client",
             producerArchivedAt: null,
-            invitedAt: new Date("2026-06-04T08:00:00.000Z"),
+            invitedAt: null,
+            providerAcceptedAt: null,
+            invitationState: "connected",
             clerkUserId: "clerk_owned_artist",
           },
         },
@@ -598,6 +606,8 @@ describe("clientContacts.listWithProjects workspace runtime", () => {
             notes: null,
             producerArchivedAt: null,
             invitedAt: null,
+            providerAcceptedAt: null,
+            invitationState: "available",
             clerkUserId: null,
           },
         },
@@ -614,7 +624,9 @@ describe("clientContacts.listWithProjects workspace runtime", () => {
           phone: "+1 555 0145",
           referralSource: "referral",
           producerArchivedAt: null,
-          invitedAt: new Date("2026-06-04T08:00:00.000Z"),
+          invitedAt: null,
+          providerAcceptedAt: null,
+          invitationState: "connected",
           clerkUserId: "clerk_owned_artist",
           activeProjectCount: 1,
           archiveBlockingProjectCount: 1,
@@ -637,6 +649,8 @@ describe("clientContacts.listWithProjects workspace runtime", () => {
           referralSource: null,
           producerArchivedAt: null,
           invitedAt: null,
+          providerAcceptedAt: null,
+          invitationState: "available",
           clerkUserId: null,
           activeProjectCount: 1,
           archiveBlockingProjectCount: 1,

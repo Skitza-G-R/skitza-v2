@@ -43,6 +43,7 @@ function fixtureRecord(index: number): ProducerPaymentRecord {
     purchaseTitle: index % 2 === 0 ? "Single production" : "Mix and master",
     purchaseReference: `SK-183-${String(index + 1).padStart(3, "0")}`,
     purchaseLifecycleStatus: "active",
+    isImportedExistingWork: false,
     currency,
     totalCents: 120_000 + index * 11_700,
     paidCents: completed ? 120_000 + index * 11_700 : 72_000,

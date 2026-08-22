@@ -130,8 +130,14 @@ describe("private proof object finalization metadata", () => {
     ).toThrow(ProofStorageError);
   });
 
-  it("creates the immutable final object with a destination precondition", async () => {
+  it("keeps the Artist upload-token path unchanged through the neutral storage descriptor", async () => {
     const fixture = proofFixture();
+    expect(fixture.payload).toMatchObject({
+      kind: "proof_upload",
+      purchaseId: "purchase-1",
+      installmentId: "installment-1",
+      viewerClerkUserId: "artist-1",
+    });
     const storage = new FakeProofStorage();
     storage.objects.set(fixture.stagingKey, {
       body: PDF_BYTES,

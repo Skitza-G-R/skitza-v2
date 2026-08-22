@@ -86,15 +86,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const actions: Action[] = useMemo(
     () => [
       {
-        id: "new-project",
-        label: "New project",
-        shortcut: "N",
-        run: () => {
-          onClose();
-          router.push("/dashboard/clients-projects?newProject=1");
-        },
-      },
-      {
         id: "goto-today",
         label: "Go to Overview",
         shortcut: "G H",

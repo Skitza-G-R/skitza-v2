@@ -9,7 +9,6 @@ import {
   Mail,
   NotebookPen,
   Phone,
-  Plus,
   Send,
   Tag,
   UserRoundCheck,
@@ -29,14 +28,9 @@ import {
   loadClientPrivateOffersAction,
   type ClientPrivateOfferSummary,
 } from "~/app/(producer)/dashboard/store/private-offer-actions";
-import {
-  PrivateOfferComposer,
-  type PrivateOfferComposerRecipient,
-  type PrivateOfferCurrency,
-} from "~/components/dashboard/offers/private-offer-composer";
+import type { PrivateOfferCurrency } from "~/components/dashboard/offers/private-offer-composer";
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { useToast } from "~/components/ui/toast";
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { formatMoney } from "~/lib/format/money";
@@ -45,6 +39,7 @@ import type { TaxMode } from "~/lib/tax-mode";
 
 import { ClientActionsMenu } from "./client-actions-menu";
 import { ClientArchiveConfirmModal } from "./client-archive-confirm-modal";
+import { canOpenClientInvitation } from "./client-invitation-state";
 import type { ClientPaymentsData } from "./client-payments-data";
 import { ClientPaymentsPanel } from "./client-payments-panel";
 import {
@@ -56,7 +51,6 @@ import type { ClientSpaceTab } from "./client-space-tabs";
 import { EditClientModal } from "./edit-client-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
-import { NewProjectModal } from "./new-project-modal";
 import { RemoveClientConfirmModal } from "./remove-client-confirm-modal";
 
 const CLIENT_SPACE_TABS: readonly ClientSpaceTab[] = ["projects", "payments", "details"];
@@ -133,29 +127,31 @@ export function ClientSpaceWorkspace({
   projects,
   payments,
   producerSlug,
-  offerConfig,
   initialTab = "projects",
 }: ClientSpaceWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<ClientSpaceTab>(initialTab);
   const [showArchived, setShowArchived] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [newOfferOpen, setNewOfferOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [offerHistory, setOfferHistory] = useState<OfferHistoryState>(EMPTY_OFFER_HISTORY);
   const [offerReload, setOfferReload] = useState(0);
-  const addButtonRef = useRef<HTMLButtonElement>(null);
   const actionReturnFocusRef = useRef<HTMLElement | null>(null);
-  const launchingAddActionRef = useRef(false);
   const offerHistoryClientIdRef = useRef(client.id);
   const offerRequestKeyRef = useRef<string | null>(null);
   const offerRequestGenerationRef = useRef(0);
   const online = useOnlineStatus();
   const { toast } = useToast();
   const [resendPending, startResendTransition] = useTransition();
+  const [resendState, setResendState] = useState<"idle" | "sending" | "new_operation_required">(
+    "idle",
+  );
+  const resendAttemptRef = useRef<{
+    clientId: string;
+    operationKey: string;
+    rotateOnNextClick: boolean;
+  } | null>(null);
   const tabSwipeHandlers = useTabSwipe({
     items: CLIENT_SPACE_TABS,
     value: activeTab,
@@ -171,31 +167,9 @@ export function ClientSpaceWorkspace({
     [projects],
   );
   const visibleProjects = showArchived ? archivedProjects : activeProjects;
-  const canCreateWork = !client.archived && Boolean(client.email);
-  const canCreateOffer = canCreateWork && offerConfig !== null;
-  const canInvite = client.linkState === "none" && producerSlug.length > 0;
+  const canInvite = canOpenClientInvitation(client.linkState) && producerSlug.length > 0;
   const visibleOfferHistory =
     offerHistoryClientIdRef.current === client.id ? offerHistory : EMPTY_OFFER_HISTORY;
-  const offerRecipients = useMemo<PrivateOfferComposerRecipient[]>(
-    () =>
-      client.email
-        ? [
-            {
-              id: client.id,
-              name: client.name,
-              email: client.email,
-              projects: projects
-                .filter(
-                  (project) =>
-                    project.lifecycleStatus === "waiting_for_payment" ||
-                    project.lifecycleStatus === "active",
-                )
-                .map((project) => ({ id: project.id, title: project.title })),
-            },
-          ]
-        : [],
-    [client.email, client.id, client.name, projects],
-  );
 
   useEffect(() => {
     const clientChanged = offerHistoryClientIdRef.current !== client.id;
@@ -268,33 +242,58 @@ export function ClientSpaceWorkspace({
     }
   }
 
-  function launchAddAction(action: "project" | "offer") {
-    actionReturnFocusRef.current = addButtonRef.current;
-    launchingAddActionRef.current = true;
-    setAddOpen(false);
-    window.setTimeout(() => {
-      if (action === "project") {
-        setNewProjectOpen(true);
-      } else {
-        setNewOfferOpen(true);
-      }
-    }, 0);
-  }
-
   function resendInvite() {
     if (!online) {
       toast("Reconnect to resend this invite.", "error");
       return;
     }
+    const currentAttempt = resendAttemptRef.current;
+    let operationKey = currentAttempt?.operationKey;
+    if (
+      !currentAttempt ||
+      currentAttempt.clientId !== client.id ||
+      currentAttempt.rotateOnNextClick
+    ) {
+      operationKey = `client-invite:${client.id}:${crypto.randomUUID()}`;
+      resendAttemptRef.current = {
+        clientId: client.id,
+        operationKey,
+        rotateOnNextClick: false,
+      };
+    }
+    if (!operationKey) return;
+    setResendState("idle");
     startResendTransition(async () => {
       try {
-        const result = await sendClientInviteAction({ id: client.id, via: "email" });
+        const result = await sendClientInviteAction({
+          id: client.id,
+          via: "email",
+          operationKey,
+        });
         if (!result.ok) {
+          if (result.code === "new_operation_required") {
+            if (resendAttemptRef.current?.operationKey === operationKey) {
+              resendAttemptRef.current.rotateOnNextClick = true;
+            }
+            setResendState("new_operation_required");
+          }
           toast(result.error, "error");
           return;
         }
-        toast("Invite re-sent", "success");
+        if (
+          result.data.via !== "email" ||
+          result.data.deliveryState !== "provider_accepted" ||
+          !result.data.providerAcceptedAtIso
+        ) {
+          setResendState("sending");
+          toast("The invitation email is still sending. Try again in a moment.", "info");
+          return;
+        }
+        resendAttemptRef.current = null;
+        setResendState("idle");
+        toast("Invitation email sent again", "success");
       } catch {
+        setResendState("idle");
         toast("Could not resend this invite. Try again.", "error");
       }
     });
@@ -311,6 +310,7 @@ export function ClientSpaceWorkspace({
         client={client}
         attentionCopy={attentionCopy}
         resendPending={resendPending}
+        resendState={resendState}
         onResend={resendInvite}
         {...(canInvite
           ? {
@@ -323,11 +323,6 @@ export function ClientSpaceWorkspace({
         onPayments={() => {
           setActiveTab("payments");
         }}
-        onAdd={() => {
-          actionReturnFocusRef.current = addButtonRef.current;
-          setAddOpen(true);
-        }}
-        addButtonRef={addButtonRef}
         onEdit={() => {
           setEditOpen(true);
         }}
@@ -431,82 +426,6 @@ export function ClientSpaceWorkspace({
         </div>
       </div>
 
-      <Sheet
-        open={addOpen}
-        onOpenChange={(open) => {
-          setAddOpen(open);
-        }}
-      >
-        <SheetContent
-          side="bottom"
-          data-testid="client-add-sheet"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            if (launchingAddActionRef.current) {
-              launchingAddActionRef.current = false;
-              return;
-            }
-            addButtonRef.current?.focus();
-          }}
-          className="gap-2 sm:right-6 sm:bottom-6 sm:left-auto sm:w-[360px] sm:rounded-[var(--radius-xl)]"
-        >
-          <SheetTitle>Add for {client.name}</SheetTitle>
-          <SheetDescription>Create new work without leaving this client space.</SheetDescription>
-          <div role="group" aria-label={`Add for ${client.name}`} className="mt-2 grid gap-2">
-            <AddActionButton
-              icon={FolderKanban}
-              label="New Project"
-              detail={addDisabledReason(client, offerConfig, "project")}
-              disabled={!canCreateWork}
-              onClick={() => {
-                launchAddAction("project");
-              }}
-            />
-            <AddActionButton
-              icon={Send}
-              label="New Offer"
-              detail={addDisabledReason(client, offerConfig, "offer")}
-              disabled={!canCreateOffer}
-              onClick={() => {
-                launchAddAction("offer");
-              }}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <NewProjectModal
-        open={newProjectOpen}
-        onClose={() => {
-          setNewProjectOpen(false);
-        }}
-        clients={[]}
-        lockedClient={{
-          id: client.id,
-          name: client.name,
-          email: client.email ?? "",
-        }}
-        onCreated={() => {
-          setNewProjectOpen(false);
-        }}
-        returnFocusRef={actionReturnFocusRef}
-      />
-
-      {offerConfig && client.email ? (
-        <PrivateOfferComposer
-          recipients={offerRecipients}
-          lockedClientId={client.id}
-          defaultCurrency={offerConfig.defaultCurrency}
-          taxMode={offerConfig.taxMode}
-          taxRatePct={offerConfig.taxRatePct}
-          open={newOfferOpen}
-          onOpenChange={setNewOfferOpen}
-          onCreated={refreshOfferHistory}
-          trigger={null}
-          returnFocusRef={actionReturnFocusRef}
-        />
-      ) : null}
-
       {canInvite ? (
         <InviteToAppModal
           open={inviteOpen}
@@ -520,6 +439,7 @@ export function ClientSpaceWorkspace({
             gradient: producerGradient(client.name),
           }}
           producerSlug={producerSlug}
+          invitationState={client.linkState}
           returnFocusRef={actionReturnFocusRef}
         />
       ) : null}
@@ -568,11 +488,10 @@ function CompactClientHeader({
   client,
   attentionCopy,
   resendPending,
+  resendState,
   onResend,
   onInvite,
   onPayments,
-  onAdd,
-  addButtonRef,
   onEdit,
   onArchive,
   onDelete,
@@ -581,11 +500,10 @@ function CompactClientHeader({
   client: ClientSpaceClientData;
   attentionCopy: string | null;
   resendPending: boolean;
+  resendState: "idle" | "sending" | "new_operation_required";
   onResend: () => void;
   onInvite?: (() => void) | undefined;
   onPayments: () => void;
-  onAdd: () => void;
-  addButtonRef: RefObject<HTMLButtonElement | null>;
   onEdit: () => void;
   onArchive: () => void;
   onDelete?: (() => void) | undefined;
@@ -611,20 +529,13 @@ function CompactClientHeader({
             <h1 className="font-display min-w-0 truncate text-[24px] leading-tight font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))] sm:text-[28px]">
               {client.name}
             </h1>
-            {client.linkState === "none" ? (
-              onInvite ? (
-                <LinkPill state="none" onInvite={onInvite} />
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-[10px] font-bold tracking-[0.09em] text-[rgb(var(--fg-muted))] uppercase">
-                  <span
-                    aria-hidden
-                    className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--fg-muted))]"
-                  />
-                  Not connected
-                </span>
-              )
+            {client.linkState === "none" && !onInvite ? (
+              <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-[10px] font-bold tracking-[0.09em] text-[rgb(var(--fg-muted))] uppercase">
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--fg-muted))]" />
+                Not connected
+              </span>
             ) : (
-              <LinkPill state={client.linkState} />
+              <LinkPill state={client.linkState} {...(onInvite ? { onInvite } : {})} />
             )}
             {client.archived ? (
               <span className="rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2 py-1 text-[10px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
@@ -648,21 +559,18 @@ function CompactClientHeader({
                 disabled={resendPending}
                 className="min-h-11 font-semibold text-[rgb(var(--brand-primary-text))] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50 sm:min-h-0"
               >
-                {resendPending ? "Resending…" : "Resend invite"}
+                {resendPending
+                  ? "Sending…"
+                  : resendState === "new_operation_required"
+                    ? "Try a new send"
+                    : resendState === "sending"
+                      ? "Check send status"
+                      : "Resend invite email"}
               </button>
             ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            ref={addButtonRef}
-            type="button"
-            aria-label={`Add for ${client.name}`}
-            onClick={onAdd}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-sm focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-          >
-            <Plus size={18} strokeWidth={2.4} aria-hidden />
-          </button>
           <ClientActionsMenu
             name={client.name}
             archived={client.archived}
@@ -758,7 +666,7 @@ function ProjectsPanel({
           <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
             {showArchived
               ? "Completed and canceled projects will stay available here."
-              : "Use the + action above to create this client’s first project."}
+              : "New work appears here after the artist starts through your Skitza link."}
           </p>
         </div>
       ) : (
@@ -1017,41 +925,6 @@ function DetailValue({
   );
 }
 
-function AddActionButton({
-  icon: Icon,
-  label,
-  detail,
-  disabled,
-  onClick,
-}: {
-  icon: typeof FolderKanban;
-  label: string;
-  detail: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="sk-press flex min-h-[60px] w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]">
-        <Icon size={17} aria-hidden />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[13px] font-extrabold text-[rgb(var(--fg-default))]">
-          {label}
-        </span>
-        <span className="mt-0.5 block text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
-          {detail}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 function paymentAttentionCopy(
   totals: readonly ClientSpacePaymentTotal[],
   needsReviewCount: number,
@@ -1075,22 +948,11 @@ function paymentAttentionCopy(
   return proofCopy;
 }
 
-function addDisabledReason(
-  client: ClientSpaceClientData,
-  offerConfig: ClientSpaceOfferConfig | null,
-  action: "project" | "offer",
-): string {
-  if (client.archived) return "Restore this client before creating new work.";
-  if (!client.email) return "Add an email before creating new work.";
-  if (action === "offer" && !offerConfig) return "Producer offer settings are unavailable.";
-  return action === "project"
-    ? "Create a project connected to this client."
-    : "Send private terms to this client.";
-}
-
 function connectionLabel(state: LinkPillState): string {
-  if (state === "active") return "Linked to the artist app";
-  if (state === "pending") return "Invitation pending";
+  if (state === "active") return "Connected to the artist app";
+  if (state === "pending") return "Invited";
+  if (state === "sending") return "Invitation sending";
+  if (state === "failed") return "Invitation failed";
   return "Not connected";
 }
 
@@ -1099,7 +961,13 @@ function connectionDetail(state: LinkPillState): string {
     return "This client has an active artist account connected to this producer.";
   }
   if (state === "pending") {
-    return "An invitation was sent and is waiting for the client to sign in.";
+    return "The email provider accepted the invitation. The client has not connected yet.";
+  }
+  if (state === "sending") {
+    return "The invitation email is still sending. Choose Check status to see the latest result.";
+  }
+  if (state === "failed") {
+    return "The last invitation email failed. Choose Retry to try again.";
   }
   return "Invite this client from the connection control in the header.";
 }

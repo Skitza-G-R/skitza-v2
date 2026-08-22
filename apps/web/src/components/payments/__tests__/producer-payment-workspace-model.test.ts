@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  PaymentHistoryProject,
-  PaymentHistoryPurchase,
-} from "../payment-history-view";
+import type { PaymentHistoryProject, PaymentHistoryPurchase } from "../payment-history-view";
 import {
   buildPaymentWorkspaceRows,
   filterPaymentWorkspaceRows,
@@ -68,8 +65,8 @@ const allFilters = {
   currency: "all",
   projectId: "all",
   counterpartyId: "all",
-  acceptedFrom: "",
-  acceptedTo: "",
+  establishedFrom: "",
+  establishedTo: "",
 };
 
 describe("producer payment workspace model", () => {
@@ -95,11 +92,13 @@ describe("producer payment workspace model", () => {
 
     const rows = buildPaymentWorkspaceRows(buckets);
 
-    expect(rows.map(({ id, bucketId, project: attachedProject }) => ({
-      id,
-      bucketId,
-      projectId: attachedProject.id,
-    }))).toEqual([
+    expect(
+      rows.map(({ id, bucketId, project: attachedProject }) => ({
+        id,
+        bucketId,
+        projectId: attachedProject.id,
+      })),
+    ).toEqual([
       { id: "shared", bucketId: "needs_review", projectId: "project-a" },
       { id: "unique", bucketId: "upcoming", projectId: "project-b" },
     ]);
@@ -178,31 +177,34 @@ describe("producer payment workspace model", () => {
     ).toEqual([]);
   });
 
-  it("composes an exact artist filter with an inclusive accepted-date range", () => {
+  it("composes an exact artist filter with an inclusive agreement-date range", () => {
     const mayaJuly = purchase("maya-july", {
       counterpartyId: "client-maya",
       counterpartyLabel: "Maya Stone",
-      acceptance: {
-        acceptedAtIso: "2026-07-01T00:00:00.000Z",
-        acceptedByLabel: "Maya Stone",
+      agreementRecord: {
+        kind: "artist_acceptance",
+        establishedAtIso: "2026-07-01T00:00:00.000Z",
+        headline: "Maya Stone accepted the exact terms",
         statement: null,
       },
     });
     const duplicateName = purchase("other-maya", {
       counterpartyId: "client-other-maya",
       counterpartyLabel: "Maya Stone",
-      acceptance: {
-        acceptedAtIso: "2026-07-15T12:00:00.000Z",
-        acceptedByLabel: "Maya Stone",
+      agreementRecord: {
+        kind: "producer_import",
+        establishedAtIso: "2026-07-15T12:00:00.000Z",
+        headline: "Added by producer from an existing agreement",
         statement: null,
       },
     });
     const mayaAugust = purchase("maya-august", {
       counterpartyId: "client-maya",
       counterpartyLabel: "Maya Stone",
-      acceptance: {
-        acceptedAtIso: "2026-08-01T00:00:00.000Z",
-        acceptedByLabel: "Maya Stone",
+      agreementRecord: {
+        kind: "artist_acceptance",
+        establishedAtIso: "2026-08-01T00:00:00.000Z",
+        headline: "Maya Stone accepted the exact terms",
         statement: null,
       },
     });
@@ -217,31 +219,34 @@ describe("producer payment workspace model", () => {
         ...allFilters,
         view: "history",
         counterpartyId: "client-maya",
-        acceptedFrom: "2026-07-01",
-        acceptedTo: "2026-07-31",
+        establishedFrom: "2026-07-01",
+        establishedTo: "2026-07-31",
       }).map(({ id }) => id),
     ).toEqual(["maya-july"]);
   });
 
-  it("includes both accepted-date boundaries and fails closed for invalid ranges", () => {
+  it("includes both agreement-date boundaries and fails closed for invalid ranges", () => {
     const start = purchase("start", {
-      acceptance: {
-        acceptedAtIso: "2026-07-01T00:00:00.000Z",
-        acceptedByLabel: null,
+      agreementRecord: {
+        kind: "artist_acceptance",
+        establishedAtIso: "2026-07-01T00:00:00.000Z",
+        headline: "Accepted agreement",
         statement: null,
       },
     });
     const end = purchase("end", {
-      acceptance: {
-        acceptedAtIso: "2026-07-31T23:59:59.999Z",
-        acceptedByLabel: null,
+      agreementRecord: {
+        kind: "producer_import",
+        establishedAtIso: "2026-07-31T23:59:59.999Z",
+        headline: "Added by producer from an existing agreement",
         statement: null,
       },
     });
     const outside = purchase("outside", {
-      acceptance: {
-        acceptedAtIso: "2026-08-01T00:00:00.000Z",
-        acceptedByLabel: null,
+      agreementRecord: {
+        kind: "artist_acceptance",
+        establishedAtIso: "2026-08-01T00:00:00.000Z",
+        headline: "Accepted agreement",
         statement: null,
       },
     });
@@ -250,16 +255,16 @@ describe("producer payment workspace model", () => {
     expect(
       filterPaymentWorkspaceRows(rows, {
         ...allFilters,
-        acceptedFrom: "2026-07-01",
-        acceptedTo: "2026-07-31",
+        establishedFrom: "2026-07-01",
+        establishedTo: "2026-07-31",
       }).map(({ id }) => id),
     ).toEqual(["end", "start"]);
     expect(isPaymentWorkspaceDateRangeValid("2026-07-31", "2026-07-01")).toBe(false);
     expect(
       filterPaymentWorkspaceRows(rows, {
         ...allFilters,
-        acceptedFrom: "2026-07-31",
-        acceptedTo: "2026-07-01",
+        establishedFrom: "2026-07-31",
+        establishedTo: "2026-07-01",
       }),
     ).toEqual([]);
   });
@@ -359,11 +364,7 @@ describe("producer payment workspace model", () => {
       dueNowCents: 7_000,
       totalRemainingCents: 25_000,
     });
-    const rows = [
-      row("needs_review", usd),
-      row("history", ils),
-      row("history", usd),
-    ];
+    const rows = [row("needs_review", usd), row("history", ils), row("history", usd)];
 
     expect(summarizePaymentWorkspaceRows(rows)).toEqual({
       currencyTotals: [

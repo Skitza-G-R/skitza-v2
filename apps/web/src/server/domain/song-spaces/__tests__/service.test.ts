@@ -346,7 +346,7 @@ type SummaryPurchase = {
   purchaseId: string;
   lifecycleStatus: "waiting_for_payment" | "active" | "canceled";
   includedSongSpaces: number;
-  acceptedAt: Date;
+  commercialEstablishedAt: Date;
 };
 
 function summaryPurchase(overrides: Partial<SummaryPurchase> = {}): SummaryPurchase {
@@ -355,7 +355,7 @@ function summaryPurchase(overrides: Partial<SummaryPurchase> = {}): SummaryPurch
     purchaseId: "purchase-1",
     lifecycleStatus: "active",
     includedSongSpaces: 1,
-    acceptedAt: new Date("2026-07-17T10:00:00Z"),
+    commercialEstablishedAt: new Date("2026-07-17T10:00:00Z"),
     ...overrides,
   };
 }
@@ -385,24 +385,24 @@ describe("project song-space read model", () => {
         summaryPurchase({
           purchaseId: "purchase-b",
           includedSongSpaces: 1,
-          acceptedAt: new Date("2026-07-17T11:00:00Z"),
+          commercialEstablishedAt: new Date("2026-07-17T11:00:00Z"),
         }),
         summaryPurchase({
           purchaseId: "purchase-waiting",
           lifecycleStatus: "waiting_for_payment",
           includedSongSpaces: 4,
-          acceptedAt: new Date("2026-07-17T08:00:00Z"),
+          commercialEstablishedAt: new Date("2026-07-17T08:00:00Z"),
         }),
         summaryPurchase({
           purchaseId: "purchase-a",
           includedSongSpaces: 3,
-          acceptedAt: new Date("2026-07-17T09:00:00Z"),
+          commercialEstablishedAt: new Date("2026-07-17T09:00:00Z"),
         }),
         summaryPurchase({
           purchaseId: "purchase-canceled",
           lifecycleStatus: "canceled",
           includedSongSpaces: 2,
-          acceptedAt: new Date("2026-07-17T07:00:00Z"),
+          commercialEstablishedAt: new Date("2026-07-17T07:00:00Z"),
         }),
       ],
       tracks,

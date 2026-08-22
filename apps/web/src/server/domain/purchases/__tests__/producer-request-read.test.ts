@@ -123,6 +123,7 @@ function fixture(input: { acceptedAgreement?: string } = {}) {
       totalCents: purchaseSnapshot.totalCents,
       paymentPlanKind: "full" as const,
       acceptedAt,
+      commercialEstablishedAt: acceptedAt,
       lifecycleStatus: "waiting_for_payment" as const,
       activatedAt: null,
       canceledAt: null,

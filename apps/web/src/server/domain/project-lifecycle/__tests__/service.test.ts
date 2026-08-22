@@ -233,7 +233,9 @@ function memoryPurchaseLedgerRepository(
         totalCents: rows.length * amountCents,
         plan: rows.length === 0 ? null : "full",
         lifecycleStatus: purchase.lifecycleStatus,
+        sourceKind: "store_product",
         acceptedAt: new Date(BASE_TIME),
+        commercialEstablishedAt: new Date(BASE_TIME),
         activatedAt:
           purchase.lifecycleStatus === "waiting_for_payment" ? null : new Date(BASE_TIME),
         canceledAt: cloneDate(purchase.canceledAt),
@@ -249,8 +251,14 @@ function memoryPurchaseLedgerRepository(
         timeZone: "America/New_York",
         automaticRemindersEnabled: true,
         displayName: "Producer",
+        slug: "producer-a",
       },
-      client: { id: project.clientContactId, name: "Artist", email: "artist@example.test" },
+      client: {
+        id: project.clientContactId,
+        name: "Artist",
+        email: "artist@example.test",
+        connected: true,
+      },
       purchaseName: "Test purchase",
       refNumber: "SK-TEST",
       installments: rows.map((row, index) => ({

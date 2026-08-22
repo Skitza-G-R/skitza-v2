@@ -70,6 +70,16 @@ describe("SK-146 Client Space server shell", () => {
     expect(source).not.toMatch(/<ClientMoneyLedger/);
   });
 
+  it("maps the server-owned durable invitation state without legacy inference", () => {
+    expect(source).toContain("clientInvitationLinkState(detail.contact.invitationState)");
+
+    const clientMapping = source.slice(
+      source.indexOf("const client: ClientSpaceClientData"),
+      source.indexOf("const projects: ClientSpaceProjectData"),
+    );
+    expect(clientMapping).not.toMatch(/linkState:[^,]*(?:clerkUserId|invitedAt)/);
+  });
+
   it("opens only the locked payments query directly and defaults every other query", () => {
     expect(compactSource).toContain("const query = await searchParams;");
     expect(compactSource).toContain("const initialTab = resolveClientSpaceInitialTab(query.tab);");

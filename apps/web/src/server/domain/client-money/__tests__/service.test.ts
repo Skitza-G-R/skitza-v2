@@ -58,7 +58,7 @@ function snapshot(): ClientMoneySnapshot {
         taxCents: 0,
         totalCents: 10_000,
         currency: "USD",
-        acceptedAt: at("2026-01-02T00:00:00.000Z"),
+        commercialEstablishedAt: at("2026-01-02T00:00:00.000Z"),
         activatedAt: at("2026-01-03T00:00:00.000Z"),
         canceledAt: null,
       },
@@ -82,7 +82,7 @@ function snapshot(): ClientMoneySnapshot {
         taxCents: 0,
         totalCents: 5_000,
         currency: "USD",
-        acceptedAt: at("2026-01-04T00:00:00.000Z"),
+        commercialEstablishedAt: at("2026-01-04T00:00:00.000Z"),
         activatedAt: null,
         canceledAt: null,
       },
@@ -106,7 +106,7 @@ function snapshot(): ClientMoneySnapshot {
         taxCents: 0,
         totalCents: 9_000,
         currency: "EUR",
-        acceptedAt: at("2026-02-02T00:00:00.000Z"),
+        commercialEstablishedAt: at("2026-02-02T00:00:00.000Z"),
         activatedAt: at("2026-02-03T00:00:00.000Z"),
         canceledAt: null,
       },
@@ -351,6 +351,41 @@ describe("client purchase-owned money history", () => {
     }
   });
 
+  it("keeps imported Purchase source and commercial-establishment truth in client history", async () => {
+    const value = snapshot();
+    const purchaseIndex = value.purchases.findIndex(
+      (purchase) => purchase.id === "purchase-usd-unpaid",
+    );
+    const installmentIndex = value.installments.findIndex(
+      (installment) => installment.id === "installment-usd-unpaid",
+    );
+    const purchase = value.purchases[purchaseIndex];
+    const installment = value.installments[installmentIndex];
+    if (!purchase || !installment) throw new Error("Expected imported purchase fixtures");
+    value.purchases[purchaseIndex] = {
+      ...purchase,
+      sourceKind: "imported_existing_work",
+    };
+    value.installments[installmentIndex] = {
+      ...installment,
+      dueTrigger: "producer_import",
+    };
+
+    const result = await loadClientMoneyHistory(repository(value), {
+      producerId: "producer-1",
+      clientContactId: "client-1",
+    });
+    const imported = result.projects
+      .flatMap((project) => project.purchases)
+      .find((purchase) => purchase.id === "purchase-usd-unpaid");
+
+    expect(imported).toMatchObject({
+      sourceKind: "imported_existing_work",
+      commercialEstablishedAt: at("2026-01-04T00:00:00.000Z"),
+      installments: [expect.objectContaining({ dueTrigger: "producer_import" })],
+    });
+  });
+
   it("keeps waivers separate from paid money while reducing collectible remaining debt", async () => {
     const value = snapshot();
     value.waivers.push({
@@ -394,9 +429,7 @@ describe("client purchase-owned money history", () => {
 
   it("preserves canceled and zero-charge purchase history with every payment and proof", async () => {
     const value = snapshot();
-    const paidPurchase = value.purchases.find(
-      (purchase) => purchase.id === "purchase-usd-paid",
-    );
+    const paidPurchase = value.purchases.find((purchase) => purchase.id === "purchase-usd-paid");
     const paidInstallment = value.installments.find(
       (installment) => installment.id === "installment-usd-paid",
     );
@@ -432,7 +465,7 @@ describe("client purchase-owned money history", () => {
       taxCents: 0,
       totalCents: 0,
       currency: "USD",
-      acceptedAt: at("2026-01-09T00:00:00.000Z"),
+      commercialEstablishedAt: at("2026-01-09T00:00:00.000Z"),
       activatedAt: at("2026-01-09T00:00:00.000Z"),
       canceledAt: at("2026-01-10T00:00:00.000Z"),
     });
