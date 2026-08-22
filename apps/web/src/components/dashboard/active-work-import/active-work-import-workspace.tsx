@@ -520,7 +520,10 @@ export function ActiveWorkImportWorkspace({
 
   async function closeMobileEditor(operationKey: string) {
     const saved = await flushPendingRows([operationKey]);
-    if (saved) setMobileEditorOpen(false);
+    if (saved) {
+      editorMemoryRef.current.delete(operationKey);
+      setMobileEditorOpen(false);
+    }
   }
 
   function latestReasons(operationKey: string): readonly ImportReasonView[] {
@@ -563,6 +566,9 @@ export function ActiveWorkImportWorkspace({
   async function saveForLater(operationKey: string): Promise<boolean> {
     const saved = await flushPendingRows([operationKey]);
     if (!saved) return false;
+    // Deliberately leaving an item forgets its editor position: reopening starts
+    // at step 1 again. Memory only bridges layout switches of the open item.
+    editorMemoryRef.current.delete(operationKey);
     setMobileEditorOpen(false);
     setSelectedOperationKey(null);
     return true;
@@ -598,6 +604,7 @@ export function ActiveWorkImportWorkspace({
         !row.materializedAtIso &&
         !isRowReady(row.assessment, row.draft, activeClientOptions, archivedClientOptions),
     );
+    editorMemoryRef.current.delete(operationKey);
     if (nextUnfinished) {
       setSelectedOperationKey(nextUnfinished.operationKey);
       setMobileEditorOpen(isMobile);

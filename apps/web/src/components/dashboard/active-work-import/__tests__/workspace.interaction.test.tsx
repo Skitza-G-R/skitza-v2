@@ -772,6 +772,23 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(document.querySelectorAll('[aria-label^="Edit item"]')).toHaveLength(1);
   });
 
+  it("starts at step 1 again after Save for later and reopening the item", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Save for later" }));
+    await waitFor(() => {
+      expect(document.querySelectorAll('[aria-label^="Edit item"]')).toHaveLength(0);
+    });
+
+    const list = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(list).getAllByRole("button")[0] as HTMLButtonElement);
+    await screen.findByRole("heading", { name: "Client & Project" });
+    expect(screen.getByText("Step 1 of 3")).not.toBeNull();
+  });
+
   it("makes Save payment the only primary action while its inline editor is open", async () => {
     const user = userEvent.setup();
     renderWorkspace();
