@@ -912,20 +912,33 @@ export function ActiveWorkImportWorkspace({
         }));
         return false;
       }
+      let uploadError: string | null = null;
       try {
         const response = await fetch(prepared.data.uploadUrl, {
           method: "PUT",
           headers: { "Content-Type": contentType },
           body: file,
         });
-        if (!response.ok) throw new Error();
-      } catch {
+        if (!response.ok) {
+          // A signed upload link that was refused is not a connection problem:
+          // 403 means the link expired, anything else is the storage service.
+          console.error("[active-work-import] proof upload refused", {
+            status: response.status,
+          });
+          uploadError =
+            response.status === 403
+              ? "The upload link expired. Attach the file again."
+              : `The storage service refused the upload (status ${String(response.status)}). Try again in a moment.`;
+        }
+      } catch (error) {
+        console.error("[active-work-import] proof upload did not reach storage", error);
+        uploadError = "The proof upload did not finish. Check your connection and try again.";
+      }
+      if (uploadError) {
+        const error = uploadError;
         setProofUploads((current) => ({
           ...current,
-          [paymentOperationKey]: {
-            status: "error",
-            error: "The proof upload did not finish. Check your connection and try again.",
-          },
+          [paymentOperationKey]: { status: "error", error },
         }));
         return false;
       }

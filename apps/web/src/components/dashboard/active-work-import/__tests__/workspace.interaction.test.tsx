@@ -1887,6 +1887,68 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
   });
 });
 
+describe("ActiveWorkImportWorkspace proof upload errors", () => {
+  async function attachProof(fetchImpl: () => Promise<unknown>) {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(fetchImpl));
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("v2") })),
+    );
+    mocks.prepareProof.mockResolvedValue({
+      ok: true,
+      data: { uploadUrl: "https://r2.example/upload", uploadToken: "tok", expiresInSeconds: 600 },
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "03 Payments" }));
+    const first = within(screen.getByRole("list", { name: "Installment schedule" })).getAllByRole(
+      "listitem",
+    )[0];
+    if (!first) throw new Error("Expected Payment 1");
+    await user.click(within(first).getByRole("button", { name: "Record" }));
+    await user.click(screen.getByRole("button", { name: "Add proof" }));
+    const input = screen.getByText("Choose private proof").querySelector("input[type=file]");
+    if (!(input instanceof HTMLInputElement)) throw new Error("Expected a proof file input");
+    await user.upload(input, new File(["%PDF-1.4"], "receipt.pdf", { type: "application/pdf" }));
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("says the upload link expired on a 403 and logs the status", async () => {
+    await attachProof(() => Promise.resolve({ ok: false, status: 403 }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The upload link expired. Attach the file again.",
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.objectContaining({ status: 403 }),
+    );
+  });
+
+  it("reports another refused upload with its status instead of blaming the connection", async () => {
+    await attachProof(() => Promise.resolve({ ok: false, status: 500 }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The storage service refused the upload (status 500). Try again in a moment.",
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("[active-work-import]"),
+      expect.objectContaining({ status: 500 }),
+    );
+  });
+
+  it("keeps the connection message for a request that never reached storage", async () => {
+    await attachProof(() => Promise.reject(new TypeError("Failed to fetch")));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The proof upload did not finish. Check your connection and try again.",
+    );
+  });
+});
+
 describe("ActiveWorkImportWorkspace page notice", () => {
   it("shows a quiet status for a page notice and aligns the address with the shown setup", () => {
     window.history.replaceState(
