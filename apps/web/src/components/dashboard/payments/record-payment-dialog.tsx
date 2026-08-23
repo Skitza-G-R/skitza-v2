@@ -334,12 +334,12 @@ export function RecordPaymentDialog({
           <div className="flex items-start gap-3">
             <span
               aria-hidden
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]"
+              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))] sm:inline-flex"
             >
               <HandCoins size={20} strokeWidth={2.1} />
             </span>
             <div className="min-w-0 flex-1">
-              <DialogPrimitive.Title className="font-display text-[19px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+              <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))] sm:text-[19px]">
                 Record a payment
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
@@ -421,7 +421,7 @@ export function RecordPaymentDialog({
                             <span className="block truncate text-[13.5px] font-bold text-[rgb(var(--fg-default))]">
                               {payment.purchaseLabel}
                             </span>
-                            <span className="mt-0.5 block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                            <span className="mt-0.5 block text-[11.5px] text-[rgb(var(--fg-muted))]">
                               Payment {payment.position} of {payment.installmentCount}
                               {" · "}
                               {blockedLabel(payment.state) ?? formatDueDate(payment.dueAtIso)}
@@ -567,7 +567,7 @@ export function RecordPaymentDialog({
                   value={note}
                   maxLength={500}
                   autoComplete="off"
-                  placeholder="Note — e.g. transfer ref 8841, paid at the studio"
+                  placeholder="Note — e.g. transfer ref 8841"
                   aria-label="Note"
                   onChange={(event) => {
                     setNote(event.target.value);

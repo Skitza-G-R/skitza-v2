@@ -8,12 +8,14 @@ import type {
   ProjectPurchaseSummary,
 } from "~/components/dashboard/projects/project-purchases-panel";
 
+type AnyAction = (input: unknown) => Promise<unknown>;
+
 const refresh = vi.fn();
 const toast = vi.fn();
-const presign = vi.fn();
-const cancelReceipt = vi.fn();
-const record = vi.fn();
-const uploadBytes = vi.fn();
+const presign = vi.fn<AnyAction>();
+const cancelReceipt = vi.fn<AnyAction>();
+const record = vi.fn<AnyAction>();
+const uploadBytes = vi.fn<AnyAction>();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh, push: vi.fn() }),
@@ -67,6 +69,30 @@ function purchase(
 
 const SINGLE = [purchase({ id: "p1", installments: [installment({ id: "i1" })] })];
 
+function submitForm(button: HTMLElement): void {
+  const form = button.closest("form");
+  if (!form) throw new Error("submit button is not inside a form");
+  fireEvent.submit(form);
+}
+
+function submitButton(name: string | RegExp): HTMLButtonElement {
+  const element = screen.getByRole("button", { name });
+  if (!(element instanceof HTMLButtonElement)) throw new Error("expected a button");
+  return element;
+}
+
+function inputValue(label: string): string {
+  const element = screen.getByLabelText(label);
+  if (!(element instanceof HTMLInputElement)) throw new Error("expected an input");
+  return element.value;
+}
+
+function firstCallInput(mock: { mock: { calls: unknown[][] } }): Record<string, unknown> {
+  const input = mock.mock.calls[0]?.[0];
+  if (!input || typeof input !== "object") throw new Error("mock was not called with an object");
+  return input as Record<string, unknown>;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   record.mockResolvedValue({
@@ -94,20 +120,17 @@ describe("RecordPaymentDialog", () => {
 
     const radio = screen.getByRole("radio", { name: /Full production/ });
     expect(radio.getAttribute("aria-checked")).toBe("true");
-    const amount = screen.getByLabelText("Amount received");
-    expect((amount as HTMLInputElement).value).toBe("500");
-    expect(
-      (screen.getByRole("button", { name: /Record ₪500/ }) as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect(inputValue("Amount received")).toBe("500");
+    expect(submitButton(/Record ₪500/).disabled).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Bank transfer" }));
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "ref 8841" } });
-    fireEvent.submit(screen.getByRole("button", { name: /Record ₪500/ }).closest("form")!);
+    submitForm(submitButton(/Record ₪500/));
 
     await waitFor(() => {
       expect(record).toHaveBeenCalledTimes(1);
     });
-    const input = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    const input = firstCallInput(record);
     expect(input).toMatchObject({
       projectId: "project-1",
       purchaseId: "p1",
@@ -131,15 +154,12 @@ describe("RecordPaymentDialog", () => {
     const amount = screen.getByLabelText("Amount received");
     fireEvent.change(amount, { target: { value: "600" } });
     expect(screen.getByText(/more than what is left/)).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: "Record payment" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(submitButton("Record payment").disabled).toBe(true);
 
     fireEvent.change(amount, { target: { value: "200" } });
     expect(screen.queryByText(/more than what is left/)).toBeNull();
-    const submit = screen.getByRole("button", { name: /Record ₪200/ });
-    expect((submit as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.submit(submit.closest("form")!);
+    expect(submitButton(/Record ₪200/).disabled).toBe(false);
+    submitForm(submitButton(/Record ₪200/));
     await waitFor(() => {
       expect(record).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 20_000 }));
     });
@@ -170,19 +190,16 @@ describe("RecordPaymentDialog", () => {
     );
 
     // Only one installment is open, so it is pre-selected even with blocked siblings.
-    expect(screen.getByRole("radio", { name: /Payment 1 of 3/ }).getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    const open = screen.getByRole("radio", { name: /Payment 1 of 3/ });
+    expect(open.getAttribute("aria-checked")).toBe("true");
 
     const notDue = screen.getByRole("radio", { name: /Not due yet/ });
     expect(notDue.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(notDue);
     expect(notDue.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByRole("radio", { name: /Payment 1 of 3/ }).getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    expect(open.getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText(/Proof waiting for review/)).toBeTruthy();
-    expect((screen.getByLabelText("Amount received") as HTMLInputElement).value).toBe("500");
+    expect(inputValue("Amount received")).toBe("500");
   });
 
   it("uploads the receipt first and passes its token to the record call", async () => {
@@ -190,12 +207,10 @@ describe("RecordPaymentDialog", () => {
       ok: true,
       data: { uploadUrl: "https://r2.example/put", uploadToken: "tok-1" },
     });
-    uploadBytes.mockImplementation(
-      async (input: { onProgress: (loaded: number, total: number) => void }) => {
-        input.onProgress(10, 10);
-        return { ok: true };
-      },
-    );
+    uploadBytes.mockImplementation((input) => {
+      (input as { onProgress: (loaded: number, total: number) => void }).onProgress(10, 10);
+      return Promise.resolve({ ok: true });
+    });
     const file = new File(["receipt"], "receipt.png", { type: "image/png" });
     render(
       <RecordPaymentDialog
@@ -208,13 +223,13 @@ describe("RecordPaymentDialog", () => {
     );
 
     expect(screen.getByText("receipt.png")).toBeTruthy();
-    fireEvent.submit(screen.getByRole("button", { name: /Record ₪500/ }).closest("form")!);
+    submitForm(submitButton(/Record ₪500/));
 
     await waitFor(() => {
       expect(record).toHaveBeenCalledTimes(1);
     });
-    const presignInput = presign.mock.calls[0]?.[0] as Record<string, unknown>;
-    const recordInput = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    const presignInput = firstCallInput(presign);
+    const recordInput = firstCallInput(record);
     expect(presignInput).toMatchObject({
       purchaseId: "p1",
       installmentId: "i1",
@@ -245,7 +260,7 @@ describe("RecordPaymentDialog", () => {
       />,
     );
 
-    fireEvent.submit(screen.getByRole("button", { name: /Record ₪500/ }).closest("form")!);
+    submitForm(submitButton(/Record ₪500/));
 
     await waitFor(() => {
       expect(cancelReceipt).toHaveBeenCalledWith({
@@ -256,9 +271,7 @@ describe("RecordPaymentDialog", () => {
     });
     expect(record).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/upload did not finish/), "error");
-    expect(
-      (screen.getByRole("button", { name: /Record ₪500/ }) as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect(submitButton(/Record ₪500/).disabled).toBe(false);
   });
 
   it("rejects an unsupported receipt file without losing the form", () => {
@@ -273,8 +286,6 @@ describe("RecordPaymentDialog", () => {
     );
     expect(screen.getByText(/photo .* or a PDF/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add the receipt/ })).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: /Record ₪500/ }) as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect(submitButton(/Record ₪500/).disabled).toBe(false);
   });
 });

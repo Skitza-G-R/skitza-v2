@@ -25,7 +25,7 @@ export const BLOCKED_STATE_LABELS: Readonly<
   Record<Exclude<RecordablePaymentState, "open">, string>
 > = {
   not_due: "Not due yet",
-  proof_pending: "Proof waiting for review — confirm it in Payments",
+  proof_pending: "Proof waiting for review",
   purchase_canceled: "Purchase canceled",
 };
 

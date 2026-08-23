@@ -180,9 +180,10 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
       {dragActive ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute -inset-2 z-20 flex items-center justify-center rounded-[var(--radius-xl)] border-2 border-dashed border-[rgb(var(--brand-primary))] bg-[rgb(var(--bg-background)/0.82)] backdrop-blur-[2px]"
+          className="pointer-events-none absolute -inset-2 z-20 flex items-start justify-center rounded-[var(--radius-xl)] border-2 border-dashed border-[rgb(var(--brand-primary))] bg-[rgb(var(--bg-background)/0.82)] backdrop-blur-[2px]"
         >
-          <div className="flex items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] px-5 py-4 shadow-[0_20px_50px_-20px_rgba(17,16,9,0.4)]">
+          {/* Sticky so the message stays in view however tall the tab is. */}
+          <div className="sticky top-[40vh] mt-6 flex items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] px-5 py-4 shadow-[0_20px_50px_-20px_rgba(17,16,9,0.4)]">
             <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.16)] text-[rgb(var(--brand-primary-dark))]">
               <ImageUp size={20} strokeWidth={2.2} />
             </span>
