@@ -221,16 +221,24 @@ async function loadContext(
  */
 export function noChargeProposalRepository(db: Db): NoChargeProposalRepository {
   return {
-    loadForProducer: (producerId, projectId) => loadContext(db, { producerId, projectId }),
+    loadForProducer: (producerId, projectId) =>
+      db.transaction((tx) => loadContext(tx, { producerId, projectId }), {
+        isolationLevel: "repeatable read",
+        accessMode: "read only",
+      }),
 
     loadForArtist: (payload, clerkUserId) =>
-      loadContext(db, {
-        producerId: payload.producerId,
-        projectId: payload.projectId,
-        clientContactId: payload.clientContactId,
-        sourceProductId: payload.sourceProductId,
-        clerkUserId,
-      }),
+      db.transaction(
+        (tx) =>
+          loadContext(tx, {
+            producerId: payload.producerId,
+            projectId: payload.projectId,
+            clientContactId: payload.clientContactId,
+            sourceProductId: payload.sourceProductId,
+            clerkUserId,
+          }),
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      ),
 
     acceptAtomically: (payload: NoChargeProposalPayload, work) =>
       db.transaction(async (tx) => {
