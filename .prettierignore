@@ -5,3 +5,6 @@ build
 out
 pnpm-lock.yaml
 apps/desktop/src-tauri/target
+# Git worktrees are not part of this checkout
+.worktrees
+.claude/worktrees

@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm exec prettier --write \"$CLAUDE_TOOL_FILE_PATH\" 2>/dev/null || true"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && [ -f \"$FILE\" ]; then cd \"$CLAUDE_PROJECT_DIR\" && pnpm exec prettier --write \"$FILE\" >/dev/null 2>&1 || true; fi"
           }
         ]
       }
