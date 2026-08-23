@@ -15,6 +15,12 @@ import { BUCKETS, encodeR2CopySource, getR2, getR2BrowserUpload } from "~/server
 import type { AgreementPdfDocument } from "./contract";
 import { agreementPdfObjectKeys, type AgreementPdfUploadTokenPayload } from "./tokens";
 
+/** The part of an upload capability that storage needs: identity plus exact file facts. */
+export type AgreementPdfUploadReference = Pick<
+  AgreementPdfUploadTokenPayload,
+  "uploadId" | "originalFileName" | "sizeBytes"
+>;
+
 const UPLOAD_URL_TTL_SECONDS = 5 * 60;
 const CLOUDFLARE_COPY_DESTINATION_IF_NONE_MATCH = "cf-copy-destination-if-none-match" as const;
 
@@ -180,7 +186,7 @@ async function loadFinal(
 
 export function agreementPdfFinalCandidate(
   serverSecret: string,
-  payload: AgreementPdfUploadTokenPayload,
+  payload: AgreementPdfUploadReference,
 ): AgreementPdfFinalCandidate {
   const { finalKey } = agreementPdfObjectKeys(serverSecret, payload.uploadId);
   return Object.freeze({
@@ -232,7 +238,7 @@ export async function resolvePrivateAgreementPdfFinalCandidate(
 
 export async function createPrivateAgreementPdfUpload(
   serverSecret: string,
-  payload: AgreementPdfUploadTokenPayload,
+  payload: AgreementPdfUploadReference,
   client = getR2BrowserUpload(),
 ): Promise<{ uploadUrl: string; expiresInSeconds: number }> {
   const { stagingKey } = agreementPdfObjectKeys(serverSecret, payload.uploadId);
@@ -251,7 +257,7 @@ export async function createPrivateAgreementPdfUpload(
 
 export async function finalizePrivateAgreementPdfUpload(
   serverSecret: string,
-  payload: AgreementPdfUploadTokenPayload,
+  payload: AgreementPdfUploadReference,
   client = getR2(),
 ): Promise<AgreementPdfDocument> {
   const { stagingKey, finalKey } = agreementPdfObjectKeys(serverSecret, payload.uploadId);
@@ -301,7 +307,7 @@ export async function finalizePrivateAgreementPdfUpload(
 
 export async function deletePrivateAgreementPdfStaging(
   serverSecret: string,
-  payload: AgreementPdfUploadTokenPayload,
+  payload: AgreementPdfUploadReference,
   client = getR2(),
 ): Promise<void> {
   const { stagingKey } = agreementPdfObjectKeys(serverSecret, payload.uploadId);
