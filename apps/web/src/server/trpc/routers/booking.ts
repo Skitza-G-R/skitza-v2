@@ -36,6 +36,7 @@ import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { sendBookingCancelledOrRescheduledEmail } from "~/server/email/send";
 import { mergePreservedPaymentPlans, normalizeProductPaymentPlans } from "~/lib/payment-plans";
+import { findWeekBlocksIssues } from "~/lib/availability/windows";
 import {
   mergeAndValidateStoreProduct,
   StoreProductCommercialError,
@@ -591,31 +592,18 @@ export function blocksOverlapOnSameDay(
 
 const AvailabilityWeekInput = z
   .object({
-    blocks: z.array(Block).max(35), // up to 5 blocks × 7 weekdays (H.4a multi-block support)
+    blocks: z.array(Block).max(35), // 5 blocks × 7 weekdays (H.4a multi-block support)
   })
   .superRefine((val, ctx) => {
-    for (let i = 0; i < val.blocks.length; i++) {
-      const b = val.blocks[i];
-      if (!b) continue;
-      if (b.startMin >= b.endMin) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["blocks", i],
-          message: "start must be before end",
-        });
-      }
-      for (let j = i + 1; j < val.blocks.length; j++) {
-        const other = val.blocks[j];
-        if (!other || other.weekday !== b.weekday) continue;
-        const overlaps = b.startMin < other.endMin && other.startMin < b.endMin;
-        if (overlaps) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["blocks", j],
-            message: "overlaps another block on the same weekday",
-          });
-        }
-      }
+    // SK-264: shared with the onboarding step and the Calendar
+    // Availability tab, so the client can show the same rules inline
+    // before this refinement ever rejects a save.
+    for (const issue of findWeekBlocksIssues(val.blocks)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["blocks", issue.index],
+        message: issue.message,
+      });
     }
   });
 
