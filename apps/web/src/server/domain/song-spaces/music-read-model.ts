@@ -555,31 +555,24 @@ export async function listMusicSongSpaces(
   db: Db,
   scope: MusicReadScope,
 ): Promise<MusicLibraryReadModel> {
-  return db.transaction(
-    async (tx) => {
-      // Drizzle's transaction client exposes the same select/query surface as
-      // Db. Keeping every dependent row in one snapshot prevents a purchase
-      // and its allocated track from being observed on opposite sides of a
-      // concurrent commit.
-      const snapshotDb = tx as unknown as Db;
-      const heads = await loadProjectHeads(snapshotDb, scope);
-      const allProjects = await buildProjectReadModels(snapshotDb, heads, scope);
-      const projectsWithSongs = allProjects.filter((project) => project.songs.length > 0);
-      return {
-        projects: projectsWithSongs,
-        activeProjects: allProjects.filter((project) => project.lifecycleStatus === "active"),
-        uploadableProjects: allProjects.filter(
-          (project) =>
-            project.lifecycleStatus === "active" &&
-            (project.emptySlots.length > 0 ||
-              project.songs.some(
-                (song) => song.purchaseLifecycleStatus === "active" && song.archivedAt === null,
-              )),
-        ),
-      };
-    },
-    { isolationLevel: "repeatable read", accessMode: "read only" },
-  );
+  // SK-258: reads run directly on the HTTP client. A read-only transaction
+  // costs a brand-new WebSocket connection per call in createDb(), which made
+  // the Music library take ~1s before rendering anything.
+  const heads = await loadProjectHeads(db, scope);
+  const allProjects = await buildProjectReadModels(db, heads, scope);
+  const projectsWithSongs = allProjects.filter((project) => project.songs.length > 0);
+  return {
+    projects: projectsWithSongs,
+    activeProjects: allProjects.filter((project) => project.lifecycleStatus === "active"),
+    uploadableProjects: allProjects.filter(
+      (project) =>
+        project.lifecycleStatus === "active" &&
+        (project.emptySlots.length > 0 ||
+          project.songs.some(
+            (song) => song.purchaseLifecycleStatus === "active" && song.archivedAt === null,
+          )),
+    ),
+  };
 }
 
 export async function getMusicProjectSongSpaces(
@@ -587,13 +580,7 @@ export async function getMusicProjectSongSpaces(
   scope: MusicReadScope,
   projectId: string,
 ): Promise<MusicProjectReadModel | null> {
-  return db.transaction(
-    async (tx) => {
-      const snapshotDb = tx as unknown as Db;
-      const heads = await loadProjectHeads(snapshotDb, scope, projectId);
-      const [project] = await buildProjectReadModels(snapshotDb, heads, scope);
-      return project ?? null;
-    },
-    { isolationLevel: "repeatable read", accessMode: "read only" },
-  );
+  const heads = await loadProjectHeads(db, scope, projectId);
+  const [project] = await buildProjectReadModels(db, heads, scope);
+  return project ?? null;
 }

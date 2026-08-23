@@ -626,9 +626,9 @@ describe("music song-space projection", () => {
         trackVersions.audioUrl,
       ]),
     );
-    expect(db.transactionOptions).toEqual([
-      { isolationLevel: "repeatable read", accessMode: "read only" },
-    ]);
+    // SK-258: a read-only transaction opens a fresh WebSocket connection per
+    // call in createDb(); library reads must run directly on the HTTP client.
+    expect(db.transactionOptions).toEqual([]);
 
     const paidExtraQuery = queryFor(db, products);
     const paidExtraWhere = collectSqlFacts(paidExtraQuery.whereExpression);

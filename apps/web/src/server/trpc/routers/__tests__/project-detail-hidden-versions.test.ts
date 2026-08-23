@@ -159,21 +159,21 @@ const {
       },
     }),
   };
+  // SK-258: project-detail reads run directly on the HTTP client. Opening a
+  // transaction would cost a fresh WebSocket connection per page view.
   const transactionMock = vi.fn(
-    async (work: (transaction: typeof snapshotDbMock) => Promise<unknown>, config?: unknown) => {
-      void config;
-      return work(snapshotDbMock);
-    },
+    (): Promise<never> =>
+      Promise.reject(new Error("Project-detail reads must not open a transaction")),
   );
   const dbMock = {
     select: () => ({
       from: (table: unknown) => {
-        if (table !== producers) {
-          throw new Error("Project-detail reads must use the snapshot transaction");
+        if (table === producers) {
+          return {
+            where: () => ({ limit: () => Promise.resolve([{ id: PRODUCER_ID }]) }),
+          };
         }
-        return {
-          where: () => ({ limit: () => Promise.resolve([{ id: PRODUCER_ID }]) }),
-        };
+        return snapshotDbMock.select().from(table);
       },
     }),
     transaction: transactionMock,
@@ -264,10 +264,6 @@ describe("project.detail deleted-audio history", () => {
         right: ["canceled-newest", "visible-older"],
       },
     });
-    expect(transactionMock).toHaveBeenCalledOnce();
-    expect(transactionMock.mock.calls[0]?.[1]).toEqual({
-      isolationLevel: "repeatable read",
-      accessMode: "read only",
-    });
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 });
