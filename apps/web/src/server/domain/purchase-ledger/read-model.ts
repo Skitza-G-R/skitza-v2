@@ -288,6 +288,12 @@ export type PaymentPurchaseProjection = Readonly<{
     dueAt: Date | null;
     dueTrigger: PaymentReadInstallmentRecord["dueTrigger"];
     status: LedgerInstallmentStatus;
+    // The same due-now truth every producer surface sums into dueNowCents.
+    // "Payable" (showPayNextPayment) is looser — a monthly installment is
+    // payable early from the moment its schedule is anchored — so a surface
+    // that says "due" must read this flag, not payability, or it will
+    // contradict the producer's "all payments are up to date".
+    dueNow: boolean;
   }> | null;
   showPayNextPayment: boolean;
   currentInstructions: PaymentInstructions | null;
@@ -892,6 +898,12 @@ export function buildPaymentReadModel(
               dueAt: nextInstallment.dueAt,
               dueTrigger: nextInstallment.dueTrigger,
               status: nextInstallment.status,
+              dueNow: installmentIsDueNow(
+                sourceByInstallment.get(nextInstallment.id) ?? nextInstallment,
+                nextInstallment.remainingCents,
+                pendingProofInstallmentIdSet,
+                asOf,
+              ),
             })
           : null,
         showPayNextPayment,

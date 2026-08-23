@@ -406,6 +406,23 @@ describe("SK-69 payment read model", () => {
         totalRemainingCents: 7_500,
       },
     ]);
+
+    // Anchored monthly installments are payable early (triggeredAt is set),
+    // but they are NOT due until their date arrives. nextPayment.dueNow must
+    // agree with dueNowCents — this is what keeps the artist home's "due"
+    // card consistent with the producer's "All payments are up to date".
+    const allPurchases = model.projects.flatMap((project) => project.purchases);
+    const monthlyNotYetDue = allPurchases.find((row) => row.id === "purchase-ils");
+    expect(monthlyNotYetDue).toMatchObject({
+      dueNowCents: 0,
+      showPayNextPayment: true,
+      nextPayment: { installmentId: "ils-1", dueNow: false },
+    });
+    const partiallyPaidPastDue = allPurchases.find((row) => row.id === "purchase-usd");
+    expect(partiallyPaidPastDue?.nextPayment).toMatchObject({
+      installmentId: "usd-1",
+      dueNow: true,
+    });
   });
 
   it("moves fully paid and canceled purchases to History without erasing canceled debt", () => {

@@ -56,6 +56,22 @@ describe("/artist page composition", () => {
     expect(SRC).not.toContain("purchase.acceptedAt");
   });
 
+  it('claims a payment is "due" only when the ledger says it is due now', () => {
+    // Payable (showPayNextPayment) is looser than due: an anchored monthly
+    // installment is payable early. Without the dueNow gate the Home card
+    // reads "₪X due" while the producer's client page says all payments are
+    // up to date — the same ledger contradicting itself across roles.
+    const paymentBranch = SRC.match(
+      /for \(const \{ purchase, projectTitle \} of selectedPayments\)[\s\S]*?\n {2}\}/,
+    )?.[0];
+    expect(paymentBranch).toBeDefined();
+    expect(paymentBranch).toContain(
+      "if (!purchase.showPayNextPayment || !purchase.nextPayment) continue;",
+    );
+    expect(paymentBranch).toContain("if (!purchase.nextPayment.dueNow) continue;");
+    expect(paymentBranch).toMatch(/\$\{formatPurchaseMoney\([\s\S]*?\)\} due/);
+  });
+
   it("keeps the unread exact Version visible when a higher-priority Home action wins", () => {
     const newSongBranch = SRC.match(
       /let newSongAction:[\s\S]*?if \(home\.latestMix\?\.unread\)[\s\S]*?\n {2}\}/,
