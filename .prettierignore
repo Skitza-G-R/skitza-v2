@@ -5,3 +5,7 @@ build
 out
 pnpm-lock.yaml
 apps/desktop/src-tauri/target
+
+# Git worktrees live inside the repo folder; never format them from the root.
+.worktrees
+.claude/worktrees
