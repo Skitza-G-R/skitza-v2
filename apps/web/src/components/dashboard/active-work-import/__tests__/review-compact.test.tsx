@@ -301,9 +301,8 @@ describe("compact active-work Review", () => {
     expect(status.textContent).toContain("Creating 1 item");
     expect(status.textContent).toContain("can take a few seconds");
     expect(screen.queryByText("Nothing will be sent")).toBeNull();
-    expect((screen.getByRole("button", { name: "Creating…" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    const creating = screen.getByRole("button", { name: "Creating…" });
+    expect((creating as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("reports remaining and overpaid money per installment in the summary", () => {

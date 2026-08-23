@@ -579,7 +579,7 @@ function savedResult(
 // Review rows start collapsed; open the one whose summary mentions `text`.
 function expandReviewRow(text: string) {
   const summary = [...document.querySelectorAll("summary")].find((candidate) =>
-    candidate.textContent?.includes(text),
+    candidate.textContent.includes(text),
   );
   if (!summary) throw new Error(`Expected a Review row mentioning ${text}`);
   fireEvent.click(summary);
@@ -1021,9 +1021,8 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
       expect(within(list).getAllByRole("button")).toHaveLength(3);
     });
     await waitFor(() => {
-      expect(
-        (screen.getByRole("button", { name: "Remove this draft" }) as HTMLButtonElement).disabled,
-      ).toBe(false);
+      const remove = screen.getByRole("button", { name: "Remove this draft" });
+      expect((remove as HTMLButtonElement).disabled).toBe(false);
     });
 
     await user.click(screen.getByRole("button", { name: "Remove this draft" }));

@@ -373,7 +373,7 @@ export async function materializeActiveWorkImportRow(
   }
   const finalizedStorageKeys: string[] = [];
   const missingProofOperationKeys: string[] = [];
-  let agreementPdfMissing = false;
+  const missingAgreementPdfUploadIds: string[] = [];
   try {
     const capabilities = new Map(
       [...assessment.proofCapabilities].map(([key, value]) => [key, value.capability]),
@@ -394,7 +394,9 @@ export async function materializeActiveWorkImportRow(
             capability,
           );
         } catch (error) {
-          if (error instanceof AgreementPdfStorageError) agreementPdfMissing = true;
+          if (error instanceof AgreementPdfStorageError) {
+            missingAgreementPdfUploadIds.push(capability.uploadId);
+          }
           throw error;
         }
       },
@@ -468,7 +470,7 @@ export async function materializeActiveWorkImportRow(
         });
       }
     }
-    if (agreementPdfMissing) {
+    if (missingAgreementPdfUploadIds.length > 0) {
       try {
         await clearActiveWorkImportAgreementPdfUploadToken(db, {
           producerId: input.producerId,
