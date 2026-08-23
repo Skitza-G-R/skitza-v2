@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm exec prettier --write \"$CLAUDE_TOOL_FILE_PATH\" 2>/dev/null || true"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-edited-file.sh\" 2>/dev/null || true"
           }
         ]
       }
