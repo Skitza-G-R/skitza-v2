@@ -816,6 +816,8 @@ export async function loadActiveWorkImportSetupScope(
 function invitationFailureReason(error: unknown): string {
   if (error instanceof EmailDeliveryError) {
     switch (error.provider.name) {
+      case "configuration_error":
+        return "The email service is not set up yet, so this invitation was not sent. Finish setup without it; you can invite this client later from Clients & Projects.";
       case "rate_limit_exceeded":
       case "daily_quota_exceeded":
       case "monthly_quota_exceeded":
@@ -829,7 +831,10 @@ function invitationFailureReason(error: unknown): string {
         return "The email service could not send this invitation. Try again.";
     }
   }
-  if (error instanceof ClientInvitationDomainError || error instanceof ActiveWorkImportDomainError) {
+  if (
+    error instanceof ClientInvitationDomainError ||
+    error instanceof ActiveWorkImportDomainError
+  ) {
     return error.message;
   }
   return "This invitation could not be sent. Try again.";

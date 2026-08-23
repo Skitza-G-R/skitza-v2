@@ -231,11 +231,11 @@ describe("active work import materialization failures", () => {
         code: "UNEXPECTED",
         message: "This row could not be created. Your draft is safe.",
       });
-      expect(consoleError).toHaveBeenNthCalledWith(
-        1,
-        "[active-work-import] materialize failed",
-        { rowId: ROW_ID, batchId: BATCH_ID, error: failure },
-      );
+      expect(consoleError).toHaveBeenNthCalledWith(1, "[active-work-import] materialize failed", {
+        rowId: ROW_ID,
+        batchId: BATCH_ID,
+        error: failure,
+      });
       expect(consoleError).toHaveBeenNthCalledWith(
         2,
         "[active-work-import] failure marking failed",

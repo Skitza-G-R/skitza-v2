@@ -322,9 +322,8 @@ describe("activeWorkImport tRPC boundary", () => {
   });
 
   it("maps an invalid proof capability to BAD_REQUEST", async () => {
-    const { ActiveWorkImportProofCapabilityError } = await import(
-      "~/server/domain/active-work-import/proof-capability"
-    );
+    const { ActiveWorkImportProofCapabilityError } =
+      await import("~/server/domain/active-work-import/proof-capability");
     const workflow = await import("~/server/domain/active-work-import/workflow");
     vi.mocked(workflow.prepareActiveWorkImportProof).mockRejectedValue(
       new ActiveWorkImportProofCapabilityError(),

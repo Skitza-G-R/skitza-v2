@@ -1125,6 +1125,9 @@ export function ActiveWorkImportWorkspace({
         void loadSetupOptions();
       }}
       onToggleClient={(id, selected) => {
+        // A different set of invitations is a different reviewed action: the
+        // operation key that belonged to the earlier choice must not be reused.
+        finishOperationKeyRef.current = null;
         setSelectedClientIds((current) => {
           const next = new Set(current);
           if (selected) next.add(id);

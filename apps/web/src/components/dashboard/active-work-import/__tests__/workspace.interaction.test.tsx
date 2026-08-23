@@ -2306,6 +2306,35 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     expect(mocks.finishSetup.mock.calls[0]?.[0]).not.toHaveProperty("selectedInstallmentIds");
   });
 
+  it("starts a new operation when the invitation choice changes after an ambiguous failure", async () => {
+    mocks.finishSetup.mockResolvedValue({ ok: false, error: "Could not confirm the result." });
+    const user = await openCreatedSetup(freshSetupOptions());
+    const available = screen.getByRole("checkbox", { name: /Available client/ });
+    await user.click(available);
+    const done = screen.getByRole("button", { name: "Finish setup" });
+
+    await user.click(done);
+    await waitFor(() => {
+      expect(mocks.finishSetup).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.finishSetup.mock.calls[0]?.[0]?.selectedClientContactIds).toEqual([
+      "client-available",
+    ]);
+
+    // Unticking the client is a different reviewed choice, so it cannot reuse
+    // the operation key of the attempt that included an invitation.
+    await user.click(available);
+    await user.click(done);
+    await waitFor(() => {
+      expect(mocks.finishSetup).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mocks.finishSetup.mock.calls[1]?.[0]?.selectedClientContactIds).toEqual([]);
+    expect(mocks.finishSetup.mock.calls[1]?.[0]?.operationKey).not.toBe(
+      mocks.finishSetup.mock.calls[0]?.[0]?.operationKey,
+    );
+  });
+
   it("rotates the operation key after a successful partial result", async () => {
     mocks.finishSetup
       .mockResolvedValueOnce({
