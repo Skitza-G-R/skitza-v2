@@ -91,6 +91,7 @@ function readyAssessment(creationDigest: string): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour",
       deadlineAtIso: null,
+      agreementPdf: null,
       plan: { kind: "full" },
       commercialSnapshot: {
         version: 2,

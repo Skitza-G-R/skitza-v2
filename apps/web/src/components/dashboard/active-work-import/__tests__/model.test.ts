@@ -12,6 +12,7 @@ import {
   inputToCents,
   isRowReady,
   localDateInputValue,
+  mapPublicImportAssessment,
   materializeErrorMessage,
   matchingExistingClient,
   newImportDraft,
@@ -222,6 +223,64 @@ describe("active-work import model", () => {
     expect(restored.project).toEqual(draft.project);
     expect(restored.agreement.subtotal).toBe("1200.");
     expect(restored.agreement.masterPercentage).toBe("12.5");
+  });
+
+  it("round-trips an attached agreement PDF reference and drops a malformed one", () => {
+    const draft = newImportDraft(defaults);
+    expect(draft.agreement.agreementPdf).toBeNull();
+    draft.agreement.agreementPdf = {
+      uploadToken: "signed-agreement-token",
+      fileName: "deal.pdf",
+      sizeBytes: 2_048,
+    };
+
+    const payload = toServerDraftPayload(draft);
+    expect((payload.agreement as Record<string, unknown>).agreementPdf).toEqual({
+      uploadToken: "signed-agreement-token",
+      fileName: "deal.pdf",
+      sizeBytes: 2_048,
+    });
+    expect(parseStoredImportDraft(payload, defaults).agreement.agreementPdf).toEqual(
+      draft.agreement.agreementPdf,
+    );
+
+    const broken = {
+      ...payload,
+      agreement: { ...(payload.agreement as Record<string, unknown>), agreementPdf: "deal.pdf" },
+    };
+    expect(parseStoredImportDraft(broken, defaults).agreement.agreementPdf).toBeNull();
+  });
+
+  it("shows the attached PDF name and size in a Ready review without its token", () => {
+    const base = {
+      state: "ready" as const,
+      creationDigest: "digest",
+      normalized: {
+        existingClientId: null,
+        templateProductId: null,
+        clientName: "Maya",
+        clientEmail: "maya@example.com",
+        clientPhone: null,
+        projectTitle: "Blue Hour",
+        deadlineAt: null,
+        plan: { kind: "full" as const },
+        agreementPdf: { fileName: "deal.pdf", sizeBytes: 2_048 },
+        commercialSnapshot: {} as never,
+        snapshotDigest: "snapshot",
+        schedule: [],
+        payments: [],
+      },
+    };
+    const review = mapPublicImportAssessment(base);
+    expect(review.state).toBe("ready");
+    if (review.state !== "ready") throw new Error("Expected a Ready review");
+    expect(review.normalized.agreementPdf).toEqual({ fileName: "deal.pdf", sizeBytes: 2_048 });
+    const withoutPdf = mapPublicImportAssessment({
+      ...base,
+      normalized: { ...base.normalized, agreementPdf: null },
+    });
+    if (withoutPdf.state !== "ready") throw new Error("Expected a Ready review");
+    expect(withoutPdf.normalized.agreementPdf).toBeNull();
   });
 
   it("copies a Store template into an editable draft without sharing its arrays", () => {

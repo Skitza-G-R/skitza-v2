@@ -50,6 +50,13 @@ export type StoreTemplateOption = Readonly<{
   agreementText: string;
 }>;
 
+/** A staged agreement PDF: the signed reference plus what the producer sees. */
+export type ImportAgreementPdfDraft = {
+  uploadToken: string;
+  fileName: string;
+  sizeBytes: number;
+};
+
 export type ImportPaymentDraft = {
   operationKey: string;
   installmentPosition: number;
@@ -78,6 +85,7 @@ export type ActiveWorkImportDraft = {
     deliverables: string[];
     rights: string[];
     agreementText: string;
+    agreementPdf: ImportAgreementPdfDraft | null;
     subtotal: string;
     taxMode: ImportTaxMode;
     taxRatePct: string;
@@ -139,6 +147,7 @@ export type NormalizedImportReview = Readonly<{
     | Readonly<{ kind: "full" }>
     | Readonly<{ kind: "split_50_50" }>
     | Readonly<{ kind: "monthly"; installments: number }>;
+  agreementPdf: Readonly<{ fileName: string; sizeBytes: number }> | null;
   commercialSnapshot: PurchaseCommercialSnapshot;
   snapshotDigest: string;
   schedule: readonly Readonly<{
@@ -287,6 +296,7 @@ export function newImportDraft(input: {
       deliverables: [""],
       rights: [""],
       agreementText: "",
+      agreementPdf: null,
       subtotal: "",
       taxMode: input.defaultTaxMode,
       taxRatePct: String(input.defaultTaxMode === "tax_free" ? 0 : input.defaultTaxRatePct),
@@ -316,6 +326,23 @@ function record(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
+}
+
+function agreementPdfValue(value: unknown): ImportAgreementPdfDraft | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const uploadToken = stringValue(candidate.uploadToken).trim();
+  const fileName = stringValue(candidate.fileName).trim();
+  const sizeBytes = candidate.sizeBytes;
+  if (
+    !uploadToken ||
+    !fileName ||
+    typeof sizeBytes !== "number" ||
+    !Number.isSafeInteger(sizeBytes)
+  ) {
+    return null;
+  }
+  return { uploadToken, fileName, sizeBytes };
 }
 
 function nullableString(value: unknown): string | null {
@@ -386,6 +413,7 @@ export function parseStoredImportDraft(
       deliverables: stringArray(agreement.deliverables),
       rights: stringArray(agreement.rights),
       agreementText: stringValue(agreement.agreementText),
+      agreementPdf: agreementPdfValue(agreement.agreementPdf),
       subtotal: stringValue(uiAgreement.subtotal, centsText(agreement.subtotalCents)),
       taxMode:
         agreement.taxMode === "tax_free" ||
@@ -579,6 +607,7 @@ type PublicImportAssessmentInput =
         projectTitle: string;
         deadlineAt: Date | null;
         plan: NormalizedImportReview["plan"];
+        agreementPdf: Readonly<{ fileName: string; sizeBytes: number }> | null;
         commercialSnapshot: PurchaseCommercialSnapshot;
         snapshotDigest: string;
         schedule: readonly Readonly<{
@@ -616,6 +645,12 @@ export function mapPublicImportAssessment(
       projectTitle: value.normalized.projectTitle,
       deadlineAtIso: value.normalized.deadlineAt?.toISOString() ?? null,
       plan: value.normalized.plan,
+      agreementPdf: value.normalized.agreementPdf
+        ? {
+            fileName: value.normalized.agreementPdf.fileName,
+            sizeBytes: value.normalized.agreementPdf.sizeBytes,
+          }
+        : null,
       commercialSnapshot: value.normalized.commercialSnapshot,
       snapshotDigest: value.normalized.snapshotDigest,
       schedule: value.normalized.schedule.map((installment) => ({ ...installment })),
@@ -766,6 +801,7 @@ export function toServerDraftPayload(draft: ActiveWorkImportDraft): Record<strin
       deliverables: draft.agreement.deliverables,
       rights: draft.agreement.rights,
       agreementText: draft.agreement.agreementText,
+      agreementPdf: draft.agreement.agreementPdf,
       subtotalCents: tax.subtotalCents,
       taxMode: draft.agreement.taxMode,
       taxRatePct: tax.taxRatePct,

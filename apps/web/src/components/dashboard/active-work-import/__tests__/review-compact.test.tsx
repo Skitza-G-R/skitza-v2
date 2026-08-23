@@ -25,6 +25,7 @@ function readyAssessment(): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour EP",
       deadlineAtIso: null,
+      agreementPdf: null,
       plan: { kind: "monthly", installments: 2 },
       commercialSnapshot: {
         version: 2,
