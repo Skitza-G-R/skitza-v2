@@ -259,6 +259,24 @@ describe("compact active-work Review", () => {
     expect(table.querySelectorAll("details[open]")).toHaveLength(0);
   });
 
+  it("explains the wait while ready items are being created", () => {
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: readyAssessment(),
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} creating />);
+
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("Creating 1 item");
+    expect(status.textContent).toContain("can take a few seconds");
+    expect(screen.queryByText("Nothing will be sent")).toBeNull();
+    expect((screen.getByRole("button", { name: "Creating…" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
   it("reports remaining and overpaid money per installment in the summary", () => {
     const base = readyAssessment();
     if (base.state !== "ready") throw new Error("Expected a ready assessment");
