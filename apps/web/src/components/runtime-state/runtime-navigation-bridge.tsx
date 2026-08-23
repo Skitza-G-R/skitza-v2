@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   popRuntimeBack,
   readRuntimeNavigationSnapshot,
-  readRuntimeResumeHref,
   recordRuntimeNavigation,
   type RuntimeIdentity,
 } from "~/lib/runtime-state/navigation";
@@ -240,17 +239,13 @@ export function afterRuntimeNavigationPaint(callback: () => void): () => void {
  */
 export function RuntimeNavigationBridge({
   cacheEpoch = "mount",
-  restoreOnOpen = true,
 }: {
   cacheEpoch?: number | string;
-  restoreOnOpen?: boolean;
 }) {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const openedForIdentity = useRef<string | null>(null);
-  const skipPersistHref = useRef<string | null>(null);
   const pendingNavigation = useRef<PendingRuntimeNavigation | null>(null);
   const currentHrefRef = useRef("");
   const initialCacheEpoch = useRef(cacheEpoch);
@@ -261,13 +256,9 @@ export function RuntimeNavigationBridge({
     [identity.contextId, identity.role, identity.userId],
   );
   const search = searchParams.toString();
-  const preserveRequestedRoot = searchParams.get("storeTip") === "1";
   const href = `${pathname}${search ? `?${search}` : ""}`;
   const safeHref = normalizeRuntimeHref(href, identity.role);
-  const launchHref = runtimeLaunchHrefForCurrentContext(
-    navigationIdentity,
-    href,
-  );
+  const launchHref = runtimeLaunchHrefForCurrentContext(navigationIdentity, href);
   const identityKey = `${identity.userId}:${identity.role}:${identity.contextId}`;
   const navigationCache = useMemo(
     () => createRuntimeNavigationSessionCache(),
@@ -279,40 +270,12 @@ export function RuntimeNavigationBridge({
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed || !storage || !safeHref) return;
 
-    if (restoreOnOpen && openedForIdentity.current !== identityKey) {
-      openedForIdentity.current = identityKey;
-      if (!preserveRequestedRoot) {
-        const root = identity.role === "producer" ? "/dashboard" : "/artist";
-        const resumeHref = readRuntimeResumeHref(storage, navigationIdentity);
-        if (safeHref === root && resumeHref && resumeHref !== root) {
-          skipPersistHref.current = safeHref;
-          router.replace(resumeHref);
-          return;
-        }
-      }
-    }
-
     const snapshot = readRuntimeNavigationSnapshot(storage, navigationIdentity, safeHref);
     return snapshot ? restoreScrollTop(snapshot.scrollTop) : undefined;
-  }, [
-    identity.role,
-    identityKey,
-    navigationIdentity,
-    privateStateAccessAllowed,
-    preserveRequestedRoot,
-    restoreOnOpen,
-    router,
-    safeHref,
-    storage,
-  ]);
+  }, [navigationIdentity, privateStateAccessAllowed, safeHref, storage]);
 
   useEffect(() => {
-    if (
-      !privateStateAccessAllowed ||
-      !storage ||
-      safeHref ||
-      !launchHref
-    ) {
+    if (!privateStateAccessAllowed || !storage || safeHref || !launchHref) {
       return;
     }
     const writeGeneration = captureAccountPrivateWriteGeneration(identity.userId);
@@ -324,9 +287,7 @@ export function RuntimeNavigationBridge({
         identity.role,
       );
       const preferredHref =
-        existingLaunch?.contextId === identity.contextId
-          ? existingLaunch.href
-          : launchHref;
+        existingLaunch?.contextId === identity.contextId ? existingLaunch.href : launchHref;
       if (
         !writeRuntimeLaunchPointer(storage, navigationIdentity, preferredHref) &&
         preferredHref !== launchHref
@@ -359,8 +320,6 @@ export function RuntimeNavigationBridge({
 
   useEffect(() => {
     if (!privateStateAccessAllowed || !storage || !safeHref) return;
-    if (skipPersistHref.current === safeHref) return;
-    skipPersistHref.current = null;
 
     const writeGeneration = captureAccountPrivateWriteGeneration(identity.userId);
     const existingSnapshot = readRuntimeNavigationSnapshot(storage, navigationIdentity, safeHref);
@@ -484,8 +443,7 @@ export function RuntimeNavigationBridge({
         return;
       }
 
-      const warm =
-        privateStateAccessAllowedRef.current && navigationCache.isReady(targetHref);
+      const warm = privateStateAccessAllowedRef.current && navigationCache.isReady(targetHref);
       detail.warm = warm;
       root.dataset.skNavState = "pending";
       if (warm) {
@@ -526,31 +484,17 @@ export function RuntimeNavigationBridge({
 
     const onNativeFreshnessCheck = () => {
       if (!isRuntimeWarmingActive()) return;
-      const currentSafeHref = normalizeRuntimeHref(
-        currentHrefRef.current,
-        identity.role,
-      );
-      if (
-        currentSafeHref &&
-        runtimeMainDestinationPathname(currentSafeHref, identity.role)
-      ) {
+      const currentSafeHref = normalizeRuntimeHref(currentHrefRef.current, identity.role);
+      if (currentSafeHref && runtimeMainDestinationPathname(currentSafeHref, identity.role)) {
         router.prefetch(currentSafeHref);
       }
     };
 
     window.addEventListener(NATIVE_REFRESH_EVENT, onNativeFreshnessCheck);
     return () => {
-      window.removeEventListener(
-        NATIVE_REFRESH_EVENT,
-        onNativeFreshnessCheck,
-      );
+      window.removeEventListener(NATIVE_REFRESH_EVENT, onNativeFreshnessCheck);
     };
-  }, [
-    identity.contextId,
-    identity.role,
-    privateStateAccessAllowed,
-    router,
-  ]);
+  }, [identity.contextId, identity.role, privateStateAccessAllowed, router]);
 
   useEffect(() => {
     if (!privateStateAccessAllowed) return;
