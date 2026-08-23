@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   loadRows: vi.fn<ImportActions["loadImportBatchRowsAction"]>(),
   loadSetup: vi.fn<ImportActions["loadImportSetupOptionsAction"]>(),
   materializeRows: vi.fn<ImportActions["materializeImportRowsAction"]>(),
+  prepareAgreementPdf: vi.fn<ImportActions["prepareImportAgreementPdfAction"]>(),
   prepareProof: vi.fn<ImportActions["prepareImportProofAction"]>(),
   restoreClient: vi.fn<ImportActions["restoreImportClientAction"]>(),
   saveRow: vi.fn<ImportActions["saveImportRowAction"]>(),
@@ -36,6 +37,7 @@ vi.mock("~/app/(producer)/dashboard/clients-projects/bring-active-work/actions",
   loadImportBatchRowsAction: mocks.loadRows,
   loadImportSetupOptionsAction: mocks.loadSetup,
   materializeImportRowsAction: mocks.materializeRows,
+  prepareImportAgreementPdfAction: mocks.prepareAgreementPdf,
   prepareImportProofAction: mocks.prepareProof,
   restoreImportClientAction: mocks.restoreClient,
   saveImportRowAction: mocks.saveRow,
@@ -621,6 +623,7 @@ beforeEach(() => {
   mocks.loadRows.mockReset().mockResolvedValue({ ok: true, data: { rows: [] } });
   mocks.loadSetup.mockReset().mockResolvedValue({ ok: true, data: setupOptions() });
   mocks.materializeRows.mockReset();
+  mocks.prepareAgreementPdf.mockReset();
   mocks.prepareProof.mockReset();
   mocks.restoreClient
     .mockReset()
@@ -2027,6 +2030,96 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(screen.getByRole("button", { name: "Finish setup" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Back to items" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Back to active work items" })).toBeNull();
+  });
+});
+
+describe("ActiveWorkImportWorkspace agreement PDF", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("attaches a dropped PDF, saves its signed reference, and removes it again", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true, status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("v2") })),
+    );
+    mocks.prepareAgreementPdf.mockResolvedValue({
+      ok: true,
+      data: {
+        uploadUrl: "https://r2.example/agreement",
+        uploadToken: "agreement-tok",
+        expiresInSeconds: 300,
+      },
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await screen.findByRole("heading", { name: "Agreement" });
+
+    const zone = screen.getByText("Drop the agreement PDF here").closest("label");
+    if (!zone) throw new Error("Expected the agreement PDF drop zone");
+    expect(within(zone).getByText("or click to choose a file")).not.toBeNull();
+    const pdf = new File(["%PDF-1.4 deal"], "deal.pdf", { type: "application/pdf" });
+    fireEvent.drop(zone, { dataTransfer: { files: [pdf] } });
+
+    await waitFor(() => {
+      expect(mocks.prepareAgreementPdf).toHaveBeenCalledWith({
+        batchId,
+        rowId,
+        originalFileName: "deal.pdf",
+        contentType: "application/pdf",
+        sizeBytes: pdf.size,
+      });
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://r2.example/agreement",
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+    await waitFor(() => {
+      const saved = mocks.saveRow.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined;
+      const agreement = saved?.draftPayload
+        ? ((saved.draftPayload as Record<string, unknown>).agreement as Record<string, unknown>)
+        : undefined;
+      expect(agreement?.agreementPdf).toEqual({
+        uploadToken: "agreement-tok",
+        fileName: "deal.pdf",
+        sizeBytes: pdf.size,
+      });
+    });
+    expect(await screen.findByText("deal.pdf")).not.toBeNull();
+    expect(screen.queryByText("Drop the agreement PDF here")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Remove PDF" }));
+    await waitFor(() => {
+      const saved = mocks.saveRow.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined;
+      const agreement = (saved?.draftPayload as Record<string, unknown> | undefined)?.agreement as
+        | Record<string, unknown>
+        | undefined;
+      expect(agreement?.agreementPdf).toBeNull();
+    });
+    expect(screen.getByText("Drop the agreement PDF here")).not.toBeNull();
+  });
+
+  it("refuses a non-PDF file before asking the server", async () => {
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await screen.findByRole("heading", { name: "Agreement" });
+
+    const zone = screen.getByText("Drop the agreement PDF here").closest("label");
+    if (!zone) throw new Error("Expected the agreement PDF drop zone");
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(["img"], "deal.png", { type: "image/png" })] },
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBe("Choose a PDF file.");
+    expect(mocks.prepareAgreementPdf).not.toHaveBeenCalled();
   });
 });
 

@@ -260,6 +260,34 @@ describe("compact active-work Review", () => {
     expect(table.querySelectorAll("details[open]")).toHaveLength(0);
   });
 
+  it("lists the attached agreement PDF in the frozen details", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: {
+        ...base,
+        normalized: {
+          ...base.normalized,
+          agreementPdf: { fileName: "deal.pdf", sizeBytes: 2_048 },
+        },
+      },
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} />);
+    const summary = screen.getByRole("region", { name: "Review items" }).querySelector("summary");
+    if (!summary) throw new Error("Expected the compact Review summary");
+    fireEvent.click(summary);
+
+    const details = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
+    if (!details) throw new Error("Expected dense Ready details");
+    expect(within(details).getByText("Agreement PDF")).not.toBeNull();
+    expect(
+      within(details).getByText("deal.pdf · 2.0 KB · frozen with this agreement"),
+    ).not.toBeNull();
+  });
+
   it("explains the wait while ready items are being created", () => {
     const ready = workspaceRow({
       operationKey: "ready",

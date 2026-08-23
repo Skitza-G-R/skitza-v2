@@ -46,6 +46,12 @@ function dateLabel(value: string | null): string {
   }).format(date);
 }
 
+function fileSizeLabel(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${String(sizeBytes)} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function planLabel(review: NormalizedImportReview): string {
   if (review.plan.kind === "split_50_50") return "50/50";
   if (review.plan.kind === "monthly") {
@@ -271,6 +277,16 @@ function ReviewCard({ row, asArticle }: { row: WorkspaceImportRow; asArticle: bo
               {snapshot.agreementText}
             </p>
           </div>
+          {review.agreementPdf ? (
+            <div className="min-w-0 pt-2.5">
+              <p className="font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                Agreement PDF
+              </p>
+              <p className="mt-1 text-[11.5px] leading-relaxed font-semibold [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-secondary))]">
+                {`${review.agreementPdf.fileName} · ${fileSizeLabel(review.agreementPdf.sizeBytes)} · frozen with this agreement`}
+              </p>
+            </div>
+          ) : null}
         </section>
 
         <section className="min-w-0 border-t border-[rgb(var(--border-subtle))] px-4 py-3 sm:px-5 lg:border-t-0">

@@ -1,7 +1,9 @@
 "use client";
 
-import { ChevronDown, CirclePlus, Minus } from "lucide-react";
+import { ChevronDown, CirclePlus, FileUp, Minus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+
+import type { ProofUploadView } from "./payment-history-editor";
 
 import {
   applyTemplate,
@@ -173,18 +175,28 @@ function ListEditor({
   );
 }
 
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${String(sizeBytes)} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function AgreementEditor({
   draft,
   templates,
   operationKey,
   reasons,
   onChange,
+  agreementPdfUpload,
+  onUploadAgreementPdf,
 }: {
   draft: ActiveWorkImportDraft;
   templates: readonly StoreTemplateOption[];
   operationKey: string;
   reasons: readonly ImportReasonView[];
   onChange: (draft: ActiveWorkImportDraft) => void;
+  agreementPdfUpload?: ProofUploadView | undefined;
+  onUploadAgreementPdf?: ((file: File) => void) | undefined;
 }) {
   const agreement = draft.agreement;
   const tax = draftTaxBreakdown(draft);
@@ -543,6 +555,107 @@ export function AgreementEditor({
             id={issueId("agreement-text")}
             reasons={reasons}
             fields={["agreement.agreementText"]}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+            Agreement PDF{" "}
+            <span className="font-normal text-[rgb(var(--fg-muted))]">(optional)</span>
+          </p>
+          <label
+            data-agreement-pdf-drop-zone
+            onDragOver={(event) => {
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (agreementPdfUpload?.status === "uploading") return;
+              const file = event.dataTransfer.files[0];
+              if (file) onUploadAgreementPdf?.(file);
+            }}
+            className={`flex min-h-[4.5rem] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] border border-dashed px-4 py-3 text-center transition-colors duration-150 motion-reduce:transition-none ${
+              agreement.agreementPdf
+                ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+                : "border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] hover:bg-[rgb(var(--bg-overlay))]"
+            }`}
+          >
+            {agreementPdfUpload?.status === "uploading" ? (
+              <span className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                Uploading PDF…
+              </span>
+            ) : agreement.agreementPdf ? (
+              <>
+                <span
+                  title={agreement.agreementPdf.fileName}
+                  className="inline-flex max-w-full items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]"
+                >
+                  <FileUp
+                    size={14}
+                    strokeWidth={2.1}
+                    aria-hidden
+                    className="shrink-0 text-[rgb(var(--fg-success-text))]"
+                  />
+                  <span className="min-w-0 truncate">{agreement.agreementPdf.fileName}</span>
+                  <span className="font-normal text-[rgb(var(--fg-muted))]">
+                    · {formatFileSize(agreement.agreementPdf.sizeBytes)} · Private
+                  </span>
+                </span>
+                <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                  Drop a new PDF or click to replace it
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                  <FileUp size={14} strokeWidth={2.1} aria-hidden />
+                  Drop the agreement PDF here
+                </span>
+                <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                  or click to choose a file
+                </span>
+                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                  PDF only · up to 15 MB · the Artist sees the exact frozen copy
+                </span>
+              </>
+            )}
+            <input
+              type="file"
+              className="sr-only"
+              accept="application/pdf,.pdf"
+              disabled={agreementPdfUpload?.status === "uploading"}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onUploadAgreementPdf?.(file);
+              }}
+            />
+          </label>
+          {agreement.agreementPdf && agreementPdfUpload?.status !== "uploading" ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  patch({ agreementPdf: null });
+                }}
+                className="sk-press min-h-11 rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+              >
+                Remove PDF
+              </button>
+            </div>
+          ) : null}
+          {agreementPdfUpload?.status === "error" && agreementPdfUpload.error ? (
+            <p
+              role="alert"
+              className="text-[11px] leading-relaxed text-[rgb(var(--fg-danger-text))]"
+            >
+              {agreementPdfUpload.error}
+            </p>
+          ) : null}
+          <FieldIssues
+            id={issueId("agreement-pdf")}
+            reasons={reasons}
+            fields={["agreement.agreementPdf"]}
           />
         </div>
 
