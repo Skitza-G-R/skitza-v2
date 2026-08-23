@@ -70,6 +70,19 @@ describe("app-level upload registry", () => {
     expect(managedUploadsSnapshot().map((record) => record.fileName)).toEqual(["a.wav"]);
   });
 
+  it("shows uploads in the dock by default and honors an explicit opt-out", () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    beginManagedUpload({ fileName: "docked.wav", label: "Docked" });
+    beginManagedUpload({ fileName: "inline.wav", label: "Inline", showInDock: false });
+
+    expect(
+      managedUploadsSnapshot().map((record) => [record.fileName, record.showInDock]),
+    ).toEqual([
+      ["docked.wav", true],
+      ["inline.wav", false],
+    ]);
+  });
+
   it("awaits cancellation while the exiting account remains active", async () => {
     setUploadRuntimeAccountId(ACCOUNT_A);
     const events: string[] = [];

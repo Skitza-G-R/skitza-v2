@@ -22,6 +22,11 @@ export type ManagedUploadRecord = {
   canRetry: boolean;
   canCancel: boolean;
   terminalFeedback: "dock" | "toast";
+  /**
+   * Surfaces that render their own attached progress (e.g. the upload modal)
+   * opt out of the floating dock card so one transfer never shows two bars.
+   */
+  showInDock: boolean;
   updatedAt: string;
 };
 
@@ -255,6 +260,7 @@ export function beginManagedUpload(input: {
   fileName: string;
   label: string;
   terminalFeedback?: "dock" | "toast";
+  showInDock?: boolean;
 }): ManagedUploadHandle {
   const accountId = requireUploadRuntimeAccountId();
   const id = crypto.randomUUID();
@@ -282,6 +288,7 @@ export function beginManagedUpload(input: {
       canRetry: false,
       canCancel: false,
       terminalFeedback: input.terminalFeedback ?? "dock",
+      showInDock: input.showInDock ?? true,
       updatedAt: now,
     },
   ];

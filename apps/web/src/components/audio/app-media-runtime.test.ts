@@ -196,6 +196,10 @@ describe("SK-110 root media runtime", () => {
     );
   });
 
+  it("hides uploads that render their own attached progress from the dock", () => {
+    expect(ROOT_RUNTIME).toContain("upload.showInDock &&");
+  });
+
   it("gives terminal upload feedback a manual close control", () => {
     expect(ROOT_RUNTIME).toContain("dismissManagedUpload");
     expect(ROOT_RUNTIME).toContain('aria-label="Dismiss upload status"');
