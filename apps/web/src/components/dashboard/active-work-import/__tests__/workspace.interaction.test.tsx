@@ -2048,8 +2048,10 @@ describe("ActiveWorkImportWorkspace proof upload errors", () => {
     )[0];
     if (!first) throw new Error("Expected Payment 1");
     await user.click(within(first).getByRole("button", { name: "Record" }));
-    await user.click(screen.getByRole("button", { name: "Add proof" }));
-    const input = screen.getByText("Choose private proof").querySelector("input[type=file]");
+    const input = screen
+      .getByText("Drop proof of payment here")
+      .closest("label")
+      ?.querySelector("input[type=file]");
     if (!(input instanceof HTMLInputElement)) throw new Error("Expected a proof file input");
     await user.upload(input, new File(["%PDF-1.4"], "receipt.pdf", { type: "application/pdf" }));
   }

@@ -195,9 +195,6 @@ export function PaymentHistoryEditor({
   const [notice, setNotice] = useState<string | null>(null);
   const [planHistoryWarning, setPlanHistoryWarning] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(() => Boolean(blockingIncomplete?.note.trim()));
-  const [proofOpen, setProofOpen] = useState(() =>
-    Boolean(blockingIncomplete?.proofUploadToken || blockingIncomplete?.proofFileName),
-  );
   const editorActionsRef = useRef<HTMLDivElement>(null);
   const amountInputRef = useRef<HTMLInputElement>(null);
   const editingChangeRef = useRef(onEditingChange);
@@ -240,7 +237,6 @@ export function PaymentHistoryEditor({
     setNotice(null);
     setPlanHistoryWarning(null);
     setNoteOpen(Boolean(incomplete?.note.trim()));
-    setProofOpen(Boolean(incomplete?.proofUploadToken || incomplete?.proofFileName));
     // A row switch is the only time this editor resets itself from persisted data.
   }, [operationKey]);
 
@@ -320,7 +316,6 @@ export function PaymentHistoryEditor({
     setEditorError(null);
     setNotice(null);
     setNoteOpen(Boolean(editor.seed.note.trim()));
-    setProofOpen(Boolean(editor.seed.proofUploadToken || editor.seed.proofFileName));
   }
 
   function openNewPayment(
@@ -401,7 +396,6 @@ export function PaymentHistoryEditor({
     setEditorError(null);
     setNotice("Payment removed from this draft.");
     setNoteOpen(false);
-    setProofOpen(false);
   }
 
   function saveActivePayment() {
@@ -467,7 +461,6 @@ export function PaymentHistoryEditor({
     setActiveEditor(null);
     setEditorError(null);
     setNoteOpen(false);
-    setProofOpen(false);
     setNotice(
       draft.agreement.planKind === "split_50_50"
         ? `Payment ${String(activeInstallment.position)} saved. Final 50% stays locked until Artist approval.`
@@ -478,7 +471,6 @@ export function PaymentHistoryEditor({
   function proofFileSelected(file: File) {
     if (!activeEditor) return;
     updateActivePayment({ proofFileName: file.name });
-    setProofOpen(true);
     onUploadProof(activeEditor.paymentOperationKey, file);
   }
 
@@ -857,17 +849,6 @@ export function PaymentHistoryEditor({
                             <Plus size={14} strokeWidth={2.2} aria-hidden /> Add note
                           </button>
                         ) : null}
-                        {!proofOpen && !editorPayment.proofUploadToken ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setProofOpen(true);
-                            }}
-                            className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
-                          >
-                            <Plus size={14} strokeWidth={2.2} aria-hidden /> Add proof
-                          </button>
-                        ) : null}
                       </div>
 
                       {noteOpen || editorPayment.note.trim() ? (
@@ -894,88 +875,102 @@ export function PaymentHistoryEditor({
                         </div>
                       ) : null}
 
-                      {proofOpen || editorPayment.proofUploadToken || activeUpload ? (
-                        <div className="mt-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
-                          {editorPayment.proofUploadToken ? (
-                            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <div className="mt-3">
+                        <label
+                          data-proof-drop-zone
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            if (activeUpload?.status === "uploading") return;
+                            const file = event.dataTransfer.files[0];
+                            if (file) proofFileSelected(file);
+                          }}
+                          className={`flex min-h-[4.5rem] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] border border-dashed px-4 py-3 text-center transition-colors duration-150 motion-reduce:transition-none ${
+                            editorPayment.proofUploadToken
+                              ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+                              : "border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] hover:bg-[rgb(var(--bg-overlay))]"
+                          }`}
+                        >
+                          {activeUpload?.status === "uploading" ? (
+                            <span className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                              Uploading proof…
+                            </span>
+                          ) : editorPayment.proofUploadToken ? (
+                            <>
+                              <span
+                                title={editorPayment.proofFileName ?? "Private payment proof"}
+                                className="inline-flex max-w-full items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]"
+                              >
                                 <FileUp
-                                  size={15}
+                                  size={14}
                                   strokeWidth={2.1}
                                   aria-hidden
                                   className="shrink-0 text-[rgb(var(--fg-success-text))]"
                                 />
-                                <p
-                                  title={editorPayment.proofFileName ?? "Private payment proof"}
-                                  className="min-w-0 truncate text-[11px] font-semibold text-[rgb(var(--fg-default))]"
-                                >
+                                <span className="min-w-0 truncate">
                                   {editorPayment.proofFileName ?? "Private payment proof"}
-                                  <span className="ml-1 font-normal text-[rgb(var(--fg-muted))]">
-                                    · Private
-                                  </span>
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1">
-                                <label className="sk-press inline-flex min-h-11 cursor-pointer items-center rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]">
-                                  Replace
-                                  <input
-                                    type="file"
-                                    className="sr-only"
-                                    accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
-                                    disabled={activeUpload?.status === "uploading"}
-                                    onChange={(event) => {
-                                      const file = event.target.files?.[0];
-                                      event.target.value = "";
-                                      if (file) proofFileSelected(file);
-                                    }}
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    updateActivePayment({
-                                      proofUploadToken: null,
-                                      proofFileName: null,
-                                    });
-                                  }}
-                                  disabled={activeUpload?.status === "uploading"}
-                                  className="sk-press min-h-11 rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-40"
-                                >
-                                  Remove proof
-                                </button>
-                              </div>
-                            </div>
+                                </span>
+                                <span className="font-normal text-[rgb(var(--fg-muted))]">
+                                  · Private
+                                </span>
+                              </span>
+                              <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                                Drop a new file or click to replace it
+                              </span>
+                            </>
                           ) : (
-                            <label className="sk-press inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-strong))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]">
-                              <FileUp size={14} strokeWidth={2.1} aria-hidden />
-                              {activeUpload?.status === "uploading"
-                                ? "Uploading proof…"
-                                : editorPayment.proofFileName
-                                  ? `Choose ${editorPayment.proofFileName} again`
-                                  : "Choose private proof"}
-                              <input
-                                type="file"
-                                className="sr-only"
-                                accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
-                                disabled={activeUpload?.status === "uploading"}
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
-                                  event.target.value = "";
-                                  if (file) proofFileSelected(file);
-                                }}
-                              />
-                            </label>
+                            <>
+                              <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                                <FileUp size={14} strokeWidth={2.1} aria-hidden />
+                                Drop proof of payment here
+                              </span>
+                              <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                                or click to choose a file
+                              </span>
+                              <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                                JPG, PNG, HEIC or PDF · up to 15 MB · stays private
+                              </span>
+                            </>
                           )}
-                          {activeUpload?.status === "error" && activeUpload.error ? (
-                            <p
-                              role="alert"
-                              className="mt-2 text-[11px] leading-relaxed text-[rgb(var(--fg-danger-text))]"
+                          <input
+                            type="file"
+                            className="sr-only"
+                            accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
+                            disabled={activeUpload?.status === "uploading"}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              event.target.value = "";
+                              if (file) proofFileSelected(file);
+                            }}
+                          />
+                        </label>
+                        {editorPayment.proofUploadToken && activeUpload?.status !== "uploading" ? (
+                          <div className="mt-1 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateActivePayment({
+                                  proofUploadToken: null,
+                                  proofFileName: null,
+                                });
+                              }}
+                              className="sk-press min-h-11 rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
                             >
-                              {activeUpload.error}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
+                              Remove proof
+                            </button>
+                          </div>
+                        ) : null}
+                        {activeUpload?.status === "error" && activeUpload.error ? (
+                          <p
+                            role="alert"
+                            className="mt-2 text-[11px] leading-relaxed text-[rgb(var(--fg-danger-text))]"
+                          >
+                            {activeUpload.error}
+                          </p>
+                        ) : null}
+                      </div>
 
                       {editorError ? (
                         <p
