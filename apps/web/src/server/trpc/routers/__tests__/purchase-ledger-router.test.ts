@@ -27,6 +27,8 @@ describe("purchase-ledger router security contract", () => {
       "project",
       "client",
       "state",
+      "presignManualReceipt",
+      "cancelManualReceipt",
       "recordManualPayment",
       "correctPayment",
       "waiveDebt",
@@ -42,7 +44,11 @@ describe("purchase-ledger router security contract", () => {
   it("keeps routers thin and delegates every money transition", () => {
     expect(routerSource).toContain("loadProducerPaymentReadModel(");
     expect(routerSource).toContain("paymentLedgerReadRepository(ctx.db)");
-    expect(routerSource).toContain("recordConfirmedPurchasePayment(");
+    // SK-260: manual payments (with an optional receipt) go through the
+    // producer-manual-payment domain module, which owns the ledger write.
+    expect(routerSource).toContain("recordProducerManualPayment(");
+    expect(routerSource).toContain("prepareProducerReceiptUpload(");
+    expect(routerSource).not.toContain("recordConfirmedPurchasePayment(");
     expect(routerSource).toContain("correctPurchasePayment(");
     expect(routerSource).toContain("waiveInstallmentDebt(");
     expect(routerSource).not.toContain("cancelPurchase(");

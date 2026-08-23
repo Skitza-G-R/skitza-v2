@@ -148,6 +148,99 @@ export async function cancelProjectPurchaseAction(input: {
   }
 }
 
+// SK-260 — producer records a payment received outside Skitza (cash, bank
+// transfer, Bit) on one installment, optionally with the client's receipt.
+// The receipt goes presign → direct browser PUT → finalize inside record.
+export type ManualReceiptContentType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/webp"
+  | "image/heic"
+  | "application/pdf";
+
+export async function presignManualReceiptAction(input: {
+  purchaseId: string;
+  installmentId: string;
+  operationKey: string;
+  fileName: string;
+  contentType: ManualReceiptContentType;
+  sizeBytes: number;
+}): Promise<ActionDataResult<{ uploadUrl: string; uploadToken: string }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const result = await c.caller.purchaseLedger.presignManualReceipt(input);
+    return { ok: true, data: { uploadUrl: result.uploadUrl, uploadToken: result.uploadToken } };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function cancelManualReceiptAction(input: {
+  purchaseId: string;
+  installmentId: string;
+  uploadToken: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.purchaseLedger.cancelManualReceipt(input);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export interface RecordManualPaymentOutcome {
+  paymentId: string;
+  proofId: string | null;
+  installmentPosition: number;
+  installmentStatus: string;
+  paidInFull: boolean;
+}
+
+export async function recordManualPaymentAction(input: {
+  projectId: string;
+  purchaseId: string;
+  installmentId: string;
+  operationKey: string;
+  amountCents: number;
+  paidAtIso: string;
+  note?: string;
+  uploadToken?: string;
+}): Promise<ActionDataResult<RecordManualPaymentOutcome>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  const paidAt = new Date(input.paidAtIso);
+  if (Number.isNaN(paidAt.getTime())) return { ok: false, error: "Pick a valid payment date." };
+  try {
+    const result = await c.caller.purchaseLedger.recordManualPayment({
+      purchaseId: input.purchaseId,
+      installmentId: input.installmentId,
+      operationKey: input.operationKey,
+      amountCents: input.amountCents,
+      paidAt,
+      ...(input.note ? { note: input.note } : {}),
+      ...(input.uploadToken ? { uploadToken: input.uploadToken } : {}),
+    });
+    revalidateProjectSurfaces(input.projectId);
+    revalidatePath("/dashboard/payments");
+    revalidatePath(`/dashboard/clients-projects/clients`);
+    return {
+      ok: true,
+      data: {
+        paymentId: result.paymentId,
+        proofId: result.proofId,
+        installmentPosition: result.installmentPosition,
+        installmentStatus: result.installmentStatus,
+        paidInFull: result.paidInFull,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Producer-only private notes for the Project Room → Notes tab. Wraps
 // the project.updateNotes tRPC procedure. Returns the new updatedAt so
 // the UI can render "Saved <relative>" without a refetch.
