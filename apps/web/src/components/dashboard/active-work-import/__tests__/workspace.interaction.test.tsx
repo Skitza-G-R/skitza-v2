@@ -573,6 +573,15 @@ function savedResult(
   };
 }
 
+// Review rows start collapsed; open the one whose summary mentions `text`.
+function expandReviewRow(text: string) {
+  const summary = [...document.querySelectorAll("summary")].find((candidate) =>
+    candidate.textContent?.includes(text),
+  );
+  if (!summary) throw new Error(`Expected a Review row mentioning ${text}`);
+  fireEvent.click(summary);
+}
+
 function renderWorkspace(
   batch: InitialImportBatch | null = initialBatch(),
   options: {
@@ -1509,6 +1518,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(await screen.findByRole("heading", { name: "Review what needs info" })).not.toBeNull();
     const needsInfo = screen.getByRole("region", { name: "Needs info · 1" });
     const item = within(needsInfo).getByRole("article", { name: "Item 1 needs info" });
+    fireEvent.click(within(item).getByText("01").closest("summary") as HTMLElement);
     expect(
       within(item)
         .getAllByRole("listitem")
@@ -1572,6 +1582,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
 
       const needsInfo = await screen.findByRole("region", { name: "Needs info · 1" });
       const item = within(needsInfo).getByRole("article", { name: "Item 1 needs info" });
+      fireEvent.click(within(item).getByText("01").closest("summary") as HTMLElement);
       expect(
         within(item)
           .getAllByRole("listitem")
@@ -1589,6 +1600,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(paymentDateTruthBatch());
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
 
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
@@ -1602,6 +1615,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(paymentDateTruthBatch({ draftAmount: "1000", normalizedAmountCents: 100_000 }));
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
 
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
@@ -1619,6 +1634,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(paymentDateTruthBatch());
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
 
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
@@ -1654,6 +1671,9 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(detailedBatch());
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
+
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
     if (!card) throw new Error("Expected a frozen review card");

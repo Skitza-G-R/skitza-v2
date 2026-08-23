@@ -213,6 +213,12 @@ describe("compact active-work Review", () => {
     expect(summaries).toHaveLength(2);
     expect(summaries[0]?.textContent).toContain("Maya Levi");
     expect(summaries[1]?.textContent).toContain("Noa Band");
+    // Every row starts collapsed; details open only on a deliberate click.
+    expect(table.querySelectorAll("details[open]")).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Blue Hour EP" })).toBeNull();
+
+    fireEvent.click(summaries[0] as HTMLElement);
+
     expect(table.querySelectorAll("details[open]")).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Blue Hour EP" })).not.toBeNull();
     expect(screen.getByText(IMPORT_NOTICE)).not.toBeNull();
@@ -247,6 +253,10 @@ describe("compact active-work Review", () => {
     expect(within(needsArticle).getAllByText("Add the agreed price.")).toHaveLength(2);
     expect(within(needsArticle).getByText("Add the real payment date.")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Blue Hour EP" })).toBeNull();
+
+    // Clicking the open row closes it again.
+    fireEvent.click(summaries[1] as HTMLElement);
+    expect(table.querySelectorAll("details[open]")).toHaveLength(0);
   });
 
   it("reports remaining and overpaid money per installment in the summary", () => {
@@ -336,6 +346,7 @@ describe("compact active-work Review", () => {
     expect(projectCopy.className.split(/\s+/)).not.toContain("truncate");
     expect(projectCopy.className).toContain("[overflow-wrap:anywhere]");
 
+    fireEvent.click(summary);
     const denseDetails = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
     if (!denseDetails) throw new Error("Expected dense Ready details");
     expect(within(denseDetails).getByText(`${longClient} · ${longEmail}`).className).toContain(

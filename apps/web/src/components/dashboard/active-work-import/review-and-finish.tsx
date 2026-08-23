@@ -662,11 +662,12 @@ export function ReviewAndFinish({
     return [{ row, index, state: "needs_info", reasons: exactReasons }];
   });
   const needsInfoRows = reviewEntries.filter((entry) => entry.state === "needs_info");
+  // Rows start collapsed; one row opens on a deliberate click and closes on the next.
   const expandedOperationKey = reviewEntries.some(
     (entry) => entry.row.operationKey === requestedExpandedOperationKey,
   )
     ? requestedExpandedOperationKey
-    : (reviewEntries[0]?.row.operationKey ?? null);
+    : null;
   const unfinishedCount = rows.length - createdRows.length;
   const canCreateOrRetry = readyRows.length > 0 || failedRows.length > 0;
   const hasNeedsInfo = needsInfoRows.length > 0;
@@ -769,7 +770,11 @@ export function ReviewAndFinish({
               entries={reviewEntries}
               expandedOperationKey={expandedOperationKey}
               needsInfoCount={needsInfoRows.length}
-              onExpand={setRequestedExpandedOperationKey}
+              onExpand={(operationKey) => {
+                setRequestedExpandedOperationKey((current) =>
+                  current === operationKey ? null : operationKey,
+                );
+              }}
             />
           </>
         ) : loadingSetup ? (
