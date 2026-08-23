@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   loadRows: vi.fn<ImportActions["loadImportBatchRowsAction"]>(),
   loadSetup: vi.fn<ImportActions["loadImportSetupOptionsAction"]>(),
   materializeRows: vi.fn<ImportActions["materializeImportRowsAction"]>(),
+  prepareAgreementPdf: vi.fn<ImportActions["prepareImportAgreementPdfAction"]>(),
   prepareProof: vi.fn<ImportActions["prepareImportProofAction"]>(),
   restoreClient: vi.fn<ImportActions["restoreImportClientAction"]>(),
   saveRow: vi.fn<ImportActions["saveImportRowAction"]>(),
@@ -36,6 +37,7 @@ vi.mock("~/app/(producer)/dashboard/clients-projects/bring-active-work/actions",
   loadImportBatchRowsAction: mocks.loadRows,
   loadImportSetupOptionsAction: mocks.loadSetup,
   materializeImportRowsAction: mocks.materializeRows,
+  prepareImportAgreementPdfAction: mocks.prepareAgreementPdf,
   prepareImportProofAction: mocks.prepareProof,
   restoreImportClientAction: mocks.restoreClient,
   saveImportRowAction: mocks.saveRow,
@@ -91,6 +93,7 @@ function readyAssessment(creationDigest: string): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour",
       deadlineAtIso: null,
+      agreementPdf: null,
       plan: { kind: "full" },
       commercialSnapshot: {
         version: 2,
@@ -573,6 +576,15 @@ function savedResult(
   };
 }
 
+// Review rows start collapsed; open the one whose summary mentions `text`.
+function expandReviewRow(text: string) {
+  const summary = [...document.querySelectorAll("summary")].find((candidate) =>
+    candidate.textContent.includes(text),
+  );
+  if (!summary) throw new Error(`Expected a Review row mentioning ${text}`);
+  fireEvent.click(summary);
+}
+
 function renderWorkspace(
   batch: InitialImportBatch | null = initialBatch(),
   options: {
@@ -611,6 +623,7 @@ beforeEach(() => {
   mocks.loadRows.mockReset().mockResolvedValue({ ok: true, data: { rows: [] } });
   mocks.loadSetup.mockReset().mockResolvedValue({ ok: true, data: setupOptions() });
   mocks.materializeRows.mockReset();
+  mocks.prepareAgreementPdf.mockReset();
   mocks.prepareProof.mockReset();
   mocks.restoreClient
     .mockReset()
@@ -917,7 +930,10 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(firstDeliverable.value).toBe("Final mixes");
     expect(document.activeElement).toBe(secondDeliverable);
 
-    const terms = screen.getByLabelText("Existing agreement terms");
+    const terms = screen.getByLabelText("Existing agreement terms (optional)");
+    expect(terms.getAttribute("placeholder")).toBe(
+      "Paste the terms you already agreed with the Artist, if you have them in writing.",
+    );
     Object.defineProperty(terms, "scrollHeight", { configurable: true, value: 196 });
     fireEvent.input(terms, {
       target: { value: "Line one\nLine two\nLine three\nLine four\nLine five" },
@@ -962,6 +978,63 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(screen.getByText("Select an item from the queue.")).not.toBeNull();
     expect(screen.getByRole("list", { name: "Active work items" })).not.toBeNull();
   });
+
+  it("puts a full-size Add new client button in the header beside Review", () => {
+    renderWorkspace(sharedNewClientBatch());
+
+    const add = screen.getByRole("button", { name: "Add new client" });
+    const review = screen.getByRole("button", { name: "Review 2 ready items" });
+    expect(add.closest("header")).not.toBeNull();
+    expect(add.parentElement).toBe(review.parentElement);
+    expect(add.className).toContain("min-h-11");
+    expect(add.className).toContain("rounded-[var(--radius-lg)]");
+    expect(add.textContent).toContain("Add new client");
+    expect(screen.queryByRole("button", { name: "Add item" })).toBeNull();
+    expect(
+      within(
+        screen.getByRole("list", { name: "Active work items" }).closest("section") as HTMLElement,
+      ).queryByRole("button", { name: /add/i }),
+    ).toBeNull();
+  });
+
+  it("leaves nothing selected after removing a just-added item", async () => {
+    const user = userEvent.setup();
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(
+        savedResult(input, {
+          revision: 1,
+          assessment: {
+            state: "needs_info",
+            reasons: [
+              { code: "client_name_required", field: "client.name", message: "Add a client name." },
+            ],
+          },
+        }),
+      ),
+    );
+    renderWorkspace(sharedNewClientBatch());
+    const list = screen.getByRole("list", { name: "Active work items" });
+    expect(within(list).getAllByRole("button")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Add new client" }));
+    await waitFor(() => {
+      expect(within(list).getAllByRole("button")).toHaveLength(3);
+    });
+    await waitFor(() => {
+      const remove = screen.getByRole("button", { name: "Remove this draft" });
+      expect((remove as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Remove this draft" }));
+
+    await waitFor(() => {
+      expect(within(list).getAllByRole("button")).toHaveLength(2);
+    });
+    expect(mocks.deleteRow).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Select an item from the queue.")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Client & Project" })).toBeNull();
+    expect(within(list).queryAllByRole("button", { current: "true" })).toHaveLength(0);
+  });
 });
 
 describe("ActiveWorkImportWorkspace draft safety", () => {
@@ -983,7 +1056,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     );
     renderWorkspace(null);
 
-    const add = screen.getByRole("button", { name: "Add first item" });
+    const add = screen.getByRole("button", { name: "Add new client" });
     fireEvent.click(add);
     fireEvent.click(add);
 
@@ -1215,7 +1288,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     );
     renderWorkspace(null);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add first item" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add new client" }));
 
     await waitFor(() => {
       expect(mocks.saveRow).toHaveBeenCalledTimes(2);
@@ -1451,6 +1524,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(await screen.findByRole("heading", { name: "Review what needs info" })).not.toBeNull();
     const needsInfo = screen.getByRole("region", { name: "Needs info · 1" });
     const item = within(needsInfo).getByRole("article", { name: "Item 1 needs info" });
+    fireEvent.click(within(item).getByText("01").closest("summary") as HTMLElement);
     expect(
       within(item)
         .getAllByRole("listitem")
@@ -1514,6 +1588,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
 
       const needsInfo = await screen.findByRole("region", { name: "Needs info · 1" });
       const item = within(needsInfo).getByRole("article", { name: "Item 1 needs info" });
+      fireEvent.click(within(item).getByText("01").closest("summary") as HTMLElement);
       expect(
         within(item)
           .getAllByRole("listitem")
@@ -1531,6 +1606,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(paymentDateTruthBatch());
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
 
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
@@ -1544,6 +1621,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(paymentDateTruthBatch({ draftAmount: "1000", normalizedAmountCents: 100_000 }));
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
 
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
@@ -1561,6 +1640,8 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(paymentDateTruthBatch());
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
 
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
@@ -1596,6 +1677,9 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     renderWorkspace(detailedBatch());
 
     await user.click(screen.getByRole("button", { name: "Review 1 ready item" }));
+    await screen.findByRole("heading", { name: "Review before creating" });
+    expandReviewRow("Blue Hour");
+
     const heading = await screen.findByRole("heading", { name: "Blue Hour" });
     const card = heading.closest("article");
     if (!card) throw new Error("Expected a frozen review card");
@@ -1926,7 +2010,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(screen.getByRole("button", { name: "Back to items" })).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Back to items" }));
-    expect(screen.getByRole("button", { name: "Add item" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Add new client" })).not.toBeNull();
     expect(mocks.materializeRows.mock.calls[0]?.[0]?.rows).toHaveLength(1);
   });
 
@@ -1939,13 +2023,102 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
       },
     );
 
-    expect(screen.queryByRole("button", { name: "Add item" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add first item" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add new client" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Finish setup" }));
     await screen.findByRole("heading", { name: "Finish setup" });
     expect(screen.getByRole("button", { name: "Finish setup" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Back to items" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Back to active work items" })).toBeNull();
+  });
+});
+
+describe("ActiveWorkImportWorkspace agreement PDF", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("attaches a dropped PDF, saves its signed reference, and removes it again", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true, status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("v2") })),
+    );
+    mocks.prepareAgreementPdf.mockResolvedValue({
+      ok: true,
+      data: {
+        uploadUrl: "https://r2.example/agreement",
+        uploadToken: "agreement-tok",
+        expiresInSeconds: 300,
+      },
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await screen.findByRole("heading", { name: "Agreement" });
+
+    const zone = screen.getByText("Drop the agreement PDF here").closest("label");
+    if (!zone) throw new Error("Expected the agreement PDF drop zone");
+    expect(within(zone).getByText("or click to choose a file")).not.toBeNull();
+    const pdf = new File(["%PDF-1.4 deal"], "deal.pdf", { type: "application/pdf" });
+    fireEvent.drop(zone, { dataTransfer: { files: [pdf] } });
+
+    await waitFor(() => {
+      expect(mocks.prepareAgreementPdf).toHaveBeenCalledWith({
+        batchId,
+        rowId,
+        originalFileName: "deal.pdf",
+        contentType: "application/pdf",
+        sizeBytes: pdf.size,
+      });
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://r2.example/agreement",
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+    await waitFor(() => {
+      const saved = mocks.saveRow.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined;
+      const agreement = saved?.draftPayload
+        ? ((saved.draftPayload as Record<string, unknown>).agreement as Record<string, unknown>)
+        : undefined;
+      expect(agreement?.agreementPdf).toEqual({
+        uploadToken: "agreement-tok",
+        fileName: "deal.pdf",
+        sizeBytes: pdf.size,
+      });
+    });
+    expect(await screen.findByText("deal.pdf")).not.toBeNull();
+    expect(screen.queryByText("Drop the agreement PDF here")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Remove PDF" }));
+    await waitFor(() => {
+      const saved = mocks.saveRow.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined;
+      const agreement = (saved?.draftPayload as Record<string, unknown> | undefined)?.agreement as
+        | Record<string, unknown>
+        | undefined;
+      expect(agreement?.agreementPdf).toBeNull();
+    });
+    expect(screen.getByText("Drop the agreement PDF here")).not.toBeNull();
+  });
+
+  it("refuses a non-PDF file before asking the server", async () => {
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await screen.findByRole("heading", { name: "Agreement" });
+
+    const zone = screen.getByText("Drop the agreement PDF here").closest("label");
+    if (!zone) throw new Error("Expected the agreement PDF drop zone");
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(["img"], "deal.png", { type: "image/png" })] },
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBe("Choose a PDF file.");
+    expect(mocks.prepareAgreementPdf).not.toHaveBeenCalled();
   });
 });
 
@@ -1968,8 +2141,10 @@ describe("ActiveWorkImportWorkspace proof upload errors", () => {
     )[0];
     if (!first) throw new Error("Expected Payment 1");
     await user.click(within(first).getByRole("button", { name: "Record" }));
-    await user.click(screen.getByRole("button", { name: "Add proof" }));
-    const input = screen.getByText("Choose private proof").querySelector("input[type=file]");
+    const input = screen
+      .getByText("Drop proof of payment here")
+      .closest("label")
+      ?.querySelector("input[type=file]");
     if (!(input instanceof HTMLInputElement)) throw new Error("Expected a proof file input");
     await user.upload(input, new File(["%PDF-1.4"], "receipt.pdf", { type: "application/pdf" }));
   }
@@ -2227,6 +2402,35 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     expect(firstKey).toBeTruthy();
     expect(secondKey).toBe(firstKey);
     expect(mocks.finishSetup.mock.calls[0]?.[0]).not.toHaveProperty("selectedInstallmentIds");
+  });
+
+  it("starts a new operation when the invitation choice changes after an ambiguous failure", async () => {
+    mocks.finishSetup.mockResolvedValue({ ok: false, error: "Could not confirm the result." });
+    const user = await openCreatedSetup(freshSetupOptions());
+    const available = screen.getByRole("checkbox", { name: /Available client/ });
+    await user.click(available);
+    const done = screen.getByRole("button", { name: "Finish setup" });
+
+    await user.click(done);
+    await waitFor(() => {
+      expect(mocks.finishSetup).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.finishSetup.mock.calls[0]?.[0]?.selectedClientContactIds).toEqual([
+      "client-available",
+    ]);
+
+    // Unticking the client is a different reviewed choice, so it cannot reuse
+    // the operation key of the attempt that included an invitation.
+    await user.click(available);
+    await user.click(done);
+    await waitFor(() => {
+      expect(mocks.finishSetup).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mocks.finishSetup.mock.calls[1]?.[0]?.selectedClientContactIds).toEqual([]);
+    expect(mocks.finishSetup.mock.calls[1]?.[0]?.operationKey).not.toBe(
+      mocks.finishSetup.mock.calls[0]?.[0]?.operationKey,
+    );
   });
 
   it("rotates the operation key after a successful partial result", async () => {

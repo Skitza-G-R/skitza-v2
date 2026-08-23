@@ -1,10 +1,15 @@
 import type { PaymentPlan, ProductRoyaltyTerms, PurchaseCommercialSnapshot } from "@skitza/db";
 
+import { agreementPdfFileError } from "~/lib/agreement-pdf";
+
 import { assertCommercialSnapshotMatchesAcceptance } from "../purchases/commercial-snapshot";
 import { createInstallmentSchedule, type PurchaseInstallment } from "../purchases/ledger";
 import { digestCommercialSnapshot, snapshotCommercialTerms } from "../purchases/policy";
 
 export const ACTIVE_WORK_IMPORT_NOTICE = "Added by producer from an existing agreement" as const;
+/** Frozen agreement text when the producer pasted no written terms. */
+export const ACTIVE_WORK_IMPORT_NO_TERMS_TEXT =
+  "No written terms were pasted. The agreement name, deliverables, rights, price, and payment plan recorded here are the frozen terms." as const;
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const POSTGRES_INTEGER_MIN = -2_147_483_648;
@@ -21,7 +26,6 @@ export type ActiveWorkImportReasonCode =
   | "agreement_name_required"
   | "deliverables_required"
   | "rights_required"
-  | "agreement_text_required"
   | "amount_invalid"
   | "currency_invalid"
   | "tax_mismatch"
@@ -37,6 +41,7 @@ export type ActiveWorkImportReasonCode =
   | "existing_client_email_mismatch"
   | "template_not_found"
   | "proof_invalid"
+  | "agreement_pdf_invalid"
   | "revision_rule_invalid"
   | "royalty_terms_invalid";
 
@@ -60,6 +65,13 @@ export type ActiveWorkImportPayment = Readonly<{
   proofUploadToken: string | null;
 }>;
 
+/** A staged agreement PDF the producer attached while drafting. */
+export type ActiveWorkImportAgreementPdfReference = Readonly<{
+  uploadToken: string;
+  fileName: string;
+  sizeBytes: number;
+}>;
+
 export type NormalizedActiveWorkImport = Readonly<{
   existingClientId: string | null;
   templateProductId: string | null;
@@ -69,6 +81,7 @@ export type NormalizedActiveWorkImport = Readonly<{
   projectTitle: string;
   deadlineAt: Date | null;
   plan: ActiveWorkImportPlan;
+  agreementPdf: ActiveWorkImportAgreementPdfReference | null;
   commercialSnapshot: PurchaseCommercialSnapshot;
   snapshotDigest: string;
   schedule: readonly PurchaseInstallment[];
@@ -166,6 +179,36 @@ function reason(
   message: string,
 ): void {
   reasons.push({ code, field, message });
+}
+
+function parseAgreementPdf(
+  value: unknown,
+  reasons: ActiveWorkImportReason[],
+): ActiveWorkImportAgreementPdfReference | null {
+  if (value === null || value === undefined) return null;
+  const candidate = object(value);
+  const uploadToken = text(candidate?.uploadToken);
+  const fileName = text(candidate?.fileName);
+  const sizeBytes = integer(candidate?.sizeBytes);
+  if (
+    !candidate ||
+    !uploadToken ||
+    sizeBytes === null ||
+    agreementPdfFileError({
+      originalFileName: fileName,
+      contentType: "application/pdf",
+      sizeBytes,
+    }) !== null
+  ) {
+    reason(
+      reasons,
+      "agreement_pdf_invalid",
+      "agreement.agreementPdf",
+      "Attach the agreement PDF again.",
+    );
+    return null;
+  }
+  return Object.freeze({ uploadToken, fileName, sizeBytes });
 }
 
 function parsePlan(
@@ -461,6 +504,7 @@ export function assessActiveWorkImportDraft(
   const includedSongSpaces = integer(agreement.includedSongSpaces);
   const revisionRule = parseRevisionRule(agreement.revisionRule);
   const royaltyTerms = parseRoyaltyTerms(agreement.royaltyTerms);
+  const agreementPdf = parseAgreementPdf(agreement.agreementPdf, reasons);
 
   if (!name) {
     reason(reasons, "agreement_name_required", "agreement.name", "Add a name for the agreement.");
@@ -475,14 +519,6 @@ export function assessActiveWorkImportDraft(
   }
   if (rights.length === 0) {
     reason(reasons, "rights_required", "agreement.rights", "Add the agreed rights.");
-  }
-  if (!agreementText) {
-    reason(
-      reasons,
-      "agreement_text_required",
-      "agreement.agreementText",
-      "Add the existing agreement terms.",
-    );
   }
   if (subtotalCents === null || subtotalCents <= 0 || suppliedTotalCents === null) {
     reason(reasons, "amount_invalid", "agreement.totalCents", "Add a price greater than zero.");
@@ -627,8 +663,16 @@ export function assessActiveWorkImportDraft(
     rights,
     selectedPaymentPlan: paymentPlan,
     offeredPaymentPlans: [paymentPlan],
-    agreementText,
-    agreementMode: "text",
+    // Pasting the outside agreement is optional: the name, deliverables,
+    // rights, price, and plan above already freeze the terms. An attached PDF
+    // becomes exact snapshot metadata only when the file is finalized at
+    // creation, so the mode stays "none" here.
+    agreementText:
+      agreementText ||
+      (agreementPdf
+        ? `The existing agreement is the attached PDF "${agreementPdf.fileName}".`
+        : ACTIVE_WORK_IMPORT_NO_TERMS_TEXT),
+    agreementMode: agreementText ? "text" : "none",
   };
   try {
     assertCommercialSnapshotMatchesAcceptance(commercialSnapshot, expectedTotalCents, plan);
@@ -657,6 +701,7 @@ export function assessActiveWorkImportDraft(
       projectTitle,
       deadlineAt,
       plan,
+      agreementPdf,
       commercialSnapshot: frozen.value as PurchaseCommercialSnapshot,
       snapshotDigest: frozen.digest,
       schedule: Object.freeze(schedule),
@@ -664,6 +709,13 @@ export function assessActiveWorkImportDraft(
     }),
   };
 }
+
+export type ActiveWorkImportAgreementPdfUploadShape = Readonly<{
+  uploadId: string;
+  originalFileName: string;
+  contentType: string;
+  sizeBytes: number;
+}>;
 
 export function activeWorkImportCreationDigest(
   normalized: NormalizedActiveWorkImport,
@@ -674,9 +726,12 @@ export function activeWorkImportCreationDigest(
     contentType: string;
     sizeBytes: number;
   }>[],
+  agreementPdfUpload: ActiveWorkImportAgreementPdfUploadShape | null = null,
 ): string {
   return `sha256:${digestCommercialSnapshot({
     kind: "active-work-import-row-v1",
+    // Rows without a PDF keep the digest they had before PDFs existed.
+    ...(agreementPdfUpload ? { agreementPdfUpload } : {}),
     client: {
       existingClientId: normalized.existingClientId,
       name: normalized.clientName,

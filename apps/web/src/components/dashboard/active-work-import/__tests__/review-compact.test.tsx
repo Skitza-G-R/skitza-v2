@@ -25,6 +25,7 @@ function readyAssessment(): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour EP",
       deadlineAtIso: null,
+      agreementPdf: null,
       plan: { kind: "monthly", installments: 2 },
       commercialSnapshot: {
         version: 2,
@@ -213,6 +214,12 @@ describe("compact active-work Review", () => {
     expect(summaries).toHaveLength(2);
     expect(summaries[0]?.textContent).toContain("Maya Levi");
     expect(summaries[1]?.textContent).toContain("Noa Band");
+    // Every row starts collapsed; details open only on a deliberate click.
+    expect(table.querySelectorAll("details[open]")).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Blue Hour EP" })).toBeNull();
+
+    fireEvent.click(summaries[0] as HTMLElement);
+
     expect(table.querySelectorAll("details[open]")).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Blue Hour EP" })).not.toBeNull();
     expect(screen.getByText(IMPORT_NOTICE)).not.toBeNull();
@@ -247,6 +254,55 @@ describe("compact active-work Review", () => {
     expect(within(needsArticle).getAllByText("Add the agreed price.")).toHaveLength(2);
     expect(within(needsArticle).getByText("Add the real payment date.")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Blue Hour EP" })).toBeNull();
+
+    // Clicking the open row closes it again.
+    fireEvent.click(summaries[1] as HTMLElement);
+    expect(table.querySelectorAll("details[open]")).toHaveLength(0);
+  });
+
+  it("lists the attached agreement PDF in the frozen details", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: {
+        ...base,
+        normalized: {
+          ...base.normalized,
+          agreementPdf: { fileName: "deal.pdf", sizeBytes: 2_048 },
+        },
+      },
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} />);
+    const summary = screen.getByRole("region", { name: "Review items" }).querySelector("summary");
+    if (!summary) throw new Error("Expected the compact Review summary");
+    fireEvent.click(summary);
+
+    const details = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
+    if (!details) throw new Error("Expected dense Ready details");
+    expect(within(details).getByText("Agreement PDF")).not.toBeNull();
+    expect(
+      within(details).getByText("deal.pdf · 2.0 KB · frozen with this agreement"),
+    ).not.toBeNull();
+  });
+
+  it("explains the wait while ready items are being created", () => {
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: readyAssessment(),
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} creating />);
+
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("Creating 1 item");
+    expect(status.textContent).toContain("can take a few seconds");
+    expect(screen.queryByText("Nothing will be sent")).toBeNull();
+    const creating = screen.getByRole("button", { name: "Creating…" });
+    expect((creating as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("reports remaining and overpaid money per installment in the summary", () => {
@@ -336,6 +392,7 @@ describe("compact active-work Review", () => {
     expect(projectCopy.className.split(/\s+/)).not.toContain("truncate");
     expect(projectCopy.className).toContain("[overflow-wrap:anywhere]");
 
+    fireEvent.click(summary);
     const denseDetails = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
     if (!denseDetails) throw new Error("Expected dense Ready details");
     expect(within(denseDetails).getByText(`${longClient} · ${longEmail}`).className).toContain(

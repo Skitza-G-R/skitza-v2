@@ -1,13 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import { agreementPdfClientSnapshot, appendAgreementPdfRevision } from "../contract";
-import { AgreementPdfEvidenceError, authorizeCurrentRequestAgreementPdf } from "../evidence";
+import {
+  AgreementPdfEvidenceError,
+  authorizeAcceptedAgreementPdf,
+  authorizeCurrentRequestAgreementPdf,
+} from "../evidence";
 
 function requestEvidenceDb(row: { contractUrl: string; requestStatus: string }) {
   const query = {
     innerJoin: () => query,
     where: () => query,
     limit: () => Promise.resolve([row]),
+  };
+  return {
+    select: () => ({ from: () => query }),
+  } as never;
+}
+
+// Each `limit()` answers the next lookup in order, so a test can state exactly
+// which ownership query finds the purchase.
+function sequencedEvidenceDb(results: readonly unknown[][]) {
+  const queue = [...results];
+  const query = {
+    innerJoin: () => query,
+    where: () => query,
+    limit: () => Promise.resolve(queue.shift() ?? []),
   };
   return {
     select: () => ({ from: () => query }),
@@ -66,6 +84,60 @@ describe("current request agreement evidence", () => {
           expectedDocumentId: snapshotA.documentId,
         },
       ),
+    ).rejects.toBeInstanceOf(AgreementPdfEvidenceError);
+  });
+});
+
+describe("imported purchase agreement evidence", () => {
+  it("serves the frozen PDF from the import attestation ledger and rejects a changed snapshot", async () => {
+    const first = revision(1);
+    const contract = appendAgreementPdfRevision(null, first);
+    const agreementPdf = agreementPdfClientSnapshot(first);
+    if (!agreementPdf) throw new Error("Expected agreement snapshot");
+    const commercialSnapshot = { agreementMode: "pdf", agreementPdf };
+    // Not a private offer, not a store product (4 lookups), then the imported row.
+    const notFoundBefore: unknown[][] = [[], [], [], []];
+
+    await expect(
+      authorizeAcceptedAgreementPdf(
+        sequencedEvidenceDb([...notFoundBefore, [{ contractUrl: contract, commercialSnapshot }]]),
+        { clerkUserId: "artist-1", purchaseId: "purchase-1" },
+      ),
+    ).resolves.toEqual(first.document);
+
+    // Producer side: the artist lookup misses, the producer lookup hits.
+    await expect(
+      authorizeAcceptedAgreementPdf(
+        sequencedEvidenceDb([
+          ...notFoundBefore,
+          [],
+          [{ contractUrl: contract, commercialSnapshot }],
+        ]),
+        { clerkUserId: "producer-1", purchaseId: "purchase-1" },
+      ),
+    ).resolves.toEqual(first.document);
+
+    const other = agreementPdfClientSnapshot(revision(2));
+    await expect(
+      authorizeAcceptedAgreementPdf(
+        sequencedEvidenceDb([
+          ...notFoundBefore,
+          [
+            {
+              contractUrl: contract,
+              commercialSnapshot: { agreementMode: "pdf", agreementPdf: other },
+            },
+          ],
+        ]),
+        { clerkUserId: "artist-1", purchaseId: "purchase-1" },
+      ),
+    ).rejects.toBeInstanceOf(AgreementPdfEvidenceError);
+
+    await expect(
+      authorizeAcceptedAgreementPdf(sequencedEvidenceDb([...notFoundBefore, [], []]), {
+        clerkUserId: "stranger",
+        purchaseId: "purchase-1",
+      }),
     ).rejects.toBeInstanceOf(AgreementPdfEvidenceError);
   });
 });

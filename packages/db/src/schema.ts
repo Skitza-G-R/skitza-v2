@@ -4452,6 +4452,9 @@ export const purchaseImportAttestations = pgTable(
     importedByClerkUserId: text("imported_by_clerk_user_id").notNull(),
     importedSnapshot: jsonb("imported_snapshot").$type<PurchaseCommercialSnapshot>().notNull(),
     snapshotDigest: text("snapshot_digest").notNull(),
+    // SK-259: private ledger for the agreement PDF the producer attached while
+    // importing. Same encoded shape as products.contract_url / private offers.
+    agreementPdfContract: text("agreement_pdf_contract"),
     importedAt: timestamp("imported_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

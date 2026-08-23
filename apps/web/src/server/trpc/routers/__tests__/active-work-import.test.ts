@@ -92,6 +92,7 @@ vi.mock("~/server/domain/active-work-import/workflow", () => ({
   assessActiveWorkImportRowForCreation: (...args: unknown[]) => mocks.assess(...args),
   materializeActiveWorkImportRow: vi.fn(),
   materializeActiveWorkImportRows: vi.fn(),
+  prepareActiveWorkImportAgreementPdf: vi.fn(),
   prepareActiveWorkImportProof: vi.fn(),
   publicActiveWorkImportAssessment: (assessment: Record<string, unknown>) =>
     mocks.publicAssessment(assessment),
@@ -322,9 +323,8 @@ describe("activeWorkImport tRPC boundary", () => {
   });
 
   it("maps an invalid proof capability to BAD_REQUEST", async () => {
-    const { ActiveWorkImportProofCapabilityError } = await import(
-      "~/server/domain/active-work-import/proof-capability"
-    );
+    const { ActiveWorkImportProofCapabilityError } =
+      await import("~/server/domain/active-work-import/proof-capability");
     const workflow = await import("~/server/domain/active-work-import/workflow");
     vi.mocked(workflow.prepareActiveWorkImportProof).mockRejectedValue(
       new ActiveWorkImportProofCapabilityError(),
@@ -342,6 +342,66 @@ describe("activeWorkImport tRPC boundary", () => {
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "The imported payment proof is invalid",
+    });
+  });
+
+  it("prepares an agreement PDF upload with the active secret and rejects non-PDF input", async () => {
+    const workflow = await import("~/server/domain/active-work-import/workflow");
+    vi.mocked(workflow.prepareActiveWorkImportAgreementPdf).mockResolvedValue({
+      uploadUrl: "https://r2.example/agreement",
+      expiresInSeconds: 300,
+      uploadToken: "signed-agreement-token",
+    });
+
+    await expect(
+      (await caller()).prepareAgreementPdf({
+        batchId: BATCH_ID,
+        rowId: ROW_ID,
+        originalFileName: "deal.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 2_048,
+      }),
+    ).resolves.toEqual({
+      uploadUrl: "https://r2.example/agreement",
+      expiresInSeconds: 300,
+      uploadToken: "signed-agreement-token",
+    });
+    expect(workflow.prepareActiveWorkImportAgreementPdf).toHaveBeenCalledWith(mocks.db, {
+      producerId: PRODUCER_ID,
+      batchId: BATCH_ID,
+      rowId: ROW_ID,
+      originalFileName: "deal.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 2_048,
+      serverSecret: "active-test-secret",
+    });
+
+    await expect(
+      (await caller()).prepareAgreementPdf({
+        batchId: BATCH_ID,
+        rowId: ROW_ID,
+        originalFileName: "deal.png",
+        contentType: "image/png" as "application/pdf",
+        sizeBytes: 2_048,
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const { ActiveWorkImportAgreementPdfCapabilityError } =
+      await import("~/server/domain/active-work-import/agreement-pdf-capability");
+    vi.mocked(workflow.prepareActiveWorkImportAgreementPdf).mockRejectedValue(
+      new ActiveWorkImportAgreementPdfCapabilityError(),
+    );
+    await expect(
+      (await caller()).prepareAgreementPdf({
+        batchId: BATCH_ID,
+        rowId: ROW_ID,
+        originalFileName: "deal.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 2_048,
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "The imported agreement PDF is invalid",
     });
   });
 

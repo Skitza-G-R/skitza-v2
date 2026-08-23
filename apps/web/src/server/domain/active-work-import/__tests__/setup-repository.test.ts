@@ -92,7 +92,11 @@ describe("active work import setup repository delivery", () => {
     });
 
     mocks.deliver.mockRejectedValueOnce(
-      new EmailDeliveryError({ name: "rate_limit_exceeded", message: "slow down", statusCode: 429 }),
+      new EmailDeliveryError({
+        name: "rate_limit_exceeded",
+        message: "slow down",
+        statusCode: 429,
+      }),
     );
     await expect(repository.deliverInvitation(delivery(), NOW)).resolves.toMatchObject({
       status: "failed",
@@ -105,6 +109,22 @@ describe("active work import setup repository delivery", () => {
     await expect(repository.deliverInvitation(delivery(), NOW)).resolves.toMatchObject({
       status: "failed",
       reason: "Invitation claim is no longer owned",
+    });
+  });
+
+  it("names a misconfigured email service instead of failing the whole setup", async () => {
+    mocks.deliver.mockRejectedValueOnce(
+      new EmailDeliveryError({
+        name: "configuration_error",
+        message: "RESEND_API_KEY contains characters that cannot be sent in a request header",
+        statusCode: null,
+      }),
+    );
+    await expect(repository.deliverInvitation(delivery(), NOW)).resolves.toEqual({
+      status: "failed",
+      providerAcceptedAt: null,
+      reason:
+        "The email service is not set up yet, so this invitation was not sent. Finish setup without it; you can invite this client later from Clients & Projects.",
     });
   });
 

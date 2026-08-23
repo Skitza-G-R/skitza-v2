@@ -46,6 +46,12 @@ function dateLabel(value: string | null): string {
   }).format(date);
 }
 
+function fileSizeLabel(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${String(sizeBytes)} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function planLabel(review: NormalizedImportReview): string {
   if (review.plan.kind === "split_50_50") return "50/50";
   if (review.plan.kind === "monthly") {
@@ -271,6 +277,16 @@ function ReviewCard({ row, asArticle }: { row: WorkspaceImportRow; asArticle: bo
               {snapshot.agreementText}
             </p>
           </div>
+          {review.agreementPdf ? (
+            <div className="min-w-0 pt-2.5">
+              <p className="font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                Agreement PDF
+              </p>
+              <p className="mt-1 text-[11.5px] leading-relaxed font-semibold [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-secondary))]">
+                {`${review.agreementPdf.fileName} · ${fileSizeLabel(review.agreementPdf.sizeBytes)} · frozen with this agreement`}
+              </p>
+            </div>
+          ) : null}
         </section>
 
         <section className="min-w-0 border-t border-[rgb(var(--border-subtle))] px-4 py-3 sm:px-5 lg:border-t-0">
@@ -662,12 +678,14 @@ export function ReviewAndFinish({
     return [{ row, index, state: "needs_info", reasons: exactReasons }];
   });
   const needsInfoRows = reviewEntries.filter((entry) => entry.state === "needs_info");
+  // Rows start collapsed; one row opens on a deliberate click and closes on the next.
   const expandedOperationKey = reviewEntries.some(
     (entry) => entry.row.operationKey === requestedExpandedOperationKey,
   )
     ? requestedExpandedOperationKey
-    : (reviewEntries[0]?.row.operationKey ?? null);
+    : null;
   const unfinishedCount = rows.length - createdRows.length;
+  const creatingCount = readyRows.length > 0 ? readyRows.length : failedRows.length;
   const canCreateOrRetry = readyRows.length > 0 || failedRows.length > 0;
   const hasNeedsInfo = needsInfoRows.length > 0;
   const eligibleUnpaidInstallments =
@@ -769,7 +787,11 @@ export function ReviewAndFinish({
               entries={reviewEntries}
               expandedOperationKey={expandedOperationKey}
               needsInfoCount={needsInfoRows.length}
-              onExpand={setRequestedExpandedOperationKey}
+              onExpand={(operationKey) => {
+                setRequestedExpandedOperationKey((current) =>
+                  current === operationKey ? null : operationKey,
+                );
+              }}
             />
           </>
         ) : loadingSetup ? (
@@ -974,7 +996,19 @@ export function ReviewAndFinish({
       </div>
 
       <footer className="sk-native-action-dock fixed inset-x-0 z-[80] flex shrink-0 flex-col gap-1.5 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.96)] px-4 pt-2.5 backdrop-blur-md lg:static lg:z-auto lg:flex-none lg:flex-row lg:items-center lg:justify-between lg:px-6 lg:py-3">
-        {stage === "review" ? (
+        {stage === "review" && creating ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="inline-flex min-h-6 items-center gap-2 text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]"
+          >
+            <span
+              aria-hidden
+              className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[rgb(var(--brand-primary))] motion-reduce:animate-none"
+            />
+            {`Creating ${String(creatingCount)} ${creatingCount === 1 ? "item" : "items"}… each one is saved and checked in turn, so this can take a few seconds.`}
+          </p>
+        ) : stage === "review" ? (
           <p className="inline-flex min-h-6 items-center gap-2 text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
             <ShieldCheck
               size={17}
