@@ -1,25 +1,40 @@
 # Session Recap
 
 > **For the next session: READ THIS FIRST.**
-> Last updated: **2026-06-11 evening, producer mobile premium wave** — SK-53..SK-57 (#176-#180) all merged to v3-clean the same evening Gili filed her 8-item phone audit. Earlier the same day: SK-50/51/52 merged AND promoted to skitza.app.
+> Last updated: **2026-08-23, SK-259 bring-in-active-work round 2** (older sections below are historical) — SK-53..SK-57 (#176-#180) all merged to v3-clean the same evening Gili filed her 8-item phone audit. Earlier the same day: SK-50/51/52 merged AND promoted to skitza.app.
 
 ## Where things stand
+
+### SK-259 — Bring in active work, round 2 (2026-08-23)
+
+Gili's 7-item review of the live flow → one PR on
+`giasraf/sk-259-fix-bring-in-active-work-round-2-issues-from-gilis-review`. Design + root causes:
+`docs/plans/active/2026-08-23-sk-259-bring-active-work-round-2.md`.
+
+- **Finish setup crash root cause:** the Vercel `RESEND_API_KEY` is corrupted (`re_` + 16 chars +
+  "→" + 10 chars). `new Resend(key)` throws a raw TypeError building the `Authorization` header,
+  so **no Resend email has ever left production**. Code now reports it as a per-client
+  "email service is not set up" failure; Gili must re-enter the key on Vercel (Production +
+  Preview) from the Resend dashboard.
+- **Migration 0056** (`purchase_import_attestations.agreement_pdf_contract`, nullable, additive)
+  must be applied with `$skitza-migrate` before a producer attaches an agreement PDF; rows
+  without a PDF never touch the column, so deploy order is safe.
+- Slow "Create N ready items" = DB round-trip latency; SK-258 / PR #381 (fra1) is the real fix.
 
 ### Clients & Projects mobile premium wave — SK-59..62 ALL MERGED (2026-06-11 evening)
 
 Gili's /goal: every producer mobile flow in the Clients tab production-ready — 0 bugs, premium design. Plan doc: `docs/plans/active/2026-06-11-clients-projects-mobile-premium.md` (#183) — audit at true 390px + fetched research (HIG/M3/NN/g/Spotify). Four PRs, each gate-green + probe-verified at 390 AND 360, desktop byte-identical:
 
-| PR | Issue | What shipped |
-|---|---|---|
+| PR   | Issue | What shipped                                                                                                                                                                                              |
+| ---- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #184 | SK-59 | TrackRow + VersionRow = Spotify-style 64px two-line rows `<md` (album page was 521px wide w/ INVISIBLE song titles); AlbumTabs + SongTabs = one-line scrollable pill rails; AddVersionDropZone flex `<md` |
-| #185 | SK-60 | All 3 heroes (Album/Song/ClientSpace) stack `<md`: 26px Syne 2-line-clamp titles (were "De…"/"No…"/invisible), 72px avatars, full-width 44px CTAs, email clamped in band; 3 source-regex tests updated |
-| #186 | SK-61 | All 7 dialogs = bottom sheets `<768px` via unlayered `.sk-sheet-mobile` (globals.css end); 48px/16px inputs (kills iOS zoom-on-focus); footers stack primary-on-top; remove-client = HIG action sheet |
-| #187 | SK-62 | Payments milestones = two-line money rows; Invoice/reminder stack full-width; 3 loading.tsx match new mobile shapes; Studio Log verified fluid (untouched); full sweep 390+360 clean |
+| #185 | SK-60 | All 3 heroes (Album/Song/ClientSpace) stack `<md`: 26px Syne 2-line-clamp titles (were "De…"/"No…"/invisible), 72px avatars, full-width 44px CTAs, email clamped in band; 3 source-regex tests updated    |
+| #186 | SK-61 | All 7 dialogs = bottom sheets `<768px` via unlayered `.sk-sheet-mobile` (globals.css end); 48px/16px inputs (kills iOS zoom-on-focus); footers stack primary-on-top; remove-client = HIG action sheet     |
+| #187 | SK-62 | Payments milestones = two-line money rows; Invoice/reminder stack full-width; 3 loading.tsx match new mobile shapes; Studio Log verified fluid (untouched); full sweep 390+360 clean                      |
 
 **Traps for future passes:** Tailwind v4 `-translate-x-1/2` emits the standalone `translate` property — `transform: none` alone does NOT reset it (sheet rendered at -50%,-50% till `translate: none`). globals.css body is `@layer base` → overrides of Tailwind utilities must go UNLAYERED at file end (SK-52 pattern). Capture viewports taller than a real phone fake "dead space" below short pages — judge vertical rhythm at 844px.
 
 **NOT done / follow-ups:** skitza.app NOT promoted (Gili's call); Vercel build of bf5b43f unverified at write time; sticky tab rails flagged as possible polish (z-index vs topbar/dock needs own pass); per-modal sticky footers skipped (sheets scroll instead).
-
 
 ### Producer mobile premium wave — SK-53..SK-57 (ALL MERGED, NOT promoted)
 
@@ -53,6 +68,7 @@ Gili's phone screenshot showed the homepage broken on mobile (zoomed, cut off bo
 ### SK-50 — artist mobile ship-ready audit + polish (MERGED via #173)
 
 Audited ALL artist screens at true 390px against the handoff prototype (refs: /tmp/proto-refs/). Fixes landed on the branch (full gate green, 2942 tests):
+
 - **Music L1/L2 mobile rework** (worst section): L1 2-col cover grid below sm; L2 stacked hero (full title) + Spotify-style track rows below lg (desktop tables untouched at lg+, CSS-only switch).
 - **Home density**: LastUpload/NextSession/PaymentRequests no longer truncate at 390; amounts quiet mono; warm empty placeholder; empty helper-line wrap.
 - **Funnel polish**: S3 footer overlap FIXED + price in white card; S4 PDF "View" pill; S5 heading; S7 neutral-till-selected prices; S8 plan recap + greyed card row + amber COPY pills; S9 heading/eyebrow/installments hint; S12 dead band gone + green Confirmed pill; S11 green hero + full names.
@@ -65,43 +81,49 @@ Verification gotchas learned: headless-Chrome CLI clamps windows to ≥500px (la
 TEMP screenshot harness at apps/web/src/app/screenshot-preview/ (untracked) — DELETE before committing. Audit tracker: /tmp/sk50-audit/AUDIT.md.
 
 Open flags for Gili/Raz: music cover palette is cool green/violet vs warm handoff hues (shared w/ producer — product decision); /artist/sessions has no nav entry from the Book tab (IA question); store focal cover for "Gili Studio" hashes to plum (producer identity hue, consistent w/ S3, not the proto's amber).
+
 ### Artist purchase flow — LIVE END-TO-END on v3-clean (Gate 1)
 
 All of it merged on the night of 2026-06-09→10:
 
-| PR | What | Status |
-|---|---|---|
+| PR   | What                                                                        | Status                  |
+| ---- | --------------------------------------------------------------------------- | ----------------------- |
 | #163 | BE-1 backend: `purchase_requests` + tRPC contracts + Gate 1 lifecycle (Raz) | merged (before session) |
-| #164 | SK-41 Commit screens (S4 review & agree / S5 request sent) | merged |
-| #165 | SK-43 Book (S10 picker restyle / S11 my sessions / S12 detail) | merged |
-| #166 | SK-42 Pay (S7 plan / S8 instructions / S9 proof) — still mock until BE-2 | merged |
-| #167 | SK-45 S3 product detail + Request to book (funnel entry) | merged |
-| #161 | SK-34 boutique store (one storefront per producer) | merged |
-| #162 | SK-33 artist home high-fidelity redesign (+ token-form & overflow fixes) | merged |
-| #168 | **SK-46 (new): funnel S3/S4/S5 wired to REAL BE-1** + store→funnel links | merged |
-| #169 | docs: approval-gates design + purchase-flow design handoff | merged |
+| #164 | SK-41 Commit screens (S4 review & agree / S5 request sent)                  | merged                  |
+| #165 | SK-43 Book (S10 picker restyle / S11 my sessions / S12 detail)              | merged                  |
+| #166 | SK-42 Pay (S7 plan / S8 instructions / S9 proof) — still mock until BE-2    | merged                  |
+| #167 | SK-45 S3 product detail + Request to book (funnel entry)                    | merged                  |
+| #161 | SK-34 boutique store (one storefront per producer)                          | merged                  |
+| #162 | SK-33 artist home high-fidelity redesign (+ token-form & overflow fixes)    | merged                  |
+| #168 | **SK-46 (new): funnel S3/S4/S5 wired to REAL BE-1** + store→funnel links    | merged                  |
+| #169 | docs: approval-gates design + purchase-flow design handoff                  | merged                  |
 
-**What "wired to real BE-1" means (SK-46):** S3 loads the real product/producer (`artist.store.product`, widened with `deliverables` + `contractUrl`); S4's *Send request* fires `artist.purchase.request` via a server action (price locks server-side; plan locked to the product default — `full` first — until BE-2 brings plan choice); S5 shows the **server-issued booking ref** (`?req=` → `artist.purchase.get`). New read-only `artist.purchase.pending` (flagged for Raz) disables the CTA while a request is in review. Store cards route flat/bundle/hourly products into the funnel; **per-song products stay on the legacy store detail** (funnel has no qty stepper yet — follow-up on SK-46).
+**What "wired to real BE-1" means (SK-46):** S3 loads the real product/producer (`artist.store.product`, widened with `deliverables` + `contractUrl`); S4's _Send request_ fires `artist.purchase.request` via a server action (price locks server-side; plan locked to the product default — `full` first — until BE-2 brings plan choice); S5 shows the **server-issued booking ref** (`?req=` → `artist.purchase.get`). New read-only `artist.purchase.pending` (flagged for Raz) disables the CTA while a request is in review. Store cards route flat/bundle/hourly products into the funnel; **per-song products stay on the legacy store detail** (funnel has no qty stepper yet — follow-up on SK-46).
 
 **Still mock (intentionally):** Pay slice (BE-2 / SK-38) and sessions list/detail (BE-3 / SK-39) — placeholders live in `pay-data.ts` with `MOCK_*` + swap-point comments. SK-44 Receive (S13/S14 download lock) stays PARKED (BE-4).
 
 **Known gap (commented on SK-36):** nothing calls `acceptAgreement` yet; the "approved → accept → pay" beat (S6) should land with BE-2.
 
 ### Open PRs / leftovers
+
 - **#151 (SK-26 inbox home) — SUPERSEDED by #162, should be CLOSED** (session lacked permission to close someone-else's PR; one click for Gili).
 - SK-47 producer-mobile PR — see below (in flight when this was written).
 
 ### Producer mobile (SK-47) — DONE, all 6 pages
+
 All producer dashboard pages now work at 390px, desktop unchanged (verified by pixel-diff on calendar). The shell already had a mobile bottom bar + player-dock positioning (23c3640); this pass fixed the pages: overview (link strip stacks, urgent rows wrap), clients-projects (ProjectRow collapses to a 2-line card row below md, drag desktop-only), calendar (natural page scroll below lg + horizontally scrollable week grid + 44px targets), music (shared library-screen: tables become horizontal scrollers below lg — artist side verified unaffected), settings (chip rail + stacking + matrix fit), store (cards stack; table is a horizontal scroller w/ readable name column; editor sheet fine) + portfolio (columns stack, drag copy desktop-only). Screenshot evidence in /tmp/sk47-shots/ (sweep + per-page before/after).
 Known pre-existing (NOT this branch): Overview "Today's session" 36px time overflows its w-14 column and touches the subtitle — flagged separately.
 
 ### Production database — IMPORTANT correction
+
 Prod Neon project is **`skitza` (quiet-sun-92221754)** — Raz applied migration 0021 there. The `skitza-v3` project (raspy-pine) is stale since 2026-05-26. (CLAUDE.md's "fresh skitza-v3 project" note is outdated.) Migration 0021 is applied; nothing pending from tonight's merges (all tonight's PRs were schema-free).
 
 ### Deploy state
+
 SK-50/51/52 (commit `0d2edb5`) were promoted to skitza.app on 2026-06-11 (~18:00, dpl_HoXc1r2 → production). The producer-mobile wave (SK-53..57, head `f14298a`) is merged + built but **NOT promoted** — same drill when Gili says go: `vercel promote <dpl> && vercel alias set <dpl> skitza.app`, matching `githubCommitSha`, then verify in Incognito (service-worker cache).
 
 ## Testing/things that bit us tonight (carry forward)
+
 - **Bare `var(--token)` colors render INVISIBLE** — tokens are RGB triplets; always `rgb(var(--token))`. This broke the whole SK-33 home until a screenshot audit caught it.
 - Headless Chrome won't open windows narrower than 500px — for 390px truth, embed a scrollWidth probe in the temp preview page.
 - Stacked sibling PRs carrying stale copies of the foundation branch conflict after the foundation squash-merges — resolve with `git merge origin/v3-clean` + `--theirs` on foundation-owned files.
