@@ -176,9 +176,7 @@ function findEffect(
         (!excludedMarker || !effect.source.includes(excludedMarker)),
     );
   if (matches.length !== 1) {
-    throw new Error(
-      `Expected one effect containing ${marker}, found ${matches.length.toString()}`,
-    );
+    throw new Error(`Expected one effect containing ${marker}, found ${matches.length.toString()}`);
   }
   const match = matches[0];
   if (!match) throw new Error(`Expected an effect containing ${marker}`);
@@ -188,12 +186,8 @@ function findEffect(
 function renderBridge(): undefined | (() => void) {
   const layoutEffectIndex = mocked.layoutEffects.length;
   const effectIndex = mocked.effects.length;
-  RuntimeNavigationBridge({ restoreOnOpen: false });
-  findEffect(
-    mocked.layoutEffects,
-    layoutEffectIndex,
-    "readRuntimeNavigationSnapshot",
-  )();
+  RuntimeNavigationBridge({});
+  findEffect(mocked.layoutEffects, layoutEffectIndex, "readRuntimeNavigationSnapshot")();
   return findEffect(mocked.effects, effectIndex, "subscribeToScroll")();
 }
 
@@ -216,8 +210,7 @@ function setupNavigationIntentEnvironment() {
       targetAttributes.set(name, value);
     },
   };
-  const pendingTargets = () =>
-    targetAttributes.has("data-sk-nav-pending") ? [pendingTarget] : [];
+  const pendingTargets = () => (targetAttributes.has("data-sk-nav-pending") ? [pendingTarget] : []);
   const root = {
     dataset: {} as Record<string, string>,
     querySelectorAll: pendingTargets,
@@ -307,62 +300,17 @@ function setupRoleTouchEnvironment() {
   };
 }
 
-describe("RuntimeNavigationBridge root restoration", () => {
-  it("keeps the explicit post-onboarding Store cue on the dashboard root", () => {
+describe("RuntimeNavigationBridge root open", () => {
+  it("stays on the dashboard root instead of resuming the last visited screen (SK-263)", () => {
     mocked.pathname = "/dashboard";
-    mocked.search = "storeTip=1";
-    mocked.persistRefs = true;
-    recordRuntimeNavigation(
-      currentStorage(),
-      PRODUCER,
-      "/dashboard/store",
-      0,
-    );
+    mocked.search = "";
+    recordRuntimeNavigation(currentStorage(), PRODUCER, "/dashboard/store", 0);
 
     const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({});
-    findEffect(
-      mocked.layoutEffects,
-      layoutEffectIndex,
-      "readRuntimeNavigationSnapshot",
-    )();
+    findEffect(mocked.layoutEffects, layoutEffectIndex, "readRuntimeNavigationSnapshot")();
 
     expect(mocked.router.replace).not.toHaveBeenCalled();
-
-    // Consuming the cue query must not make the same mounted shell resume away
-    // from Overview on its next render.
-    mocked.search = "";
-    mocked.refIndex = 0;
-    const nextLayoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({});
-    findEffect(
-      mocked.layoutEffects,
-      nextLayoutEffectIndex,
-      "readRuntimeNavigationSnapshot",
-    )();
-
-    expect(mocked.router.replace).not.toHaveBeenCalled();
-  });
-
-  it("still resumes the last producer screen for an ordinary dashboard root", () => {
-    mocked.pathname = "/dashboard";
-    mocked.search = "";
-    recordRuntimeNavigation(
-      currentStorage(),
-      PRODUCER,
-      "/dashboard/store",
-      0,
-    );
-
-    const layoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({});
-    findEffect(
-      mocked.layoutEffects,
-      layoutEffectIndex,
-      "readRuntimeNavigationSnapshot",
-    )();
-
-    expect(mocked.router.replace).toHaveBeenCalledWith("/dashboard/store");
   });
 });
 
@@ -446,7 +394,7 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
     mocked.search = "studio=studio-id&producer=producer-id";
     const effectIndex = mocked.effects.length;
 
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     const cleanup = findEffect(
       mocked.effects,
       effectIndex,
@@ -454,13 +402,7 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
       "subscribeToScroll",
     )();
 
-    expect(
-      readRuntimeLaunchTargetForRole(
-        currentStorage(),
-        "dual-user",
-        "artist",
-      ),
-    ).toEqual({
+    expect(readRuntimeLaunchTargetForRole(currentStorage(), "dual-user", "artist")).toEqual({
       role: "artist",
       contextId: "studio-id",
       href: "/artist?studio=studio-id",
@@ -510,7 +452,7 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
     const setItem = vi.spyOn(currentStorage(), "setItem");
     const effectIndex = mocked.effects.length;
 
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     const cleanup = findEffect(
       mocked.effects,
       effectIndex,
@@ -549,7 +491,7 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
     const setItem = vi.spyOn(currentStorage(), "setItem");
     const effectIndex = mocked.effects.length;
 
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     const cleanup = findEffect(
       mocked.effects,
       effectIndex,
@@ -575,7 +517,7 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.refIndex = 0;
     const environment = setupNavigationIntentEnvironment();
     const layoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
 
     const cleanupIntent = findEffect(
       mocked.layoutEffects,
@@ -590,7 +532,7 @@ describe("RuntimeNavigationBridge navigation intent", () => {
 
     mocked.privateStateAccessAllowed = true;
     mocked.refIndex = 0;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     expect(environment.root.dataset.skNavState).toBe("pending");
     expect(environment.pendingTarget.getAttribute("aria-busy")).toBe("true");
 
@@ -598,12 +540,8 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.search = "";
     mocked.refIndex = 0;
     const commitLayoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
-    findEffect(
-      mocked.layoutEffects,
-      commitLayoutEffectIndex,
-      "afterRuntimeNavigationPaint",
-    )();
+    RuntimeNavigationBridge({});
+    findEffect(mocked.layoutEffects, commitLayoutEffectIndex, "afterRuntimeNavigationPaint")();
     environment.runCommitFrames();
 
     expect(environment.root.dataset.skNavState).toBe("settled");
@@ -615,18 +553,14 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     const environment = setupNavigationIntentEnvironment();
     const layoutEffectIndex = mocked.layoutEffects.length;
     const effectIndex = mocked.effects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
 
     const cleanupIntent = findEffect(
       mocked.layoutEffects,
       layoutEffectIndex,
       "RUNTIME_MAIN_NAVIGATION_INTENT_EVENT",
     )();
-    const cleanupShell = findEffect(
-      mocked.effects,
-      effectIndex,
-      "navigationCache.clear",
-    )();
+    const cleanupShell = findEffect(mocked.effects, effectIndex, "navigationCache.clear")();
     environment.announce("/dashboard/music");
 
     expect(environment.root.dataset.skNavState).toBe("pending");
@@ -648,12 +582,8 @@ describe("RuntimeNavigationBridge navigation intent", () => {
   it("quietly re-prefetches only the active main route on foreground freshness", () => {
     const environment = setupNavigationIntentEnvironment();
     const effectIndex = mocked.effects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupFreshness = findEffect(
-      mocked.effects,
-      effectIndex,
-      "NATIVE_REFRESH_EVENT",
-    )();
+    RuntimeNavigationBridge({});
+    const cleanupFreshness = findEffect(mocked.effects, effectIndex, "NATIVE_REFRESH_EVENT")();
 
     window.dispatchEvent(new Event(NATIVE_REFRESH_EVENT));
 
@@ -666,7 +596,7 @@ describe("RuntimeNavigationBridge navigation intent", () => {
   it("clears the exact pending target when a delayed navigation times out", () => {
     const environment = setupNavigationIntentEnvironment();
     const layoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     const cleanupIntent = findEffect(
       mocked.layoutEffects,
       layoutEffectIndex,
@@ -689,7 +619,7 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.persistRefs = true;
     mocked.refIndex = 0;
     const layoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     const cleanupIntent = findEffect(
       mocked.layoutEffects,
       layoutEffectIndex,
@@ -699,14 +629,14 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     environment.announce("/dashboard/music");
     expect(environment.root.dataset.skNavState).toBe("pending");
     environment.root.dataset.skNavSource = "warm";
-    const warmSourceRef = mocked.persistentRefs[5];
+    const warmSourceRef = mocked.persistentRefs[3];
     if (!warmSourceRef) throw new Error("Expected the warm source ref");
     warmSourceRef.current = "/dashboard/music";
 
     environment.announce("/dashboard/calendar?tab=sessions");
 
     expect(environment.clearTimeout).toHaveBeenCalledWith(17);
-    expect(mocked.persistentRefs[2]?.current).toBeNull();
+    expect(mocked.persistentRefs[0]?.current).toBeNull();
     expect(warmSourceRef.current).toBeNull();
     expect(environment.root.dataset).toEqual({});
     expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
@@ -722,13 +652,13 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     expect(environment.root.dataset.skNavSource).toBeUndefined();
     expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBe("");
     expect(environment.pendingTarget.getAttribute("aria-busy")).toBe("true");
-    expect(
-      (mocked.persistentRefs[2]?.current as { href?: string } | null)?.href,
-    ).toBe("/dashboard/store");
+    expect((mocked.persistentRefs[0]?.current as { href?: string } | null)?.href).toBe(
+      "/dashboard/store",
+    );
     expect(environment.timing.mark).toHaveBeenCalledTimes(2);
 
     environment.announce("/dashboard/not-main");
-    expect(mocked.persistentRefs[2]?.current).toBeNull();
+    expect(mocked.persistentRefs[0]?.current).toBeNull();
     expect(environment.root.dataset).toEqual({});
     expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
     expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
@@ -744,7 +674,7 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.persistRefs = true;
     mocked.refIndex = 0;
     const intentLayoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
+    RuntimeNavigationBridge({});
     const cleanupIntent = findEffect(
       mocked.layoutEffects,
       intentLayoutEffectIndex,
@@ -758,12 +688,8 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.search = "";
     mocked.refIndex = 0;
     const layoutEffectIndex = mocked.layoutEffects.length;
-    RuntimeNavigationBridge({ restoreOnOpen: false });
-    findEffect(
-      mocked.layoutEffects,
-      layoutEffectIndex,
-      "afterRuntimeNavigationPaint",
-    )();
+    RuntimeNavigationBridge({});
+    findEffect(mocked.layoutEffects, layoutEffectIndex, "afterRuntimeNavigationPaint")();
     environment.runCommitFrames();
 
     expect(environment.root.dataset.skNavState).toBe("settled");

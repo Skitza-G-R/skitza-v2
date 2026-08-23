@@ -253,12 +253,8 @@ describe("instant runtime screen transitions", () => {
 
       expect(screen.queryByTestId("current-server-screen")).toBeNull();
       expect(screen.queryByText(cachedView.title)).toBeNull();
-      expect(
-        document.querySelector('[data-runtime-screen-source="cache"]'),
-      ).toBeNull();
-      expect(
-        document.querySelector('[data-runtime-screen-source="scaffold"]'),
-      ).toBeTruthy();
+      expect(document.querySelector('[data-runtime-screen-source="cache"]')).toBeNull();
+      expect(document.querySelector('[data-runtime-screen-source="scaffold"]')).toBeTruthy();
       expect(screen.getByLabelText(`Loading ${label}`)).toBeTruthy();
       expect(document.documentElement.dataset.skScreenSource).toBe("scaffold");
     },
@@ -271,12 +267,8 @@ describe("instant runtime screen transitions", () => {
 
     expect(screen.queryByTestId("current-server-screen")).toBeNull();
     expect(screen.getByLabelText("Loading Calendar")).toBeTruthy();
-    expect(
-      document.querySelector('[data-runtime-screen-source="cache"]'),
-    ).toBeNull();
-    expect(
-      document.querySelector('[data-runtime-screen-source="scaffold"]'),
-    ).toBeTruthy();
+    expect(document.querySelector('[data-runtime-screen-source="cache"]')).toBeNull();
+    expect(document.querySelector('[data-runtime-screen-source="scaffold"]')).toBeTruthy();
     expect(document.documentElement.dataset.skScreenSource).toBe("scaffold");
   });
 
@@ -600,7 +592,7 @@ describe("instant runtime screen transitions", () => {
     });
     render(
       <>
-        <RuntimeNavigationBridge restoreOnOpen={false} />
+        <RuntimeNavigationBridge />
         <RuntimeScreenTransitionBoundary>
           <div data-testid="current-server-screen">Current server screen</div>
         </RuntimeScreenTransitionBoundary>
@@ -730,13 +722,7 @@ describe("close and reopen runtime restore", () => {
         musicView("Connection-lost music library"),
       ),
     ).toBe(true);
-    expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard/music",
-      ),
-    ).toBe(true);
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
 
     render(<RuntimeResumeBoundary navigate />);
     expect(document.querySelector("[data-runtime-launch-cover]")).toBeTruthy();
@@ -750,9 +736,7 @@ describe("close and reopen runtime restore", () => {
     expect(document.querySelector("[data-runtime-launch-cover]")).toBeNull();
     expect(document.querySelector("[data-runtime-resume-shell]")).toBeTruthy();
     expect(screen.getByText("Connection-lost music library")).toBeTruthy();
-    expect(
-      document.querySelector('[data-runtime-screen-source="resume"]'),
-    ).toBeTruthy();
+    expect(document.querySelector('[data-runtime-screen-source="resume"]')).toBeTruthy();
     expect(mocked.router.replace).not.toHaveBeenCalled();
   });
 
@@ -767,20 +751,11 @@ describe("close and reopen runtime restore", () => {
 
   it("shows only the animated neutral launch cover while an online resume resolves", () => {
     expect(
-      writeRuntimeScreenSafeView(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard",
-        overviewView(),
-      ),
+      writeRuntimeScreenSafeView(window.localStorage, PRODUCER, "/dashboard", overviewView()),
     ).toBe(true);
-    expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard",
-      ),
-    ).toBe(true);
+    // The saved pointer remembers a deep page; an online launch must still
+    // resolve to the role home, never the last visited page (SK-263).
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
 
     render(<RuntimeResumeBoundary navigate />);
 
@@ -788,17 +763,11 @@ describe("close and reopen runtime restore", () => {
     expect(screen.getByRole("status", { name: "Opening Skitza…" })).toBeTruthy();
     expect(document.querySelector('img[src="/icons/skitza-192.png"]')).toBeTruthy();
     expect(document.querySelector("[data-runtime-resume-shell]")).toBeNull();
-    expect(
-      document.querySelector('[data-runtime-screen-source="resume"]'),
-    ).toBeNull();
+    expect(document.querySelector('[data-runtime-screen-source="resume"]')).toBeNull();
     expect(screen.queryByText("Saved studio overview")).toBeNull();
     expect(screen.queryByText("Saved studio activity")).toBeNull();
-    expect(
-      screen.queryByRole("navigation", { name: "Producer saved tabs" }),
-    ).toBeNull();
-    expect(mocked.router.replace).toHaveBeenCalledWith(
-      "/launch/resolve?next=%2Fdashboard",
-    );
+    expect(screen.queryByRole("navigation", { name: "Producer saved tabs" })).toBeNull();
+    expect(mocked.router.replace).toHaveBeenCalledWith("/launch/resolve?next=%2Fdashboard");
   });
 
   it("does not navigate or reveal a desktop cache before live validation", async () => {
@@ -869,9 +838,7 @@ describe("close and reopen runtime restore", () => {
     act(() => {
       runFrameBatch(16);
     });
-    expect(mocked.router.replace).toHaveBeenCalledWith(
-      "/launch/resolve?next=%2Fdashboard%2Fmusic",
-    );
+    expect(mocked.router.replace).toHaveBeenCalledWith("/launch/resolve?next=%2Fdashboard");
   });
 
   it("routes a signed-out desktop launch to sign-in without revealing cache", () => {
@@ -938,10 +905,7 @@ describe("close and reopen runtime restore", () => {
   it("keeps a signed-out desktop launch locked for an unsupported bridge", () => {
     window.__SKITZA_DESKTOP__ = {
       protocolVersion: 2,
-      capabilities: [
-        DESKTOP_CAPABILITIES.sessionValidation,
-        DESKTOP_CAPABILITIES.socialAuth,
-      ],
+      capabilities: [DESKTOP_CAPABILITIES.sessionValidation, DESKTOP_CAPABILITIES.socialAuth],
       listen: () => () => undefined,
     };
     mocked.auth = {
@@ -1095,16 +1059,10 @@ describe("close and reopen runtime restore", () => {
   });
 
   it("authorizes a cached launch target through the current server role", () => {
-    expect(
-      writeRuntimeLaunchPointer(
-        window.localStorage,
-        PRODUCER,
-        "/dashboard/music",
-      ),
-    ).toBe(true);
+    expect(writeRuntimeLaunchPointer(window.localStorage, PRODUCER, "/dashboard/music")).toBe(true);
     render(<RuntimeResumeBoundary navigate />);
 
-    expect(mocked.router.replace).toHaveBeenCalledWith("/launch/resolve?next=%2Fdashboard%2Fmusic");
+    expect(mocked.router.replace).toHaveBeenCalledWith("/launch/resolve?next=%2Fdashboard");
     expect(mocked.router.replace).not.toHaveBeenCalledWith("/dashboard/music");
   });
 
