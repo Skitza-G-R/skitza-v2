@@ -144,6 +144,57 @@ describe("active work import assessment", () => {
     expect(withoutTerms.commercialSnapshot).not.toHaveProperty("agreementPdf");
   });
 
+  it("carries an attached agreement PDF reference and names it in the frozen terms", () => {
+    const base = draft();
+    const agreement = base.agreement as Record<string, unknown>;
+    const reference = { uploadToken: "signed-token", fileName: "deal.pdf", sizeBytes: 1_234 };
+
+    const pdfOnly = ready(
+      draft({ agreement: { ...agreement, agreementText: "", agreementPdf: reference } }),
+    );
+    expect(pdfOnly.agreementPdf).toEqual(reference);
+    expect(pdfOnly.commercialSnapshot.agreementText).toBe(
+      'The existing agreement is the attached PDF "deal.pdf".',
+    );
+    // Exact PDF metadata is only known once the file is finalized at creation.
+    expect(pdfOnly.commercialSnapshot.agreementMode).toBe("none");
+    expect(pdfOnly.commercialSnapshot).not.toHaveProperty("agreementPdf");
+
+    const pdfAndText = ready(draft({ agreement: { ...agreement, agreementPdf: reference } }));
+    expect(pdfAndText.agreementPdf).toEqual(reference);
+    expect(pdfAndText.commercialSnapshot.agreementText).toBe(
+      "Our signed agreement from January remains the source of truth.",
+    );
+
+    const noPdf = ready(draft({ agreement: { ...agreement, agreementPdf: null } }));
+    expect(noPdf.agreementPdf).toBeNull();
+  });
+
+  it("keeps a malformed agreement PDF reference at Needs info", () => {
+    const base = draft();
+    const agreement = base.agreement as Record<string, unknown>;
+    for (const broken of [
+      { uploadToken: "", fileName: "deal.pdf", sizeBytes: 1 },
+      { uploadToken: "signed", fileName: "deal.png", sizeBytes: 1 },
+      { uploadToken: "signed", fileName: "deal.pdf", sizeBytes: 0 },
+      "deal.pdf",
+    ]) {
+      const assessment = assessActiveWorkImportDraft(
+        draft({ agreement: { ...agreement, agreementPdf: broken } }),
+        NOW,
+      );
+      expect(assessment.state).toBe("needs_info");
+      if (assessment.state !== "needs_info") throw new Error("Expected Needs info");
+      expect(assessment.reasons).toEqual([
+        {
+          code: "agreement_pdf_invalid",
+          field: "agreement.agreementPdf",
+          message: "Attach the agreement PDF again.",
+        },
+      ]);
+    }
+  });
+
   it("returns plain, stable Needs info reasons for an incomplete silent draft", () => {
     const assessment = assessActiveWorkImportDraft({}, NOW);
     expect(assessment.state).toBe("needs_info");
@@ -484,5 +535,24 @@ describe("active work import assessment", () => {
     expect(
       activeWorkImportCreationDigest({ ...normalized, clientPhone: "+972 50 000 0000" }, proof),
     ).not.toBe(activeWorkImportCreationDigest(normalized, proof));
+
+    const agreementPdf = {
+      uploadId: "c".repeat(64),
+      originalFileName: "deal.pdf",
+      contentType: "application/pdf" as const,
+      sizeBytes: 2_048,
+    };
+    expect(activeWorkImportCreationDigest(normalized, proof, agreementPdf)).toBe(
+      activeWorkImportCreationDigest(normalized, proof, agreementPdf),
+    );
+    expect(activeWorkImportCreationDigest(normalized, proof, agreementPdf)).not.toBe(
+      activeWorkImportCreationDigest(normalized, proof, null),
+    );
+    expect(activeWorkImportCreationDigest(normalized, proof, null)).toBe(
+      activeWorkImportCreationDigest(normalized, proof),
+    );
+    expect(
+      activeWorkImportCreationDigest(normalized, proof, { ...agreementPdf, sizeBytes: 2_049 }),
+    ).not.toBe(activeWorkImportCreationDigest(normalized, proof, agreementPdf));
   });
 });

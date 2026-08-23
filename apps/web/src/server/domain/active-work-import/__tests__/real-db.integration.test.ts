@@ -815,6 +815,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
         creationDigest: activeWorkImportCreationDigest(normalized, []),
         normalized,
         proofCapabilities: new Map(),
+        agreementPdfCapability: null,
+        finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
         finalizeProof: () =>
           Promise.reject(new Error("proof finalization must not run for an archived Client")),
         importedAt,
@@ -874,6 +876,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
         creationDigest: activeWorkImportCreationDigest(normalized, []),
         normalized,
         proofCapabilities: new Map(),
+        agreementPdfCapability: null,
+        finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
         finalizeProof: () =>
           Promise.reject(new Error("proof finalization must not run for a missing Client")),
         importedAt,
@@ -1035,6 +1039,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
         creationDigest,
         normalized,
         proofCapabilities: new Map([[proofCapability.paymentOperationKey, proofCapability]]),
+        agreementPdfCapability: null,
+        finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
         finalizeProof: () => {
           finalizeCalls += 1;
           return Promise.resolve({
@@ -1158,6 +1164,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
         creationDigest,
         normalized,
         proofCapabilities: new Map(),
+        agreementPdfCapability: null,
+        finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
         finalizeProof: () => Promise.reject(new Error("must not finalize outside scope")),
         importedAt,
       }),
@@ -1241,6 +1249,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
         ]),
         normalized: failedNormalized,
         proofCapabilities: new Map([[failedCapability.paymentOperationKey, failedCapability]]),
+        agreementPdfCapability: null,
+        finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
         finalizeProof: () => Promise.reject(new Error("synthetic proof finalization failure")),
         importedAt,
       }),
@@ -1257,6 +1267,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
       creationDigest: goodDigest,
       normalized: goodNormalized,
       proofCapabilities: new Map(),
+      agreementPdfCapability: null,
+      finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
       finalizeProof: () =>
         Promise.reject(new Error("proof finalization must not run for a proofless row")),
       importedAt,
@@ -1386,6 +1398,8 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
       ]),
       normalized,
       proofCapabilities: new Map([[capability.paymentOperationKey, capability]]),
+      agreementPdfCapability: null,
+      finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
       finalizeProof: () => {
         retryFinalizationStarted = true;
         return Promise.resolve({
