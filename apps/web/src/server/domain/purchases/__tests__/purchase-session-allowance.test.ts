@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   ensurePurchaseSessionAllowance,
   purchaseSessionAllowanceDraft,
+  sessionAllowanceDraftForSession,
   type PurchaseSessionAllowanceDraft,
 } from "../db";
 import { storePurchaseSourceKind } from "../store-acceptance";
@@ -147,6 +148,46 @@ describe("purchase-owned session allowance materialization", () => {
       minLeadHours: 36,
       createdAt: acceptedAt,
     });
+  });
+
+  it("derives the same allowance for the active-work import as for an acceptance", () => {
+    const session = {
+      limit: { kind: "fixed" as const, count: 4 },
+      durationMin: 90,
+      locationType: "studio",
+      bufferMinutes: 20,
+      minLeadHours: 36,
+    };
+    const importedAt = new Date("2026-08-23T10:00:00.000Z");
+    expect(
+      sessionAllowanceDraftForSession({
+        purchaseId: "purchase-import",
+        producerId: "producer-import",
+        session,
+        createdAt: importedAt,
+      }),
+    ).toEqual({
+      purchaseId: "purchase-import",
+      producerId: "producer-import",
+      bookingEnabledSnapshot: true,
+      kind: "fixed",
+      sessionLimit: 4,
+      durationMin: 90,
+      locationType: "studio",
+      bufferMinutes: 20,
+      minLeadHours: 36,
+      createdAt: importedAt,
+    });
+    // The acceptance path derives through the same helper — identical terms
+    // must yield identical allowance values regardless of provenance.
+    expect(purchaseSessionAllowanceDraft(purchase(session))).toEqual(
+      sessionAllowanceDraftForSession({
+        purchaseId: "purchase-sk68",
+        producerId: "producer-sk68",
+        session,
+        createdAt: acceptedAt,
+      }),
+    );
   });
 
   it("stores unlimited capacity with a null fixed limit", () => {

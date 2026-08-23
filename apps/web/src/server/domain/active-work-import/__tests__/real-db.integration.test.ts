@@ -17,6 +17,7 @@ import {
   purchaseInstallments,
   purchasePayments,
   purchases,
+  purchaseSessionAllowances,
   sql,
   type Db,
 } from "@skitza/db";
@@ -67,6 +68,7 @@ function historicalDraft(
     existingClientId?: string;
     title: string;
     payments?: readonly Record<string, unknown>[];
+    session?: Record<string, unknown>;
   }>,
 ): Record<string, unknown> {
   return {
@@ -92,6 +94,7 @@ function historicalDraft(
       plan: { kind: "full" },
       revisionRule: null,
       royaltyTerms: null,
+      ...(input.session ? { session: input.session } : {}),
     },
     payments: input.payments ?? [],
   };
@@ -1170,6 +1173,87 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
         importedAt,
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("materializes a session allowance exactly when the import freezes included sessions", async () => {
+    const batch = await createActiveWorkImportBatch(activeDb(), {
+      producerId,
+      clerkUserId: producerClerkUserId,
+      operationKey: `sessions-batch-${suffix}`,
+      now: importedAt,
+    });
+    const materializeDraft = async (rowKey: string, draft: Record<string, unknown>) => {
+      const saved = await saveActiveWorkImportRow(activeDb(), {
+        producerId,
+        batchId: batch.batch.id,
+        rowOperationKey: rowKey,
+        expectedRevision: null,
+        draftPayload: draft,
+        now: importedAt,
+      });
+      const normalized = ready(draft, importedAt);
+      return materializeActiveWorkImportRowTransaction(activeDb(), {
+        producerId,
+        clerkUserId: producerClerkUserId,
+        batchId: batch.batch.id,
+        rowId: saved.row.id,
+        expectedDraftRevision: saved.row.draftRevision,
+        expectedDraftDigest: digestCommercialSnapshot(saved.row.draftPayload),
+        creationDigest: activeWorkImportCreationDigest(normalized, []),
+        normalized,
+        proofCapabilities: new Map(),
+        agreementPdfCapability: null,
+        finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
+        finalizeProof: () => Promise.reject(new Error("no proof in this fixture")),
+        importedAt,
+      });
+    };
+
+    const withSessions = await materializeDraft(
+      `sessions-row-${suffix}`,
+      historicalDraft({
+        email: `sessions-${suffix}@example.invalid`,
+        title: `Imported bookable project ${suffix}`,
+        session: {
+          limit: { kind: "fixed", count: 4 },
+          durationMin: 90,
+          locationType: "studio",
+          bufferMinutes: 15,
+          minLeadHours: 24,
+        },
+      }),
+    );
+    const withoutSessions = await materializeDraft(
+      `no-sessions-row-${suffix}`,
+      historicalDraft({
+        email: `no-sessions-${suffix}@example.invalid`,
+        title: `Imported non-bookable project ${suffix}`,
+      }),
+    );
+
+    const [bookableAllowances, nonBookableAllowances] = await Promise.all([
+      activeDb()
+        .select()
+        .from(purchaseSessionAllowances)
+        .where(eq(purchaseSessionAllowances.purchaseId, withSessions.purchaseId)),
+      activeDb()
+        .select()
+        .from(purchaseSessionAllowances)
+        .where(eq(purchaseSessionAllowances.purchaseId, withoutSessions.purchaseId)),
+    ]);
+    expect(bookableAllowances).toHaveLength(1);
+    expect(bookableAllowances[0]).toMatchObject({
+      producerId,
+      bookingEnabledSnapshot: true,
+      kind: "fixed",
+      sessionLimit: 4,
+      durationMin: 90,
+      locationType: "studio",
+      bufferMinutes: 15,
+      minLeadHours: 24,
+      closedAt: null,
+    });
+    expect(nonBookableAllowances).toHaveLength(0);
   });
 
   it("rolls back one failed row without erasing another row or either draft", async () => {

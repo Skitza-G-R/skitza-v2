@@ -128,6 +128,101 @@ describe("active work import assessment", () => {
     expect(Object.isFrozen(normalized.commercialSnapshot)).toBe(true);
   });
 
+  it("freezes included sessions into a bookable imported snapshot", () => {
+    const base = draft();
+    const agreement = base.agreement as Record<string, unknown>;
+
+    const fixed = ready(
+      draft({
+        agreement: {
+          ...agreement,
+          session: {
+            limit: { kind: "fixed", count: 4 },
+            durationMin: 90,
+            locationType: "studio",
+            bufferMinutes: 15,
+            minLeadHours: 24,
+          },
+        },
+      }),
+    );
+    expect(fixed.commercialSnapshot).toMatchObject({
+      bookingEnabled: true,
+      session: {
+        limit: { kind: "fixed", count: 4 },
+        durationMin: 90,
+        locationType: "studio",
+        bufferMinutes: 15,
+        minLeadHours: 24,
+      },
+    });
+
+    const unlimited = ready(
+      draft({
+        agreement: {
+          ...agreement,
+          session: {
+            limit: { kind: "unlimited" },
+            durationMin: 120,
+            locationType: "remote",
+            bufferMinutes: 0,
+            minLeadHours: 12,
+          },
+        },
+      }),
+    );
+    expect(unlimited.commercialSnapshot).toMatchObject({
+      bookingEnabled: true,
+      session: { limit: { kind: "unlimited" }, durationMin: 120 },
+    });
+
+    // Absent and null both keep the exact pre-session snapshot shape, so
+    // drafts saved before sessions existed keep their digests and stay Ready.
+    const absent = ready(draft());
+    expect(absent.commercialSnapshot.bookingEnabled).toBe(false);
+    expect(absent.commercialSnapshot.session).toBeNull();
+    const explicitNull = ready(draft({ agreement: { ...agreement, session: null } }));
+    expect(explicitNull.commercialSnapshot.bookingEnabled).toBe(false);
+    expect(explicitNull.commercialSnapshot.session).toBeNull();
+  });
+
+  it("keeps malformed included sessions at Needs info with one plain reason", () => {
+    const base = draft();
+    const agreement = base.agreement as Record<string, unknown>;
+    const validSession = {
+      limit: { kind: "fixed", count: 4 },
+      durationMin: 90,
+      locationType: "studio",
+      bufferMinutes: 0,
+      minLeadHours: 12,
+    };
+    for (const broken of [
+      "4 sessions",
+      { ...validSession, limit: { kind: "fixed", count: 0 } },
+      { ...validSession, limit: { kind: "sometimes" } },
+      { ...validSession, limit: null },
+      { ...validSession, durationMin: 0 },
+      { ...validSession, durationMin: 24 * 60 + 1 },
+      { ...validSession, locationType: "  " },
+      { ...validSession, bufferMinutes: -1 },
+      { ...validSession, minLeadHours: 365 * 24 + 1 },
+    ]) {
+      const assessment = assessActiveWorkImportDraft(
+        draft({ agreement: { ...agreement, session: broken } }),
+        NOW,
+      );
+      expect(assessment.state).toBe("needs_info");
+      if (assessment.state !== "needs_info") throw new Error("Expected Needs info");
+      expect(assessment.reasons).toEqual([
+        {
+          code: "session_invalid",
+          field: "agreement.session",
+          message: "Check the included sessions: how many, and the session length in minutes.",
+        },
+      ]);
+    }
+  });
+
   it("keeps a draft Ready without pasted agreement terms", () => {
     const base = draft();
     const agreement = base.agreement as Record<string, unknown>;

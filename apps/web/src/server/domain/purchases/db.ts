@@ -44,6 +44,33 @@ export type PurchaseSessionAllowanceDraft = Readonly<{
 }>;
 
 /**
+ * The one derivation from frozen session terms to allowance columns. Both the
+ * Artist-acceptance path and the active-work import call this so a purchase's
+ * booking capacity can never drift from its snapshot.
+ */
+export function sessionAllowanceDraftForSession(
+  input: Readonly<{
+    purchaseId: string;
+    producerId: string;
+    session: NonNullable<PurchaseCommercialSnapshot["session"]>;
+    createdAt: Date;
+  }>,
+): PurchaseSessionAllowanceDraft {
+  return {
+    purchaseId: input.purchaseId,
+    producerId: input.producerId,
+    bookingEnabledSnapshot: true,
+    kind: input.session.limit.kind,
+    sessionLimit: input.session.limit.kind === "fixed" ? input.session.limit.count : null,
+    durationMin: input.session.durationMin,
+    locationType: input.session.locationType,
+    bufferMinutes: input.session.bufferMinutes,
+    minLeadHours: input.session.minLeadHours,
+    createdAt: input.createdAt,
+  };
+}
+
+/**
  * Derive the immutable booking allowance from accepted commercial truth.
  * Store session products are deliberately distinguished in purchase
  * provenance; private offers retain their source kind while using the same
@@ -68,18 +95,12 @@ export function purchaseSessionAllowanceDraft(
   // SK-95 accepted Store rows used store_product before SK-68 introduced
   // explicit session_product provenance. Their immutable session snapshot is
   // still authoritative; all new Store session acceptances use session_product.
-  return {
+  return sessionAllowanceDraftForSession({
     purchaseId: purchase.id,
     producerId: purchase.producerId,
-    bookingEnabledSnapshot: true,
-    kind: session.limit.kind,
-    sessionLimit: session.limit.kind === "fixed" ? session.limit.count : null,
-    durationMin: session.durationMin,
-    locationType: session.locationType,
-    bufferMinutes: session.bufferMinutes,
-    minLeadHours: session.minLeadHours,
+    session,
     createdAt: purchase.acceptedAt,
-  };
+  });
 }
 
 /** Create exactly one allowance, or prove an idempotent replay is identical. */

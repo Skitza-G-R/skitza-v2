@@ -14,6 +14,7 @@ import {
   purchaseImportAttestations,
   purchaseInstallments,
   purchases,
+  purchaseSessionAllowances,
   sql,
   type Db,
   type PurchaseCommercialSnapshot,
@@ -37,6 +38,7 @@ import {
   recordConfirmedPurchasePayment,
 } from "../purchase-ledger/service";
 import { assertCommercialSnapshotMatchesAcceptance } from "../purchases/commercial-snapshot";
+import { sessionAllowanceDraftForSession } from "../purchases/db";
 import { digestCommercialSnapshot, snapshotCommercialTerms } from "../purchases/policy";
 import type { FinalizedProofObject } from "../payment-proofs/storage";
 import type { ActiveWorkImportAgreementPdfCapability } from "./agreement-pdf-capability";
@@ -1053,6 +1055,27 @@ export async function materializeActiveWorkImportRowTransaction(
       })
       .returning({ id: purchaseImportAttestations.id });
     if (!attestation) throw new Error("Purchase import attestation insert did not return a row");
+    // Frozen session terms become the purchase's booking capacity, exactly as
+    // an accepted Skitza purchase would get at acceptance. Without this row
+    // the connected client cannot book a session anywhere — the artist app
+    // and the producer's manual-session form both read only from
+    // purchase_session_allowances.
+    if (commercialSnapshot.session) {
+      const [allowance] = await tx
+        .insert(purchaseSessionAllowances)
+        .values(
+          sessionAllowanceDraftForSession({
+            purchaseId: purchase.id,
+            producerId: input.producerId,
+            session: commercialSnapshot.session,
+            createdAt: input.importedAt,
+          }),
+        )
+        .returning({ id: purchaseSessionAllowances.id });
+      if (!allowance) {
+        throw new Error("Imported session allowance insert did not return a row");
+      }
+    }
     const installmentByPosition = new Map(
       installmentRows.map((installment) => [installment.position, installment.id]),
     );
