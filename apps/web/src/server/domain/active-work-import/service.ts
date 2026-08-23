@@ -5,6 +5,9 @@ import { createInstallmentSchedule, type PurchaseInstallment } from "../purchase
 import { digestCommercialSnapshot, snapshotCommercialTerms } from "../purchases/policy";
 
 export const ACTIVE_WORK_IMPORT_NOTICE = "Added by producer from an existing agreement" as const;
+/** Frozen agreement text when the producer pasted no written terms. */
+export const ACTIVE_WORK_IMPORT_NO_TERMS_TEXT =
+  "No written terms were pasted. The agreement name, deliverables, rights, price, and payment plan recorded here are the frozen terms." as const;
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const POSTGRES_INTEGER_MIN = -2_147_483_648;
@@ -21,7 +24,6 @@ export type ActiveWorkImportReasonCode =
   | "agreement_name_required"
   | "deliverables_required"
   | "rights_required"
-  | "agreement_text_required"
   | "amount_invalid"
   | "currency_invalid"
   | "tax_mismatch"
@@ -476,14 +478,6 @@ export function assessActiveWorkImportDraft(
   if (rights.length === 0) {
     reason(reasons, "rights_required", "agreement.rights", "Add the agreed rights.");
   }
-  if (!agreementText) {
-    reason(
-      reasons,
-      "agreement_text_required",
-      "agreement.agreementText",
-      "Add the existing agreement terms.",
-    );
-  }
   if (subtotalCents === null || subtotalCents <= 0 || suppliedTotalCents === null) {
     reason(reasons, "amount_invalid", "agreement.totalCents", "Add a price greater than zero.");
   }
@@ -627,8 +621,10 @@ export function assessActiveWorkImportDraft(
     rights,
     selectedPaymentPlan: paymentPlan,
     offeredPaymentPlans: [paymentPlan],
-    agreementText,
-    agreementMode: "text",
+    // Pasting the outside agreement is optional: the name, deliverables,
+    // rights, price, and plan above already freeze the terms.
+    agreementText: agreementText || ACTIVE_WORK_IMPORT_NO_TERMS_TEXT,
+    agreementMode: agreementText ? "text" : "none",
   };
   try {
     assertCommercialSnapshotMatchesAcceptance(commercialSnapshot, expectedTotalCents, plan);

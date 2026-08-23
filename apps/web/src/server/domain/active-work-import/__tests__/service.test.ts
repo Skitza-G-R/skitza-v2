@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACTIVE_WORK_IMPORT_NO_TERMS_TEXT,
   ACTIVE_WORK_IMPORT_NOTICE,
   activeWorkImportCreationDigest,
   activeWorkImportExistingClientReason,
@@ -125,6 +126,22 @@ describe("active work import assessment", () => {
       },
     });
     expect(Object.isFrozen(normalized.commercialSnapshot)).toBe(true);
+  });
+
+  it("keeps a draft Ready without pasted agreement terms", () => {
+    const base = draft();
+    const agreement = base.agreement as Record<string, unknown>;
+
+    const withTerms = ready(base);
+    expect(withTerms.commercialSnapshot.agreementMode).toBe("text");
+    expect(withTerms.commercialSnapshot.agreementText).toBe(
+      "Our signed agreement from January remains the source of truth.",
+    );
+
+    const withoutTerms = ready(draft({ agreement: { ...agreement, agreementText: "   " } }));
+    expect(withoutTerms.commercialSnapshot.agreementMode).toBe("none");
+    expect(withoutTerms.commercialSnapshot.agreementText).toBe(ACTIVE_WORK_IMPORT_NO_TERMS_TEXT);
+    expect(withoutTerms.commercialSnapshot).not.toHaveProperty("agreementPdf");
   });
 
   it("returns plain, stable Needs info reasons for an incomplete silent draft", () => {

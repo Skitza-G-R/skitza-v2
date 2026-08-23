@@ -519,7 +519,10 @@ export function AgreementEditor({
         </div>
 
         <div className="space-y-1.5 border-t border-[rgb(var(--border-subtle))] pt-3">
-          <Label htmlFor={`import-agreement-text-${operationKey}`}>Existing agreement terms</Label>
+          <Label htmlFor={`import-agreement-text-${operationKey}`}>
+            Existing agreement terms{" "}
+            <span className="font-normal text-[rgb(var(--fg-muted))]">(optional)</span>
+          </Label>
           <textarea
             ref={agreementTermsRef}
             id={`import-agreement-text-${operationKey}`}
@@ -532,7 +535,7 @@ export function AgreementEditor({
             onInput={(event) => {
               resizeAgreementTerms(event.currentTarget);
             }}
-            placeholder="Paste the terms you already agreed with the Artist."
+            placeholder="Paste the terms you already agreed with the Artist, if you have them in writing."
             {...issueAttributes(reasons, ["agreement.agreementText"], issueId("agreement-text"))}
             className={`${FIELD_CLASS} min-h-24 resize-none overflow-hidden py-2.5 leading-relaxed`}
           />

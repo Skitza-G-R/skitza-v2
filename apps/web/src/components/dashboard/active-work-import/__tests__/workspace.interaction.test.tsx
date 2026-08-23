@@ -926,7 +926,10 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(firstDeliverable.value).toBe("Final mixes");
     expect(document.activeElement).toBe(secondDeliverable);
 
-    const terms = screen.getByLabelText("Existing agreement terms");
+    const terms = screen.getByLabelText("Existing agreement terms (optional)");
+    expect(terms.getAttribute("placeholder")).toBe(
+      "Paste the terms you already agreed with the Artist, if you have them in writing.",
+    );
     Object.defineProperty(terms, "scrollHeight", { configurable: true, value: 196 });
     fireEvent.input(terms, {
       target: { value: "Line one\nLine two\nLine three\nLine four\nLine five" },
