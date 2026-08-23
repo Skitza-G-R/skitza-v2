@@ -14,12 +14,14 @@ import {
   loadActiveWorkImportSetupScope,
   runActiveWorkImportSetup,
 } from "~/server/domain/active-work-import/setup";
+import { ActiveWorkImportAgreementPdfCapabilityError } from "~/server/domain/active-work-import/agreement-pdf-capability";
 import { ActiveWorkImportProofCapabilityError } from "~/server/domain/active-work-import/proof-capability";
 import { ActiveWorkImportDomainError } from "~/server/domain/active-work-import/service";
 import {
   assessActiveWorkImportRowForCreation,
   materializeActiveWorkImportRow,
   materializeActiveWorkImportRows,
+  prepareActiveWorkImportAgreementPdf,
   prepareActiveWorkImportProof,
   publicActiveWorkImportAssessment,
 } from "~/server/domain/active-work-import/workflow";
@@ -29,6 +31,11 @@ import {
   MAX_PROOF_FILE_NAME_LENGTH,
   PROOF_CONTENT_TYPES,
 } from "~/server/domain/payment-proofs/policy";
+import {
+  AGREEMENT_PDF_CONTENT_TYPE,
+  MAX_AGREEMENT_PDF_BYTES,
+  MAX_AGREEMENT_PDF_FILE_NAME_LENGTH,
+} from "~/lib/agreement-pdf";
 import { SITE_URL, sendClientInviteEmail } from "~/server/email/send";
 import { configuredCapabilitySecrets } from "~/server/security/capability-secrets";
 import { router } from "../init";
@@ -59,7 +66,10 @@ function mapDomainError(error: unknown): never {
     }
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
   }
-  if (error instanceof ActiveWorkImportProofCapabilityError) {
+  if (
+    error instanceof ActiveWorkImportProofCapabilityError ||
+    error instanceof ActiveWorkImportAgreementPdfCapabilityError
+  ) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
   }
   console.error("[active-work-import] unexpected failure", {
@@ -180,6 +190,30 @@ export const activeWorkImportRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         return await prepareActiveWorkImportProof(ctx.db, {
+          producerId: ctx.producerId,
+          ...input,
+          serverSecret: configuredCapabilitySecrets().active,
+        });
+      } catch (error) {
+        mapDomainError(error);
+      }
+    }),
+
+  prepareAgreementPdf: producerProcedure
+    .input(
+      z
+        .object({
+          batchId: idSchema,
+          rowId: idSchema,
+          originalFileName: z.string().min(1).max(MAX_AGREEMENT_PDF_FILE_NAME_LENGTH),
+          contentType: z.literal(AGREEMENT_PDF_CONTENT_TYPE),
+          sizeBytes: z.number().int().positive().max(MAX_AGREEMENT_PDF_BYTES),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await prepareActiveWorkImportAgreementPdf(ctx.db, {
           producerId: ctx.producerId,
           ...input,
           serverSecret: configuredCapabilitySecrets().active,

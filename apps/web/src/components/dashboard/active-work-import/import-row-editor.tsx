@@ -194,6 +194,8 @@ export function ImportRowEditor({
   onRestoreClient,
   proofUploads,
   onUploadProof,
+  agreementPdfUpload,
+  onUploadAgreementPdf,
   editorMemory,
 }: {
   row: WorkspaceImportRow;
@@ -213,6 +215,8 @@ export function ImportRowEditor({
   onRestoreClient: (client: ArchivedClientOption) => void;
   proofUploads: Readonly<Record<string, ProofUploadView>>;
   onUploadProof: (paymentOperationKey: string, file: File) => void;
+  agreementPdfUpload?: ProofUploadView | undefined;
+  onUploadAgreementPdf: (file: File) => void;
   /**
    * Where this item's editor progress lives across remounts. The desktop pane and
    * the phone dialog are different component instances, so a layout switch
@@ -241,9 +245,9 @@ export function ImportRowEditor({
   const archivedMatch = matchingArchivedClient(draft, archivedClients);
   const created = row.materializedAtIso !== null;
   const ready = isRowReady(row.assessment, draft, clients, archivedClients);
-  const proofUploading = Object.values(proofUploads).some(
-    (upload) => upload.status === "uploading",
-  );
+  const proofUploading =
+    Object.values(proofUploads).some((upload) => upload.status === "uploading") ||
+    agreementPdfUpload?.status === "uploading";
   const allReasons: readonly ImportReasonView[] = row.materializeError
     ? [{ code: "materialize_failed", field: "row", message: row.materializeError }]
     : rowDisplayReasons(row.assessment, draft, clients, archivedClients).filter(
@@ -802,6 +806,8 @@ export function ImportRowEditor({
               operationKey={row.operationKey}
               reasons={visibleReasons}
               onChange={onChange}
+              agreementPdfUpload={agreementPdfUpload}
+              onUploadAgreementPdf={onUploadAgreementPdf}
             />
           ) : null}
 
@@ -857,7 +863,7 @@ export function ImportRowEditor({
             }`}
           >
             {proofUploading
-              ? "Uploading proof…"
+              ? "Uploading file…"
               : stepBusy || row.saveState === "saving"
                 ? "Saving…"
                 : activeStepIndex === 2

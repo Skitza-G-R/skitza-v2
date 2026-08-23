@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -12,13 +12,18 @@ import {
   loadImportBatchRowsAction,
   loadImportSetupOptionsAction,
   materializeImportRowsAction,
+  prepareImportAgreementPdfAction,
   prepareImportProofAction,
   restoreImportClientAction,
   saveImportRowAction,
   type ImportActionResult,
 } from "~/app/(producer)/dashboard/clients-projects/bring-active-work/actions";
 
-import { ImportRowEditor, type ImportEditorStep, type ImportEditorMemory } from "./import-row-editor";
+import {
+  ImportRowEditor,
+  type ImportEditorStep,
+  type ImportEditorMemory,
+} from "./import-row-editor";
 import { ImportRowList } from "./import-row-list";
 import {
   isRowReady,
@@ -39,6 +44,7 @@ import {
   type WorkspaceImportRow,
 } from "./model";
 import type { ProofUploadView } from "./payment-history-editor";
+import { agreementPdfFileError } from "~/lib/agreement-pdf";
 import { ReviewAndFinish } from "./review-and-finish";
 
 type RowUpdater = (rows: WorkspaceImportRow[]) => WorkspaceImportRow[];
@@ -169,6 +175,10 @@ export function ActiveWorkImportWorkspace({
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [finishResult, setFinishResult] = useState<FinishSetupResultView | null>(null);
   const [proofUploads, setProofUploads] = useState<Record<string, ProofUploadView>>({});
+  // Keyed by row operation key: one agreement PDF per item.
+  const [agreementPdfUploads, setAgreementPdfUploads] = useState<Record<string, ProofUploadView>>(
+    {},
+  );
 
   const rowsRef = useRef(rows);
   const editorMemoryRef = useRef(new Map<string, ImportEditorMemory>());
@@ -178,6 +188,7 @@ export function ActiveWorkImportWorkspace({
   const batchPromiseRef = useRef<Promise<string | null> | null>(null);
   const addPromiseRef = useRef<Promise<void> | null>(null);
   const proofPromisesRef = useRef(new Map<string, Promise<boolean>>());
+  const agreementPdfPromisesRef = useRef(new Map<string, Promise<boolean>>());
   const finishOperationKeyRef = useRef<string | null>(null);
   const mobileEditorTriggerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -220,6 +231,7 @@ export function ActiveWorkImportWorkspace({
     starting ||
     adding ||
     Object.values(proofUploads).some((upload) => upload.status === "uploading") ||
+    Object.values(agreementPdfUploads).some((upload) => upload.status === "uploading") ||
     rows.some(
       (row) =>
         !row.materializedAtIso &&
@@ -481,11 +493,14 @@ export function ActiveWorkImportWorkspace({
         .filter((row) => !allowed || allowed.has(row.operationKey))
         .flatMap((row) => row.draft.payments.map((payment) => payment.operationKey)),
     );
-    await Promise.all(
-      [...proofPromisesRef.current]
+    await Promise.all([
+      ...[...proofPromisesRef.current]
         .filter(([paymentOperationKey]) => paymentOperationKeys.has(paymentOperationKey))
         .map(([, request]) => request),
-    );
+      ...[...agreementPdfPromisesRef.current]
+        .filter(([rowOperationKey]) => !allowed || allowed.has(rowOperationKey))
+        .map(([, request]) => request),
+    ]);
     const pending = rowsRef.current.filter(
       (row) =>
         !row.materializedAtIso &&
@@ -619,6 +634,7 @@ export function ActiveWorkImportWorkspace({
     return (
       target.saveState === "saving" ||
       target.persistedLocalVersion < target.localVersion ||
+      agreementPdfUploads[target.operationKey]?.status === "uploading" ||
       target.draft.payments.some(
         (payment) => proofUploads[payment.operationKey]?.status === "uploading",
       ) ||
@@ -644,16 +660,11 @@ export function ActiveWorkImportWorkspace({
         return;
       }
     }
-    const targetIndex = rowsRef.current.findIndex(
-      (row) => row.operationKey === target.operationKey,
-    );
     updateRows((current) => current.filter((row) => row.operationKey !== target.operationKey));
-    const remaining = rowsRef.current;
-    setSelectedOperationKey(
-      remaining[Math.min(Math.max(0, targetIndex), Math.max(0, remaining.length - 1))]
-        ?.operationKey ?? null,
-    );
-    if (remaining.length === 0) setMobileEditorOpen(false);
+    editorMemoryRef.current.delete(target.operationKey);
+    // Removing an item is a deliberate exit: nothing else opens in its place.
+    setSelectedOperationKey(null);
+    setMobileEditorOpen(false);
   }
 
   async function restoreClientForRow(operationKey: string, client: ArchivedClientOption) {
@@ -994,6 +1005,103 @@ export function ActiveWorkImportWorkspace({
     return request;
   }
 
+  function uploadAgreementPdfForRow(operationKey: string, file: File): Promise<boolean> {
+    const existing = agreementPdfPromisesRef.current.get(operationKey);
+    if (existing) return existing;
+    const setStatus = (status: ProofUploadView) => {
+      setAgreementPdfUploads((current) => ({ ...current, [operationKey]: status }));
+    };
+    const request = (async (): Promise<boolean> => {
+      const fileError = agreementPdfFileError({
+        originalFileName: file.name,
+        contentType: file.type,
+        sizeBytes: file.size,
+      });
+      if (fileError) {
+        setStatus({ status: "error", error: fileError });
+        return false;
+      }
+      setStatus({ status: "uploading", error: null });
+      const saved = await persistRow(operationKey);
+      const row = rowsRef.current.find((item) => item.operationKey === operationKey);
+      if (!saved || !row?.rowId || !batchIdRef.current) {
+        setStatus({ status: "error", error: "Save this item before attaching the agreement." });
+        return false;
+      }
+      const prepared = await callAction(() =>
+        prepareImportAgreementPdfAction({
+          batchId: batchIdRef.current as string,
+          rowId: row.rowId as string,
+          originalFileName: file.name,
+          contentType: "application/pdf",
+          sizeBytes: file.size,
+        }),
+      );
+      if (!prepared.ok) {
+        setStatus({ status: "error", error: prepared.error });
+        return false;
+      }
+      let uploadError: string | null = null;
+      try {
+        const response = await fetch(prepared.data.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/pdf" },
+          body: file,
+        });
+        if (!response.ok) {
+          console.error("[active-work-import] agreement PDF upload refused", {
+            status: response.status,
+          });
+          uploadError =
+            response.status === 403
+              ? "The upload link expired. Attach the file again."
+              : `The storage service refused the upload (status ${String(response.status)}). Try again in a moment.`;
+        }
+      } catch (error) {
+        console.error("[active-work-import] agreement PDF upload did not reach storage", error);
+        uploadError = "The PDF upload did not finish. Check your connection and try again.";
+      }
+      if (uploadError) {
+        setStatus({ status: "error", error: uploadError });
+        return false;
+      }
+      const latest = rowsRef.current.find((item) => item.operationKey === operationKey);
+      if (!latest) return false;
+      changeDraft(operationKey, {
+        ...latest.draft,
+        agreement: {
+          ...latest.draft.agreement,
+          agreementPdf: {
+            uploadToken: prepared.data.uploadToken,
+            fileName: file.name,
+            sizeBytes: file.size,
+          },
+        },
+      });
+      const referenceSaved = await persistRow(operationKey);
+      setStatus(
+        referenceSaved
+          ? { status: "done", error: null }
+          : { status: "error", error: "The PDF uploaded, but the draft did not save. Try again." },
+      );
+      return referenceSaved;
+    })();
+    agreementPdfPromisesRef.current.set(operationKey, request);
+    void request.then(
+      () => {
+        if (agreementPdfPromisesRef.current.get(operationKey) === request) {
+          agreementPdfPromisesRef.current.delete(operationKey);
+        }
+      },
+      () => {
+        if (agreementPdfPromisesRef.current.get(operationKey) === request) {
+          agreementPdfPromisesRef.current.delete(operationKey);
+        }
+      },
+    );
+    return request;
+  }
+
   async function finishSetup() {
     const activeBatchId = batchIdRef.current;
     if (!activeBatchId || !setupOptions || finishing) return;
@@ -1126,6 +1234,9 @@ export function ActiveWorkImportWorkspace({
         void loadSetupOptions();
       }}
       onToggleClient={(id, selected) => {
+        // A different set of invitations is a different reviewed action: the
+        // operation key that belonged to the earlier choice must not be reused.
+        finishOperationKeyRef.current = null;
         setSelectedClientIds((current) => {
           const next = new Set(current);
           if (selected) next.add(id);
@@ -1192,6 +1303,21 @@ export function ActiveWorkImportWorkspace({
             ) : null}
           </p>
         </div>
+        {rows.length > 0 && !reviewOpen && !batchIsTerminal ? (
+          <button
+            type="button"
+            onClick={() => {
+              void addRow();
+            }}
+            disabled={starting || adding}
+            aria-label="Add new client"
+            className="sk-press inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] hover:bg-[rgb(var(--bg-overlay))] disabled:cursor-not-allowed disabled:opacity-50 max-[374px]:px-2 sm:px-4 sm:text-[13px]"
+          >
+            <Plus size={15} strokeWidth={2.4} aria-hidden />
+            <span className="hidden sm:inline">Add new client</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+        ) : null}
         {rows.length > 0 && !reviewOpen ? (
           <button
             type="button"
@@ -1291,6 +1417,10 @@ export function ActiveWorkImportWorkspace({
                   onUploadProof={(paymentOperationKey, file) => {
                     void uploadProofForRow(selectedRow.operationKey, paymentOperationKey, file);
                   }}
+                  agreementPdfUpload={agreementPdfUploads[selectedRow.operationKey]}
+                  onUploadAgreementPdf={(file) => {
+                    void uploadAgreementPdfForRow(selectedRow.operationKey, file);
+                  }}
                 />
               ) : (
                 <div className="flex h-full min-h-[24rem] items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.55)] p-8 text-center text-[13px] text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)]">
@@ -1331,6 +1461,10 @@ export function ActiveWorkImportWorkspace({
                   proofUploads={proofUploads}
                   onUploadProof={(paymentOperationKey, file) => {
                     void uploadProofForRow(selectedRow.operationKey, paymentOperationKey, file);
+                  }}
+                  agreementPdfUpload={agreementPdfUploads[selectedRow.operationKey]}
+                  onUploadAgreementPdf={(file) => {
+                    void uploadAgreementPdfForRow(selectedRow.operationKey, file);
                   }}
                 />,
                 mobilePortalTarget,

@@ -168,65 +168,58 @@ function runPurchaseOwnedAllocation<T>(
 export function songSpaceRepository(db: Db): SongSpaceRepository {
   return {
     atomically: (scope, work) => runPurchaseOwnedAllocation(db, scope, work),
-    loadProjectSongSpaces: (scope) =>
-      db.transaction(
-        async (tx): Promise<SongSpaceProjectSnapshot | null> => {
-          const [project] = await tx
-            .select({ id: projects.id, producerId: projects.producerId })
-            .from(projects)
-            .where(and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)))
-            .limit(1);
-          if (!project) return null;
+    loadProjectSongSpaces: async (scope): Promise<SongSpaceProjectSnapshot | null> => {
+      const [project] = await db
+        .select({ id: projects.id, producerId: projects.producerId })
+        .from(projects)
+        .where(and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)))
+        .limit(1);
+      if (!project) return null;
 
-          const purchaseRows = await tx
-            .select({
-              purchaseId: purchases.id,
-              producerId: purchases.producerId,
-              projectId: purchases.projectId,
-              lifecycleStatus: purchases.lifecycleStatus,
-              commercialSnapshot: purchases.commercialSnapshot,
-              commercialEstablishedAt: purchases.commercialEstablishedAt,
-            })
-            .from(purchases)
-            .where(
-              and(
-                eq(purchases.producerId, scope.producerId),
-                eq(purchases.projectId, scope.projectId),
-              ),
-            )
-            .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
+      const purchaseRows = await db
+        .select({
+          purchaseId: purchases.id,
+          producerId: purchases.producerId,
+          projectId: purchases.projectId,
+          lifecycleStatus: purchases.lifecycleStatus,
+          commercialSnapshot: purchases.commercialSnapshot,
+          commercialEstablishedAt: purchases.commercialEstablishedAt,
+        })
+        .from(purchases)
+        .where(
+          and(eq(purchases.producerId, scope.producerId), eq(purchases.projectId, scope.projectId)),
+        )
+        .orderBy(asc(purchases.commercialEstablishedAt), asc(purchases.id));
 
-          const trackRows = await tx
-            .select({
-              id: projectTracks.id,
-              projectId: projectTracks.projectId,
-              purchaseId: projectTracks.purchaseId,
-              title: projectTracks.title,
-              artist: projectTracks.artist,
-              position: projectTracks.position,
-            })
-            .from(projectTracks)
-            .where(eq(projectTracks.projectId, scope.projectId))
-            .orderBy(asc(projectTracks.position), asc(projectTracks.id));
+      const trackRows = await db
+        .select({
+          id: projectTracks.id,
+          projectId: projectTracks.projectId,
+          purchaseId: projectTracks.purchaseId,
+          title: projectTracks.title,
+          artist: projectTracks.artist,
+          position: projectTracks.position,
+        })
+        .from(projectTracks)
+        .where(eq(projectTracks.projectId, scope.projectId))
+        .orderBy(asc(projectTracks.position), asc(projectTracks.id));
 
-          return {
-            producerId: project.producerId,
-            projectId: project.id,
-            purchases: purchaseRows.map((purchase) => ({
-              producerId: purchase.producerId,
-              projectId: purchase.projectId,
-              purchaseId: purchase.purchaseId,
-              lifecycleStatus: purchase.lifecycleStatus,
-              includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
-              commercialEstablishedAt: purchase.commercialEstablishedAt,
-            })),
-            tracks: trackRows.map((track) => ({
-              ...track,
-              producerId: project.producerId,
-            })),
-          };
-        },
-        { isolationLevel: "repeatable read", accessMode: "read only" },
-      ),
+      return {
+        producerId: project.producerId,
+        projectId: project.id,
+        purchases: purchaseRows.map((purchase) => ({
+          producerId: purchase.producerId,
+          projectId: purchase.projectId,
+          purchaseId: purchase.purchaseId,
+          lifecycleStatus: purchase.lifecycleStatus,
+          includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
+          commercialEstablishedAt: purchase.commercialEstablishedAt,
+        })),
+        tracks: trackRows.map((track) => ({
+          ...track,
+          producerId: project.producerId,
+        })),
+      };
+    },
   };
 }

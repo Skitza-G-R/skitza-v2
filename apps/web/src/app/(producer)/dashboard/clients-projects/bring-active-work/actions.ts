@@ -210,6 +210,24 @@ export async function prepareImportProofAction(input: {
   }
 }
 
+export async function prepareImportAgreementPdfAction(input: {
+  batchId: string;
+  rowId: string;
+  originalFileName: string;
+  contentType: "application/pdf";
+  sizeBytes: number;
+}): Promise<
+  ImportActionResult<{ uploadUrl: string; uploadToken: string; expiresInSeconds: number }>
+> {
+  const context = await callerOrError();
+  if (!context.ok) return context;
+  try {
+    return { ok: true, data: await context.caller.activeWorkImport.prepareAgreementPdf(input) };
+  } catch (error) {
+    return { ok: false, ...actionError(error) };
+  }
+}
+
 export type MaterializeImportOutcome =
   | Readonly<{
       state: "created";

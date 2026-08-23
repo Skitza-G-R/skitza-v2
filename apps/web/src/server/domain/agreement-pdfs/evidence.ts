@@ -7,6 +7,7 @@ import {
   privateOffers,
   products,
   producers,
+  purchaseImportAttestations,
   purchaseRequests,
   purchases,
   type Db,
@@ -179,8 +180,75 @@ export async function authorizeAcceptedAgreementPdf(
     )
     .where(eq(purchases.id, input.purchaseId))
     .limit(1);
-  if (!producerRow) unavailable();
-  return exactDocumentForAcceptedSnapshot(producerRow.contractUrl, producerRow.commercialSnapshot);
+  if (producerRow) {
+    return exactDocumentForAcceptedSnapshot(
+      producerRow.contractUrl,
+      producerRow.commercialSnapshot,
+    );
+  }
+
+  // Work brought in by the producer (SK-255/SK-259) has neither a product nor
+  // a private offer: its private ledger sits beside the import attestation.
+  const [importedArtistRow] = await db
+    .select({
+      contractUrl: purchaseImportAttestations.agreementPdfContract,
+      commercialSnapshot: purchases.commercialSnapshot,
+    })
+    .from(purchases)
+    .innerJoin(
+      purchaseImportAttestations,
+      and(
+        eq(purchaseImportAttestations.purchaseId, purchases.id),
+        eq(purchaseImportAttestations.producerId, purchases.producerId),
+        eq(purchaseImportAttestations.clientContactId, purchases.clientContactId),
+      ),
+    )
+    .innerJoin(
+      clientContacts,
+      and(
+        eq(clientContacts.id, purchases.clientContactId),
+        eq(clientContacts.producerId, purchases.producerId),
+        eq(clientContacts.clerkUserId, input.clerkUserId),
+      ),
+    )
+    .where(
+      and(eq(purchases.id, input.purchaseId), eq(purchases.sourceKind, "imported_existing_work")),
+    )
+    .limit(1);
+  if (importedArtistRow) {
+    return exactDocumentForAcceptedSnapshot(
+      importedArtistRow.contractUrl,
+      importedArtistRow.commercialSnapshot,
+    );
+  }
+
+  const [importedProducerRow] = await db
+    .select({
+      contractUrl: purchaseImportAttestations.agreementPdfContract,
+      commercialSnapshot: purchases.commercialSnapshot,
+    })
+    .from(purchases)
+    .innerJoin(
+      purchaseImportAttestations,
+      and(
+        eq(purchaseImportAttestations.purchaseId, purchases.id),
+        eq(purchaseImportAttestations.producerId, purchases.producerId),
+        eq(purchaseImportAttestations.clientContactId, purchases.clientContactId),
+      ),
+    )
+    .innerJoin(
+      producers,
+      and(eq(producers.id, purchases.producerId), eq(producers.clerkUserId, input.clerkUserId)),
+    )
+    .where(
+      and(eq(purchases.id, input.purchaseId), eq(purchases.sourceKind, "imported_existing_work")),
+    )
+    .limit(1);
+  if (!importedProducerRow) unavailable();
+  return exactDocumentForAcceptedSnapshot(
+    importedProducerRow.contractUrl,
+    importedProducerRow.commercialSnapshot,
+  );
 }
 
 export async function authorizeProducerProductAgreementPdf(

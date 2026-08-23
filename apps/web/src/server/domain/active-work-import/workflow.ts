@@ -1,9 +1,19 @@
 import type { Db } from "@skitza/db";
 
+import { AgreementPdfStorageError } from "../agreement-pdfs/storage";
 import { deletePrivateProofObjectQuietly, ProofStorageError } from "../payment-proofs/storage";
+import {
+  ActiveWorkImportAgreementPdfCapabilityError,
+  createActiveWorkImportAgreementPdfCapability,
+  createActiveWorkImportAgreementPdfUpload,
+  finalizeActiveWorkImportAgreementPdfUpload,
+  verifyActiveWorkImportAgreementPdfCapability,
+  type ActiveWorkImportAgreementPdfCapability,
+} from "./agreement-pdf-capability";
 import {
   assessStoredActiveWorkImportRow,
   cleanupUnpersistedActiveWorkImportProof,
+  clearActiveWorkImportAgreementPdfUploadToken,
   clearActiveWorkImportProofUploadToken,
   loadActiveWorkImportBatch,
   loadUnmaterializedImportRow,
@@ -66,6 +76,52 @@ export async function prepareActiveWorkImportProof(
   return { ...upload, uploadToken: capability.token };
 }
 
+export async function prepareActiveWorkImportAgreementPdf(
+  db: Db,
+  input: Readonly<{
+    producerId: string;
+    batchId: string;
+    rowId: string;
+    originalFileName: string;
+    contentType: string;
+    sizeBytes: number;
+    serverSecret: string;
+  }>,
+) {
+  await loadUnmaterializedImportRow(db, input);
+  const capability = createActiveWorkImportAgreementPdfCapability(input.serverSecret, {
+    producerId: input.producerId,
+    batchId: input.batchId,
+    rowId: input.rowId,
+    originalFileName: input.originalFileName,
+    contentType: input.contentType,
+    sizeBytes: input.sizeBytes,
+  });
+  const upload = await createActiveWorkImportAgreementPdfUpload(
+    input.serverSecret,
+    capability.payload,
+  );
+  return { ...upload, uploadToken: capability.token };
+}
+
+function verifyImportAgreementPdf(
+  verificationSecrets: readonly string[],
+  token: string,
+  expected: Readonly<{ producerId: string; batchId: string; rowId: string }>,
+): Readonly<{ secret: string; capability: ActiveWorkImportAgreementPdfCapability }> {
+  for (const secret of verificationSecrets) {
+    try {
+      return {
+        secret,
+        capability: verifyActiveWorkImportAgreementPdfCapability(secret, token, expected),
+      };
+    } catch (error) {
+      if (!(error instanceof ActiveWorkImportAgreementPdfCapabilityError)) throw error;
+    }
+  }
+  throw new ActiveWorkImportAgreementPdfCapabilityError();
+}
+
 function verifyImportProof(
   verificationSecrets: readonly string[],
   token: string,
@@ -98,6 +154,10 @@ type ReadyRow = Readonly<{
     string,
     Readonly<{ secret: string; capability: ActiveWorkImportProofCapability }>
   >;
+  agreementPdfCapability: Readonly<{
+    secret: string;
+    capability: ActiveWorkImportAgreementPdfCapability;
+  }> | null;
 }>;
 
 type NeedsInfoRow = Readonly<{
@@ -116,6 +176,12 @@ export function publicActiveWorkImportAssessment(assessment: ReadyRow | NeedsInf
     draftRevision: assessment.row.draftRevision,
     normalized: {
       ...assessment.normalized,
+      agreementPdf: assessment.normalized.agreementPdf
+        ? {
+            fileName: assessment.normalized.agreementPdf.fileName,
+            sizeBytes: assessment.normalized.agreementPdf.sizeBytes,
+          }
+        : null,
       payments: assessment.normalized.payments.map(({ proofUploadToken, ...payment }) => ({
         ...payment,
         hasProof: proofUploadToken !== null,
@@ -170,6 +236,29 @@ export async function assessActiveWorkImportRowForCreation(
   if (proofReasons.length > 0) {
     return { state: "needs_info", rowId: row.id, reasons: proofReasons };
   }
+  let agreementPdfCapability: ReadyRow["agreementPdfCapability"] = null;
+  if (assessment.normalized.agreementPdf) {
+    try {
+      agreementPdfCapability = verifyImportAgreementPdf(
+        input.verificationSecrets,
+        assessment.normalized.agreementPdf.uploadToken,
+        { producerId: input.producerId, batchId: input.batchId, rowId: input.rowId },
+      );
+    } catch (error) {
+      if (!(error instanceof ActiveWorkImportAgreementPdfCapabilityError)) throw error;
+      return {
+        state: "needs_info",
+        rowId: row.id,
+        reasons: [
+          {
+            code: "agreement_pdf_invalid",
+            field: "agreement.agreementPdf",
+            message: "Upload the agreement PDF again.",
+          },
+        ],
+      };
+    }
+  }
   const proofShape = [...verified.values()]
     .map(({ capability }) => ({
       paymentOperationKey: capability.paymentOperationKey,
@@ -183,8 +272,20 @@ export async function assessActiveWorkImportRowForCreation(
     state: "ready",
     row,
     normalized: assessment.normalized,
-    creationDigest: activeWorkImportCreationDigest(assessment.normalized, proofShape),
+    creationDigest: activeWorkImportCreationDigest(
+      assessment.normalized,
+      proofShape,
+      agreementPdfCapability
+        ? {
+            uploadId: agreementPdfCapability.capability.uploadId,
+            originalFileName: agreementPdfCapability.capability.originalFileName,
+            contentType: agreementPdfCapability.capability.contentType,
+            sizeBytes: agreementPdfCapability.capability.sizeBytes,
+          }
+        : null,
+    ),
     proofCapabilities: verified,
+    agreementPdfCapability,
   };
 }
 
@@ -193,6 +294,8 @@ function errorCode(error: unknown): string {
   if (error instanceof ActiveWorkImportDomainError) return error.code;
   if (error instanceof ActiveWorkImportProofCapabilityError) return "PROOF_INVALID";
   if (error instanceof ProofStorageError) return "PROOF_UPLOAD_MISSING";
+  if (error instanceof ActiveWorkImportAgreementPdfCapabilityError) return "AGREEMENT_PDF_INVALID";
+  if (error instanceof AgreementPdfStorageError) return "AGREEMENT_PDF_UPLOAD_MISSING";
   return "UNEXPECTED";
 }
 
@@ -200,6 +303,9 @@ function failureMessage(error: unknown): string {
   if (error instanceof ActiveWorkImportDomainError) return error.message;
   if (error instanceof ProofStorageError) {
     return "The payment proof file is no longer available. Attach it again and retry.";
+  }
+  if (error instanceof AgreementPdfStorageError) {
+    return "The agreement PDF file is no longer available. Attach it again and retry.";
   }
   return "This row could not be created. Your draft is safe.";
 }
@@ -267,11 +373,33 @@ export async function materializeActiveWorkImportRow(
   }
   const finalizedStorageKeys: string[] = [];
   const missingProofOperationKeys: string[] = [];
+  const missingAgreementPdfUploadIds: string[] = [];
   try {
     const capabilities = new Map(
       [...assessment.proofCapabilities].map(([key, value]) => [key, value.capability]),
     );
+    const verifiedAgreementPdf = assessment.agreementPdfCapability;
     const result = await materializeActiveWorkImportRowTransaction(db, {
+      agreementPdfCapability: verifiedAgreementPdf?.capability ?? null,
+      finalizeAgreementPdf: async (capability) => {
+        if (
+          !verifiedAgreementPdf ||
+          verifiedAgreementPdf.capability.uploadId !== capability.uploadId
+        ) {
+          throw new ActiveWorkImportAgreementPdfCapabilityError();
+        }
+        try {
+          return await finalizeActiveWorkImportAgreementPdfUpload(
+            verifiedAgreementPdf.secret,
+            capability,
+          );
+        } catch (error) {
+          if (error instanceof AgreementPdfStorageError) {
+            missingAgreementPdfUploadIds.push(capability.uploadId);
+          }
+          throw error;
+        }
+      },
       producerId: input.producerId,
       clerkUserId: input.clerkUserId,
       batchId: input.batchId,
@@ -338,6 +466,21 @@ export async function materializeActiveWorkImportRow(
         console.error("[active-work-import] proof token reset failed", {
           ...scope,
           paymentOperationKey,
+          error: clearError,
+        });
+      }
+    }
+    if (missingAgreementPdfUploadIds.length > 0) {
+      try {
+        await clearActiveWorkImportAgreementPdfUploadToken(db, {
+          producerId: input.producerId,
+          batchId: input.batchId,
+          rowId: input.rowId,
+          now: importedAt,
+        });
+      } catch (clearError) {
+        console.error("[active-work-import] agreement PDF token reset failed", {
+          ...scope,
           error: clearError,
         });
       }

@@ -54,7 +54,7 @@ export function ImportRowList({
               className="sk-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[14px] font-bold text-[rgb(var(--fg-on-brand))] disabled:opacity-50"
             >
               <Plus size={17} strokeWidth={2.3} aria-hidden />
-              Add first item
+              Add new client
             </button>
           </div>
         ) : null}
@@ -76,17 +76,6 @@ export function ImportRowList({
             Rows stay in this order
           </p>
         </div>
-        {canAdd ? (
-          <button
-            type="button"
-            onClick={onAdd}
-            disabled={addDisabled}
-            className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-[12px] font-bold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))] disabled:opacity-50 sm:min-h-9 sm:rounded-[var(--radius-md)]"
-          >
-            <Plus size={14} strokeWidth={2.4} aria-hidden />
-            Add item
-          </button>
-        ) : null}
       </header>
 
       <div

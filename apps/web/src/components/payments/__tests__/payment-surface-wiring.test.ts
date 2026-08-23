@@ -182,7 +182,8 @@ describe("SK-69 payment surface wiring", () => {
     expect(readModel).toContain("projectPurchaseLedger({");
     expect(readModel).not.toContain("summarizePurchaseLedger");
     expect(readModel).not.toContain("reconcilePurchaseLedger");
-    expect(readDb).toContain('accessMode: "read only"');
+    // SK-258: no per-read transaction (each one cost a new DB connection).
+    expect(readDb).not.toContain("db.transaction(");
     expect(readDb).toContain("activeArtistClientOwner");
     expect(readDb).toContain("eq(purchases.producerId, scope.producerId)");
     expect(readDb).not.toMatch(/paymentProofs\.(storageKey|objectEtag|storageBucket)/);

@@ -16,10 +16,18 @@ import {
   purchases,
   sql,
   type Db,
+  type PurchaseCommercialSnapshot,
 } from "@skitza/db";
+
+import { randomUUID } from "node:crypto";
 
 import { emailHashFor } from "~/server/artist/identity";
 import { generateRefNumber } from "~/lib/purchase/request-helpers";
+import {
+  agreementPdfClientSnapshot,
+  appendAgreementPdfRevision,
+  type AgreementPdfDocument,
+} from "../agreement-pdfs/contract";
 import {
   lockPurchaseLedgerScope,
   purchaseLedgerRepositoryForTransaction,
@@ -28,8 +36,10 @@ import {
   reconcilePurchaseLedger,
   recordConfirmedPurchasePayment,
 } from "../purchase-ledger/service";
-import { digestCommercialSnapshot } from "../purchases/policy";
+import { assertCommercialSnapshotMatchesAcceptance } from "../purchases/commercial-snapshot";
+import { digestCommercialSnapshot, snapshotCommercialTerms } from "../purchases/policy";
 import type { FinalizedProofObject } from "../payment-proofs/storage";
+import type { ActiveWorkImportAgreementPdfCapability } from "./agreement-pdf-capability";
 import type { ActiveWorkImportProofCapability } from "./proof-capability";
 import {
   ActiveWorkImportDomainError,
@@ -610,6 +620,73 @@ export async function clearActiveWorkImportProofUploadToken(
   });
 }
 
+/** Forget a staged agreement PDF whose file is gone, so the row asks for it again. */
+export async function clearActiveWorkImportAgreementPdfUploadToken(
+  db: Db,
+  input: Readonly<{ producerId: string; batchId: string; rowId: string; now: Date }>,
+): Promise<Readonly<{ cleared: boolean }>> {
+  return db.transaction(async (tx) => {
+    const batch = await lockBatch(tx, input);
+    if (!batch) return { cleared: false };
+    const [row] = await tx
+      .select(rowSelection())
+      .from(activeWorkImportRows)
+      .where(
+        and(
+          eq(activeWorkImportRows.id, input.rowId),
+          eq(activeWorkImportRows.batchId, input.batchId),
+          eq(activeWorkImportRows.producerId, input.producerId),
+          isNull(activeWorkImportRows.materializedAt),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (!row) return { cleared: false };
+    const agreement = row.draftPayload.agreement;
+    if (
+      agreement === null ||
+      typeof agreement !== "object" ||
+      Array.isArray(agreement) ||
+      (agreement as Record<string, unknown>).agreementPdf === null ||
+      (agreement as Record<string, unknown>).agreementPdf === undefined
+    ) {
+      return { cleared: false };
+    }
+    const [updated] = await tx
+      .update(activeWorkImportRows)
+      .set({
+        draftRevision: row.draftRevision + 1,
+        draftPayload: {
+          ...row.draftPayload,
+          agreement: { ...(agreement as Record<string, unknown>), agreementPdf: null },
+        },
+        updatedAt: input.now,
+      })
+      .where(
+        and(
+          eq(activeWorkImportRows.id, row.id),
+          eq(activeWorkImportRows.producerId, input.producerId),
+          eq(activeWorkImportRows.draftRevision, row.draftRevision),
+          isNull(activeWorkImportRows.materializedAt),
+        ),
+      )
+      .returning({ id: activeWorkImportRows.id });
+    if (!updated) {
+      throw new ActiveWorkImportDomainError("CONFLICT", "This draft changed. Refresh and retry.");
+    }
+    await tx
+      .update(activeWorkImportBatches)
+      .set({ updatedAt: input.now })
+      .where(
+        and(
+          eq(activeWorkImportBatches.id, input.batchId),
+          eq(activeWorkImportBatches.producerId, input.producerId),
+        ),
+      );
+    return { cleared: true };
+  });
+}
+
 /**
  * Compensate a finalized proof only while holding the same batch/row lock as
  * materialization. This closes the gap where a concurrent retry could start
@@ -682,6 +759,10 @@ export async function materializeActiveWorkImportRowTransaction(
     normalized: NormalizedActiveWorkImport;
     proofCapabilities: ReadonlyMap<string, ActiveWorkImportProofCapability>;
     finalizeProof: (capability: ActiveWorkImportProofCapability) => Promise<FinalizedProofObject>;
+    agreementPdfCapability: ActiveWorkImportAgreementPdfCapability | null;
+    finalizeAgreementPdf: (
+      capability: ActiveWorkImportAgreementPdfCapability,
+    ) => Promise<AgreementPdfDocument>;
     importedAt: Date;
   }>,
 ): Promise<ActiveWorkImportRowResult> {
@@ -833,6 +914,47 @@ export async function materializeActiveWorkImportRowTransaction(
       );
     }
 
+    // The draft reference and the verified capability must describe the same
+    // file before anything is created.
+    if ((input.normalized.agreementPdf !== null) !== (input.agreementPdfCapability !== null)) {
+      throw new ActiveWorkImportDomainError(
+        "INVALID_INPUT",
+        "Imported agreement PDF capability does not match the saved draft",
+      );
+    }
+    let commercialSnapshot = input.normalized.commercialSnapshot;
+    let snapshotDigest = input.normalized.snapshotDigest;
+    let agreementPdfContract: string | null = null;
+    if (input.agreementPdfCapability) {
+      const document = await input.finalizeAgreementPdf(input.agreementPdfCapability);
+      const revision = {
+        revisionId: randomUUID(),
+        effectiveAt: input.importedAt.toISOString(),
+        document,
+      };
+      agreementPdfContract = appendAgreementPdfRevision(null, revision);
+      const agreementPdf = agreementPdfClientSnapshot(revision);
+      if (!agreementPdf) {
+        throw new ActiveWorkImportDomainError(
+          "INTEGRITY_ERROR",
+          "Imported agreement PDF metadata could not be frozen",
+        );
+      }
+      const withPdf: PurchaseCommercialSnapshot = {
+        ...input.normalized.commercialSnapshot,
+        agreementMode: "pdf",
+        agreementPdf,
+      };
+      assertCommercialSnapshotMatchesAcceptance(
+        withPdf,
+        input.normalized.commercialSnapshot.totalCents,
+        input.normalized.plan,
+      );
+      const frozen = snapshotCommercialTerms(withPdf);
+      commercialSnapshot = frozen.value as PurchaseCommercialSnapshot;
+      snapshotDigest = frozen.digest;
+    }
+
     const [project] = await tx
       .insert(projects)
       .values({
@@ -857,7 +979,7 @@ export async function materializeActiveWorkImportRowTransaction(
       rowOperationKey: row.operationKey,
       projectId: project.id,
       clientContactId: client.id,
-      snapshotDigest: input.normalized.snapshotDigest,
+      snapshotDigest,
       plan: input.normalized.plan,
     });
     const [purchase] = await tx
@@ -875,13 +997,13 @@ export async function materializeActiveWorkImportRowTransaction(
         refNumber: generateRefNumber(),
         lifecycleStatus: "waiting_for_payment",
         paymentPlanKind: input.normalized.plan.kind,
-        snapshotVersion: input.normalized.commercialSnapshot.version,
-        snapshotDigest: input.normalized.snapshotDigest,
-        commercialSnapshot: input.normalized.commercialSnapshot,
-        subtotalCents: input.normalized.commercialSnapshot.subtotalCents,
-        taxCents: input.normalized.commercialSnapshot.tax.amountCents,
-        totalCents: input.normalized.commercialSnapshot.totalCents,
-        currency: input.normalized.commercialSnapshot.currency,
+        snapshotVersion: commercialSnapshot.version,
+        snapshotDigest,
+        commercialSnapshot,
+        subtotalCents: commercialSnapshot.subtotalCents,
+        taxCents: commercialSnapshot.tax.amountCents,
+        totalCents: commercialSnapshot.totalCents,
+        currency: commercialSnapshot.currency,
         acceptedAt: null,
         commercialEstablishedAt: input.importedAt,
         createdAt: input.importedAt,
@@ -921,8 +1043,11 @@ export async function materializeActiveWorkImportRowTransaction(
         producerId: input.producerId,
         clientContactId: client.id,
         importedByClerkUserId: input.clerkUserId,
-        importedSnapshot: input.normalized.commercialSnapshot,
-        snapshotDigest: input.normalized.snapshotDigest,
+        importedSnapshot: commercialSnapshot,
+        snapshotDigest,
+        // The column only exists once migration 0056 has run; rows without a
+        // PDF never touch it, so older databases keep creating plain rows.
+        ...(agreementPdfContract ? { agreementPdfContract } : {}),
         importedAt: input.importedAt,
         createdAt: input.importedAt,
       })

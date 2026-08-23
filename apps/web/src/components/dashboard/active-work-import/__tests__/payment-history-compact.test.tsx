@@ -155,12 +155,36 @@ describe("compact active-work payment history", () => {
     expect(screen.getByRole("button", { name: "Add note" }).className).not.toContain(
       "brand-primary-text",
     );
-    expect(screen.getByRole("button", { name: "Add proof" }).className).not.toContain(
-      "brand-primary-text",
-    );
+    expect(screen.queryByRole("button", { name: "Add proof" })).toBeNull();
+    expect(screen.getByText("Drop proof of payment here").closest("label")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Full" }));
     expect(onEditingChange.mock.calls.map(([editing]) => editing)).toEqual([false, true, false]);
+  });
+
+  it("shows one proof drop box under the payment line that accepts a drop or a click", async () => {
+    const onUploadProof = vi.fn<(paymentOperationKey: string, file: File) => void>();
+    const user = userEvent.setup();
+    render(<Harness initialDraft={paymentDraft()} onUploadProof={onUploadProof} />);
+
+    const editor = await openFirstPayment(user);
+    const zone = within(editor).getByText("Drop proof of payment here").closest("label");
+    if (!zone) throw new Error("Expected the proof drop zone");
+    expect(within(editor).queryByRole("button", { name: "Add proof" })).toBeNull();
+    expect(within(zone).getByText("or click to choose a file")).not.toBeNull();
+    expect(zone.className).toContain("border-dashed");
+    const fileInput = zone.querySelector("input[type=file]");
+    if (!(fileInput instanceof HTMLInputElement)) throw new Error("Expected a file input");
+
+    const dropped = new File(["%PDF-1.4"], "receipt.pdf", { type: "application/pdf" });
+    fireEvent.drop(zone, { dataTransfer: { files: [dropped] } });
+    expect(onUploadProof).toHaveBeenCalledWith(expect.any(String), dropped);
+    expect(currentDraft().payments[0]?.proofFileName).toBe("receipt.pdf");
+
+    const picked = new File(["img"], "receipt.png", { type: "image/png" });
+    await user.upload(fileInput, picked);
+    expect(onUploadProof).toHaveBeenLastCalledWith(expect.any(String), picked);
+    expect(onUploadProof.mock.calls[0]?.[0]).toBe(onUploadProof.mock.calls[1]?.[0]);
   });
 
   it("reports an initial incomplete editor and clears editing state on unmount", () => {
