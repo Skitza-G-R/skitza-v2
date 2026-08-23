@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -18,7 +18,11 @@ import {
   type ImportActionResult,
 } from "~/app/(producer)/dashboard/clients-projects/bring-active-work/actions";
 
-import { ImportRowEditor, type ImportEditorStep, type ImportEditorMemory } from "./import-row-editor";
+import {
+  ImportRowEditor,
+  type ImportEditorStep,
+  type ImportEditorMemory,
+} from "./import-row-editor";
 import { ImportRowList } from "./import-row-list";
 import {
   isRowReady,
@@ -644,16 +648,11 @@ export function ActiveWorkImportWorkspace({
         return;
       }
     }
-    const targetIndex = rowsRef.current.findIndex(
-      (row) => row.operationKey === target.operationKey,
-    );
     updateRows((current) => current.filter((row) => row.operationKey !== target.operationKey));
-    const remaining = rowsRef.current;
-    setSelectedOperationKey(
-      remaining[Math.min(Math.max(0, targetIndex), Math.max(0, remaining.length - 1))]
-        ?.operationKey ?? null,
-    );
-    if (remaining.length === 0) setMobileEditorOpen(false);
+    editorMemoryRef.current.delete(target.operationKey);
+    // Removing an item is a deliberate exit: nothing else opens in its place.
+    setSelectedOperationKey(null);
+    setMobileEditorOpen(false);
   }
 
   async function restoreClientForRow(operationKey: string, client: ArchivedClientOption) {
@@ -1192,6 +1191,21 @@ export function ActiveWorkImportWorkspace({
             ) : null}
           </p>
         </div>
+        {rows.length > 0 && !reviewOpen && !batchIsTerminal ? (
+          <button
+            type="button"
+            onClick={() => {
+              void addRow();
+            }}
+            disabled={starting || adding}
+            aria-label="Add new client"
+            className="sk-press inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] hover:bg-[rgb(var(--bg-overlay))] disabled:cursor-not-allowed disabled:opacity-50 max-[374px]:px-2 sm:px-4 sm:text-[13px]"
+          >
+            <Plus size={15} strokeWidth={2.4} aria-hidden />
+            <span className="hidden sm:inline">Add new client</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+        ) : null}
         {rows.length > 0 && !reviewOpen ? (
           <button
             type="button"

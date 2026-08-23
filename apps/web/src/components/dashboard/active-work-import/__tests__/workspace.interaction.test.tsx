@@ -962,6 +962,64 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(screen.getByText("Select an item from the queue.")).not.toBeNull();
     expect(screen.getByRole("list", { name: "Active work items" })).not.toBeNull();
   });
+
+  it("puts a full-size Add new client button in the header beside Review", () => {
+    renderWorkspace(sharedNewClientBatch());
+
+    const add = screen.getByRole("button", { name: "Add new client" });
+    const review = screen.getByRole("button", { name: "Review 2 ready items" });
+    expect(add.closest("header")).not.toBeNull();
+    expect(add.parentElement).toBe(review.parentElement);
+    expect(add.className).toContain("min-h-11");
+    expect(add.className).toContain("rounded-[var(--radius-lg)]");
+    expect(add.textContent).toContain("Add new client");
+    expect(screen.queryByRole("button", { name: "Add item" })).toBeNull();
+    expect(
+      within(
+        screen.getByRole("list", { name: "Active work items" }).closest("section") as HTMLElement,
+      ).queryByRole("button", { name: /add/i }),
+    ).toBeNull();
+  });
+
+  it("leaves nothing selected after removing a just-added item", async () => {
+    const user = userEvent.setup();
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(
+        savedResult(input, {
+          revision: 1,
+          assessment: {
+            state: "needs_info",
+            reasons: [
+              { code: "client_name_required", field: "client.name", message: "Add a client name." },
+            ],
+          },
+        }),
+      ),
+    );
+    renderWorkspace(sharedNewClientBatch());
+    const list = screen.getByRole("list", { name: "Active work items" });
+    expect(within(list).getAllByRole("button")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Add new client" }));
+    await waitFor(() => {
+      expect(within(list).getAllByRole("button")).toHaveLength(3);
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "Remove this draft" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Remove this draft" }));
+
+    await waitFor(() => {
+      expect(within(list).getAllByRole("button")).toHaveLength(2);
+    });
+    expect(mocks.deleteRow).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Select an item from the queue.")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Client & Project" })).toBeNull();
+    expect(within(list).queryAllByRole("button", { current: "true" })).toHaveLength(0);
+  });
 });
 
 describe("ActiveWorkImportWorkspace draft safety", () => {
@@ -983,7 +1041,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     );
     renderWorkspace(null);
 
-    const add = screen.getByRole("button", { name: "Add first item" });
+    const add = screen.getByRole("button", { name: "Add new client" });
     fireEvent.click(add);
     fireEvent.click(add);
 
@@ -1215,7 +1273,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     );
     renderWorkspace(null);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add first item" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add new client" }));
 
     await waitFor(() => {
       expect(mocks.saveRow).toHaveBeenCalledTimes(2);
@@ -1926,7 +1984,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
     expect(screen.getByRole("button", { name: "Back to items" })).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Back to items" }));
-    expect(screen.getByRole("button", { name: "Add item" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Add new client" })).not.toBeNull();
     expect(mocks.materializeRows.mock.calls[0]?.[0]?.rows).toHaveLength(1);
   });
 
@@ -1939,8 +1997,7 @@ describe("ActiveWorkImportWorkspace frozen review and creation", () => {
       },
     );
 
-    expect(screen.queryByRole("button", { name: "Add item" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add first item" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add new client" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Finish setup" }));
     await screen.findByRole("heading", { name: "Finish setup" });
     expect(screen.getByRole("button", { name: "Finish setup" })).not.toBeNull();
