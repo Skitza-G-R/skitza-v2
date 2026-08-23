@@ -43,6 +43,12 @@ export interface ProjectPurchaseInstallment {
   currency: string;
   dueAtIso: string | null;
   status: ProjectPurchaseInstallmentStatus;
+  /** Amount still unpaid after confirmed payments and waivers. */
+  remainingCents: number;
+  /** True while an artist proof for this installment waits for review. */
+  hasPendingProof: boolean;
+  /** True when the ledger lets money land on this installment right now. */
+  payableNow: boolean;
 }
 
 export interface ProjectPurchaseSummary {

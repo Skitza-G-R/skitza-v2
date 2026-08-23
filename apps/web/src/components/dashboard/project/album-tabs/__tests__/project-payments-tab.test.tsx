@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
 import type { PaymentHistoryViewData } from "~/components/payments/payment-history-view";
 
 import { PaymentsTab, type ProjectPaymentsTabData } from "../project-payments-tab";
@@ -16,6 +17,54 @@ vi.mock("~/components/payments/payment-history-view", () => ({
 vi.mock("~/components/dashboard/projects/project-purchases-panel", () => ({
   ProjectPurchasesPanel: () => <div data-testid="purchases-panel">Purchases &amp; add-ons</div>,
 }));
+
+const dialogSpy = vi.fn();
+vi.mock("~/components/dashboard/payments/record-payment-dialog", () => ({
+  RecordPaymentDialog: (props: { initialFile: File | null }) => {
+    dialogSpy(props.initialFile);
+    return <div data-testid="record-payment-dialog" />;
+  },
+}));
+
+const toast = vi.fn();
+vi.mock("~/components/ui/toast", () => ({
+  useToast: () => ({ toast, dismissToast: vi.fn() }),
+}));
+
+function openPurchase(overrides: Partial<ProjectPurchaseSummary> = {}): ProjectPurchaseSummary {
+  return {
+    id: "p1",
+    sourceKind: "store_product",
+    sourceLabel: "Full production",
+    lifecycleStatus: "active",
+    totalCents: 50_000,
+    currency: "ILS",
+    installments: [
+      {
+        id: "i1",
+        position: 1,
+        amountCents: 50_000,
+        currency: "ILS",
+        dueAtIso: "2026-08-01T09:00:00.000Z",
+        status: "not_paid",
+        remainingCents: 50_000,
+        hasPendingProof: false,
+        payableNow: true,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function fileDrag(file: File | null) {
+  return {
+    dataTransfer: {
+      types: ["Files"],
+      files: file ? [file] : [],
+      dropEffect: "none",
+    },
+  };
+}
 
 function paymentView(id: string, title: string, hasPurchases: boolean): PaymentHistoryViewData {
   return {
@@ -52,6 +101,8 @@ function paymentData(
 
 afterEach(() => {
   cleanup();
+  dialogSpy.mockClear();
+  toast.mockClear();
 });
 
 describe("PaymentsTab", () => {
@@ -92,5 +143,74 @@ describe("PaymentsTab", () => {
     expect(screen.getByTestId("purchases-panel")).not.toBeNull();
     expect(screen.queryByTestId("payment-section-needs-review")).toBeNull();
     expect(screen.queryByTestId("payment-section-due")).toBeNull();
+  });
+
+  it("offers Record a payment only while an installment is open", () => {
+    const { rerender } = render(
+      <PaymentsTab projectId="project-1" payments={paymentData()} purchases={[openPurchase()]} />,
+    );
+    expect(screen.getByText("1 payment open")).not.toBeNull();
+    expect(screen.getByText(/₪500 left on this project/)).not.toBeNull();
+    expect(screen.queryByTestId("record-payment-dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Record a payment" }));
+    expect(screen.getByTestId("record-payment-dialog")).not.toBeNull();
+    expect(dialogSpy).toHaveBeenLastCalledWith(null);
+
+    rerender(
+      <PaymentsTab
+        projectId="project-1"
+        payments={paymentData()}
+        purchases={[
+          openPurchase({
+            installments: [
+              {
+                id: "i1",
+                position: 1,
+                amountCents: 50_000,
+                currency: "ILS",
+                dueAtIso: "2026-08-01T09:00:00.000Z",
+                status: "confirmed",
+                remainingCents: 0,
+                hasPendingProof: false,
+                payableNow: false,
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Record a payment" })).toBeNull();
+    expect(screen.getByText("Nothing is waiting for payment")).not.toBeNull();
+  });
+
+  it("opens the form with a dropped receipt attached and rejects other files", () => {
+    render(
+      <PaymentsTab projectId="project-1" payments={paymentData()} purchases={[openPurchase()]} />,
+    );
+    const panel = screen.getByRole("tabpanel");
+
+    fireEvent.dragEnter(panel, fileDrag(null));
+    expect(panel.getAttribute("data-drop-active")).toBe("true");
+    expect(screen.getByText("Drop the receipt to record a payment")).not.toBeNull();
+
+    const wav = new File(["x"], "mix.wav", { type: "audio/wav" });
+    fireEvent.drop(panel, fileDrag(wav));
+    expect(panel.getAttribute("data-drop-active")).toBeNull();
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/photo .* or a PDF/i), "error");
+    expect(screen.queryByTestId("record-payment-dialog")).toBeNull();
+
+    const receipt = new File(["x"], "receipt.jpg", { type: "image/jpeg" });
+    fireEvent.dragEnter(panel, fileDrag(null));
+    fireEvent.drop(panel, fileDrag(receipt));
+    expect(screen.getByTestId("record-payment-dialog")).not.toBeNull();
+    expect(dialogSpy).toHaveBeenLastCalledWith(receipt);
+  });
+
+  it("ignores drags when nothing can be recorded", () => {
+    render(<PaymentsTab projectId="project-1" payments={paymentData()} purchases={[]} />);
+    const panel = screen.getByRole("tabpanel");
+    fireEvent.dragEnter(panel, fileDrag(null));
+    expect(panel.getAttribute("data-drop-active")).toBeNull();
   });
 });

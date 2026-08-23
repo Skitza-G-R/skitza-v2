@@ -1,7 +1,17 @@
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { z } from "zod";
 
-import { SITE_URL, sendPaymentReminderEmail } from "~/server/email/send";
+import { emitArtistProofDecisionNotification } from "~/server/artist/notification-emitters";
+import { getArtistProfile } from "~/server/artist/profile";
+import {
+  cancelProducerReceiptUpload,
+  prepareProducerReceiptUpload,
+  recordProducerManualPayment,
+} from "~/server/domain/payment-proofs/producer-manual-payment";
+import { MAX_PROOF_BYTES, PROOF_CONTENT_TYPES } from "~/server/domain/payment-proofs/policy";
+import { PaymentProofDomainError } from "~/server/domain/payment-proofs/service";
+import { SITE_URL, sendPaymentReminderEmail, sendProofVerifiedEmail } from "~/server/email/send";
 import { purchaseLedgerRepository } from "~/server/domain/purchase-ledger/db";
 import { PurchaseLedgerDomainError } from "~/server/domain/purchase-ledger/policy";
 import { paymentLedgerReadRepository } from "~/server/domain/purchase-ledger/read-db";
@@ -14,19 +24,29 @@ import {
   correctPurchasePayment,
   pauseProjectForOverdueInstallment,
   reconcilePurchaseLedger,
-  recordConfirmedPurchasePayment,
   resumePaymentPausedProject,
   setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
 } from "~/server/domain/purchase-ledger/service";
+import { deliverPushToProjectArtist } from "~/server/push/delivery";
+import { configuredCapabilitySecrets } from "~/server/security/capability-secrets";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
 const operationKeySchema = z.string().trim().min(1).max(200);
 const centsSchema = z.number().int().positive().max(2_147_483_647);
-const currencySchema = z.string().trim().min(3).max(12);
 
 function mapLedgerError(error: unknown): never {
+  if (error instanceof PaymentProofDomainError) {
+    if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+    if (error.code === "INVALID_INPUT") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+    }
+    if (error.code === "CONFLICT") {
+      throw new TRPCError({ code: "CONFLICT", message: error.message });
+    }
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+  }
   if (error instanceof PurchaseLedgerDomainError) {
     if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
     if (error.code === "INVALID_INPUT") {
@@ -46,6 +66,28 @@ function mapLedgerError(error: unknown): never {
 function requireActor(userId: string | null): string {
   if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
   return userId;
+}
+
+function proofServerSecret(): string {
+  try {
+    return configuredCapabilitySecrets().active;
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Private receipt storage is not configured",
+    });
+  }
+}
+
+function proofVerificationSecrets(): readonly string[] {
+  try {
+    return configuredCapabilitySecrets().verification;
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Private receipt storage is not configured",
+    });
+  }
 }
 
 export const purchaseLedgerRouter = router({
@@ -90,38 +132,158 @@ export const purchaseLedgerRouter = router({
       }
     }),
 
+  presignManualReceipt: producerProcedure
+    .input(
+      z
+        .object({
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
+          operationKey: z.string().uuid(),
+          fileName: z.string().min(1).max(200),
+          contentType: z.enum(PROOF_CONTENT_TYPES),
+          sizeBytes: z.number().int().positive().max(MAX_PROOF_BYTES),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await prepareProducerReceiptUpload(ctx.db, {
+          producerId: ctx.producerId,
+          clerkUserId: requireActor(ctx.userId),
+          purchaseId: input.purchaseId,
+          installmentId: input.installmentId,
+          operationKey: input.operationKey,
+          originalFileName: input.fileName,
+          contentType: input.contentType,
+          sizeBytes: input.sizeBytes,
+          serverSecret: proofServerSecret(),
+        });
+      } catch (error) {
+        mapLedgerError(error);
+      }
+    }),
+
+  cancelManualReceipt: producerProcedure
+    .input(
+      z
+        .object({
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
+          uploadToken: z.string().min(1).max(4096),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await cancelProducerReceiptUpload({
+          clerkUserId: requireActor(ctx.userId),
+          purchaseId: input.purchaseId,
+          installmentId: input.installmentId,
+          uploadToken: input.uploadToken,
+          serverSecret: proofVerificationSecrets(),
+        });
+      } catch (error) {
+        mapLedgerError(error);
+      }
+    }),
+
+  // SK-260 — the producer records money received outside Skitza. An optional
+  // receipt (already uploaded through presignManualReceipt) is finalized and
+  // stored as an already-confirmed proof next to the payment.
   recordManualPayment: producerProcedure
     .input(
       z
         .object({
           purchaseId: z.string().uuid(),
           installmentId: z.string().uuid(),
-          operationKey: operationKeySchema,
+          operationKey: z.string().uuid(),
           amountCents: centsSchema,
-          currency: currencySchema,
           paidAt: z.date(),
-          note: z.string().trim().max(4_000).nullable().optional(),
+          note: z.string().trim().max(2_000).optional(),
+          uploadToken: z.string().min(1).max(4096).optional(),
         })
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      const clerkUserId = requireActor(ctx.userId);
+      let result;
       try {
-        return await recordConfirmedPurchasePayment(purchaseLedgerRepository(ctx.db), {
+        result = await recordProducerManualPayment(ctx.db, {
           producerId: ctx.producerId,
+          clerkUserId,
           purchaseId: input.purchaseId,
           installmentId: input.installmentId,
           operationKey: input.operationKey,
-          source: "manual",
           amountCents: input.amountCents,
-          currency: input.currency,
           paidAt: input.paidAt,
-          actorId: requireActor(ctx.userId),
-          note: input.note ?? null,
-          occurredAt: new Date(),
+          note: input.note,
+          uploadToken: input.uploadToken,
+          serverSecret: proofVerificationSecrets(),
         });
       } catch (error) {
         mapLedgerError(error);
       }
+
+      const email = result.email;
+      if (result.created && email) {
+        let artistEmailEnabled = true;
+        try {
+          if (result.proofId) {
+            const channels = await emitArtistProofDecisionNotification(ctx.db, {
+              recipientClerkUserId: result.artistClerkUserId,
+              producerId: ctx.producerId,
+              purchaseId: result.purchaseId,
+              proofId: result.proofId,
+              producerName: email.producerName,
+              productName: email.productName,
+              decision: "verified",
+            });
+            artistEmailEnabled = channels.emailEnabled;
+          } else if (result.artistClerkUserId) {
+            // No receipt means no proof row to hang an in-app notification
+            // on; the artist still gets the "payment confirmed" email unless
+            // they turned proof emails off.
+            const preference = (await getArtistProfile(ctx.db, result.artistClerkUserId))
+              .notificationPreferences.proof;
+            artistEmailEnabled = preference.transactionalEmail || preference.activityEmail;
+          }
+        } catch {
+          console.error("[notify] artist manual-payment failed");
+        }
+        const projectId = result.projectId;
+        const purchaseId = result.purchaseId;
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, projectId, {
+              category: "payment",
+              url: `/artist/payments/${purchaseId}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
+        if (artistEmailEnabled) {
+          after(async () => {
+            try {
+              await sendProofVerifiedEmail(email.artistEmail, email);
+            } catch {
+              console.error("[email] manual-payment confirmed failed");
+            }
+          });
+        }
+      }
+
+      return {
+        paymentId: result.paymentId,
+        proofId: result.proofId,
+        purchaseId: result.purchaseId,
+        installmentId: result.installmentId,
+        installmentPosition: result.installmentPosition,
+        projectId: result.projectId,
+        installmentStatus: result.installmentStatus,
+        paidInFull: result.paidInFull,
+        created: result.created,
+      };
     }),
 
   correctPayment: producerProcedure

@@ -81,11 +81,11 @@ export class PaymentProofDomainError extends Error {
   }
 }
 
-type ProofDb = Pick<Db, "select" | "insert" | "update" | "execute">;
+export type ProofDb = Pick<Db, "select" | "insert" | "update" | "execute">;
 type ProofStatus = (typeof paymentProofs.$inferSelect)["status"];
 type InstallmentStatus = (typeof purchaseInstallments.$inferSelect)["status"];
 
-type PurchaseContext = Readonly<{
+export type PurchaseContext = Readonly<{
   purchaseId: string;
   producerId: string;
   projectId: string;
@@ -107,7 +107,7 @@ type PurchaseContext = Readonly<{
   producerClosedAt: Date | null;
 }>;
 
-type InstallmentRow = typeof purchaseInstallments.$inferSelect;
+export type InstallmentRow = typeof purchaseInstallments.$inferSelect;
 
 export type PaymentProofHistoryItem = Readonly<{
   proofId: string;
@@ -190,14 +190,14 @@ export type ProducerPaymentProofReview = Readonly<{
   history: readonly ProducerPaymentProofHistory[];
 }>;
 
-type LedgerSnapshot = Readonly<{
+export type LedgerSnapshot = Readonly<{
   paidByInstallment: ReadonlyMap<string, number>;
   waivedByInstallment: ReadonlyMap<string, number>;
   paidCents: number;
   waivedCents: number;
 }>;
 
-function asDomainError(error: unknown): never {
+export function asDomainError(error: unknown): never {
   if (error instanceof PaymentProofDomainError) throw error;
   if (error instanceof PurchaseLedgerDomainError) {
     const code =
@@ -219,7 +219,7 @@ function asDomainError(error: unknown): never {
   throw error;
 }
 
-function requireServerSecret(serverSecret: string): string {
+export function requireServerSecret(serverSecret: string): string {
   if (serverSecret.length < 20) {
     throw new Error("Private payment proof service requires the server auth secret");
   }
@@ -295,7 +295,7 @@ async function loadArtistPurchaseContext(
   );
 }
 
-async function loadProducerPurchaseContext(
+export async function loadProducerPurchaseContext(
   db: ProofDb,
   producerId: string,
   purchaseId: string,
@@ -313,7 +313,10 @@ async function loadProducerPurchaseContext(
  * not filter closed rows because submit must still inspect immutable proof
  * state and permit an exact replay of a write committed before closure.
  */
-async function lockProducerClosureState(db: ProofDb, producerId: string): Promise<Date | null> {
+export async function lockProducerClosureState(
+  db: ProofDb,
+  producerId: string,
+): Promise<Date | null> {
   const [producer] = await db
     .select({ id: producers.id, closedAt: producers.closedAt })
     .from(producers)
@@ -326,7 +329,10 @@ async function lockProducerClosureState(db: ProofDb, producerId: string): Promis
   return producer.closedAt;
 }
 
-async function loadInstallments(db: ProofDb, context: PurchaseContext): Promise<InstallmentRow[]> {
+export async function loadInstallments(
+  db: ProofDb,
+  context: PurchaseContext,
+): Promise<InstallmentRow[]> {
   return db
     .select()
     .from(purchaseInstallments)
@@ -339,7 +345,10 @@ async function loadInstallments(db: ProofDb, context: PurchaseContext): Promise<
     .orderBy(asc(purchaseInstallments.position));
 }
 
-async function loadLedgerSnapshot(db: ProofDb, context: PurchaseContext): Promise<LedgerSnapshot> {
+export async function loadLedgerSnapshot(
+  db: ProofDb,
+  context: PurchaseContext,
+): Promise<LedgerSnapshot> {
   const [payments, corrections, waivers] = await Promise.all([
     db
       .select({
@@ -415,7 +424,7 @@ async function loadLedgerSnapshot(db: ProofDb, context: PurchaseContext): Promis
   return { paidByInstallment, waivedByInstallment, paidCents, waivedCents };
 }
 
-async function loadProofRows(db: ProofDb, context: PurchaseContext) {
+export async function loadProofRows(db: ProofDb, context: PurchaseContext) {
   return db
     .select()
     .from(paymentProofs)
@@ -428,7 +437,10 @@ async function loadProofRows(db: ProofDb, context: PurchaseContext) {
     .orderBy(asc(paymentProofs.createdAt), asc(paymentProofs.id));
 }
 
-function installmentRemainingCents(installment: InstallmentRow, ledger: LedgerSnapshot): number {
+export function installmentRemainingCents(
+  installment: InstallmentRow,
+  ledger: LedgerSnapshot,
+): number {
   return Math.max(
     0,
     installment.amountCents -
@@ -718,7 +730,7 @@ export async function cancelArtistProofUpload(input: {
   }
 }
 
-function exactSignedProofReplay(
+export function exactSignedProofReplay(
   proof: typeof paymentProofs.$inferSelect,
   input: {
     purchaseId: string;
@@ -1319,7 +1331,7 @@ async function markProofNotificationRead(
     );
 }
 
-type ProofDecisionEmail = Readonly<{
+export type ProofDecisionEmail = Readonly<{
   artistEmail: string;
   artistName: string;
   producerName: string;

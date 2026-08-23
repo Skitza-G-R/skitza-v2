@@ -16,6 +16,7 @@ import { toPaymentHistoryViewData } from "~/components/payments/payment-history-
 import type { StudioLogEntry } from "~/components/dashboard/project/album-tabs/studio-log-tab";
 import { buildProjectActivityEntries } from "~/components/dashboard/project/album-tabs/studio-log-activity";
 import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
+import { isInstallmentPayableForInstructions } from "~/server/domain/payment-instructions/policy";
 import { classifySongUploadPublicExposure } from "~/server/domain/song-publication/upload-exposure";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -233,6 +234,13 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
           currency: installment.currency,
           dueAtIso: installment.dueAt?.toISOString() ?? null,
           status: installment.status,
+          remainingCents: installment.remainingCents,
+          hasPendingProof: purchase.proofs.some(
+            (proof) => proof.installmentId === installment.id && proof.status === "pending",
+          ),
+          payableNow:
+            purchase.lifecycleStatus !== "canceled" &&
+            isInstallmentPayableForInstructions(installment, now),
         })),
       })),
   );
