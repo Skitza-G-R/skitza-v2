@@ -3,6 +3,14 @@ import { render } from "@react-email/components";
 import { FROM_ADDRESS, getResend, SITE_URL } from "./client";
 import { EmailDeliveryError } from "./delivery-error";
 import {
+  BetaActivationHelp,
+  type BetaActivationHelpProps,
+} from "./templates/beta-activation-help";
+import {
+  BetaSignupReminder,
+  type BetaSignupReminderProps,
+} from "./templates/beta-signup-reminder";
+import {
   BookingCancelledOrRescheduled,
   type BookingCancelledOrRescheduledProps,
 } from "./templates/booking-cancelled-or-rescheduled";
@@ -403,6 +411,36 @@ export async function sendPurchaseDeclinedEmail(
     from: FROM_ADDRESS,
     to,
     subject: `Update on your request to ${props.producerName}`,
+    html,
+  });
+}
+
+// SK-273 — one-shot beta nudges, fired only by the beta-nudges cron. The
+// cron stamps `*SentAt` right after each successful send, so a thrown send
+// here surfaces as a cron warning and retries on the next daily run.
+export async function sendBetaSignupReminderEmail(
+  to: string,
+  props: BetaSignupReminderProps,
+): Promise<void> {
+  const html = await render(<BetaSignupReminder {...props} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: "Your Skitza beta invite is waiting",
+    html,
+  });
+}
+
+export async function sendBetaActivationHelpEmail(
+  to: string,
+  props: Omit<BetaActivationHelpProps, "dashboardUrl"> & { dashboardUrl?: string },
+): Promise<void> {
+  const dashboardUrl = props.dashboardUrl ?? `${SITE_URL}/dashboard`;
+  const html = await render(<BetaActivationHelp {...props} dashboardUrl={dashboardUrl} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: "Need a hand getting set up on Skitza?",
     html,
   });
 }

@@ -1,0 +1,43 @@
+import { NextResponse } from "next/server";
+
+import { requireActiveAdminAccess } from "~/server/auth/access";
+import { privateAdminResponseHeaders } from "~/server/auth/api-access";
+import { isSameOriginMutation } from "~/server/auth/request-security";
+import { normalizedBetaEmail, parsedBetaWave } from "~/server/beta/model";
+import { createBetaRuntime } from "~/server/beta/runtime";
+import {
+  AdminDataHttpError,
+  adminDataErrorResponse,
+  exactJsonObject,
+  forbiddenAdminMutationResponse,
+  operationKeyFromRequest,
+} from "~/server/data-foundation/http";
+
+// SK-273 — move one invitee to another wave. Pure bookkeeping; sends nothing.
+export async function POST(request: Request) {
+  try {
+    await requireActiveAdminAccess();
+    if (!isSameOriginMutation(request)) return forbiddenAdminMutationResponse();
+    operationKeyFromRequest(request);
+
+    const body = await exactJsonObject(request, ["emailAddress", "wave"]);
+    if (typeof body.emailAddress !== "string") throw new AdminDataHttpError();
+    const email = normalizedBetaEmail(body.emailAddress);
+    const wave = parsedBetaWave(body.wave);
+    if (email === null || wave === null) throw new AdminDataHttpError();
+
+    const selected = new URL(request.url).searchParams.get("environment");
+    const runtime = createBetaRuntime(selected ?? undefined);
+    const updated = await runtime.repository.setWave(email, wave, new Date());
+    if (!updated) {
+      return NextResponse.json(
+        { error: "not_found" },
+        { status: 404, headers: privateAdminResponseHeaders() },
+      );
+    }
+
+    return NextResponse.json({ ok: true }, { headers: privateAdminResponseHeaders() });
+  } catch (error) {
+    return adminDataErrorResponse(error);
+  }
+}
