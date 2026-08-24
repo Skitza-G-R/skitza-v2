@@ -23,42 +23,49 @@ describe("artist purchase active guard", () => {
       isArtistPurchaseGuardBlocking({
         status,
         purchaseId: null,
-        totalCents: null,
-        verifiedCents: 0,
+        remainingCents: null,
         purchaseLifecycleStatus: null,
       }),
     ).toBe(true);
   });
 
-  it("blocks a converted request until producer-verified proofs cover the total", () => {
+  it("blocks a converted request exactly while the ledger says money is still owed", () => {
     expect(
       isArtistPurchaseGuardBlocking({
         status: "converted",
         purchaseId: "purchase-1",
-        totalCents: 10_000,
-        verifiedCents: 9_999,
+        remainingCents: 1,
         purchaseLifecycleStatus: "active",
       }),
     ).toBe(true);
+    // SK-267: settled is settled regardless of HOW the money was recorded —
+    // confirmed proofs, imported payments, SK-260 manual payments, and
+    // waivers all land in the ledger's remaining cents.
     expect(
       isArtistPurchaseGuardBlocking({
         status: "converted",
         purchaseId: "purchase-1",
-        totalCents: 10_000,
-        verifiedCents: 10_000,
+        remainingCents: 0,
         purchaseLifecycleStatus: "active",
       }),
     ).toBe(false);
   });
 
-  it("fails closed for a converted request without its purchase", () => {
+  it("fails closed for a converted request without its purchase or with unreadable money history", () => {
     expect(
       isArtistPurchaseGuardBlocking({
         status: "converted",
         purchaseId: null,
-        totalCents: null,
-        verifiedCents: 0,
+        remainingCents: null,
         purchaseLifecycleStatus: null,
+      }),
+    ).toBe(true);
+    expect(
+      isArtistPurchaseGuardBlocking({
+        status: "converted",
+        purchaseId: "purchase-1",
+        remainingCents: null,
+        purchaseLifecycleStatus: "active",
       }),
     ).toBe(true);
   });
@@ -68,20 +75,18 @@ describe("artist purchase active guard", () => {
       isArtistPurchaseGuardBlocking({
         status,
         purchaseId: null,
-        totalCents: null,
-        verifiedCents: 0,
+        remainingCents: null,
         purchaseLifecycleStatus: null,
       }),
     ).toBe(false);
   });
 
-  it("releases a canceled purchase even when producer-verified proofs do not cover it", () => {
+  it("releases a canceled purchase even when money is still outstanding", () => {
     expect(
       isArtistPurchaseGuardBlocking({
         status: "converted",
         purchaseId: "purchase-1",
-        totalCents: 10_000,
-        verifiedCents: 0,
+        remainingCents: 10_000,
         purchaseLifecycleStatus: "canceled",
       }),
     ).toBe(false);
@@ -143,14 +148,28 @@ describe("purchase.request idempotency and the studio-wide guard", () => {
     expect(targetResolution.match(/isNull\(clientContacts\.archivedAt\)/g)).toHaveLength(2);
   });
 
-  it("includes unfinished requestless purchases and releases canceled or fully verified ones", () => {
+  it("includes unfinished requestless purchases and releases canceled or settled ones", () => {
     expect(guardSource).toContain("sql`${purchases.purchaseRequestId} IS NULL`");
     expect(guardSource).toContain(
       'inArray(purchases.lifecycleStatus, ["waiting_for_payment", "active"])',
     );
     expect(guardSource).toContain("inArray(purchases.clientContactId, contactIds)");
-    expect(guardSource).toContain("case when ${paymentProofs.status} = 'confirmed'");
     expect(guardSource).toContain("requestId: null");
     expect(guardSource).toContain("href: `/artist/payments/${purchase.purchaseId}`");
+  });
+
+  it("measures debt with the canonical ledger, never with proof files alone (SK-267)", () => {
+    // Imported and SK-260 manual payments have no proof file; waivers settle
+    // with no payment at all. A proofs-only sum permanently blocks such
+    // clients from the Store even when fully paid.
+    expect(guardSource).toContain("projectPurchaseLedger");
+    expect(guardSource).toContain("purchasePayments");
+    expect(guardSource).toContain("purchasePaymentCorrections");
+    expect(guardSource).toContain("purchaseWaivers");
+    expect(guardSource).toContain("purchaseInstallments");
+    expect(guardSource).not.toContain("paymentProofs");
+    // Unreadable money history fails closed, inside and outside the loader.
+    expect(guardSource).toContain("remaining.set(row.id, null)");
+    expect(guardSource).toMatch(/remainingCents === null \|\| .*remainingCents > 0/);
   });
 });
