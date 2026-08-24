@@ -6264,3 +6264,46 @@ export const systemProblems = pgTable(
 );
 export type SystemProblem = typeof systemProblems.$inferSelect;
 export type NewSystemProblem = typeof systemProblems.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// SK-273 — closed-beta invite tracking (founder-only).
+// One row per person on the beta email list. The admin console imports the
+// list, releases invitation waves (Clerk application invitations), and this
+// table remembers where each person stands. Statuses only move forward:
+//   pending -> invited -> signed_up -> active
+// `signed_up` means a producers row exists for the email; `active` means that
+// producer created at least one project. The two *SentAt stamps make each
+// automated nudge one-shot: a null stamp is the only state that allows a send.
+export const betaInvitees = pgTable(
+  "beta_invitees",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull(),
+    name: text("name"),
+    wave: integer("wave").notNull().default(1),
+    status: text("status", { enum: ["pending", "invited", "signed_up", "active"] })
+      .notNull()
+      .default("pending"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    signedUpAt: timestamp("signed_up_at", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    signupReminderSentAt: timestamp("signup_reminder_sent_at", { withTimezone: true }),
+    activationHelpSentAt: timestamp("activation_help_sent_at", { withTimezone: true }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    emailUnique: uniqueIndex("beta_invitees_email_unique").on(t.email),
+    statusIdx: index("beta_invitees_status_idx").on(t.status),
+    waveIdx: index("beta_invitees_wave_idx").on(t.wave),
+    statusAllowed: check(
+      "beta_invitees_status_allowed",
+      sql`${t.status} IN ('pending', 'invited', 'signed_up', 'active')`,
+    ),
+    emailLowercase: check("beta_invitees_email_lowercase", sql`${t.email} = lower(${t.email})`),
+    wavePositive: check("beta_invitees_wave_positive", sql`${t.wave} >= 1`),
+  }),
+);
+export type BetaInvitee = typeof betaInvitees.$inferSelect;
+export type NewBetaInvitee = typeof betaInvitees.$inferInsert;
