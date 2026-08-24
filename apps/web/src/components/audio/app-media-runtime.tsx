@@ -336,7 +336,10 @@ function UploadActivityDock() {
   const uploads = useManagedUploads();
   const playback = usePlaybackSnapshot();
   const visible = uploads
-    .filter((upload) => managedUploadIsActive(upload) || upload.terminalFeedback !== "toast")
+    .filter(
+      (upload) =>
+        upload.showInDock && (managedUploadIsActive(upload) || upload.terminalFeedback !== "toast"),
+    )
     .slice(-3);
   if (visible.length === 0) return null;
 

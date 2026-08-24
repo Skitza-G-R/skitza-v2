@@ -108,6 +108,10 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("Songs or Versions");
   });
 
+  it("keeps only the modal's attached progress bar — no duplicate dock card", () => {
+    expect(SRC).toContain("showInDock: false");
+  });
+
   it("continues to authoritative completion after conditional PUT conflicts", () => {
     expect(SRC).toContain("putResponse.status !== 409");
     expect(SRC).toContain("putResponse.status !== 412");

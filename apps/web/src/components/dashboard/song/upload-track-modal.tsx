@@ -393,6 +393,9 @@ export function UploadTrackModal({
             ? "Upload new Version"
             : "Add Song",
       terminalFeedback: "toast",
+      // This modal renders its own attached progress bar, and closing it
+      // cancels the transfer — a dock card would only duplicate the bar.
+      showInDock: false,
     });
     let finishOperation: () => void = () => {};
     const operationFinished = new Promise<void>((resolve) => {
