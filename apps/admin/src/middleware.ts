@@ -6,6 +6,10 @@ import {
   type NextRequest,
 } from "next/server";
 
+import {
+  resolveAdminAccessMode,
+  type AdminAccessMode,
+} from "./server/auth/access-mode";
 import { verifyCloudflareAccessHeaders } from "./server/auth/cloudflare-access";
 
 const PRIVATE_NO_STORE_HEADERS = {
@@ -63,18 +67,31 @@ export async function protectVerifiedAccessRoute(
 }
 
 /**
- * Testable outer seam: no route classification or Clerk work occurs until the
- * Cloudflare assertion and canonical host have both been verified.
+ * Testable outer seam: in cloudflare-access mode no route classification or
+ * Clerk work occurs until the Cloudflare assertion and canonical host have
+ * both been verified. In vercel-protection mode (SK-274) the outer wall is
+ * Vercel Deployment Protection, so the request continues straight to Clerk.
+ * Unknown or broken mode configuration fails closed.
  */
 export async function handleAdminMiddleware(
   request: NextRequest,
   continueWithClerk: VerifiedAccessContinuation,
   verifyAccess: AccessHeaderVerifier = verifyCloudflareAccessHeaders,
+  resolveMode: () => AdminAccessMode = resolveAdminAccessMode,
 ): Promise<Awaited<ReturnType<NextMiddleware>>> {
+  let mode: AdminAccessMode;
   try {
-    await verifyAccess(request.headers);
+    mode = resolveMode();
   } catch {
     return accessDeniedResponse();
+  }
+
+  if (mode === "cloudflare-access") {
+    try {
+      await verifyAccess(request.headers);
+    } catch {
+      return accessDeniedResponse();
+    }
   }
 
   return continueWithClerk();

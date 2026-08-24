@@ -1,6 +1,13 @@
+import { createHash } from "node:crypto";
+
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { cookies, headers } from "next/headers";
 
+import {
+  requiredFounderClerkUserId,
+  resolveAdminAccessMode,
+  type AdminAccessMode,
+} from "./access-mode";
 import {
   CloudflareAccessVerificationError,
   verifyCloudflareAccessHeaders,
@@ -26,6 +33,13 @@ export const ADMIN_ACTIVITY_COOKIE_NAME = "skitza-admin-activity";
 export const ADMIN_REAUTHENTICATION_COOKIE_NAME =
   "skitza-admin-reauthentication";
 export const CLOUDFLARE_ACCESS_LOGOUT_PATH = "/cdn-cgi/access/logout";
+// SK-274: in vercel-protection mode there is no Cloudflare session to log
+// out of; the unlock ceremony sends the founder back through Clerk sign-in.
+export const VERCEL_PROTECTION_LOGOUT_PATH = "/sign-in";
+
+export type AdminLogoutPath =
+  | typeof CLOUDFLARE_ACCESS_LOGOUT_PATH
+  | typeof VERCEL_PROTECTION_LOGOUT_PATH;
 
 const ADMIN_ACTIVITY_COOKIE_MAX_AGE_SECONDS = 30 * 60;
 const ADMIN_REAUTHENTICATION_COOKIE_MAX_AGE_SECONDS =
@@ -65,7 +79,7 @@ export type AdminUnlockDecision =
   | Readonly<{
       unlocked: false;
       reauthenticationRequired: true;
-      logoutPath: typeof CLOUDFLARE_ACCESS_LOGOUT_PATH;
+      logoutPath: AdminLogoutPath;
     }>;
 
 function readAdminSessionSecret(): string {
@@ -74,6 +88,20 @@ function readAdminSessionSecret(): string {
     throw new AdminAccessError("configuration-invalid");
   }
   return secret;
+}
+
+function readAdminAccessMode(): AdminAccessMode {
+  try {
+    return resolveAdminAccessMode();
+  } catch {
+    throw new AdminAccessError("configuration-invalid");
+  }
+}
+
+function adminLogoutPath(): AdminLogoutPath {
+  return readAdminAccessMode() === "vercel-protection"
+    ? VERCEL_PROTECTION_LOGOUT_PATH
+    : CLOUDFLARE_ACCESS_LOGOUT_PATH;
 }
 
 function mapCloudflareAccessError(error: unknown): never {
@@ -94,6 +122,87 @@ async function readVerifiedAccessIdentity(): Promise<CloudflareAccessIdentity> {
   }
 }
 
+// The minimal identity proof the session layer needs. Satisfied by a verified
+// Cloudflare Access token, or — in vercel-protection mode — by the Clerk
+// session itself plus the founder pin (SK-274).
+type AdminAccessProof = Pick<
+  CloudflareAccessIdentity,
+  "email" | "issuedAt" | "subject" | "tokenFingerprint"
+>;
+
+type ClerkAuthFacts = Readonly<{
+  getToken: () => Promise<string | null>;
+  sessionClaims: Readonly<{ iat?: unknown }> | null;
+}>;
+
+type ClerkUserFacts = Readonly<{
+  emailAddresses: ReadonlyArray<{
+    emailAddress: string;
+    id: string;
+    verification?: Readonly<{ status?: string | null }> | null;
+  }>;
+  id: string;
+  primaryEmailAddressId: string | null;
+}>;
+
+function verifiedClerkEmail(user: ClerkUserFacts): string | null {
+  const primary = user.emailAddresses.find(
+    (email) =>
+      email.id === user.primaryEmailAddressId &&
+      email.verification?.status === "verified",
+  );
+  const chosen =
+    primary ??
+    user.emailAddresses.find(
+      (email) => email.verification?.status === "verified",
+    );
+  return chosen ? chosen.emailAddress.trim().toLowerCase() : null;
+}
+
+/**
+ * vercel-protection mode's replacement for the Cloudflare token: the proof is
+ * the Clerk session JWT. The founder pin must match the signed-in user, the
+ * user must own a verified email, and the rotating session token supplies the
+ * fingerprint + issued-at that the inactivity/unlock ceremonies key off.
+ */
+async function readVercelProtectionProof(
+  authState: ClerkAuthFacts,
+  user: ClerkUserFacts,
+): Promise<AdminAccessProof> {
+  let founderUserId: string;
+  try {
+    founderUserId = requiredFounderClerkUserId();
+  } catch {
+    throw new AdminAccessError("configuration-invalid");
+  }
+  if (user.id !== founderUserId) {
+    throw new AdminAccessError("access-identity-mismatch");
+  }
+
+  const email = verifiedClerkEmail(user);
+  if (!email) {
+    throw new AdminAccessError("access-identity-mismatch");
+  }
+
+  const token = await authState.getToken();
+  const issuedAt = authState.sessionClaims?.iat;
+  if (
+    !token ||
+    typeof issuedAt !== "number" ||
+    !Number.isSafeInteger(issuedAt) ||
+    issuedAt <= 0
+  ) {
+    throw new AdminAccessError("access-proof-required");
+  }
+
+  return {
+    email,
+    issuedAt,
+    subject: `clerk:${user.id}`,
+    tokenFingerprint: createHash("sha256").update(token).digest("base64url"),
+  };
+}
+
 function hasMatchingVerifiedClerkEmail(
   accessEmail: string,
   emailAddresses: ReadonlyArray<{
@@ -109,9 +218,15 @@ function hasMatchingVerifiedClerkEmail(
 }
 
 async function readFounderFacts() {
-  // Access is deliberately verified before Clerk so every dynamic request
-  // fails closed at the outer infrastructure-authentication boundary.
-  const accessIdentity = await readVerifiedAccessIdentity();
+  const mode = readAdminAccessMode();
+  // In cloudflare-access mode, Access is deliberately verified before Clerk
+  // so every dynamic request fails closed at the outer
+  // infrastructure-authentication boundary. In vercel-protection mode that
+  // outer wall is Vercel Deployment Protection, and the proof is derived
+  // from the Clerk session itself after the founder pin passes (SK-274).
+  const cloudflareIdentity =
+    mode === "cloudflare-access" ? await readVerifiedAccessIdentity() : null;
+
   const authState = await auth();
   if (!authState.userId || !authState.sessionId) {
     throw new AdminAccessError("signed-out");
@@ -125,12 +240,20 @@ async function readFounderFacts() {
     throw new AdminAccessError("signed-out");
   }
 
+  const accessIdentity: AdminAccessProof =
+    cloudflareIdentity ?? (await readVercelProtectionProof(authState, user));
+
   return {
     accessIdentity,
-    accessIdentityMatches: hasMatchingVerifiedClerkEmail(
-      accessIdentity.email,
-      user.emailAddresses,
-    ),
+    // In vercel-protection mode the proof email was taken from the user's own
+    // verified addresses and the pin already matched, so the identities agree
+    // by construction.
+    accessIdentityMatches: cloudflareIdentity
+      ? hasMatchingVerifiedClerkEmail(
+          cloudflareIdentity.email,
+          user.emailAddresses,
+        )
+      : true,
     isImpersonated: false,
     privateMetadata: user.privateMetadata,
     sessionId: authState.sessionId,
@@ -338,7 +461,7 @@ export async function unlockAdminSession(
       }
 
       return {
-        logoutPath: CLOUDFLARE_ACCESS_LOGOUT_PATH,
+        logoutPath: adminLogoutPath(),
         reauthenticationRequired: true,
         unlocked: false,
       };
@@ -352,7 +475,7 @@ export async function unlockAdminSession(
   // required Access logout -> new-token transition.
   await beginAdminReauthentication(identity, nowMs);
   return {
-    logoutPath: CLOUDFLARE_ACCESS_LOGOUT_PATH,
+    logoutPath: adminLogoutPath(),
     reauthenticationRequired: true,
     unlocked: false,
   };
