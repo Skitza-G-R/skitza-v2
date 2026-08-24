@@ -9,6 +9,13 @@ import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
+import {
+  MAX_WINDOWS_PER_DAY,
+  dayWindowsIssueMessage,
+  findDayWindowsIssue,
+  nextWindowSlot,
+  type DayWindowsIssue,
+} from "~/lib/availability/windows";
 import { orderByWeekStart, useWeekStartPref, type WeekStart } from "~/lib/time/week-start";
 
 import {
@@ -167,24 +174,15 @@ export function AvailabilityStepClient({
   };
 
   const addWindow = (weekday: Weekday) => {
+    const day = days.find((d) => d.weekday === weekday);
+    if (!day || day.windows.length >= MAX_WINDOWS_PER_DAY) return;
+    const slot = nextWindowSlot(day.windows);
+    if (!slot) {
+      toast(`No room left for another window on ${WEEKDAY_NAMES[weekday]}.`, "error");
+      return;
+    }
     setDays((prev) =>
-      prev.map((d) => {
-        if (d.weekday !== weekday || d.windows.length >= 3) return d;
-        const last = d.windows[d.windows.length - 1];
-        const lastEnd = last?.endMin ?? DEFAULT_WINDOW.endMin;
-        const DAY_END = 24 * 60;
-        // New window picks up where the previous one ended, defaulting
-        // to a 2-hour evening slot, capped at midnight.
-        let startMin = Math.min(lastEnd, DAY_END);
-        let endMin = Math.min(startMin + 2 * 60, DAY_END);
-        if (endMin - startMin < 30) {
-          // No usable room left in the day — fall back to the last hour
-          // so the inputs render with sane, editable values.
-          endMin = DAY_END;
-          startMin = DAY_END - 60;
-        }
-        return { ...d, windows: [...d.windows, { startMin, endMin }] };
-      }),
+      prev.map((d) => (d.weekday === weekday ? { ...d, windows: [...d.windows, slot] } : d)),
     );
   };
 
@@ -216,13 +214,19 @@ export function AvailabilityStepClient({
   };
 
   const activeDayCount = days.filter((d) => d.active).length;
-  const activeWindows = days.filter((day) => day.active).flatMap((day) => day.windows);
+  // Shared rules with the Calendar Availability tab — start before end,
+  // at least 30 minutes, no overlaps, at most 5 windows per day. Each
+  // day's issue also renders inline, so a disabled Continue always
+  // comes with a visible reason.
+  const dayIssues = useMemo(
+    () =>
+      new Map(
+        days.map((d) => [d.weekday, d.active ? findDayWindowsIssue(d.windows) : null] as const),
+      ),
+    [days],
+  );
   const hoursAreValid =
-    activeWindows.length > 0 &&
-    activeWindows.every(
-      (window) =>
-        window.startMin >= 0 && window.endMin <= 24 * 60 && window.endMin - window.startMin >= 30,
-    );
+    activeDayCount > 0 && days.every((d) => !d.active || dayIssues.get(d.weekday) == null);
 
   const collectBlocks = (): BlockInput[] =>
     days
@@ -474,6 +478,7 @@ export function AvailabilityStepClient({
                       ) : null}
                     </div>
                   ))}
+                  <DayIssueNote issue={dayIssues.get(day.weekday) ?? null} />
                 </div>
               ) : null}
 
@@ -494,7 +499,7 @@ export function AvailabilityStepClient({
                       <Copy size={12} />
                     </button>
                   ) : null}
-                  {day.windows.length < 3 ? (
+                  {day.windows.length < MAX_WINDOWS_PER_DAY ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -512,7 +517,25 @@ export function AvailabilityStepClient({
             </li>
           ))}
         </ul>
+
+        {activeDayCount === 0 ? (
+          <p
+            role="status"
+            className="mt-3 text-[11.5px] font-semibold text-[rgb(var(--fg-danger-text))]"
+          >
+            Turn on at least one day so artists can book you.
+          </p>
+        ) : null}
       </div>
     </WizardChrome>
+  );
+}
+
+function DayIssueNote({ issue }: { issue: DayWindowsIssue | null }) {
+  if (!issue) return null;
+  return (
+    <p role="status" className="px-1 text-[10.5px] font-semibold text-[rgb(var(--fg-danger-text))]">
+      {dayWindowsIssueMessage(issue)}
+    </p>
   );
 }

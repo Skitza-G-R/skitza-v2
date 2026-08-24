@@ -507,9 +507,8 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
 
   useLayoutEffect(() => {
     const onPresentation = (event: Event) => {
-      const detail = (
-        event as CustomEvent<Partial<RuntimeMainNavigationIntentDetail> | undefined>
-      ).detail;
+      const detail = (event as CustomEvent<Partial<RuntimeMainNavigationIntentDetail> | undefined>)
+        .detail;
       if (!detail || typeof detail.href !== "string") return;
 
       const targetHref = resolveRuntimeMainNavigationHref(detail.href, {
@@ -535,8 +534,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       const view = mayReadSavedView
         ? readRuntimeScreenSafeView(storage, identity, targetHref)
         : null;
-      const warm =
-        desktopAccessAllowed && !localOnly && !view && detail.warm === true;
+      const warm = desktopAccessAllowed && !localOnly && !view && detail.warm === true;
       if (warm) {
         delete document.documentElement.dataset.skScreenSource;
       } else {
@@ -583,9 +581,10 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     }
 
     const desktopAccessAllowed = !pending.desktopPreview || desktopPreviewAllowed;
-    const view = desktopAccessAllowed && privateStateAccessAllowed && storage
-      ? readRuntimeScreenSafeView(storage, identity, pending.href)
-      : null;
+    const view =
+      desktopAccessAllowed && privateStateAccessAllowed && storage
+        ? readRuntimeScreenSafeView(storage, identity, pending.href)
+        : null;
     document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
     setPending({
       ...pending,
@@ -610,10 +609,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       clearPending();
       return;
     }
-    if (
-      pending.desktopPreview &&
-      (!privateStateAccessAllowed || !desktopPreviewAllowed)
-    ) {
+    if (pending.desktopPreview && (!privateStateAccessAllowed || !desktopPreviewAllowed)) {
       if (pending.view || pending.warm) {
         document.documentElement.dataset.skScreenSource = "scaffold";
         setPending({ ...pending, view: null, warm: false });
@@ -666,12 +662,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
     return () => {
       window.removeEventListener("online", onOnline);
     };
-  }, [
-    currentHref,
-    identityKey,
-    pending,
-    router,
-  ]);
+  }, [currentHref, identityKey, pending, router]);
 
   useLayoutEffect(
     () => () => {
@@ -692,10 +683,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       : null;
 
   if (!visiblePending) return children;
-  if (
-    visiblePending.warm &&
-    (!visiblePending.desktopPreview || desktopPreviewAllowed)
-  ) {
+  if (visiblePending.warm && (!visiblePending.desktopPreview || desktopPreviewAllowed)) {
     return children;
   }
   return visiblePending.view &&
@@ -796,9 +784,7 @@ export function RuntimeResumeBoundary({
     if (!isLoaded) {
       setResolvedIdentity(false);
       setResume(
-        desktopSessionCacheAccess(null, online).kind === "web"
-          ? initialOfflineResumeState()
-          : null,
+        desktopSessionCacheAccess(null, online).kind === "web" ? initialOfflineResumeState() : null,
       );
       return;
     }
@@ -825,6 +811,13 @@ export function RuntimeResumeBoundary({
         : "/artist";
   const activeResume =
     resume && (!expectedRole || resume.target.role === expectedRole) ? resume : null;
+  // Launch keeps only the last-used role; it always resolves to that role's
+  // home screen, never the last visited page (SK-263).
+  const resumeRootHref = activeResume
+    ? activeResume.target.role === "producer"
+      ? "/dashboard"
+      : "/artist"
+    : null;
   const presentedHref = navigate ? (activeResume?.target.href ?? fallbackHref) : fallbackHref;
   const presentedView = navigate
     ? (activeResume?.view ?? null)
@@ -847,7 +840,7 @@ export function RuntimeResumeBoundary({
 
   useEffect(() => {
     if (!navigate || !resolvedIdentity || !online) return;
-    const href = runtimeRoleResolverHref(activeResume?.target.href ?? null);
+    const href = runtimeRoleResolverHref(resumeRootHref);
     if (launchDesktopAccess.kind === "web") {
       router.replace(href);
       return;
@@ -863,7 +856,7 @@ export function RuntimeResumeBoundary({
       window.cancelAnimationFrame(secondFrame);
     };
   }, [
-    activeResume?.target.href,
+    resumeRootHref,
     launchDesktopAccess.kind,
     navigate,
     online,
@@ -875,13 +868,13 @@ export function RuntimeResumeBoundary({
   useEffect(() => {
     if (!navigate || online || launchDesktopAccess.kind === "desktop") return;
     const onOnline = () => {
-      router.replace(runtimeRoleResolverHref(activeResume?.target.href ?? null));
+      router.replace(runtimeRoleResolverHref(resumeRootHref));
     };
     window.addEventListener("online", onOnline, { once: true });
     return () => {
       window.removeEventListener("online", onOnline);
     };
-  }, [activeResume?.target.href, launchDesktopAccess.kind, navigate, online, router]);
+  }, [resumeRootHref, launchDesktopAccess.kind, navigate, online, router]);
 
   if (launchIsLocked) {
     const message =
