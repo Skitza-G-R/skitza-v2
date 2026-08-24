@@ -30,6 +30,13 @@ import {
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { orderByWeekStart, useWeekStartPref, type WeekStart } from "~/lib/time/week-start";
+import {
+  MAX_WINDOWS_PER_DAY,
+  dayWindowsIssueMessage,
+  findDayWindowsIssue,
+  nextWindowSlot,
+  type DayWindowsIssue,
+} from "~/lib/availability/windows";
 import { runOptimisticPreferenceSave } from "~/lib/optimistic-preference-save";
 import { formatResolvedTimeZoneLabel } from "~/lib/timezone-display";
 
@@ -148,15 +155,30 @@ function WorkingHoursCard({
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
-  // Re-hydrate when the server prop changes (after a save → revalidate).
+  // Re-hydrate only when the server truly sent different blocks.
+  // Every preference save revalidates this page, and resetting on the
+  // new array identity alone used to wipe unsaved working-hours edits.
+  const lastServerBlocksRef = useRef<Block[]>([...blocks]);
   useEffect(() => {
+    if (sameBlocks(lastServerBlocksRef.current, [...blocks])) return;
+    lastServerBlocksRef.current = [...blocks];
     setDraft(buildDraft(blocks));
   }, [blocks]);
 
   const totals = useMemo(() => computeTotals(draft), [draft]);
+  const issues = useMemo(() => {
+    const out: Partial<Record<number, DayWindowsIssue>> = {};
+    for (const d of DAYS) {
+      const issue = findDayWindowsIssue(draft[d.num] ?? []);
+      if (issue) out[d.num] = issue;
+    }
+    return out;
+  }, [draft]);
+  const hasWindowIssues = DAYS.some((d) => issues[d.num] !== undefined);
   const dirty = !sameBlocks(serialiseDraft(draft), [...blocks]);
 
   function handleSave() {
+    if (hasWindowIssues) return;
     if (!online) {
       toast("Reconnect to save working hours.", "error");
       return;
@@ -178,6 +200,10 @@ function WorkingHoursCard({
 
   function copyMonToWeekdays() {
     const monday = draft[1] ?? [];
+    if (monday.length === 0) {
+      toast("Set Monday's hours first.", "error");
+      return;
+    }
     setDraft((prev) => ({
       ...prev,
       2: cloneWindows(monday),
@@ -185,6 +211,7 @@ function WorkingHoursCard({
       4: cloneWindows(monday),
       5: cloneWindows(monday),
     }));
+    toast("Copied Monday's hours to Tuesday–Friday.", "success");
   }
 
   return (
@@ -222,6 +249,7 @@ function WorkingHoursCard({
             dayNum={d.num}
             dayLabel={d.full}
             windows={draft[d.num] ?? []}
+            issue={issues[d.num] ?? null}
             isLast={idx === orderedDays.length - 1}
             totalH={totals[d.num] ?? 0}
             onToggle={(on) => {
@@ -236,26 +264,17 @@ function WorkingHoursCard({
               });
             }}
             onAddWindow={() => {
-              setDraft((prev) => {
-                const existing = prev[d.num] ?? [];
-                const last = existing[existing.length - 1];
-                const lastEnd = last?.endMin ?? 17 * 60;
-                const DAY_END = 24 * 60;
-                // New window picks up where the previous one ended,
-                // defaulting to a 2-hour evening slot, capped at midnight.
-                let startMin = Math.min(lastEnd, DAY_END);
-                let endMin = Math.min(startMin + 2 * 60, DAY_END);
-                if (endMin - startMin < 30) {
-                  // Day is full — fall back to the last hour so the
-                  // selects render with sane, editable values.
-                  endMin = DAY_END;
-                  startMin = DAY_END - 60;
-                }
-                return {
-                  ...prev,
-                  [d.num]: [...existing, { id: makeId(), startMin, endMin }],
-                };
-              });
+              const existing = draft[d.num] ?? [];
+              if (existing.length >= MAX_WINDOWS_PER_DAY) return;
+              const slot = nextWindowSlot(existing);
+              if (!slot) {
+                toast(`No room left for another window on ${d.full}.`, "error");
+                return;
+              }
+              setDraft((prev) => ({
+                ...prev,
+                [d.num]: [...(prev[d.num] ?? []), { id: makeId(), ...slot }],
+              }));
             }}
             onRemoveWindow={(id) => {
               setDraft((prev) => ({
@@ -275,12 +294,18 @@ function WorkingHoursCard({
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[rgb(var(--border-subtle))] px-5 py-4">
         <p className="font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-          {formatHours(sumHours(totals))}h open per week
+          {hasWindowIssues ? (
+            <span className="text-[rgb(var(--fg-danger-text))]" style={{ fontWeight: 700 }}>
+              Fix the highlighted days to save.
+            </span>
+          ) : (
+            <>{formatHours(sumHours(totals))}h open per week</>
+          )}
         </p>
         <button
           type="button"
           onClick={handleSave}
-          disabled={!dirty || isPending || !online}
+          disabled={!dirty || hasWindowIssues || isPending || !online}
           className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
           style={{ fontWeight: 700 }}
         >
@@ -332,6 +357,7 @@ function DayRow({
   dayNum,
   dayLabel,
   windows,
+  issue,
   isLast,
   totalH,
   onToggle,
@@ -342,6 +368,7 @@ function DayRow({
   dayNum: number;
   dayLabel: string;
   windows: readonly DraftWindow[];
+  issue: DayWindowsIssue | null;
   isLast: boolean;
   totalH: number;
   onToggle: (on: boolean) => void;
@@ -381,6 +408,7 @@ function DayRow({
                   />
                 ) : null}
                 <TimeSelect
+                  kind="start"
                   value={minToHHMM(w.startMin)}
                   onChange={(v) => {
                     onChangeWindow(w.id, { startMin: hhmmToMin(v) });
@@ -388,6 +416,7 @@ function DayRow({
                 />
                 <span className="text-[12px] text-[rgb(var(--fg-faint))]">—</span>
                 <TimeSelect
+                  kind="end"
                   value={minToHHMM(w.endMin)}
                   onChange={(v) => {
                     onChangeWindow(w.id, { endMin: hhmmToMin(v) });
@@ -405,14 +434,25 @@ function DayRow({
                 </button>
               </span>
             ))}
-            <button
-              type="button"
-              onClick={onAddWindow}
-              className="sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--brand-primary)/0.5)] bg-transparent px-2.5 text-[10.5px] text-[rgb(var(--brand-primary-dark))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.06)] lg:h-6"
-              style={{ fontWeight: 700 }}
-            >
-              + Add window
-            </button>
+            {windows.length < MAX_WINDOWS_PER_DAY ? (
+              <button
+                type="button"
+                onClick={onAddWindow}
+                className="sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--brand-primary)/0.5)] bg-transparent px-2.5 text-[10.5px] text-[rgb(var(--brand-primary-dark))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.06)] lg:h-6"
+                style={{ fontWeight: 700 }}
+              >
+                + Add window
+              </button>
+            ) : null}
+            {issue ? (
+              <p
+                role="status"
+                className="text-[11px] text-[rgb(var(--fg-danger-text))]"
+                style={{ fontWeight: 600 }}
+              >
+                {dayWindowsIssueMessage(issue)}
+              </p>
+            ) : null}
           </>
         ) : (
           <span className="text-[12.5px] text-[rgb(var(--fg-faint))] italic">Closed</span>
@@ -464,8 +504,16 @@ function PillToggle({
   );
 }
 
-function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const slots = useMemo(buildSlots, []);
+function TimeSelect({
+  kind,
+  value,
+  onChange,
+}: {
+  kind: "start" | "end";
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const slots = useMemo(() => (kind === "start" ? buildStartSlots() : buildEndSlots()), [kind]);
   return (
     <select
       value={value}
@@ -1248,13 +1296,20 @@ function hhmmToMin(v: string): number {
   return Number(h) * 60 + Number(m);
 }
 
-function buildSlots(): string[] {
+// Full-day slot lists. Starts run 00:00–23:30; ends run 00:30–24:00 so
+// a window that closes at midnight renders as "24:00" instead of the
+// browser falling back to the first option (the phantom "06:00").
+export function buildStartSlots(): string[] {
   const out: string[] = [];
-  for (let h = 6; h <= 23; h++) {
+  for (let h = 0; h <= 23; h++) {
     out.push(`${String(h).padStart(2, "0")}:00`);
     out.push(`${String(h).padStart(2, "0")}:30`);
   }
   return out;
+}
+
+export function buildEndSlots(): string[] {
+  return [...buildStartSlots().slice(1), "24:00"];
 }
 
 function getTimezoneLabel(timeZone: string, initialNow: string): string {

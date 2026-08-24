@@ -31,6 +31,9 @@ function toMessage(err: unknown): string {
     return "Invalid input.";
   }
   if (err instanceof TRPCError) {
+    // tRPC wraps input-validation failures with the raw JSON issue dump
+    // as the message — surface the underlying Zod issue instead.
+    if (err.cause instanceof ZodError) return toMessage(err.cause);
     switch (err.code) {
       case "UNAUTHORIZED":
         return "Please sign in to continue.";
