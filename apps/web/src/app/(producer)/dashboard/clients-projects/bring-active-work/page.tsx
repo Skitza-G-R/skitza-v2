@@ -91,6 +91,7 @@ export default async function BringActiveWorkPage({ searchParams }: PageProps) {
         rights: template.terms.rights,
         plans: template.terms.enabledPaymentPlans,
         agreementText: template.terms.agreementMode === "text" ? template.terms.agreementText : "",
+        session: template.terms.session,
       };
     });
 

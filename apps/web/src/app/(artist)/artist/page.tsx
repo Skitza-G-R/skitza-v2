@@ -95,6 +95,12 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     );
   for (const { purchase, projectTitle } of selectedPayments) {
     if (!purchase.showPayNextPayment || !purchase.nextPayment) continue;
+    // "Payable" is looser than "due": a monthly installment can be paid early
+    // from the moment its schedule is anchored. The home card claims "due",
+    // so it only renders on the same due-now truth the producer's client
+    // page sums — otherwise the two surfaces contradict each other. Early
+    // payment stays available from the Payments tab.
+    if (!purchase.nextPayment.dueNow) continue;
     candidates.push({
       id: purchase.id,
       kind: "payment_action",

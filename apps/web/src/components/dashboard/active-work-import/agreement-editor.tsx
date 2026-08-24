@@ -473,6 +473,72 @@ export function AgreementEditor({
                 fields={["agreement.includedSongSpaces"]}
               />
             </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor={`import-sessions-mode-${operationKey}`}>Included sessions</Label>
+              <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3">
+                <select
+                  id={`import-sessions-mode-${operationKey}`}
+                  value={agreement.sessionsMode}
+                  onChange={(event) => {
+                    const sessionsMode = event.target
+                      .value as ActiveWorkImportDraft["agreement"]["sessionsMode"];
+                    patch({ sessionsMode });
+                  }}
+                  {...issueAttributes(reasons, ["agreement.session"], issueId("agreement-sessions"))}
+                  className={FIELD_CLASS}
+                >
+                  <option value="none">None</option>
+                  <option value="fixed">A set number</option>
+                  <option value="unlimited">Unlimited</option>
+                </select>
+                {agreement.sessionsMode === "fixed" ? (
+                  <input
+                    id={`import-sessions-count-${operationKey}`}
+                    aria-label="How many sessions"
+                    inputMode="numeric"
+                    value={agreement.sessionCount}
+                    placeholder="How many"
+                    onChange={(event) => {
+                      patch({ sessionCount: event.target.value });
+                    }}
+                    {...issueAttributes(
+                      reasons,
+                      ["agreement.session"],
+                      issueId("agreement-sessions"),
+                    )}
+                    className={FIELD_CLASS}
+                  />
+                ) : null}
+                {agreement.sessionsMode !== "none" ? (
+                  <input
+                    id={`import-sessions-duration-${operationKey}`}
+                    aria-label="Session length in minutes"
+                    inputMode="numeric"
+                    value={agreement.sessionDurationMin}
+                    placeholder="Minutes each"
+                    onChange={(event) => {
+                      patch({ sessionDurationMin: event.target.value });
+                    }}
+                    {...issueAttributes(
+                      reasons,
+                      ["agreement.session"],
+                      issueId("agreement-sessions"),
+                    )}
+                    className={FIELD_CLASS}
+                  />
+                ) : null}
+              </div>
+              <p className="text-[11px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                {agreement.sessionsMode === "none"
+                  ? "Sessions the agreement already covers. With None, the client cannot book studio time under this work."
+                  : "The client can book these sessions in Skitza without paying again."}
+              </p>
+              <FieldIssues
+                id={issueId("agreement-sessions")}
+                reasons={reasons}
+                fields={["agreement.session"]}
+              />
+            </div>
           </div>
           <div className="mt-3 flex items-end justify-between gap-3 border-t border-[rgb(var(--border-subtle))] pt-3">
             <div>

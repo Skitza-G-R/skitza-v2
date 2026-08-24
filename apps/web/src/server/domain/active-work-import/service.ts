@@ -43,7 +43,8 @@ export type ActiveWorkImportReasonCode =
   | "proof_invalid"
   | "agreement_pdf_invalid"
   | "revision_rule_invalid"
-  | "royalty_terms_invalid";
+  | "royalty_terms_invalid"
+  | "session_invalid";
 
 export type ActiveWorkImportReason = Readonly<{
   code: ActiveWorkImportReasonCode;
@@ -245,6 +246,67 @@ function parsePlan(
     return null;
   }
   return { kind: plan.kind };
+}
+
+// Session bounds mirror the private-offer session normalizer, so an imported
+// agreement can freeze exactly what a Skitza-native purchase could.
+const MAX_SESSION_DURATION_MIN = 24 * 60;
+const MAX_SESSION_LEAD_HOURS = 365 * 24;
+
+/**
+ * Frozen booking terms of the outside agreement: how many sessions it
+ * includes and their shape. Absent/null means the agreement grants no
+ * bookable sessions — exactly today's snapshot, so older drafts keep their
+ * digest. Invalid shapes report one plain-language reason.
+ */
+function parseSession(
+  value: unknown,
+  reasons: ActiveWorkImportReason[],
+): PurchaseCommercialSnapshot["session"] {
+  if (value === null || value === undefined) return null;
+  const session = object(value);
+  const limit = object(session?.limit);
+  const count = integer(limit?.count);
+  const parsedLimit =
+    limit?.kind === "unlimited"
+      ? ({ kind: "unlimited" } as const)
+      : limit?.kind === "fixed" && count !== null && count >= 1
+        ? ({ kind: "fixed", count } as const)
+        : null;
+  const durationMin = integer(session?.durationMin);
+  const locationType = text(session?.locationType);
+  const bufferMinutes = integer(session?.bufferMinutes);
+  const minLeadHours = integer(session?.minLeadHours);
+  if (
+    !session ||
+    !parsedLimit ||
+    durationMin === null ||
+    durationMin < 1 ||
+    durationMin > MAX_SESSION_DURATION_MIN ||
+    !locationType ||
+    locationType.length > 100 ||
+    bufferMinutes === null ||
+    bufferMinutes < 0 ||
+    bufferMinutes > MAX_SESSION_DURATION_MIN ||
+    minLeadHours === null ||
+    minLeadHours < 0 ||
+    minLeadHours > MAX_SESSION_LEAD_HOURS
+  ) {
+    reason(
+      reasons,
+      "session_invalid",
+      "agreement.session",
+      "Check the included sessions: how many, and the session length in minutes.",
+    );
+    return null;
+  }
+  return {
+    limit: parsedLimit,
+    durationMin,
+    locationType,
+    bufferMinutes,
+    minLeadHours,
+  };
 }
 
 function parseRevisionRule(
@@ -505,6 +567,7 @@ export function assessActiveWorkImportDraft(
   const revisionRule = parseRevisionRule(agreement.revisionRule);
   const royaltyTerms = parseRoyaltyTerms(agreement.royaltyTerms);
   const agreementPdf = parseAgreementPdf(agreement.agreementPdf, reasons);
+  const session = parseSession(agreement.session, reasons);
 
   if (!name) {
     reason(reasons, "agreement_name_required", "agreement.name", "Add a name for the agreement.");
@@ -633,7 +696,11 @@ export function assessActiveWorkImportDraft(
       : { kind: plan.kind };
   const commercialSnapshot: PurchaseCommercialSnapshot = {
     version: 2,
-    bookingEnabled: false,
+    // Session terms are part of the frozen outside agreement. When the
+    // producer records included sessions, the purchase becomes bookable and
+    // materialization derives its session allowance — the same shape a
+    // Skitza-native session purchase freezes at acceptance.
+    bookingEnabled: session !== null,
     productOrOfferName: name,
     ...(service ? { service } : {}),
     deliverables,
@@ -657,7 +724,7 @@ export function assessActiveWorkImportDraft(
     totalCents: expectedTotalCents,
     currency,
     includedSongSpaces,
-    session: null,
+    session,
     revisionRule: revisionRule.value,
     royaltyTerms: royaltyTerms.value,
     rights,

@@ -308,6 +308,13 @@ describe("active-work import model", () => {
       rights: ["Artist owns the masters"],
       plans: [{ kind: "split_50_50" }],
       agreementText: "Existing agreement text",
+      session: {
+        limit: { kind: "fixed", count: 4 },
+        durationMin: 90,
+        locationType: "studio",
+        bufferMinutes: 15,
+        minLeadHours: 24,
+      },
     };
 
     const next = applyTemplate(draft, template);
@@ -319,8 +326,56 @@ describe("active-work import model", () => {
       masterPercentage: "15",
       compositionPercentage: "5",
       planKind: "split_50_50",
+      sessionsMode: "fixed",
+      sessionCount: "4",
+      sessionDurationMin: "90",
+      sessionLocationType: "studio",
+      sessionBufferMinutes: "15",
+      sessionMinLeadHours: "24",
     });
     expect(next.agreement.deliverables).not.toBe(template.deliverables);
     expect(next.agreement.rights).not.toBe(template.rights);
+
+    const withoutSessions = applyTemplate(draft, { ...template, session: null });
+    expect(withoutSessions.agreement.sessionsMode).toBe("none");
+    expect(withoutSessions.agreement.sessionCount).toBe("");
+  });
+
+  it("round-trips included sessions through the server payload and back", () => {
+    const draft = newImportDraft(defaults);
+    draft.agreement.sessionsMode = "fixed";
+    draft.agreement.sessionCount = "4";
+    draft.agreement.sessionDurationMin = "90";
+    draft.agreement.sessionBufferMinutes = "15";
+    draft.agreement.sessionMinLeadHours = "24";
+
+    const payload = toServerDraftPayload(draft);
+    expect((payload.agreement as Record<string, unknown>).session).toEqual({
+      limit: { kind: "fixed", count: 4 },
+      durationMin: 90,
+      locationType: "studio",
+      bufferMinutes: 15,
+      minLeadHours: 24,
+    });
+
+    const restored = parseStoredImportDraft(payload, defaults);
+    expect(restored.agreement.sessionsMode).toBe("fixed");
+    expect(restored.agreement.sessionCount).toBe("4");
+    expect(restored.agreement.sessionDurationMin).toBe("90");
+    expect(restored.agreement.sessionBufferMinutes).toBe("15");
+    expect(restored.agreement.sessionMinLeadHours).toBe("24");
+
+    draft.agreement.sessionsMode = "unlimited";
+    const unlimitedPayload = toServerDraftPayload(draft);
+    expect((unlimitedPayload.agreement as Record<string, unknown>).session).toMatchObject({
+      limit: { kind: "unlimited" },
+    });
+    const restoredUnlimited = parseStoredImportDraft(unlimitedPayload, defaults);
+    expect(restoredUnlimited.agreement.sessionsMode).toBe("unlimited");
+
+    draft.agreement.sessionsMode = "none";
+    const nonePayload = toServerDraftPayload(draft);
+    expect((nonePayload.agreement as Record<string, unknown>).session).toBeNull();
+    expect(parseStoredImportDraft(nonePayload, defaults).agreement.sessionsMode).toBe("none");
   });
 });

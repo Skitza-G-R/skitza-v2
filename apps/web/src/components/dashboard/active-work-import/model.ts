@@ -8,6 +8,15 @@ export type ImportTaxMode = "tax_free" | "tax_included" | "tax_added";
 export type ImportPlanKind = "full" | "split_50_50" | "monthly";
 export type ImportRoyaltyMode = "none" | "percentage" | "agreement";
 export type ImportRevisionMode = "none" | "fixed" | "unlimited";
+export type ImportSessionsMode = "none" | "fixed" | "unlimited";
+
+export type ImportSessionTerms = Readonly<{
+  limit: Readonly<{ kind: "fixed"; count: number } | { kind: "unlimited" }>;
+  durationMin: number;
+  locationType: string;
+  bufferMinutes: number;
+  minLeadHours: number;
+}>;
 
 export type ExistingClientOption = Readonly<{
   id: string;
@@ -48,6 +57,8 @@ export type StoreTemplateOption = Readonly<{
   rights: readonly string[];
   plans: readonly PaymentPlan[];
   agreementText: string;
+  /** Frozen session terms of the template product; null = not bookable. */
+  session: ImportSessionTerms | null;
 }>;
 
 /** A staged agreement PDF: the signed reference plus what the producer sees. */
@@ -102,6 +113,17 @@ export type ActiveWorkImportDraft = {
     royaltyNotes: string;
     planKind: ImportPlanKind;
     monthlyInstallments: string;
+    // Sessions the outside agreement already includes. "none" keeps the
+    // purchase non-bookable; "fixed"/"unlimited" freeze session terms so the
+    // connected client can book without buying a new service. Location,
+    // buffer, and lead are carried invisibly from the template (or safe
+    // defaults) — the editor exposes only the count and length.
+    sessionsMode: ImportSessionsMode;
+    sessionCount: string;
+    sessionDurationMin: string;
+    sessionLocationType: string;
+    sessionBufferMinutes: string;
+    sessionMinLeadHours: string;
   };
   payments: ImportPaymentDraft[];
 };
@@ -313,6 +335,12 @@ export function newImportDraft(input: {
       royaltyNotes: "",
       planKind: "full",
       monthlyInstallments: "2",
+      sessionsMode: "none",
+      sessionCount: "",
+      sessionDurationMin: "120",
+      sessionLocationType: "studio",
+      sessionBufferMinutes: "0",
+      sessionMinLeadHours: "12",
     },
     payments: [],
   };
@@ -392,6 +420,17 @@ export function parseStoredImportDraft(
   const composition = record(royalty.composition);
   const royaltyMode = (value: unknown): ImportRoyaltyMode =>
     value === "percentage" || value === "agreement" || value === "none" ? value : "none";
+  const rawSession =
+    agreement.session === null || agreement.session === undefined
+      ? null
+      : record(agreement.session);
+  const rawSessionLimit = record(rawSession?.limit);
+  const sessionsMode: ImportSessionsMode =
+    rawSession === null
+      ? "none"
+      : rawSessionLimit.kind === "unlimited"
+        ? "unlimited"
+        : "fixed";
   const rawPayments = Array.isArray(raw.payments) ? raw.payments : [];
   const uiPayments = record(ui.payments);
 
@@ -459,6 +498,24 @@ export function parseStoredImportDraft(
       monthlyInstallments: stringValue(
         uiAgreement.monthlyInstallments,
         positiveIntegerText(rawPlan.installments, "2"),
+      ),
+      sessionsMode,
+      sessionCount: positiveIntegerText(rawSessionLimit.count, ""),
+      sessionDurationMin: positiveIntegerText(
+        rawSession?.durationMin,
+        base.agreement.sessionDurationMin,
+      ),
+      sessionLocationType: stringValue(
+        rawSession?.locationType,
+        base.agreement.sessionLocationType,
+      ),
+      sessionBufferMinutes: positiveIntegerText(
+        rawSession?.bufferMinutes,
+        base.agreement.sessionBufferMinutes,
+      ),
+      sessionMinLeadHours: positiveIntegerText(
+        rawSession?.minLeadHours,
+        base.agreement.sessionMinLeadHours,
       ),
     },
     payments: rawPayments.map((rawPayment, index) => {
@@ -769,6 +826,22 @@ export function toServerDraftPayload(draft: ActiveWorkImportDraft): Record<strin
       : draft.agreement.revisionMode === "fixed"
         ? { kind: "fixed", count: integerInput(draft.agreement.revisionCount) }
         : null;
+  // Absent (null) keeps the payload identical to pre-session drafts, so their
+  // stored digests and Ready checks stay valid. Invalid numbers travel as
+  // null and come back as one server-side session_invalid reason.
+  const session =
+    draft.agreement.sessionsMode === "none"
+      ? null
+      : {
+          limit:
+            draft.agreement.sessionsMode === "unlimited"
+              ? { kind: "unlimited" }
+              : { kind: "fixed", count: integerInput(draft.agreement.sessionCount) },
+          durationMin: integerInput(draft.agreement.sessionDurationMin),
+          locationType: draft.agreement.sessionLocationType.trim() || "studio",
+          bufferMinutes: integerInput(draft.agreement.sessionBufferMinutes) ?? 0,
+          minLeadHours: integerInput(draft.agreement.sessionMinLeadHours) ?? 12,
+        };
   const plan =
     draft.agreement.planKind === "monthly"
       ? {
@@ -809,6 +882,7 @@ export function toServerDraftPayload(draft: ActiveWorkImportDraft): Record<strin
       totalCents: tax.totalCents,
       currency: normalizedCurrency(draft.agreement.currency),
       includedSongSpaces: integerInput(draft.agreement.includedSongSpaces),
+      session,
       revisionRule,
       royaltyTerms: {
         master: royaltyPart(draft.agreement.masterMode, draft.agreement.masterPercentage),
@@ -897,8 +971,36 @@ export function applyTemplate(
         firstPlan?.kind === "monthly"
           ? String(firstPlan.installments)
           : draft.agreement.monthlyInstallments,
+      sessionsMode:
+        template.session === null
+          ? "none"
+          : template.session.limit.kind === "unlimited"
+            ? "unlimited"
+            : "fixed",
+      sessionCount:
+        template.session?.limit.kind === "fixed" ? String(template.session.limit.count) : "",
+      sessionDurationMin: template.session
+        ? String(template.session.durationMin)
+        : draft.agreement.sessionDurationMin,
+      sessionLocationType: template.session?.locationType ?? draft.agreement.sessionLocationType,
+      sessionBufferMinutes: template.session
+        ? String(template.session.bufferMinutes)
+        : draft.agreement.sessionBufferMinutes,
+      sessionMinLeadHours: template.session
+        ? String(template.session.minLeadHours)
+        : draft.agreement.sessionMinLeadHours,
     },
   };
+}
+
+/** One line for the review card: "4 sessions · 120 min" / "Unlimited sessions · 90 min" / "None". */
+export function sessionsLabel(session: PurchaseCommercialSnapshot["session"]): string {
+  if (!session) return "None";
+  const count =
+    session.limit.kind === "unlimited"
+      ? "Unlimited sessions"
+      : `${String(session.limit.count)} ${session.limit.count === 1 ? "session" : "sessions"}`;
+  return `${count} · ${String(session.durationMin)} min`;
 }
 
 export function normalizedCurrency(value: string): string {
