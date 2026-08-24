@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 
-import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/cn";
 import { formatMoney } from "~/lib/format/money";
+
+import { badgeVariants } from "~/components/ui/badge";
+
+import { PaymentReminderButton } from "./payment-reminder-button";
 
 import {
   aggregateProducerPaymentArtists,
@@ -14,17 +17,23 @@ import {
   defaultProducerPaymentCustomRange,
   filterProducerPaymentRecords,
   paginateProducerPaymentArtists,
+  producerPaymentArtistProgress,
+  producerPaymentNeedsYou,
+  producerPaymentProjectLabel,
+  producerPaymentShortDate,
+  producerPaymentTiming,
   summarizeProducerPayments,
-  type ProducerPaymentArtistNextPayment,
+  type ProducerPaymentArtistProgress,
   type ProducerPaymentArtistRow,
   type ProducerPaymentArtistStatus,
-  type ProducerPaymentCurrencyAmount,
   type ProducerPaymentCurrencySummary,
   type ProducerPaymentHistoryEvent,
   type ProducerPaymentStatusFilter,
   type ProducerPaymentsData,
   type ProducerPaymentsView,
   type ProducerPaymentTimePreset,
+  type ProducerPaymentTimeRange,
+  type ProducerPaymentTimingTone,
 } from "./producer-payments-dashboard-model";
 
 interface ProducerPaymentsDashboardProps {
@@ -57,16 +66,34 @@ const STATUS_OPTIONS: readonly Readonly<{
   { value: "all_paid", label: "All paid" },
 ];
 
-const STATUS_PRESENTATION: Record<
-  ProducerPaymentArtistStatus,
-  Readonly<{ label: string; tone: "accent" | "active" | "danger" | "success" | "warning" }>
-> = {
-  overdue: { label: "Overdue", tone: "danger" },
-  needs_review: { label: "Needs review", tone: "accent" },
-  due_now: { label: "Due now", tone: "warning" },
-  waiting_milestone: { label: "Waiting on milestone", tone: "active" },
-  upcoming: { label: "Upcoming", tone: "active" },
-  all_paid: { label: "All paid", tone: "success" },
+const STATUS_LABELS: Record<ProducerPaymentArtistStatus, string> = {
+  overdue: "Overdue",
+  needs_review: "Needs review",
+  due_now: "Due now",
+  waiting_milestone: "Waiting on work",
+  upcoming: "Upcoming",
+  all_paid: "All paid",
+};
+
+// A 3px left edge does the work the old status pill did, without the width.
+const STATUS_EDGE: Record<ProducerPaymentArtistStatus, string> = {
+  overdue: "border-l-[3px] border-l-[rgb(var(--fg-danger))]",
+  due_now: "border-l-[3px] border-l-[rgb(var(--fg-danger))]",
+  needs_review: "border-l-[3px] border-l-[rgb(var(--brand-primary-text))]",
+  waiting_milestone: "border-l-[3px] border-l-transparent",
+  upcoming: "border-l-[3px] border-l-transparent",
+  all_paid: "border-l-[3px] border-l-transparent",
+};
+
+// Wears the Badge skin (10px bold uppercase pill); the ::before overlay
+// stretches the touch target to ~44px without inflating the pill itself.
+const NEEDS_YOU_CHIP =
+  "sk-press relative shrink-0 cursor-pointer py-1 before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none";
+
+const TIMING_TONE_CLASS: Record<ProducerPaymentTimingTone, string> = {
+  danger: "text-[rgb(var(--fg-danger))]",
+  accent: "text-[rgb(var(--brand-primary-text))]",
+  muted: "text-[rgb(var(--fg-muted))]",
 };
 
 function safeDomId(value: string): string {
@@ -101,49 +128,75 @@ function amountLabel(cents: number, currency: string): string {
   return `${formatMoney(cents, currency, { withCents: true })} ${currency}`;
 }
 
-function AmountList({
-  amounts,
-  danger = false,
+type SummaryTone = "danger" | "default" | "success" | "warning";
+
+const SUMMARY_TONE_CLASS: Record<SummaryTone, string> = {
+  danger: "text-[rgb(var(--fg-danger-text))]",
+  default: "text-[rgb(var(--fg-default))]",
+  success: "text-[rgb(var(--fg-success-text))]",
+  warning: "text-[rgb(var(--fg-warning-text))]",
+};
+
+function SummaryStat({
+  label,
+  cents,
+  currency,
+  tone,
 }: {
-  amounts: readonly ProducerPaymentCurrencyAmount[];
-  danger?: boolean;
+  label: string;
+  cents: number;
+  currency: string;
+  tone: SummaryTone;
 }) {
   return (
-    <span className="flex min-w-0 flex-col gap-0.5">
-      {amounts.map((amount) => (
-        <span
-          key={amount.currency}
-          className={cn(
-            "font-mono text-[11px] leading-tight font-bold whitespace-nowrap tabular-nums",
-            danger && amount.cents > 0
-              ? "text-[rgb(var(--fg-danger))]"
-              : "text-[rgb(var(--fg-default))]",
-          )}
-        >
-          {formatMoney(amount.cents, amount.currency, { withCents: true })}{" "}
-          <span className="text-[9px] tracking-[0.06em] text-[rgb(var(--fg-muted))]">
-            {amount.currency}
-          </span>
-        </span>
-      ))}
-    </span>
+    <div className="min-w-0">
+      <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "mt-0.5 font-mono text-[clamp(13px,3.6vw,16px)] leading-tight font-extrabold whitespace-nowrap tabular-nums",
+          SUMMARY_TONE_CLASS[tone],
+        )}
+      >
+        {formatMoney(cents, currency, { withCents: true })}
+      </dd>
+    </div>
   );
 }
 
-function SummaryMoney({ cents, currency }: { cents: number; currency: string }) {
-  return (
-    <span className="font-mono text-[clamp(13px,4vw,18px)] leading-none font-extrabold tracking-[-0.03em] whitespace-nowrap text-[rgb(var(--fg-default))] tabular-nums">
-      {formatMoney(cents, currency, { withCents: true })}
-    </span>
-  );
+/** Names the exact days the range covers, so "This month" is never a guess. */
+function rangeSummaryLabel(
+  range: ProducerPaymentTimeRange,
+  timeZone: string,
+  nowIso: string,
+): string {
+  if (range.fromDateKey === null && range.toDateKey === null) return "All time";
+  const from = range.fromDateKey
+    ? producerPaymentShortDate(`${range.fromDateKey}T12:00:00.000Z`, timeZone, nowIso)
+    : null;
+  const to = range.toDateKey
+    ? producerPaymentShortDate(`${range.toDateKey}T12:00:00.000Z`, timeZone, nowIso)
+    : null;
+  if (from && to) return from === to ? from : `${from} – ${to}`;
+  return from ?? to ?? "All time";
 }
 
+/**
+ * The money-overview card, kept honest: the left pair follows the chosen time
+ * range, the right pair never did — so each pair now sits under its own label
+ * instead of one "This month" heading claiming both.
+ */
 function PaymentsSummary({
   totals,
   periodLabel,
+  rangeLabel,
+  showCurrencyCode,
 }: {
   totals: readonly ProducerPaymentCurrencySummary[];
   periodLabel: string;
+  rangeLabel: string;
+  showCurrencyCode: boolean;
 }) {
   return (
     <section
@@ -151,138 +204,217 @@ function PaymentsSummary({
       data-producer-payments-summary=""
       className="overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
     >
-      <header className="flex min-w-0 items-baseline justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-4 py-3 sm:px-5">
-        <div className="min-w-0">
-          <p className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--brand-primary-text))] uppercase">
-            Money overview
-          </p>
-          <h2
-            id="producer-payments-summary-heading"
-            className="font-display mt-0.5 text-[18px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
-          >
-            {periodLabel}
-          </h2>
-        </div>
+      <header className="flex min-w-0 items-baseline justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-3.5 py-2 sm:px-4">
+        <h2
+          id="producer-payments-summary-heading"
+          className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--brand-primary-text))] uppercase"
+        >
+          Money overview
+        </h2>
+        <p className="font-mono text-[10px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
+          {rangeLabel}
+        </p>
       </header>
-
       <div className="divide-y divide-[rgb(var(--border-subtle))]">
         {totals.map((total) => (
-          <section
+          <div
             key={total.currency}
-            aria-label={`${total.currency} payment summary`}
-            className="grid min-w-0 gap-3 px-4 py-3 sm:grid-cols-[70px_minmax(0,1fr)] sm:items-center sm:px-5 sm:py-4"
+            className="grid min-w-0 grid-cols-1 gap-x-8 gap-y-2.5 px-3.5 py-2.5 sm:grid-cols-2 sm:px-4"
           >
-            <div>
-              <p className="font-mono text-[12px] font-extrabold tracking-[0.12em] text-[rgb(var(--fg-default))] uppercase">
-                {total.currency}
+            <div className="min-w-0">
+              <p className="text-[9px] font-bold tracking-[0.09em] text-[rgb(var(--fg-secondary))] uppercase">
+                {periodLabel}
+                {showCurrencyCode ? ` · ${total.currency}` : ""}
               </p>
+              <dl className="mt-1.5 grid min-w-0 grid-cols-2 gap-x-3">
+                <SummaryStat
+                  label="Received"
+                  cents={total.receivedCents}
+                  currency={total.currency}
+                  tone="success"
+                />
+                <SummaryStat
+                  label="Expected"
+                  cents={total.expectedCents}
+                  currency={total.currency}
+                  tone="default"
+                />
+              </dl>
             </div>
-            <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 lg:grid-cols-4 lg:gap-x-5">
-              <div className="min-w-0">
-                <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                  Received
-                </dt>
-                <dd className="mt-1">
-                  <SummaryMoney cents={total.receivedCents} currency={total.currency} />
-                </dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                  Expected
-                </dt>
-                <dd className="mt-1">
-                  <SummaryMoney cents={total.expectedCents} currency={total.currency} />
-                </dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                  Owed now
-                </dt>
-                <dd className="mt-1">
-                  <SummaryMoney cents={total.owedNowCents} currency={total.currency} />
-                </dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                  Waiting on milestones
-                </dt>
-                <dd className="mt-1">
-                  <SummaryMoney cents={total.waitingOnMilestonesCents} currency={total.currency} />
-                </dd>
-              </div>
-            </dl>
-          </section>
+            <div className="min-w-0">
+              <p className="text-[9px] font-bold tracking-[0.09em] text-[rgb(var(--fg-secondary))] uppercase">
+                Right now
+              </p>
+              <dl className="mt-1.5 grid min-w-0 grid-cols-2 gap-x-3">
+                <SummaryStat
+                  label="Owed now"
+                  cents={total.owedNowCents}
+                  currency={total.currency}
+                  tone={total.owedNowCents > 0 ? "danger" : "default"}
+                />
+                <SummaryStat
+                  label="Waiting on work"
+                  cents={total.waitingOnMilestonesCents}
+                  currency={total.currency}
+                  tone={total.waitingOnMilestonesCents > 0 ? "warning" : "default"}
+                />
+              </dl>
+            </div>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
-function nextPaymentTiming(next: ProducerPaymentArtistNextPayment, timeZone: string): string {
-  if (next.dueAtIso) return formatProducerDate(next.dueAtIso, timeZone);
-  if (next.dueTrigger === "artist_approval") {
-    return next.triggeredAtIso ? "Final approval reached" : "After final approval";
+function ArtistName({ artist, inline = false }: { artist: ProducerPaymentArtistRow; inline?: boolean }) {
+  const projectLabel = producerPaymentProjectLabel(artist.projectTitles);
+  const link = (
+    <Link
+      href={clientPaymentsHref(artist.clientContactId)}
+      className={cn(
+        "text-[12.5px] font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none",
+        inline ? "inline-flex min-h-11 shrink-0 items-center" : "truncate",
+      )}
+    >
+      {artist.clientName}
+    </Link>
+  );
+  if (inline) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        {link}
+        {projectLabel ? (
+          <span className="min-w-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+            · {projectLabel}
+          </span>
+        ) : null}
+      </span>
+    );
   }
-  if (next.dueTrigger === "acceptance") return "At acceptance";
-  if (next.dueTrigger === "producer_import") return "When added to Skitza";
-  return next.triggeredAtIso ? "Monthly payment due" : "After the first payment";
+  return (
+    <span className="flex min-w-0 flex-col">
+      {link}
+      {projectLabel ? (
+        <span className="mt-0.5 truncate text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
+          {projectLabel}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
-function NextPayment({
-  next,
+function ArtistNextAmount({ artist }: { artist: ProducerPaymentArtistRow }) {
+  const next = artist.nextPayment;
+  if (!next) {
+    return <span className="font-mono text-[12px] text-[rgb(var(--fg-muted))]">—</span>;
+  }
+  const owed = artist.status === "overdue" || artist.status === "due_now";
+  return (
+    <span
+      className={cn(
+        "block font-mono text-[12px] leading-tight font-bold whitespace-nowrap tabular-nums",
+        owed ? "text-[rgb(var(--fg-danger-text))]" : "text-[rgb(var(--fg-default))]",
+      )}
+    >
+      {formatMoney(next.amountCents, next.currency, { withCents: true })}
+    </span>
+  );
+}
+
+function ArtistTiming({
+  artist,
   timeZone,
+  nowIso,
 }: {
-  next: ProducerPaymentArtistNextPayment | null;
+  artist: ProducerPaymentArtistRow;
   timeZone: string;
+  nowIso: string;
 }) {
-  if (!next) return <span className="text-[11px] text-[rgb(var(--fg-muted))]">None</span>;
+  const timing = producerPaymentTiming(artist, timeZone, nowIso);
   return (
-    <span className="block min-w-0">
-      <span className="block font-mono text-[10.5px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
-        {amountLabel(next.amountCents, next.currency)}
-      </span>
-      <span className="mt-0.5 block text-[10px] leading-snug text-[rgb(var(--fg-muted))]">
-        {nextPaymentTiming(next, timeZone)} · {next.projectTitle}
-      </span>
+    <span className={cn("block truncate text-[11px] leading-snug", TIMING_TONE_CLASS[timing.tone])}>
+      {timing.text}
     </span>
   );
 }
 
-function ArtistStatus({ artist }: { artist: ProducerPaymentArtistRow }) {
-  const status = STATUS_PRESENTATION[artist.status];
+function ProgressText({ row }: { row: ProducerPaymentArtistProgress }) {
   return (
-    <span className="flex min-w-0 flex-col items-start gap-1.5">
-      <Badge variant={status.tone}>{status.label}</Badge>
-      {artist.pendingProofs.map((proof) => (
-        <Link
-          key={proof.proofId}
-          href={`/dashboard/payments/${encodeURIComponent(proof.proofId)}`}
-          className="text-[10px] leading-snug font-bold text-[rgb(var(--brand-primary-text))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-        >
-          Review {proof.purchaseTitle} proof
-        </Link>
-      ))}
+    <span className="block font-mono text-[11px] leading-tight whitespace-nowrap text-[rgb(var(--fg-secondary))] tabular-nums">
+      {formatMoney(row.paidCents, row.currency)}
+      <span className="text-[rgb(var(--fg-muted))]"> of </span>
+      {formatMoney(row.totalCents, row.currency)}
     </span>
   );
 }
 
-function ArtistProjects({ artist }: { artist: ProducerPaymentArtistRow }) {
-  const projects = [
-    ...new Map(
-      artist.records.map((record) => [record.projectId, record.projectTitle] as const),
-    ).entries(),
-  ].sort(([, leftTitle], [, rightTitle]) => leftTitle.localeCompare(rightTitle));
-
+function ProgressBar({ row, className }: { row: ProducerPaymentArtistProgress; className?: string }) {
   return (
-    <span className="flex min-w-0 flex-col gap-1">
-      {projects.map(([projectId, projectTitle]) => (
-        <span
-          key={projectId}
-          className="text-[12px] leading-snug font-extrabold break-words text-[rgb(var(--fg-default))]"
-        >
-          {projectTitle}
+    <span
+      role="progressbar"
+      aria-valuenow={row.percent}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`${row.currency} paid so far`}
+      className={cn(
+        "block h-[3px] w-full overflow-hidden rounded-[var(--radius-sm)] bg-[rgb(var(--border-subtle))]",
+        className,
+      )}
+    >
+      <span
+        className="block h-full rounded-[var(--radius-sm)] bg-[rgb(var(--fg-success))]"
+        style={{ width: `${String(row.percent)}%` }}
+      />
+    </span>
+  );
+}
+
+function ArtistProgress({ artist }: { artist: ProducerPaymentArtistRow }) {
+  const rows = producerPaymentArtistProgress(artist);
+  if (rows.length === 0) {
+    return <span className="text-[11px] text-[rgb(var(--fg-muted))]">—</span>;
+  }
+  return (
+    <span className="flex min-w-0 flex-col gap-1.5">
+      {rows.map((row) => (
+        <span key={row.currency} className="block min-w-0 max-w-[150px]">
+          <ProgressText row={row} />
+          <ProgressBar row={row} className="mt-1.5" />
         </span>
       ))}
+    </span>
+  );
+}
+
+/** Review beats Remind: confirming a waiting proof can clear the debt outright. */
+function ArtistAction({ artist }: { artist: ProducerPaymentArtistRow }) {
+  const proof = artist.pendingProofs[0];
+  if (proof) {
+    return (
+      <Link
+        href={`/dashboard/payments/${encodeURIComponent(proof.proofId)}`}
+        aria-label={`Review ${proof.purchaseTitle} proof`}
+        className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[11px] font-bold whitespace-nowrap text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+      >
+        Review
+      </Link>
+    );
+  }
+  const next = artist.nextPayment;
+  if (next && (artist.status === "overdue" || artist.status === "due_now")) {
+    return (
+      <PaymentReminderButton
+        layout="inline"
+        purchaseId={next.purchaseId}
+        installmentId={next.installmentId}
+        installmentLabel={`${next.purchaseTitle} · ${amountLabel(next.amountCents, next.currency)}`}
+      />
+    );
+  }
+  return (
+    <span className="text-[11px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
+      {STATUS_LABELS[artist.status]}
     </span>
   );
 }
@@ -290,34 +422,33 @@ function ArtistProjects({ artist }: { artist: ProducerPaymentArtistRow }) {
 function ArtistDesktopTable({
   artists,
   timeZone,
+  nowIso,
 }: {
   artists: readonly ProducerPaymentArtistRow[];
   timeZone: string;
+  nowIso: string;
 }) {
   return (
-    <div className="hidden overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] md:block">
+    <div className="hidden overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] md:block">
       <table className="w-full table-fixed border-collapse text-left">
         <caption className="sr-only">
-          Projects and artists with received money, current debt, next payment, remaining balance,
-          and status
+          Artists with their projects, the next payment and its date, money paid so far, and the
+          action that needs you
         </caption>
         <thead>
           <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
             {[
-              ["Project", "w-[16%]"],
-              ["Artist", "w-[14%]"],
-              ["Received", "w-[11%]"],
-              ["Owes now", "w-[11%]"],
-              ["Next payment", "w-[20%]"],
-              ["Total left", "w-[11%]"],
-              ["Status", "w-[17%]"],
+              ["Artist", "w-[32%]"],
+              ["Next payment", "w-[27%]"],
+              ["Paid so far", "w-[24%]"],
+              ["Action", "w-[17%]"],
             ].map(([label, width]) => (
               <th
                 key={label}
                 scope="col"
                 className={cn(
                   width,
-                  "px-3 py-2.5 text-[9px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase xl:px-4",
+                  "px-3 py-2 text-[9px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase xl:px-4",
                 )}
               >
                 {label}
@@ -327,32 +458,25 @@ function ArtistDesktopTable({
         </thead>
         <tbody className="divide-y divide-[rgb(var(--border-subtle))]">
           {artists.map((artist) => (
-            <tr key={artist.clientContactId} className="align-top hover:bg-[rgb(var(--bg-sunken))]">
-              <td className="px-3 py-3 xl:px-4">
-                <ArtistProjects artist={artist} />
-              </td>
-              <th scope="row" className="px-3 py-3 text-left xl:px-4">
-                <Link
-                  href={clientPaymentsHref(artist.clientContactId)}
-                  className="inline-flex min-h-9 max-w-full items-center text-[12px] font-extrabold break-words text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-                >
-                  {artist.clientName}
-                </Link>
+            <tr
+              key={artist.clientContactId}
+              className="align-middle hover:bg-[rgb(var(--bg-sunken))]"
+            >
+              <th
+                scope="row"
+                className={cn("py-2.5 pr-3 pl-2.5 text-left xl:pl-3", STATUS_EDGE[artist.status])}
+              >
+                <ArtistName artist={artist} />
               </th>
-              <td className="px-3 py-3 xl:px-4">
-                <AmountList amounts={artist.receivedByCurrency} />
+              <td className="px-3 py-2.5 xl:px-4">
+                <ArtistNextAmount artist={artist} />
+                <ArtistTiming artist={artist} timeZone={timeZone} nowIso={nowIso} />
               </td>
-              <td className="px-3 py-3 xl:px-4">
-                <AmountList amounts={artist.owedNowByCurrency} danger />
+              <td className="px-3 py-2.5 xl:px-4">
+                <ArtistProgress artist={artist} />
               </td>
-              <td className="px-3 py-3 xl:px-4">
-                <NextPayment next={artist.nextPayment} timeZone={timeZone} />
-              </td>
-              <td className="px-3 py-3 xl:px-4">
-                <AmountList amounts={artist.totalLeftByCurrency} />
-              </td>
-              <td className="px-3 py-3 xl:px-4">
-                <ArtistStatus artist={artist} />
+              <td className="px-3 py-2.5 xl:px-4">
+                <ArtistAction artist={artist} />
               </td>
             </tr>
           ))}
@@ -365,59 +489,52 @@ function ArtistDesktopTable({
 function ArtistMobileRows({
   artists,
   timeZone,
+  nowIso,
 }: {
   artists: readonly ProducerPaymentArtistRow[];
   timeZone: string;
+  nowIso: string;
 }) {
   return (
     <ul className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] md:hidden">
-      {artists.map((artist) => (
-        <li key={artist.clientContactId} className="min-w-0 px-1 py-3">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <Link
-              href={clientPaymentsHref(artist.clientContactId)}
-              className="inline-flex min-h-11 min-w-0 items-center text-[13px] font-extrabold break-words text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-            >
-              {artist.clientName}
-            </Link>
-            <ArtistStatus artist={artist} />
-          </div>
-          <dl className="mt-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-t border-[rgb(var(--border-subtle))] pt-2.5">
-            <div className="min-w-0">
-              <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                Received
-              </dt>
-              <dd className="mt-1">
-                <AmountList amounts={artist.receivedByCurrency} />
-              </dd>
+      {artists.map((artist) => {
+        const progress = producerPaymentArtistProgress(artist);
+        const single = progress.length === 1 ? progress[0] : null;
+        return (
+          <li
+            key={artist.clientContactId}
+            className={cn("min-w-0 py-2 pr-1 pl-2.5", STATUS_EDGE[artist.status])}
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <ArtistName artist={artist} inline />
+                  <ArtistNextAmount artist={artist} />
+                </div>
+                <div className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="min-w-0">
+                    <ArtistTiming artist={artist} timeZone={timeZone} nowIso={nowIso} />
+                  </span>
+                  {single ? <ProgressText row={single} /> : null}
+                </div>
+              </div>
+              <ArtistAction artist={artist} />
             </div>
-            <div className="min-w-0">
-              <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                Owes now
-              </dt>
-              <dd className="mt-1">
-                <AmountList amounts={artist.owedNowByCurrency} danger />
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                Total left
-              </dt>
-              <dd className="mt-1">
-                <AmountList amounts={artist.totalLeftByCurrency} />
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                Next payment
-              </dt>
-              <dd className="mt-1">
-                <NextPayment next={artist.nextPayment} timeZone={timeZone} />
-              </dd>
-            </div>
-          </dl>
-        </li>
-      ))}
+            {single ? (
+              <ProgressBar row={single} className="mt-2" />
+            ) : (
+              <div className="mt-2 flex flex-col gap-1.5">
+                {progress.map((row) => (
+                  <div key={row.currency}>
+                    <ProgressText row={row} />
+                    <ProgressBar row={row} className="mt-1" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -450,7 +567,8 @@ function Pagination({
         Previous
       </button>
       <p aria-live="polite" className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-        Page {String(page)} of {String(totalPages)} · {String(totalItems)} Artists
+        Page {String(page)} of {String(totalPages)} · {String(totalItems)}{" "}
+        {totalItems === 1 ? "Artist" : "Artists"}
       </p>
       <button
         type="button"
@@ -709,6 +827,34 @@ export function ProducerPaymentsDashboard({
     [filteredRecords, initialNowIso, producerTimeZone, timeRange],
   );
   const artistPage = useMemo(() => paginateProducerPaymentArtists(artists, page), [artists, page]);
+  // Counted before the status filter, so a chip never hides the other chip.
+  const needsYou = useMemo(
+    () =>
+      producerPaymentNeedsYou(
+        aggregateProducerPaymentArtists(
+          filterProducerPaymentRecords(data.records, {
+            query,
+            clientContactId,
+            currency,
+            projectId,
+            status: "all",
+          }),
+          timeRange,
+          producerTimeZone,
+          initialNowIso,
+        ),
+      ),
+    [
+      clientContactId,
+      currency,
+      data.records,
+      initialNowIso,
+      producerTimeZone,
+      projectId,
+      query,
+      timeRange,
+    ],
+  );
   const history = useMemo(
     () => buildProducerPaymentHistory(filteredRecords, timeRange, producerTimeZone),
     [filteredRecords, producerTimeZone, timeRange],
@@ -723,12 +869,13 @@ export function ProducerPaymentsDashboard({
     [filteredRecords, initialNowIso, producerTimeZone],
   );
 
+  const rangeLabel = rangeSummaryLabel(timeRange, producerTimeZone, initialNowIso);
+  const periodLabel = TIME_OPTIONS.find((option) => option.value === timePreset)?.label ?? "Custom";
   const activeFilterCount =
     Number(clientContactId !== "all") +
     Number(currency !== "all") +
     Number(projectId !== "all") +
     Number(status !== "all");
-  const periodLabel = TIME_OPTIONS.find((option) => option.value === timePreset)?.label ?? "Custom";
   const noPayments = data.records.length === 0;
   const noMatches = !noPayments && filteredRecords.length === 0;
   const nothingOwed = summary.length > 0 && summary.every((total) => total.owedNowCents === 0);
@@ -736,6 +883,11 @@ export function ProducerPaymentsDashboard({
   const allPaid =
     filteredRecords.length > 0 &&
     filteredRecords.every((record) => record.totalRemainingCents === 0);
+
+  function toggleStatus(next: ProducerPaymentStatusFilter) {
+    setStatus((current) => (current === next ? "all" : next));
+    setPage(1);
+  }
 
   function resetFilters() {
     setQuery("");
@@ -748,13 +900,21 @@ export function ProducerPaymentsDashboard({
   }
 
   return (
-    <div className="min-w-0 space-y-4">
-      <div className="flex min-w-0 flex-col gap-3 border-y border-[rgb(var(--border-subtle))] py-3">
-        <div className="flex min-w-0 items-center justify-between gap-3">
+    <div className="min-w-0 space-y-3">
+      <div className="flex min-w-0 flex-col gap-2 border-b border-[rgb(var(--border-subtle))] pb-2.5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="min-w-0">
+            <p className="font-mono text-[9px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
+              Money dashboard
+            </p>
+            <h1 className="font-display mt-0.5 min-w-0 truncate text-[clamp(1.3rem,4.5vw,1.8rem)] leading-none font-extrabold tracking-[-0.04em] text-[rgb(var(--fg-default))]">
+              Payments
+            </h1>
+          </div>
           <div
             role="tablist"
             aria-label="Payment views"
-            className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-1 sm:max-w-[280px] sm:rounded-[var(--radius-md)]"
+            className="ml-auto grid shrink-0 grid-cols-2 gap-1 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-1 sm:rounded-[var(--radius-md)]"
           >
             {(["overview", "history"] as const).map((option) => (
               <button
@@ -768,7 +928,7 @@ export function ProducerPaymentsDashboard({
                   setPage(1);
                 }}
                 className={cn(
-                  "sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-md)] px-3 text-[11px] font-bold capitalize focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9",
+                  "sk-press inline-flex min-h-9 items-center justify-center rounded-[var(--radius-sm)] px-2 text-[11px] font-bold capitalize focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:px-3",
                   view === option
                     ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
                     : "text-[rgb(var(--fg-secondary))]",
@@ -778,6 +938,22 @@ export function ProducerPaymentsDashboard({
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+          <label className="min-w-0">
+            <span className="sr-only">Search payments</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Search artist, project, or reference"
+              className="block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)] sm:text-[12px]"
+            />
+          </label>
 
           <label className="shrink-0">
             <span className="sr-only">Time range</span>
@@ -788,7 +964,7 @@ export function ProducerPaymentsDashboard({
                 setTimePreset(event.target.value as ProducerPaymentTimePreset);
                 setPage(1);
               }}
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
             >
               {TIME_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -797,6 +973,18 @@ export function ProducerPaymentsDashboard({
               ))}
             </select>
           </label>
+
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            aria-controls={`${instanceId}-filters`}
+            onClick={() => {
+              setFiltersOpen((current) => !current);
+            }}
+            className="sk-press inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+          >
+            Filters{activeFilterCount > 0 ? ` (${String(activeFilterCount)})` : ""}
+          </button>
         </div>
 
         {timePreset === "custom" ? (
@@ -831,41 +1019,10 @@ export function ProducerPaymentsDashboard({
         ) : null}
 
         {!timeRange.valid ? (
-          <p role="alert" className="text-[11px] font-bold text-[rgb(var(--fg-danger))]">
+          <p role="alert" className="text-[11px] font-bold text-[rgb(var(--fg-danger-text))]">
             Choose a valid start and end date.
           </p>
         ) : null}
-
-        {view === "overview" && timeRange.valid && !noPayments && !noMatches ? (
-          <PaymentsSummary totals={summary} periodLabel={periodLabel} />
-        ) : null}
-
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <label className="min-w-0">
-            <span className="sr-only">Search payments</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-              }}
-              placeholder="Search Artist, project, purchase, or reference"
-              className="block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)] sm:text-[12px]"
-            />
-          </label>
-          <button
-            type="button"
-            aria-expanded={filtersOpen}
-            aria-controls={`${instanceId}-filters`}
-            onClick={() => {
-              setFiltersOpen((current) => !current);
-            }}
-            className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
-          >
-            Filters{activeFilterCount > 0 ? ` (${String(activeFilterCount)})` : ""}
-          </button>
-        </div>
 
         {filtersOpen ? (
           <div
@@ -956,6 +1113,15 @@ export function ProducerPaymentsDashboard({
         ) : null}
       </div>
 
+      {view === "overview" && timeRange.valid && !noPayments && !noMatches ? (
+        <PaymentsSummary
+          totals={summary}
+          periodLabel={periodLabel}
+          rangeLabel={rangeLabel}
+          showCurrencyCode={summary.length > 1}
+        />
+      ) : null}
+
       {noPayments ? (
         <div
           role="status"
@@ -988,19 +1154,61 @@ export function ProducerPaymentsDashboard({
           id={`${instanceId}-overview-panel`}
           role="tabpanel"
           aria-label="Overview"
-          className="min-w-0 space-y-4"
+          className="min-w-0 space-y-3"
         >
-          <div className="space-y-1" aria-live="polite">
-            {nothingOwed ? (
-              <p className="text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">
-                All payments are up to date.
-              </p>
-            ) : null}
-            {nothingExpected ? (
-              <p className="text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">
-                No payments expected during this time.
-              </p>
-            ) : null}
+          <div className="flex min-w-0 flex-wrap items-center gap-2" aria-live="polite">
+            {needsYou.overdueArtists > 0 || needsYou.pendingProofs > 0 ? (
+              <>
+                <span className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--fg-secondary))] uppercase">
+                  Needs you
+                </span>
+                {needsYou.overdueArtists > 0 ? (
+                  <button
+                    type="button"
+                    aria-pressed={status === "overdue"}
+                    onClick={() => {
+                      toggleStatus("overdue");
+                    }}
+                    className={cn(badgeVariants({ variant: "danger" }), NEEDS_YOU_CHIP, {
+                      "shadow-[inset_0_0_0_1px_currentColor]": status === "overdue",
+                    })}
+                  >
+                    {needsYou.overdueArtists} overdue
+                  </button>
+                ) : null}
+                {needsYou.pendingProofs > 0 ? (
+                  <button
+                    type="button"
+                    aria-pressed={status === "needs_review"}
+                    onClick={() => {
+                      toggleStatus("needs_review");
+                    }}
+                    className={cn(badgeVariants({ variant: "accent" }), NEEDS_YOU_CHIP, {
+                      "shadow-[inset_0_0_0_1px_currentColor]": status === "needs_review",
+                    })}
+                  >
+                    {needsYou.pendingProofs}{" "}
+                    {needsYou.pendingProofs === 1 ? "proof" : "proofs"}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <div className="flex min-w-0 flex-col gap-0.5">
+                {nothingOwed && !allPaid ? (
+                  <p className="text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">
+                    All payments are up to date.
+                  </p>
+                ) : null}
+                {nothingExpected ? (
+                  <p className="text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">
+                    No payments expected during this time.
+                  </p>
+                ) : null}
+              </div>
+            )}
+            <p className="ml-auto font-mono text-[10px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
+              {String(artists.length)} {artists.length === 1 ? "Artist" : "Artists"}
+            </p>
           </div>
 
           {allPaid ? (
@@ -1030,19 +1238,19 @@ export function ProducerPaymentsDashboard({
           ) : null}
 
           <section aria-labelledby="artist-payment-table-heading" className="min-w-0">
-            <header className="mb-3 flex min-w-0 items-baseline justify-between gap-3">
-              <h2
-                id="artist-payment-table-heading"
-                className="font-display text-[20px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
-              >
-                Artists
-              </h2>
-              <p className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                {String(artists.length)} Artists
-              </p>
-            </header>
-            <ArtistDesktopTable artists={artistPage.items} timeZone={producerTimeZone} />
-            <ArtistMobileRows artists={artistPage.items} timeZone={producerTimeZone} />
+            <h2 id="artist-payment-table-heading" className="sr-only">
+              Artists
+            </h2>
+            <ArtistDesktopTable
+              artists={artistPage.items}
+              timeZone={producerTimeZone}
+              nowIso={initialNowIso}
+            />
+            <ArtistMobileRows
+              artists={artistPage.items}
+              timeZone={producerTimeZone}
+              nowIso={initialNowIso}
+            />
             <Pagination
               page={artistPage.page}
               totalPages={artistPage.totalPages}
