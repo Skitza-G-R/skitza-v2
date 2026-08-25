@@ -281,6 +281,23 @@
   gap: 0.4rem;
 }
 
+.releaseGroup {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.failureList {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: rgb(var(--live-deep));
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
 .message {
   margin: 0;
   color: rgb(var(--success));

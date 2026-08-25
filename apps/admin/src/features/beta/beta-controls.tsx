@@ -148,6 +148,19 @@ export function ImportBetaList({ environment }: { environment: AdminEnvironmentI
   );
 }
 
+// SK-277: a bare failure count leaves the founder guessing whether an address
+// was rejected or the server broke. Translate each server code into the next
+// action a person can actually take.
+const RELEASE_FAILURE_REASONS: Readonly<Record<string, string>> = {
+  INVALID_REQUEST: "the address was rejected — check it for typos",
+  TARGET_NOT_ELIGIBLE: "this account cannot be invited (already used, banned, or unverified)",
+  UNAVAILABLE: "the invitation service did not answer — safe to retry",
+};
+
+function releaseFailureReason(code: string): string {
+  return RELEASE_FAILURE_REASONS[code] ?? "unknown error — safe to retry";
+}
+
 export function ReleaseWaveButton({
   environment,
   pendingCount,
@@ -162,12 +175,16 @@ export function ReleaseWaveButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [failures, setFailures] = useState<readonly Readonly<{ code: string; email: string }>[]>(
+    [],
+  );
 
   async function release() {
     if (busy) return;
     setBusy(true);
     setError(null);
     setMessage(null);
+    setFailures([]);
     try {
       const result = await postBeta("release", environment, { wave });
       if (!result.ok || !isReleaseSummary(result.payload)) {
@@ -180,6 +197,7 @@ export function ReleaseWaveButton({
           ? `Sent ${String(summary.invited)} invitation${summary.invited === 1 ? "" : "s"}.`
           : `Sent ${String(summary.invited)} of ${String(summary.attempted)} — ${String(summary.failures.length)} failed, retry releases only those.`,
       );
+      setFailures(summary.failures.slice(0, 10));
       setConfirming(false);
       router.refresh();
     } catch {
@@ -192,48 +210,59 @@ export function ReleaseWaveButton({
   if (pendingCount === 0 && !message && !error) return null;
 
   return (
-    <div className={styles.rowActions}>
-      {message ? <p className={styles.message}>{message}</p> : null}
-      {error ? <p className={styles.error}>{error}</p> : null}
-      {pendingCount > 0 && !confirming ? (
-        <button
-          className={styles.button}
-          data-variant="primary"
-          onClick={() => {
-            setConfirming(true);
-          }}
-          type="button"
-        >
-          Release wave {wave} ({pendingCount})
-        </button>
+    <div className={styles.releaseGroup}>
+      {failures.length > 0 ? (
+        <ul className={styles.failureList}>
+          {failures.map((failure) => (
+            <li key={failure.email}>
+              {failure.email} — {releaseFailureReason(failure.code)}
+            </li>
+          ))}
+        </ul>
       ) : null}
-      {pendingCount > 0 && confirming ? (
-        <>
+      <div className={styles.rowActions}>
+        {message ? <p className={styles.message}>{message}</p> : null}
+        {error ? <p className={styles.error}>{error}</p> : null}
+        {pendingCount > 0 && !confirming ? (
           <button
             className={styles.button}
             data-variant="primary"
-            disabled={busy}
             onClick={() => {
-              void release();
+              setConfirming(true);
             }}
             type="button"
           >
-            {busy
-              ? "Sending…"
-              : `Send ${String(pendingCount)} invitation${pendingCount === 1 ? "" : "s"} now`}
+            Release wave {wave} ({pendingCount})
           </button>
-          <button
-            className={styles.button}
-            disabled={busy}
-            onClick={() => {
-              setConfirming(false);
-            }}
-            type="button"
-          >
-            Cancel
-          </button>
-        </>
-      ) : null}
+        ) : null}
+        {pendingCount > 0 && confirming ? (
+          <>
+            <button
+              className={styles.button}
+              data-variant="primary"
+              disabled={busy}
+              onClick={() => {
+                void release();
+              }}
+              type="button"
+            >
+              {busy
+                ? "Sending…"
+                : `Send ${String(pendingCount)} invitation${pendingCount === 1 ? "" : "s"} now`}
+            </button>
+            <button
+              className={styles.button}
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
