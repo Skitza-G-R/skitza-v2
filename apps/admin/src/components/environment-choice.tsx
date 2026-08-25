@@ -9,7 +9,11 @@ const OPTIONS = [
     title: "Live workspace",
   },
   {
-    copy: "The isolated test database and test Clerk instance. Safe for rehearsals.",
+    // Deliberately not "safe for rehearsals": producer invitations are created
+    // with notify: true in both workspaces, so a Test release still puts a real
+    // email in a real inbox. What Test isolates is the database and the sign-in
+    // instance, not the sending.
+    copy: "A separate database and sign-in instance. Invitations still email the real address.",
     id: "test",
     title: "Test workspace",
   },
