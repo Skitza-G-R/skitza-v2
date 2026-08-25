@@ -137,30 +137,47 @@ const SUMMARY_TONE_CLASS: Record<SummaryTone, string> = {
   warning: "text-[rgb(var(--fg-warning-text))]",
 };
 
-function SummaryStat({
-  label,
+function StatPhrase({
   cents,
   currency,
+  word,
   tone,
 }: {
-  label: string;
   cents: number;
   currency: string;
+  word: string;
   tone: SummaryTone;
 }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-        {label}
-      </dt>
-      <dd
+    <span className="whitespace-nowrap">
+      <span
         className={cn(
-          "mt-0.5 font-mono text-[clamp(13px,3.6vw,16px)] leading-tight font-extrabold whitespace-nowrap tabular-nums",
+          "font-mono text-[13.5px] leading-tight font-extrabold tabular-nums sm:text-[15px]",
           SUMMARY_TONE_CLASS[tone],
         )}
       >
         {formatMoney(cents, currency, { withCents: true })}
-      </dd>
+      </span>{" "}
+      <span className="text-[11px] text-[rgb(var(--fg-muted))]">{word}</span>
+    </span>
+  );
+}
+
+function SummaryGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[9px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+        {label}
+      </p>
+      <p className="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+        {children}
+      </p>
     </div>
   );
 }
@@ -219,47 +236,38 @@ function PaymentsSummary({
         {totals.map((total) => (
           <div
             key={total.currency}
-            className="grid min-w-0 grid-cols-1 gap-x-8 gap-y-2.5 px-3.5 py-2.5 sm:grid-cols-2 sm:px-4"
+            className="grid min-w-0 grid-cols-1 gap-x-10 gap-y-2 px-3.5 py-2.5 sm:grid-cols-2 sm:px-4"
           >
-            <div className="min-w-0">
-              <p className="text-[9px] font-bold tracking-[0.09em] text-[rgb(var(--fg-secondary))] uppercase">
-                {periodLabel}
-                {showCurrencyCode ? ` · ${total.currency}` : ""}
-              </p>
-              <dl className="mt-1.5 grid min-w-0 grid-cols-2 gap-x-3">
-                <SummaryStat
-                  label="Received"
-                  cents={total.receivedCents}
-                  currency={total.currency}
-                  tone="success"
-                />
-                <SummaryStat
-                  label="Expected"
-                  cents={total.expectedCents}
-                  currency={total.currency}
-                  tone="default"
-                />
-              </dl>
-            </div>
-            <div className="min-w-0">
-              <p className="text-[9px] font-bold tracking-[0.09em] text-[rgb(var(--fg-secondary))] uppercase">
-                Right now
-              </p>
-              <dl className="mt-1.5 grid min-w-0 grid-cols-2 gap-x-3">
-                <SummaryStat
-                  label="Owed now"
-                  cents={total.owedNowCents}
-                  currency={total.currency}
-                  tone={total.owedNowCents > 0 ? "danger" : "default"}
-                />
-                <SummaryStat
-                  label="Waiting on work"
-                  cents={total.waitingOnMilestonesCents}
-                  currency={total.currency}
-                  tone={total.waitingOnMilestonesCents > 0 ? "warning" : "default"}
-                />
-              </dl>
-            </div>
+            <SummaryGroup
+              label={`${periodLabel}${showCurrencyCode ? ` · ${total.currency}` : ""}`}
+            >
+              <StatPhrase
+                cents={total.receivedCents}
+                currency={total.currency}
+                word="received"
+                tone="success"
+              />
+              <StatPhrase
+                cents={total.expectedCents}
+                currency={total.currency}
+                word="expected"
+                tone="default"
+              />
+            </SummaryGroup>
+            <SummaryGroup label="Right now">
+              <StatPhrase
+                cents={total.owedNowCents}
+                currency={total.currency}
+                word="owed"
+                tone={total.owedNowCents > 0 ? "danger" : "default"}
+              />
+              <StatPhrase
+                cents={total.waitingOnMilestonesCents}
+                currency={total.currency}
+                word="waiting"
+                tone={total.waitingOnMilestonesCents > 0 ? "warning" : "default"}
+              />
+            </SummaryGroup>
           </div>
         ))}
       </div>

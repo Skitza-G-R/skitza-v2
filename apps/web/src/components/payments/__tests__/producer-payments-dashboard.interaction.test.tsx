@@ -152,8 +152,8 @@ describe("ProducerPaymentsDashboard", () => {
     expect(within(summary).getByText("Aug 1 – Aug 31")).not.toBeNull();
     expect(within(summary).getAllByText("This month").length).toBeGreaterThan(0);
     expect(within(summary).getAllByText("Right now").length).toBeGreaterThan(0);
-    for (const label of ["Received", "Expected", "Owed now", "Waiting on work"]) {
-      expect(within(summary).getAllByText(label).length).toBeGreaterThan(0);
+    for (const word of ["received", "expected", "owed", "waiting"]) {
+      expect(within(summary).getAllByText(word).length).toBeGreaterThan(0);
     }
     expect(screen.queryByRole("heading", { name: "This month" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "By currency" })).toBeNull();
