@@ -27,12 +27,15 @@ export default async function UnlockPage({
             : "Unlock admin."
       }
     >
+      {/* Vendor-neutral wording: the outer wall is Cloudflare Access or Vercel
+          Deployment Protection depending on ADMIN_ACCESS_MODE (SK-274), so
+          naming one of them here is wrong half the time. */}
       <p className="access-copy">
         {inactive
-          ? "The admin locked after 30 minutes without activity. A new Cloudflare Access login with independent MFA is required."
+          ? "The admin locked after 30 minutes without activity. Unlocking needs a fresh sign-in token, so the first attempt starts re-entry and the next one completes it."
           : finishing
-            ? "Complete the server freshness check to restore the founder session."
-            : "Cloudflare Access MFA and founder permission are required before any admin data or operation is available."}
+            ? "Re-entry has started. Wait a moment for a fresh sign-in token, then press unlock again to restore the founder session."
+            : "A verified sign-in and founder permission are required before any admin data or operation is available."}
       </p>
       <UnlockButton finishing={finishing} />
       <p

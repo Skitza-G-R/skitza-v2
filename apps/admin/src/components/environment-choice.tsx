@@ -1,13 +1,21 @@
+// Both workspaces are connected to a real database and a real Clerk instance —
+// Live to production, Test to the isolated test copies. The earlier copy called
+// both a demo with nothing connected, which is no longer true and could make a
+// founder treat a real invitation wave as a rehearsal.
 const OPTIONS = [
   {
-    copy: "Demo of the future Live workspace. No customer data or actions are connected.",
+    copy: "Production data and real producers. Invitations sent here reach real people.",
     id: "live",
-    title: "Preview Live",
+    title: "Live workspace",
   },
   {
-    copy: "Demo of the future Test workspace. No real data or actions are connected.",
+    // Deliberately not "safe for rehearsals": producer invitations are created
+    // with notify: true in both workspaces, so a Test release still puts a real
+    // email in a real inbox. What Test isolates is the database and the sign-in
+    // instance, not the sending.
+    copy: "A separate database and sign-in instance. Invitations still email the real address.",
     id: "test",
-    title: "Preview Test",
+    title: "Test workspace",
   },
 ] as const;
 
@@ -20,8 +28,8 @@ export function EnvironmentChoice() {
           Live and Test never mix.
         </h1>
         <p className="shell-subtitle">
-          Choose which future environment to review. Both views currently use demo data and
-          disconnected actions.
+          Choose which workspace to open. Each one is bound to its own database and its own sign-in
+          instance, and they never share records.
         </p>
         <div className="environment-choice-grid">
           {OPTIONS.map((option) => (

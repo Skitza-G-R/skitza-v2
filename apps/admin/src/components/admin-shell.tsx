@@ -21,11 +21,15 @@ export function AdminShell({
       </a>
       <div className="environment-ribbon" data-environment={environment.id} role="status">
         <span className="environment-ribbon-dot" aria-hidden="true" />
+        {/* The ribbon states which database and Clerk instance this session is
+            pointed at, and nothing more. It used to add "simulations on ·
+            external actions off", which stopped being true once the Beta and
+            Users pages began sending real Producer invitations — a founder
+            trusting that line could release a wave to real people believing it
+            was a dry run. Pages still backed by fixtures carry their own
+            "Simulated / reset on reload" badge (see shared.tsx PageHeader),
+            which is the honest place for that claim. */}
         {environment.id === "live" ? "Live" : "Test"} environment
-        <span aria-hidden="true">·</span>
-        <span>
-          simulations on <span className="environment-ribbon-actions">· external actions off</span>
-        </span>
       </div>
 
       <div className="admin-shell-grid">
