@@ -264,18 +264,43 @@ function PaymentsSummary({
   );
 }
 
-function ArtistName({ artist }: { artist: ProducerPaymentArtistRow }) {
+function ArtistName({
+  artist,
+  stacked = false,
+}: {
+  artist: ProducerPaymentArtistRow;
+  stacked?: boolean;
+}) {
   const projectLabel = producerPaymentProjectLabel(artist.projectTitles);
+  const link = (
+    <Link
+      href={clientPaymentsHref(artist.clientContactId)}
+      className={cn(
+        "font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none",
+        stacked ? "block truncate text-[14.5px] leading-tight" : "shrink-0 text-[13px]",
+      )}
+    >
+      {artist.clientName}
+    </Link>
+  );
+  // Stacked on desktop: the name is the row's identity, the project its detail.
+  if (stacked) {
+    return (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        {link}
+        {projectLabel ? (
+          <span className="truncate text-[11px] leading-tight font-normal text-[rgb(var(--fg-muted))]">
+            {projectLabel}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
   return (
     <span className="flex min-w-0 items-baseline gap-1.5">
-      <Link
-        href={clientPaymentsHref(artist.clientContactId)}
-        className="shrink-0 text-[13px] font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-      >
-        {artist.clientName}
-      </Link>
+      {link}
       {projectLabel ? (
-        <span className="min-w-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+        <span className="min-w-0 truncate text-[11.5px] font-normal text-[rgb(var(--fg-muted))]">
           · {projectLabel}
         </span>
       ) : null}
@@ -288,23 +313,46 @@ function ArtistLine({
   artist,
   timeZone,
   nowIso,
+  stacked = false,
 }: {
   artist: ProducerPaymentArtistRow;
   timeZone: string;
   nowIso: string;
+  stacked?: boolean;
 }) {
   const line = producerPaymentLine(artist, timeZone, nowIso);
+  const amountClass = cn(
+    "font-mono font-extrabold whitespace-nowrap tabular-nums",
+    line.tone === "danger"
+      ? "text-[rgb(var(--fg-danger-text))]"
+      : "text-[rgb(var(--fg-default))]",
+  );
+
+  if (stacked) {
+    // With no amount the sentence is the headline, so it takes the headline size.
+    if (line.amountCents === null) {
+      return (
+        <span className="block min-w-0 text-[13.5px] leading-tight text-[rgb(var(--fg-default))]">
+          {line.detail}
+        </span>
+      );
+    }
+    return (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className={cn(amountClass, "text-[15px] leading-tight")}>
+          {formatMoney(line.amountCents, line.currency, { withCents: true })}
+        </span>
+        <span className="truncate text-[11.5px] leading-tight text-[rgb(var(--fg-muted))]">
+          {line.detail}
+        </span>
+      </span>
+    );
+  }
+
   return (
     <span className="block min-w-0 text-[12.5px] leading-snug">
       {line.amountCents === null ? null : (
-        <span
-          className={cn(
-            "font-mono font-bold whitespace-nowrap tabular-nums",
-            line.tone === "danger"
-              ? "text-[rgb(var(--fg-danger-text))]"
-              : "text-[rgb(var(--fg-default))]",
-          )}
-        >
+        <span className={amountClass}>
           {formatMoney(line.amountCents, line.currency, { withCents: true })}
           <span className="font-sans font-normal text-[rgb(var(--fg-muted))]"> — </span>
         </span>
@@ -316,9 +364,9 @@ function ArtistLine({
 
 function ProgressText({ row }: { row: ProducerPaymentArtistProgress }) {
   return (
-    <span className="block font-mono text-[11px] leading-tight whitespace-nowrap text-[rgb(var(--fg-muted))] tabular-nums">
+    <span className="block font-mono text-[11.5px] leading-tight whitespace-nowrap text-[rgb(var(--fg-secondary))] tabular-nums">
       {formatMoney(row.paidCents, row.currency)}
-      <span> of </span>
+      <span className="text-[rgb(var(--fg-muted))]"> of </span>
       {formatMoney(row.totalCents, row.currency)}
     </span>
   );
@@ -365,18 +413,16 @@ function ArtistProgress({
     return <span className="text-[11px] text-[rgb(var(--fg-muted))]">—</span>;
   }
   return (
-    <span className="flex min-w-0 flex-col gap-1.5">
+    <span className="flex min-w-0 flex-col gap-2">
       {rows.map((row, index) => (
-        <span key={row.currency} className="block min-w-0">
-          <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-            <ProgressText row={row} />
-            {index === 0 ? (
-              <span className="text-[10.5px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
-                · {producerPaymentLastPaidLabel(artist, timeZone, nowIso)}
-              </span>
-            ) : null}
-          </span>
-          <ProgressBar row={row} className="mt-1.5 w-full max-w-[190px]" />
+        <span key={row.currency} className="block min-w-0 max-w-[200px]">
+          <ProgressText row={row} />
+          <ProgressBar row={row} className="mt-1.5 w-full" />
+          {index === 0 ? (
+            <span className="mt-1 block text-[10.5px] leading-tight whitespace-nowrap text-[rgb(var(--fg-muted))]">
+              {producerPaymentLastPaidLabel(artist, timeZone, nowIso)}
+            </span>
+          ) : null}
         </span>
       ))}
     </span>
@@ -461,9 +507,9 @@ function ArtistDesktopTable({
             )}
           >
             {[
-              ["Artist", "w-[28%]"],
-              ["Payment", "w-[33%]"],
-              ["Paid", "w-[25%]"],
+              ["Artist", "w-[26%]"],
+              ["Payment", "w-[34%]"],
+              ["Paid", "w-[26%]"],
               ["Action", "w-[14%]"],
             ].map(([label, width]) => (
               <th
@@ -489,16 +535,16 @@ function ArtistDesktopTable({
               key={artist.clientContactId}
               className="align-middle hover:bg-[rgb(var(--bg-sunken))]"
             >
-              <th scope="row" className="px-3 py-2.5 text-left xl:px-4">
-                <ArtistName artist={artist} />
+              <th scope="row" className="px-3 py-3.5 text-left xl:px-4">
+                <ArtistName artist={artist} stacked />
               </th>
-              <td className="px-3 py-2.5 xl:px-4">
-                <ArtistLine artist={artist} timeZone={timeZone} nowIso={nowIso} />
+              <td className="px-3 py-3.5 xl:px-4">
+                <ArtistLine artist={artist} timeZone={timeZone} nowIso={nowIso} stacked />
               </td>
-              <td className="px-3 py-2.5 xl:px-4">
+              <td className="px-3 py-3.5 xl:px-4">
                 <ArtistProgress artist={artist} timeZone={timeZone} nowIso={nowIso} />
               </td>
-              <td className="px-3 py-2.5 xl:px-4">
+              <td className="px-3 py-3.5 xl:px-4">
                 {withAction ? <ArtistAction artist={artist} /> : null}
               </td>
             </tr>
