@@ -9,6 +9,7 @@ import {
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { Button } from "~/components/ui/button";
 import { useToast } from "~/components/ui/toast";
+import { cn } from "~/lib/cn";
 
 type CreateOperationId = () => string;
 
@@ -38,11 +39,15 @@ export function PaymentReminderButton({
   purchaseId,
   installmentId,
   installmentLabel,
+  layout = "block",
 }: {
   purchaseId: string;
   installmentId: string;
   installmentLabel: string;
+  /** `inline` fits a dense Payments row: short label, no top margin, status read out only. */
+  layout?: "block" | "inline";
 }) {
+  const inline = layout === "inline";
   const { toast } = useToast();
   const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
@@ -84,22 +89,28 @@ export function PaymentReminderButton({
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
+    <div className={cn("flex flex-wrap items-center gap-2", !inline && "mt-3")}>
       <Button
         type="button"
         size="sm"
         variant="outline"
         aria-label={`Send payment reminder for ${installmentLabel}`}
-        className="min-h-11 w-full rounded-[var(--radius-lg)] sm:w-auto"
+        className={cn(
+          "min-h-11 rounded-[var(--radius-lg)]",
+          inline ? "px-3 sm:min-h-9 sm:rounded-[var(--radius-md)]" : "w-full sm:w-auto",
+        )}
         disabled={pending || !online}
         onClick={sendReminder}
       >
-        {pending ? "Sending…" : "Send reminder"}
+        {pending ? "Sending…" : inline ? "Remind" : "Send reminder"}
       </Button>
       {successMessage ? (
         <span
           role="status"
-          className="text-[11.5px] font-semibold text-[rgb(var(--fg-success))]"
+          className={cn(
+            "text-[11.5px] font-semibold text-[rgb(var(--fg-success))]",
+            inline && "sr-only",
+          )}
         >
           {successMessage}
         </span>

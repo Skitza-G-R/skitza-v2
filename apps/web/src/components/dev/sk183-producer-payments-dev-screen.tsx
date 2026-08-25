@@ -127,18 +127,8 @@ const FIXTURE = {
 
 export function Sk183ProducerPaymentsDevScreen() {
   return (
-    <main className="mx-auto w-full max-w-[1320px] px-4 py-5 pb-28 sm:px-6 sm:py-8 lg:pb-10">
-      <header className="mb-5">
-        <p className="font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
-          Money dashboard
-        </p>
-        <h1 className="font-display mt-1.5 text-[clamp(2rem,6vw,3.15rem)] leading-none font-extrabold tracking-[-0.045em] text-[rgb(var(--fg-default))]">
-          Payments
-        </h1>
-        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          See what came in, what is due, and what is still waiting on the work.
-        </p>
-      </header>
+    <main className="mx-auto w-full max-w-[1320px] px-4 py-3 pb-28 sm:px-6 sm:py-5 lg:pb-10">
+      {/* SK-275 — mirrors the real page: the dashboard renders its own header. */}
       <ProducerPaymentsDashboard
         data={FIXTURE}
         producerTimeZone="Asia/Jerusalem"
