@@ -8,7 +8,22 @@ import {
   savePushSubscriptionAction,
   unsubscribePushAction,
 } from "~/app/push-actions";
-import { PUSH_CATEGORIES, PUSH_CATEGORY_COPY, type PushCategory } from "~/lib/push/categories";
+import {
+  PUSH_CATEGORIES,
+  pushCategoryCopyForRole,
+  type PushCategory,
+  type PushCopyRole,
+} from "~/lib/push/categories";
+import {
+  applicationServerKey,
+  enableAllPushCategories,
+  subscriptionInput,
+} from "~/lib/push/enable";
+import {
+  isAppleMobileDevice,
+  isStandaloneDisplay,
+  requestInstallGuidance,
+} from "~/lib/pwa/install-guidance";
 import {
   confirmBrowserPushUnsubscribe,
   getPushAccountBoundaryGeneration,
@@ -25,31 +40,8 @@ type BrowserState = Readonly<{
   subscription: PushSubscription | null;
 }>;
 
-function applicationServerKey(value: string): Uint8Array<ArrayBuffer> {
-  const padded = `${value}${"=".repeat((4 - (value.length % 4)) % 4)}`;
-  const bytes = atob(padded.replaceAll("-", "+").replaceAll("_", "/"));
-  const output = new Uint8Array(new ArrayBuffer(bytes.length));
-  for (let index = 0; index < bytes.length; index += 1) {
-    output[index] = bytes.charCodeAt(index);
-  }
-  return output;
-}
-
-function subscriptionInput(subscription: PushSubscription, categories: PushCategory[]) {
-  const serialized = subscription.toJSON();
-  const p256dh = serialized.keys?.p256dh;
-  const auth = serialized.keys?.auth;
-  if (!p256dh || !auth) throw new Error("Subscription keys unavailable");
-  return {
-    endpoint: subscription.endpoint,
-    p256dh,
-    auth,
-    categories,
-    expirationTime: subscription.expirationTime,
-  };
-}
-
-export function PushPreferences() {
+export function PushPreferences({ role = "producer" }: { role?: PushCopyRole } = {}) {
+  const copyMap = pushCategoryCopyForRole(role);
   const [browser, setBrowser] = useState<BrowserState>({
     configured: false,
     publicKey: null,
@@ -58,6 +50,8 @@ export function PushPreferences() {
   const [categories, setCategories] = useState<PushCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<PushCategory | null>(null);
+  const [masterPending, setMasterPending] = useState(false);
+  const [installRequired, setInstallRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,7 +66,20 @@ export function PushPreferences() {
       ) {
         if (!cancelled) {
           setLoading(false);
-          setError("Push notifications are not supported in this browser.");
+          // iPhone Safari has no web push outside the installed app — guide
+          // people to the Home Screen instead of showing a dead end.
+          if (
+            isAppleMobileDevice({
+              userAgent: navigator.userAgent,
+              platform: navigator.platform,
+              maxTouchPoints: navigator.maxTouchPoints,
+            }) &&
+            !isStandaloneDisplay()
+          ) {
+            setInstallRequired(true);
+          } else {
+            setError("Push notifications are not supported in this browser.");
+          }
         }
         return;
       }
@@ -238,6 +245,30 @@ export function PushPreferences() {
     [browser, categories, pending],
   );
 
+  // SK-276 — one tap turns on every category via the shared flow; the
+  // per-topic switches below stay available for fine-tuning.
+  const enableAll = useCallback(async () => {
+    if (masterPending || pending !== null || !browser.configured || !browser.publicKey) {
+      return;
+    }
+    setMasterPending(true);
+    setError(null);
+    try {
+      const result = await enableAllPushCategories(browser.publicKey);
+      if (result.ok) {
+        setBrowser((current) => ({
+          ...current,
+          subscription: result.subscription as PushSubscription,
+        }));
+        setCategories(result.categories);
+      } else if (result.reason !== "boundary") {
+        setError(result.message);
+      }
+    } finally {
+      setMasterPending(false);
+    }
+  }, [browser, masterPending, pending]);
+
   return (
     <section
       aria-labelledby="push-preferences-heading"
@@ -257,14 +288,56 @@ export function PushPreferences() {
             Device notifications
           </h2>
           <p className="mt-1 text-xs leading-5 text-[rgb(var(--fg-secondary))]">
-            Choose real updates for this browser. Everything starts off.
+            {role === "artist"
+              ? "Real updates from your studio, on this device. Everything starts off."
+              : "Choose real updates for this browser. Everything starts off."}
           </p>
         </div>
       </div>
 
-      <div className="divide-y divide-[rgb(var(--border-subtle))]">
+      {installRequired ? (
+        <div className="px-4 py-4">
+          <p className="text-xs leading-5 text-[rgb(var(--fg-secondary))]">
+            On iPhone, notifications need the installed app. Add Skitza to your Home Screen
+            first, then turn updates on here.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              requestInstallGuidance();
+            }}
+            className="mt-3 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+          >
+            Show me how
+          </button>
+        </div>
+      ) : null}
+
+      {!installRequired && !loading && browser.configured && categories.length === 0 ? (
+        <div className="border-b border-[rgb(var(--border-subtle))] px-4 py-4">
+          <button
+            type="button"
+            disabled={
+              masterPending ||
+              pending !== null ||
+              !pushAccountBoundaryAllowsDelivery(getPushAccountBoundaryGeneration())
+            }
+            onClick={() => {
+              void enableAll();
+            }}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12px] font-bold text-[rgb(var(--bg-elevated))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {masterPending ? "Turning on…" : "Turn on notifications"}
+          </button>
+          <p className="mt-2 text-[11px] leading-4 text-[rgb(var(--fg-muted))]">
+            One tap turns on every update below. Fine-tune anytime.
+          </p>
+        </div>
+      ) : null}
+
+      <div className={installRequired ? "hidden" : "divide-y divide-[rgb(var(--border-subtle))]"}>
         {PUSH_CATEGORIES.map((category) => {
-          const copy = PUSH_CATEGORY_COPY[category];
+          const copy = copyMap[category];
           const enabled = categories.includes(category);
           return (
             <div key={category} className="flex min-h-14 items-center gap-3 px-4 py-2.5">

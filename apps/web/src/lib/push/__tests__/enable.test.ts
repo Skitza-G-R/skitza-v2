@@ -6,6 +6,7 @@ import {
   enableAllPushCategories,
   type BrowserPushSubscriptionLike,
   type EnableAllAdapter,
+  type PushSubscriptionInput,
 } from "~/lib/push/enable";
 
 function fakeSubscription(endpoint = "https://push.example/abc"): BrowserPushSubscriptionLike & {
@@ -35,7 +36,7 @@ function fakeAdapter(overrides: Partial<EnableAllAdapter> = {}): EnableAllAdapte
 
 describe("enableAllPushCategories", () => {
   it("subscribes once and saves every category in a single call", async () => {
-    const save = vi.fn((input: { categories: readonly string[] }) =>
+    const save = vi.fn((input: PushSubscriptionInput) =>
       Promise.resolve({ ok: true as const, categories: [...input.categories] }),
     );
     const subscription = fakeSubscription();
