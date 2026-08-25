@@ -76,8 +76,9 @@ describe("invitation email body", () => {
 
   // Each of these is a signal Gmail's tab classifier reads as bulk
   // marketing. They are what put Clerk's own invitation in Promotions.
-  // `<img` is deliberately absent from this list — see the next test.
-  it.each(["<table", "unsubscribe", "background:", "linear-gradient", "©"])(
+  // `<img` and `<table` are deliberately absent — the branded layout needs
+  // both, and Outlook has no flexbox. The rest still hold.
+  it.each(["unsubscribe", "background:", "linear-gradient", "©"])(
     "keeps the promotional marker %s out of the HTML",
     (marker) => {
       expect(message.html.toLowerCase()).not.toContain(marker.toLowerCase());
@@ -89,9 +90,20 @@ describe("invitation email body", () => {
   // than a broken box. More than one image would be a masthead.
   it("carries exactly one logo image, sized and with alt text", () => {
     expect(message.html.split("<img")).toHaveLength(2);
-    expect(message.html).toContain('src="https://skitza.app/icons/skitza-128.png"');
+    expect(message.html).toContain('src="cid:skitzalockup"');
     expect(message.html).toContain('alt="Skitza"');
-    expect(message.html).toContain('width="48" height="48"');
+    expect(message.html).toContain('width="172" height="53"');
+  });
+
+  it("is a complete document rather than a fragment clients have to wrap", () => {
+    expect(message.html.startsWith("<!doctype html>")).toBe(true);
+    expect(message.html.trimEnd().endsWith("</html>")).toBe(true);
+  });
+
+  // The lockup PNG carries #0e0d08 baked in. Any other band colour draws a
+  // visible rectangle around the image.
+  it("matches the header band to the lockup's own background", () => {
+    expect(message.html).toContain("background-color:#0e0d08");
   });
 
   it("re-introduces Skitza in both parts, for invitees who signed up months ago", () => {
@@ -146,6 +158,24 @@ describe("resend invitation sender", () => {
     expect(Object.keys(payload)).not.toContain("headers");
   });
 
+  it("attaches the lockup inline so the cid: reference resolves", async () => {
+    await sender.send({ acceptUrl: ACCEPT_URL, to: "producer@example.com" });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const payload = JSON.parse(init.body as string) as Record<string, unknown>;
+    const attachments = payload.attachments as {
+      content: string;
+      content_id: string;
+      filename: string;
+    }[];
+    const [logo] = attachments as [(typeof attachments)[number]];
+
+    expect(attachments).toHaveLength(1);
+    expect(logo.content_id).toBe("skitzalockup");
+    expect(logo.filename).toBe("skitza.png");
+    expect(logo.content.length).toBeGreaterThan(1000);
+  });
+
   it.each([
     ["a rejected request", () => fetchMock.mockResolvedValueOnce({ ok: false } as Response)],
     ["a network failure", () => fetchMock.mockRejectedValueOnce(new Error("offline"))],
@@ -157,7 +187,8 @@ describe("resend invitation sender", () => {
     ],
   ])("surfaces %s as an InvitationEmailError", async (label, arrange) => {
     arrange();
-    const acceptUrl = label === "an oversized accept link" ? `https://x/${"a".repeat(2100)}` : ACCEPT_URL;
+    const acceptUrl =
+      label === "an oversized accept link" ? `https://x/${"a".repeat(2100)}` : ACCEPT_URL;
     await expect(sender.send({ acceptUrl, to: "producer@example.com" })).rejects.toBeInstanceOf(
       InvitationEmailError,
     );

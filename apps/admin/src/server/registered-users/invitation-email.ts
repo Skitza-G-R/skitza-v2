@@ -1,4 +1,11 @@
 import type { AdminEnvironmentId, AdminEnvironmentMap } from "~/server/environment";
+import {
+  INVITE_LOGO_CID,
+  INVITE_LOGO_FILENAME,
+  INVITE_LOGO_HEIGHT,
+  INVITE_LOGO_PNG_BASE64,
+  INVITE_LOGO_WIDTH,
+} from "./invite-logo";
 
 // SK-273 follow-up — every Clerk-sent invitation landed in Gmail's
 // Promotions tab, so beta invitees never saw it. Clerk sends through its
@@ -14,27 +21,39 @@ import type { AdminEnvironmentId, AdminEnvironmentMap } from "~/server/environme
 // that carries a human name, a real Reply-To, and a body that is plain
 // prose around a single text link.
 //
-// Keep it plain. A styled button, an unsubscribe footer, a tracking
-// pixel or a second copy of the link each push it back toward
-// Promotions. This is transactional mail to someone who asked for it —
-// deliberately do NOT add a List-Unsubscribe header, which marks a
-// message as bulk.
+// Design (Gili, 25 Aug 2026): branded, in Skitza's own email palette — the
+// dark lockup band, a cream card and the amber CTA — because a bare message
+// did not read as official to a beta list that signed up months ago.
 //
-// One deliberate exception (Gili, 25 Aug 2026): a single 48px logo above
-// the text, because these invitees signed up months ago and the bare
-// message did not read as official. It stays one left-aligned <img> with
-// no header band, no table and no button, and the Promotions/Primary
-// placement was re-tested after adding it. Do not let it grow into a
-// masthead.
+// Tab placement is MEASURED, not assumed. Sent to giasraf+tag@gmail.com:
+//   Clerk's own invitation ........ Promotions
+//   our plain-text version ........ Primary
+//   plain + small logo + reminder . Primary
+// Re-check after editing this template. In Gmail, an empty result for
+// `category:promotions from:<sender>` means it is not in Promotions, and
+// `category:primary from:<sender>` confirms where it did land.
+//
+// The properties still doing the work, which must survive any redesign:
+// our own verified sending domain, a From carrying a human display name, a
+// real Reply-To, and exactly ONE link. Deliberately no List-Unsubscribe
+// header — it marks transactional mail as bulk — and no tracking pixel, no
+// click tracking, no second copy of the link.
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
-// The only image in this email. Served from the production site so it
-// resolves for every recipient, and rendered small and left-aligned so it
-// reads as a signature mark rather than a marketing header. The 128px
-// source is downscaled to 48 so it stays sharp on retina screens.
-const LOGO_URL = "https://skitza.app/icons/skitza-128.png";
-const LOGO_DISPLAY_PX = 48;
+// Skitza's email palette, shared with the templates in apps/web. BAND must
+// stay #0e0d08: the lockup PNG carries that exact background, so any other
+// value shows a seam around the image.
+const BAND = "#0e0d08";
+const PAGE = "#F4EFE7";
+const CARD = "#FBF7F0";
+const INK = "#1A1714";
+const MUTED = "#6B6158";
+const HEADING = "#A25A28";
+const AMBER = "#C98A0A";
+const ON_AMBER = "#1A1407";
+const RULE = "#E8E2D9";
+const SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
 // These invitees signed up for early access months ago, so the message has
 // to re-introduce Skitza before it asks for anything. One source of truth
@@ -158,26 +177,59 @@ export function resolveAdminInvitationEmailConfig(
 }
 
 /**
- * The invitation body. Deliberately plain: one small logo, no table
- * layout, no button, no footer, one link that appears exactly once.
+ * The invitation body, in Skitza's email palette. One link, one image,
+ * and no unsubscribe footer — see the tab-placement note at the top.
  */
 export function renderProducerInvitationEmail(
   input: Readonly<{ acceptUrl: string; signature: string }>,
 ): Readonly<{ html: string; subject: string; text: string }> {
   const href = escapeHtml(input.acceptUrl);
   const signature = escapeHtml(input.signature);
-  const size = String(LOGO_DISPLAY_PX);
+  const subject = "Your Skitza account is ready";
   return {
+    // Tables and inline styles are not a stylistic choice — Outlook has no
+    // flexbox and every client strips <style> blocks differently.
     html: [
-      `<p><img src="${LOGO_URL}" alt="Skitza" width="${size}" height="${size}"></p>`,
-      "<p>Hi — your Skitza account is ready to set up.</p>",
-      `<p>${escapeHtml(REMINDER)}</p>`,
-      `<p><a href="${href}">Finish setting up your account</a></p>`,
-      "<p>The link works for the next 7 days and only from this email address.</p>",
-      "<p>If it gives you any trouble, just reply — this comes straight to me.</p>",
-      `<p>— ${signature}</p>`,
+      "<!doctype html>",
+      '<html lang="en"><head>',
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width,initial-scale=1">',
+      '<meta name="color-scheme" content="light">',
+      `<title>${escapeHtml(subject)}</title>`,
+      "</head>",
+      `<body style="margin:0;padding:0;background-color:${PAGE};">`,
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${PAGE};">`,
+      '<tr><td align="center" style="padding:24px 12px;">',
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="width:520px;max-width:100%;">',
+
+      // Lockup band. The cell colour is cream so that a client with images
+      // switched off shows the word "Skitza" instead of a gap.
+      `<tr><td style="background-color:${BAND};border-radius:12px 12px 0 0;padding:22px 28px;color:${PAGE};font-family:${SANS};font-size:18px;font-weight:700;">`,
+      `<img src="cid:${INVITE_LOGO_CID}" alt="Skitza" width="${String(INVITE_LOGO_WIDTH)}" height="${String(INVITE_LOGO_HEIGHT)}" style="display:block;border:0;">`,
+      "</td></tr>",
+
+      `<tr><td style="background-color:${CARD};border-radius:0 0 12px 12px;padding:28px;font-family:${SANS};font-size:16px;line-height:1.55;color:${INK};">`,
+      `<h1 style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:26px;line-height:1.25;color:${HEADING};">You&rsquo;re in</h1>`,
+      '<p style="margin:0 0 16px;">Hi — your Skitza account is ready to set up.</p>',
+      `<p style="margin:0 0 26px;">${escapeHtml(REMINDER)}</p>`,
+
+      // Bulletproof button: colour on the cell, padding on the anchor.
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>',
+      `<td style="background-color:${AMBER};border-radius:8px;">`,
+      `<a href="${href}" style="display:inline-block;padding:13px 26px;font-family:${SANS};font-size:16px;font-weight:600;color:${ON_AMBER};text-decoration:none;">Finish setting up your account</a>`,
+      "</td></tr></table>",
+
+      `<p style="margin:26px 0 0;font-size:14px;color:${MUTED};">The link works for the next 7 days and only from this email address.</p>`,
+      '<p style="margin:16px 0 0;">If it gives you any trouble, just reply — this comes straight to me.</p>',
+      `<p style="margin:16px 0 0;">— ${signature}</p>`,
+      `<hr style="border:0;border-top:1px solid ${RULE};margin:26px 0 0;">`,
+      `<p style="margin:18px 0 0;font-size:13px;line-height:1.5;color:${MUTED};">You are getting this because you signed up for early access at skitza.app.</p>`,
+      "</td></tr>",
+
+      "</table></td></tr></table>",
+      "</body></html>",
     ].join("\n"),
-    subject: "Your Skitza account is ready",
+    subject,
     text: [
       "Hi — your Skitza account is ready to set up.",
       "",
@@ -191,6 +243,8 @@ export function renderProducerInvitationEmail(
       "If it gives you any trouble, just reply — this comes straight to me.",
       "",
       `— ${input.signature}`,
+      "",
+      "You are getting this because you signed up for early access at skitza.app.",
     ].join("\n"),
   };
 }
@@ -210,6 +264,13 @@ export function createResendInvitationEmailSender(
       try {
         response = await fetch(RESEND_ENDPOINT, {
           body: JSON.stringify({
+            attachments: [
+              {
+                content: INVITE_LOGO_PNG_BASE64,
+                content_id: INVITE_LOGO_CID,
+                filename: INVITE_LOGO_FILENAME,
+              },
+            ],
             from: config.from,
             html: message.html,
             reply_to: config.replyTo,

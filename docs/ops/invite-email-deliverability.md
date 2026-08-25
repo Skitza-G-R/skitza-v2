@@ -50,37 +50,63 @@ Side effect worth knowing: Clerk only ever emailed on *create*, so the admin
 "re-send invitation" button silently sent nothing when it reused a pending
 invitation. It sends now.
 
-### The one image, and why the copy re-introduces Skitza
+### Why it is branded, and what that cost
 
 The first version was bare text. Gili's call after seeing it land (25 Aug 2026):
-it needed to look official, and it needed to remind people what Skitza is,
-because the beta list signed up for early access more than two months earlier.
+it had to look official, and it had to remind people what Skitza is, because
+the beta list signed up for early access more than two months earlier.
 
-So the body now opens with a single 48px amber app icon
-(`https://skitza.app/icons/skitza-128.png`, left-aligned, `alt="Skitza"`) and
-carries one short paragraph re-introducing the product before it asks for
-anything. The reminder is a pure win — an unexplained email from a sender you
-last heard from in June reads *more* like spam, not less.
+So the invitation now uses Skitza's own email palette — the dark lockup band
+(`#0e0d08`), a cream card (`#FBF7F0` on `#F4EFE7`), the Georgia/copper heading
+and the amber CTA — matching the templates in `apps/web/src/server/email/`.
 
-The logo is the one concession to the "keep it plain" rule, so it is fenced in:
-one `<img>`, no header band, no table, no button, explicit `width`/`height`, and
-alt text so an images-off client shows the brand name instead of a gap. A test
-asserts exactly one image. **Do not let it grow into a masthead** — the tables,
-gradient button and footer are what put Clerk's version in Promotions in the
-first place.
+**Tab placement is measured, not argued about.** Each version went to a real
+Gmail `+tag` address:
 
-Both versions were sent to real Gmail `+tag` addresses and confirmed by Gili.
+| Version | Tab |
+| --- | --- |
+| Clerk's own invitation | Promotions |
+| ours, plain text | **Primary** |
+| ours, plain + small logo + reminder | **Primary** |
+| ours, fully branded (this one) | **Primary** |
 
-### Required env (per environment — see `apps/admin/.env.example`)
+How to re-check after editing the template — in Gmail, or through any Gmail
+API client:
 
 ```
-ADMIN_LIVE_RESEND_API_KEY=re_...
-ADMIN_LIVE_INVITE_FROM=Gili from Skitza <gili@skitza.app>
-ADMIN_LIVE_INVITE_REPLY_TO=gili@skitza.app
+category:promotions from:gili@send.skitza.app   -> must return nothing
+category:primary    from:gili@send.skitza.app   -> must return the message
 ```
 
-`ADMIN_*_INVITE_FROM` must carry a display name and a mailbox that genuinely
-receives mail. The reply path is doing real work here — see below.
+The `category:` operator is the only reliable read. Gmail's API does not expose
+`CATEGORY_*` in `labelIds`, so an absent Promotions label proves nothing.
+
+### The logo is an inline attachment, not a hosted URL
+
+Syne is a web font and every mail client strips `@font-face`, so the wordmark
+has to be an image. It ships as a ~4 KB PNG attached with a `Content-ID` and
+referenced as `<img src="cid:skitzalockup">`, rather than hosted under
+`apps/web/public`, because a hosted URL would mean the admin app sends a broken
+logo until the web app happens to deploy. Verified on the delivered message:
+
+```
+Content-Type: multipart/related; type="text/html"
+  text/html   -> <img src="cid:skitzalockup">
+  image/png   -> Content-ID: <skitzalockup>
+                 Content-Disposition: inline
+```
+
+`apps/admin/src/server/registered-users/invite-logo.ts` documents how to
+regenerate the crop. The band colour in the template must stay `#0e0d08` — the
+PNG carries that background, so any other value draws a rectangle around it.
+
+### What must survive any future redesign
+
+Our own verified sending domain, a From with a human display name, a real
+Reply-To, and exactly **one** link. No `List-Unsubscribe` header (it marks
+transactional mail as bulk), no tracking pixel, no click tracking, and no
+second copy of the link. A test asserts there is exactly one image, so the
+lockup cannot quietly grow into a masthead.
 
 ## Dashboard steps (not code)
 
