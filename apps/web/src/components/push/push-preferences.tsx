@@ -336,7 +336,8 @@ export function PushPreferences({ role = "producer" }: { role?: PushCopyRole } =
         </div>
       ) : null}
 
-      <div className={installRequired ? "hidden" : "divide-y divide-[rgb(var(--border-subtle))]"}>
+      {installRequired ? null : (
+      <div className="divide-y divide-[rgb(var(--border-subtle))]">
         {PUSH_CATEGORIES.map((category) => {
           const copy = copyMap[category];
           const enabled = categories.includes(category);
@@ -383,6 +384,7 @@ export function PushPreferences({ role = "producer" }: { role?: PushCopyRole } =
           );
         })}
       </div>
+      )}
 
       {error ? (
         <p
