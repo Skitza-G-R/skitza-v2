@@ -50,11 +50,12 @@ export function PushMomentBanner({ message }: { message: string }) {
           dismissedAt,
           now,
         });
+        const platformValue: unknown = Reflect.get(navigator, "platform");
         if (
           installInviteOpen &&
           isAppleMobileDevice({
             userAgent: navigator.userAgent,
-            platform: navigator.platform,
+            platform: typeof platformValue === "string" ? platformValue : "",
             maxTouchPoints: navigator.maxTouchPoints,
           }) &&
           !isStandaloneDisplay() &&
@@ -71,7 +72,6 @@ export function PushMomentBanner({ message }: { message: string }) {
           registration && "pushManager" in registration
             ? await registration.pushManager.getSubscription()
             : null;
-        if (cancelled) return;
         if (
           !pushInviteEligible({
             supported: true,
@@ -85,8 +85,7 @@ export function PushMomentBanner({ message }: { message: string }) {
         }
 
         const status = await getPushStatusAction(null);
-        if (cancelled) return;
-        if (!status.ok || !status.configured || !status.publicKey) return;
+        if (cancelled || !status.ok || !status.configured || !status.publicKey) return;
         setPublicKey(status.publicKey);
         setState("invite");
       } catch {

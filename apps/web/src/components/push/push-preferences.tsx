@@ -68,10 +68,11 @@ export function PushPreferences({ role = "producer" }: { role?: PushCopyRole } =
           setLoading(false);
           // iPhone Safari has no web push outside the installed app — guide
           // people to the Home Screen instead of showing a dead end.
+          const platformValue: unknown = Reflect.get(navigator, "platform");
           if (
             isAppleMobileDevice({
               userAgent: navigator.userAgent,
-              platform: navigator.platform,
+              platform: typeof platformValue === "string" ? platformValue : "",
               maxTouchPoints: navigator.maxTouchPoints,
             }) &&
             !isStandaloneDisplay()
