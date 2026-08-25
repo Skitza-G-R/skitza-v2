@@ -521,21 +521,21 @@ function ArtistMobileRows({
   withAction: boolean;
 }) {
   return (
-    <ul className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] md:hidden">
+    <ul className="divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] md:hidden">
       {artists.map((artist) => {
         const progress = producerPaymentArtistProgress(artist);
         return (
-          <li key={artist.clientContactId} className="min-w-0 py-2.5">
+          <li key={artist.clientContactId} className="min-w-0 px-3.5 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="min-w-0 flex-1">
                 <ArtistName artist={artist} />
-                <span className="mt-0.5 block">
+                <span className="mt-1 block">
                   <ArtistLine artist={artist} timeZone={timeZone} nowIso={nowIso} />
                 </span>
               </div>
               {withAction ? <ArtistAction artist={artist} /> : null}
             </div>
-            <div className="mt-2 flex flex-col gap-1.5">
+            <div className="mt-2.5 flex flex-col gap-1.5">
               {progress.map((row) => (
                 <ProgressBar key={row.currency} row={row} className="w-full" />
               ))}
@@ -735,9 +735,9 @@ function PaymentHistory({
         </table>
       </div>
 
-      <ul className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] md:hidden">
+      <ul className="divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] md:hidden">
         {events.map((event) => (
-          <li key={event.id} className="min-w-0 px-1 py-3">
+          <li key={event.id} className="min-w-0 px-3.5 py-3">
             <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
