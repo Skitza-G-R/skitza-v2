@@ -22,6 +22,8 @@ const target = {
   primaryEmailAddressId: "email_primary",
 } as const;
 
+const ACCEPT_URL = "https://clerk.skitza.app/v1/tickets/accept?ticket=jwt-token";
+
 const invitation = {
   emailAddress: "artist@example.com",
   id: "inv_new",
@@ -29,6 +31,7 @@ const invitation = {
     [SKITZA_PRODUCER_INVITATION_METADATA_KEY]: true,
   },
   status: "pending" as const,
+  url: ACCEPT_URL,
 };
 
 const getInstanceId = vi.fn();
@@ -42,9 +45,13 @@ const provider: ProducerInvitationProvider = {
   listInvitations,
 };
 
+const sendInvitationEmail = vi.fn();
+const emailSender = { send: sendInvitationEmail };
+
 function send(redirectUrl = "https://skitza-test.example/sign-up") {
   return sendProducerInvitation({
     clerkInstanceId: "ins_test",
+    emailSender,
     operationKey: "producer-invite:request-1",
     provider,
     redirectUrl,
@@ -57,6 +64,7 @@ function sendEmail(emailAddress = " New.Producer@Example.com ") {
   return sendProducerInvitationToEmail({
     clerkInstanceId: "ins_test",
     emailAddress,
+    emailSender,
     operationKey: "producer-invite-email:request-1",
     provider,
     redirectUrl: "https://skitza-test.example/sign-up",
@@ -70,15 +78,21 @@ describe("founder Producer invitations", () => {
     getUser.mockResolvedValue(target);
     listInvitations.mockResolvedValue([]);
     createInvitation.mockResolvedValue(invitation);
+    sendInvitationEmail.mockResolvedValue(undefined);
   });
 
   it("verifies the bound Clerk instance and sends one seven-day marked email invitation", async () => {
     await expect(send()).resolves.toEqual({
+      emailed: true,
       invitationId: "inv_new",
       reused: false,
       status: "pending",
     });
 
+    expect(sendInvitationEmail).toHaveBeenCalledWith({
+      acceptUrl: ACCEPT_URL,
+      to: "artist@example.com",
+    });
     expect(getInstanceId).toHaveBeenCalledOnce();
     expect(getUser).toHaveBeenCalledWith("user_artist");
     expect(listInvitations).toHaveBeenCalledWith({
@@ -89,7 +103,7 @@ describe("founder Producer invitations", () => {
       emailAddress: "artist@example.com",
       expiresInDays: 7,
       ignoreExisting: true,
-      notify: true,
+      notify: false,
       redirectUrl: "https://skitza-test.example/sign-up",
       publicMetadata: {
         skitzaProducerInvitation: true,
@@ -107,9 +121,14 @@ describe("founder Producer invitations", () => {
     });
 
     await expect(sendEmail()).resolves.toEqual({
+      emailed: true,
       invitationId: "inv_new",
       reused: false,
       status: "pending",
+    });
+    expect(sendInvitationEmail).toHaveBeenCalledWith({
+      acceptUrl: ACCEPT_URL,
+      to: "new.producer@example.com",
     });
 
     expect(getUser).not.toHaveBeenCalled();
@@ -121,7 +140,7 @@ describe("founder Producer invitations", () => {
       emailAddress: "new.producer@example.com",
       expiresInDays: 7,
       ignoreExisting: true,
-      notify: true,
+      notify: false,
       redirectUrl: "https://skitza-test.example/sign-up",
       publicMetadata: { skitzaProducerInvitation: true },
     });
@@ -166,12 +185,20 @@ describe("founder Producer invitations", () => {
     ]);
 
     await expect(send()).resolves.toEqual({
+      emailed: true,
       invitationId: "inv_marked_pending",
       reused: true,
       status: "pending",
     });
     expect(createInvitation).not.toHaveBeenCalled();
+    // Clerk never re-sends a reused invitation, so before this change the
+    // resend button was silently a no-op. Now the mail is ours to send.
+    expect(sendInvitationEmail).toHaveBeenCalledWith({
+      acceptUrl: ACCEPT_URL,
+      to: "artist@example.com",
+    });
 
+    sendInvitationEmail.mockClear();
     listInvitations.mockResolvedValueOnce([
       {
         ...invitation,
@@ -180,11 +207,49 @@ describe("founder Producer invitations", () => {
       },
     ]);
     await expect(send()).resolves.toEqual({
+      emailed: false,
       invitationId: "inv_marked_accepted",
       reused: true,
       status: "accepted",
     });
     expect(createInvitation).not.toHaveBeenCalled();
+    expect(sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("mints a fresh invitation when a reusable pending one carries no accept link", async () => {
+    // Clerk documents `url` as optional and only guarantees it on the create
+    // response. Reusing a link-less invitation would strand the invitee.
+    listInvitations.mockResolvedValueOnce([
+      { ...invitation, id: "inv_marked_no_url", url: null },
+    ]);
+
+    await expect(send()).resolves.toEqual({
+      emailed: true,
+      invitationId: "inv_new",
+      reused: false,
+      status: "pending",
+    });
+    expect(createInvitation).toHaveBeenCalledOnce();
+    expect(sendInvitationEmail).toHaveBeenCalledWith({
+      acceptUrl: ACCEPT_URL,
+      to: "artist@example.com",
+    });
+  });
+
+  it.each([null, "http://clerk.skitza.app/v1/tickets/accept", "not-a-url"])(
+    "refuses to report success when Clerk returns an unusable accept link: %s",
+    async (url) => {
+      createInvitation.mockResolvedValueOnce({ ...invitation, url });
+
+      await expect(send()).rejects.toMatchObject({ code: "UNAVAILABLE" });
+      expect(sendInvitationEmail).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports the row as failed when the invitation email cannot be sent", async () => {
+    sendInvitationEmail.mockRejectedValueOnce(new Error("resend is down"));
+
+    await expect(send()).rejects.toMatchObject({ code: "UNAVAILABLE" });
   });
 
   it("creates a replacement after marked invitations expire or are revoked", async () => {
@@ -210,6 +275,7 @@ describe("founder Producer invitations", () => {
     ]);
 
     await expect(send()).resolves.toEqual({
+      emailed: true,
       invitationId: "inv_new",
       reused: false,
       status: "pending",

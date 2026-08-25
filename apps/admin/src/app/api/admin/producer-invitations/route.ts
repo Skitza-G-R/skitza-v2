@@ -18,6 +18,10 @@ import {
   resolveAdminWebAppUrl,
 } from "~/server/registered-users/clerk-environment";
 import {
+  createResendInvitationEmailSender,
+  resolveAdminInvitationEmailConfig,
+} from "~/server/registered-users/invitation-email";
+import {
   createClerkProducerInvitationProvider,
   ProducerInvitationError,
   sendProducerInvitationToEmail,
@@ -53,6 +57,9 @@ export async function POST(request: Request) {
     const resolved = resolveAdminEnvironment(process.env, selected ?? undefined);
     const clerk = resolveAdminClerkEnvironment(process.env, resolved.publicContext.id);
     const webAppUrl = resolveAdminWebAppUrl(process.env, resolved.publicContext.id);
+    const emailSender = createResendInvitationEmailSender(
+      resolveAdminInvitationEmailConfig(process.env, resolved.publicContext.id),
+    );
     const emailLock = createHash("sha256").update(emailAddress.trim().toLowerCase()).digest("hex");
 
     const result = await withNeonSessionAdvisoryLock(
@@ -62,6 +69,7 @@ export async function POST(request: Request) {
         sendProducerInvitationToEmail({
           clerkInstanceId: clerk.instanceId,
           emailAddress,
+          emailSender,
           operationKey,
           provider: createClerkProducerInvitationProvider(clerk.secretKey),
           redirectUrl: new URL("/sign-up", webAppUrl).toString(),
