@@ -113,6 +113,30 @@ describe("SK-112 contextual push preferences", () => {
     expect(preferences).toContain("if (boundaryIsCurrent()) setPending(null)");
   });
 
+  it("offers a one-tap master enable that turns on every category (SK-276)", () => {
+    expect(preferences).toContain('"Turn on notifications"');
+    expect(preferences).toContain("enableAllPushCategories(browser.publicKey)");
+    expect(preferences).toContain("categories.length === 0");
+    // The master handler lives after toggle and never re-implements the
+    // permission prompt — the shared flow owns it.
+    const toggleStart = preferences.indexOf("const toggle = useCallback");
+    const masterStart = preferences.indexOf("const enableAll = useCallback");
+    expect(masterStart).toBeGreaterThan(toggleStart);
+    expect(preferences.slice(masterStart)).not.toContain("requestPermission");
+  });
+
+  it("renders role-aware copy from a single component (SK-276)", () => {
+    expect(preferences).toContain("pushCategoryCopyForRole(role)");
+    expect(preferences).toContain('role = "producer"');
+  });
+
+  it("swaps to Home-Screen install guidance on iPhone Safari (SK-276)", () => {
+    expect(preferences).toContain("isAppleMobileDevice");
+    expect(preferences).toContain("isStandaloneDisplay()");
+    expect(preferences).toContain("requestInstallGuidance()");
+    expect(preferences).toContain("Add Skitza to your Home Screen");
+  });
+
   it("keeps producer push and gives artists global in-app/email preferences", () => {
     expect(producerSettings).toContain("<PushPreferences />");
     expect(producerSettings).not.toMatch(/notificationPrefs|notifyEmail|notifyInApp/);
@@ -129,8 +153,7 @@ describe("SK-112 contextual push preferences", () => {
     expect(artistSettingsActions).toContain(
       "caller.artistPlatform.profile.updateNotifications(input)",
     );
-    expect(artistSettings).not.toContain("PushPreferences");
-    expect(artistSettingsClient).not.toContain("PushPreferences");
+    expect(artistSettingsClient).toContain('<PushPreferences role="artist" />');
     expect(artistSettingsClient).not.toContain("Notification.requestPermission");
   });
 

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ClockIcon, DocIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
+import { PushMomentBanner } from "~/components/push/push-moment-banner";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { formatPurchaseMoney } from "./pay-data";
@@ -167,6 +168,10 @@ export function ProofRecordScreen({
                 </p>
               </div>
             </div>
+          ) : null}
+
+          {isPending ? (
+            <PushMomentBanner message="Get an alert when your payment is confirmed." />
           ) : null}
 
           {isRejected ? (

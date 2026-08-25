@@ -23,6 +23,7 @@ import {
   type ArtistDisconnectPreviewActionResult,
 } from "~/app/(artist)/artist/settings/actions";
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
+import { PushPreferences } from "~/components/push/push-preferences";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { formatTimeZoneSettingLabel } from "~/lib/timezone-display";
 import {
@@ -516,6 +517,12 @@ export function ArtistSettingsClient({
                 Use the account menu to update your name, photo, email, or sign out.
               </p>
             </section>
+          ) : null}
+
+          {active === "notifications" ? (
+            <div className="mb-5">
+              <PushPreferences role="artist" />
+            </div>
           ) : null}
 
           {active === "notifications" ? (
