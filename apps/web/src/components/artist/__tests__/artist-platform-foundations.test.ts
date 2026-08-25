@@ -59,8 +59,9 @@ describe("professional artist Settings", () => {
     expect(settings).toContain("Past studios");
   });
 
-  it("does not expose the browser push preference surface", () => {
-    expect(settings).not.toContain("PushPreferences");
-    expect(settings).not.toContain("web push");
+  it("exposes the device push card for artists (SK-276)", () => {
+    expect(settings).toContain('<PushPreferences role="artist" />');
+    // The shared component owns the permission prompt — never the client.
+    expect(settings).not.toContain("Notification.requestPermission");
   });
 });

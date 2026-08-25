@@ -153,8 +153,7 @@ describe("SK-112 contextual push preferences", () => {
     expect(artistSettingsActions).toContain(
       "caller.artistPlatform.profile.updateNotifications(input)",
     );
-    expect(artistSettings).not.toContain("PushPreferences");
-    expect(artistSettingsClient).not.toContain("PushPreferences");
+    expect(artistSettingsClient).toContain('<PushPreferences role="artist" />');
     expect(artistSettingsClient).not.toContain("Notification.requestPermission");
   });
 
