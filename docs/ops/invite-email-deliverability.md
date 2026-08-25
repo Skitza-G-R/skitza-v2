@@ -30,6 +30,15 @@ marketing because of:
 
 DMARC is published at `p=NONE`. That passes, but it's the weakest policy.
 
+**The OTP email is the control group.** `notifications@skitza.app` goes over the
+same Clerk SendGrid pool, with the same `X-SG-*` headers and the same
+`clkmail.skitza.app` return path — and it lands in Primary. So the bulk-sender
+infrastructure is not what decided the tab. What differs is shape: the OTP is a
+few lines and a number, while the invitation is a marketing layout with a button
+and a footer. (Engagement likely helps too — that address gets opened many times
+a week, `invitations@` almost never.) Either way it points at the same fix:
+plain content, from an address people actually reply to.
+
 ## What the code change does
 
 Clerk invitations are now created with `notify: false`, and we send the accept
@@ -54,31 +63,25 @@ receives mail. The reply path is doing real work here — see below.
 
 ## Dashboard steps (not code)
 
-**Resend → Domains → skitza.app → Settings**
-- Open tracking: **off**. Click tracking: **off**. Both rewrite links through a
-  tracking domain or embed a 1×1 pixel — two more Promotions signals.
+**Resend → Domains — already correct**
+Click tracking and open tracking are both off. Keep them off, and do **not** add
+a tracking subdomain: that exists to redirect every link through a tracking host,
+which is the exact thing we are trying to avoid.
 
-**Clerk → Customization → Emails**
-The OTP ("`114497 is your verification code`") and new-device emails still go
-out over Clerk's SendGrid and cannot be moved to Resend. A verification code in
-Promotions is worse than an invite there — the user can't sign in at all. Strip
-each template down to plain markup: keep whatever `{{ }}` variables the
-existing template already uses, delete everything around them.
+The verified sending domain is `send.skitza.app`, so `ADMIN_*_INVITE_FROM` has to
+use an address on it (`gili@send.skitza.app`) unless the `skitza.app` root gets
+verified in Resend too. Reply-To needs no verification — point it at a real
+mailbox you read.
 
-```html
-<p>Hi — here's your Skitza verification code:</p>
-<p style="font-size:24px;font-weight:600;">{{ keep the existing code variable }}</p>
-<p>It expires shortly. If you didn't ask for it, you can ignore this email.</p>
-<p>— Gili</p>
-```
+**Clerk → Customization → Emails — nothing to do**
+The OTP ("`114497 is your verification code`") already lands in Primary. A
+`category:promotions` search over the mailbox returns the invitations and
+nothing else — the code emails are not in that list. Leave that template alone.
 
-No logo, no table wrapper, no button, no footer, no `©` line. Set the sender
-name to a person, not `Skitza`.
-
-Also leave the invitation template stripped the same way as a fallback: a
-dashboard-created invitation still sends Clerk's mail, and per
-`producer-invitations.ts` it also can't carry the `skitzaProducerInvitation`
-marker. Invite from the admin app, not the Clerk dashboard.
+Do strip the **invitation** template down to plain markup as a fallback, since
+a dashboard-created invitation still sends Clerk's mail. Better: invite from the
+admin app, not the Clerk dashboard — per `producer-invitations.ts` a dashboard
+invitation can't carry the `skitzaProducerInvitation` marker either way.
 
 ## The lever that beats all of the above
 
