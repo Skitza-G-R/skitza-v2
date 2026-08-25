@@ -76,12 +76,30 @@ describe("invitation email body", () => {
 
   // Each of these is a signal Gmail's tab classifier reads as bulk
   // marketing. They are what put Clerk's own invitation in Promotions.
-  it.each(["<table", "<img", "unsubscribe", "background:", "linear-gradient", "©"])(
+  // `<img` is deliberately absent from this list — see the next test.
+  it.each(["<table", "unsubscribe", "background:", "linear-gradient", "©"])(
     "keeps the promotional marker %s out of the HTML",
     (marker) => {
       expect(message.html.toLowerCase()).not.toContain(marker.toLowerCase());
     },
   );
+
+  // The single allowed image. Small, sized so it cannot reflow, and given
+  // alt text so a client that blocks images shows the brand name rather
+  // than a broken box. More than one image would be a masthead.
+  it("carries exactly one logo image, sized and with alt text", () => {
+    expect(message.html.split("<img")).toHaveLength(2);
+    expect(message.html).toContain('src="https://skitza.app/icons/skitza-128.png"');
+    expect(message.html).toContain('alt="Skitza"');
+    expect(message.html).toContain('width="48" height="48"');
+  });
+
+  it("re-introduces Skitza in both parts, for invitees who signed up months ago", () => {
+    for (const part of [message.html, message.text]) {
+      expect(part).toContain("You signed up for early access");
+      expect(part).toContain("one app for your whole studio");
+    }
+  });
 
   it("escapes the accept link into the href", () => {
     const escaped = renderProducerInvitationEmail({

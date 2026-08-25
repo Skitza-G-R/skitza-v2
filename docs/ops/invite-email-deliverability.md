@@ -50,6 +50,27 @@ Side effect worth knowing: Clerk only ever emailed on *create*, so the admin
 "re-send invitation" button silently sent nothing when it reused a pending
 invitation. It sends now.
 
+### The one image, and why the copy re-introduces Skitza
+
+The first version was bare text. Gili's call after seeing it land (25 Aug 2026):
+it needed to look official, and it needed to remind people what Skitza is,
+because the beta list signed up for early access more than two months earlier.
+
+So the body now opens with a single 48px amber app icon
+(`https://skitza.app/icons/skitza-128.png`, left-aligned, `alt="Skitza"`) and
+carries one short paragraph re-introducing the product before it asks for
+anything. The reminder is a pure win — an unexplained email from a sender you
+last heard from in June reads *more* like spam, not less.
+
+The logo is the one concession to the "keep it plain" rule, so it is fenced in:
+one `<img>`, no header band, no table, no button, explicit `width`/`height`, and
+alt text so an images-off client shows the brand name instead of a gap. A test
+asserts exactly one image. **Do not let it grow into a masthead** — the tables,
+gradient button and footer are what put Clerk's version in Promotions in the
+first place.
+
+Both versions were sent to real Gmail `+tag` addresses and confirmed by Gili.
+
 ### Required env (per environment — see `apps/admin/.env.example`)
 
 ```
