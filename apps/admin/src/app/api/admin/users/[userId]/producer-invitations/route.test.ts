@@ -11,6 +11,7 @@ import {
   resolveAdminClerkEnvironment,
   resolveAdminWebAppUrl,
 } from "~/server/registered-users/clerk-environment";
+import type { InvitationEmailSender } from "~/server/registered-users/invitation-email";
 import {
   createClerkProducerInvitationProvider,
   ProducerInvitationError,
@@ -18,6 +19,16 @@ import {
 } from "~/server/registered-users/producer-invitations";
 import { createRegisteredUserRepository } from "~/server/registered-users/repository";
 import { POST } from "./route";
+
+vi.mock("~/server/registered-users/invitation-email", () => ({
+  createResendInvitationEmailSender: vi.fn(() => ({ send: vi.fn() })),
+  resolveAdminInvitationEmailConfig: vi.fn(() => ({
+    apiKey: "re_test_abcdefgh",
+    from: "Gili from Skitza (test) <gili@test.skitza.app>",
+    replyTo: "gili@test.skitza.app",
+    signature: "Gili",
+  })),
+}));
 
 vi.mock("@skitza/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@skitza/db")>();
@@ -133,6 +144,7 @@ describe("Producer invitation admin route", () => {
     });
     vi.mocked(createClerkProducerInvitationProvider).mockReturnValue(provider);
     vi.mocked(sendProducerInvitation).mockResolvedValue({
+      emailed: true,
       invitationId: "inv_new",
       reused: false,
       status: "pending",
@@ -180,6 +192,7 @@ describe("Producer invitation admin route", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
+      emailed: true,
       invitationId: "inv_new",
       reused: false,
       status: "pending",
@@ -194,6 +207,7 @@ describe("Producer invitation admin route", () => {
     expect(createClerkProducerInvitationProvider).toHaveBeenCalledWith("sk_test_hidden");
     expect(sendProducerInvitation).toHaveBeenCalledWith({
       clerkInstanceId: "ins_test",
+      emailSender: expect.anything() as InvitationEmailSender,
       operationKey: "producer-invite:request-1",
       provider,
       redirectUrl: "https://skitza-test.example/sign-up",

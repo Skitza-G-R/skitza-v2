@@ -16,6 +16,10 @@ import {
   resolveAdminWebAppUrl,
 } from "~/server/registered-users/clerk-environment";
 import {
+  createResendInvitationEmailSender,
+  resolveAdminInvitationEmailConfig,
+} from "~/server/registered-users/invitation-email";
+import {
   createClerkProducerInvitationProvider,
   ProducerInvitationError,
   sendProducerInvitation,
@@ -55,6 +59,9 @@ export async function POST(request: Request, context: { params: Promise<{ userId
     const resolved = resolveAdminEnvironment(process.env, selected ?? undefined);
     const clerk = resolveAdminClerkEnvironment(process.env, resolved.publicContext.id);
     const webAppUrl = resolveAdminWebAppUrl(process.env, resolved.publicContext.id);
+    const emailSender = createResendInvitationEmailSender(
+      resolveAdminInvitationEmailConfig(process.env, resolved.publicContext.id),
+    );
     const operationKey = operationKeyFromRequest(request);
     const { userId } = await context.params;
     if (!isValidRegisteredUserId(userId)) {
@@ -92,6 +99,7 @@ export async function POST(request: Request, context: { params: Promise<{ userId
         }
         return sendProducerInvitation({
           clerkInstanceId: clerk.instanceId,
+          emailSender,
           operationKey,
           provider,
           redirectUrl: new URL("/sign-up", webAppUrl).toString(),

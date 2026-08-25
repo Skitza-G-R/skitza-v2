@@ -15,6 +15,16 @@ import {
 } from "~/server/registered-users/producer-invitations";
 import { POST } from "./route";
 
+vi.mock("~/server/registered-users/invitation-email", () => ({
+  createResendInvitationEmailSender: vi.fn(() => ({ send: vi.fn() })),
+  resolveAdminInvitationEmailConfig: vi.fn(() => ({
+    apiKey: "re_test_abcdefgh",
+    from: "Gili from Skitza (test) <gili@test.skitza.app>",
+    replyTo: "gili@test.skitza.app",
+    signature: "Gili",
+  })),
+}));
+
 vi.mock("@skitza/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@skitza/db")>();
   return { ...actual, withNeonSessionAdvisoryLock: vi.fn() };
@@ -90,6 +100,7 @@ describe("beta release route", () => {
       async (_databaseUrl, _lockKey, callback) => callback({} as never),
     );
     vi.mocked(sendProducerInvitationToEmail).mockResolvedValue({
+      emailed: true,
       invitationId: "inv_new",
       reused: false,
       status: "pending",
@@ -116,7 +127,12 @@ describe("beta release route", () => {
     repository.listPendingEmailsInWave.mockResolvedValue(["a@example.com", "b@example.com"]);
     vi.mocked(sendProducerInvitationToEmail)
       .mockRejectedValueOnce(new ProducerInvitationError("TARGET_NOT_ELIGIBLE"))
-      .mockResolvedValueOnce({ invitationId: "inv_b", reused: false, status: "pending" });
+      .mockResolvedValueOnce({
+        emailed: true,
+        invitationId: "inv_b",
+        reused: false,
+        status: "pending",
+      });
 
     const response = await POST(request({ wave: 1 }));
     const payload = (await response.json()) as {
