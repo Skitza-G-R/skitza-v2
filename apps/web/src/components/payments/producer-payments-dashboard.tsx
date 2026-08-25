@@ -141,13 +141,13 @@ function StatPhrase({
     <span className="whitespace-nowrap">
       <span
         className={cn(
-          "font-mono text-[13.5px] leading-tight font-extrabold tabular-nums sm:text-[15px]",
+          "font-mono text-[clamp(15px,4.4vw,19px)] leading-tight font-extrabold tabular-nums",
           SUMMARY_TONE_CLASS[tone],
         )}
       >
         {formatMoney(cents, currency, { withCents: true })}
       </span>{" "}
-      <span className="text-[11px] text-[rgb(var(--fg-muted))]">{word}</span>
+      <span className="text-[12px] text-[rgb(var(--fg-muted))]">{word}</span>
     </span>
   );
 }
@@ -161,10 +161,10 @@ function SummaryGroup({
 }) {
   return (
     <div className="min-w-0">
-      <p className="text-[9px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+      <p className="text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
         {label}
       </p>
-      <p className="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+      <p className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
         {children}
       </p>
     </div>
@@ -210,7 +210,7 @@ function PaymentsSummary({
       data-producer-payments-summary=""
       className="overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
     >
-      <header className="flex min-w-0 items-baseline justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-3.5 py-2 sm:px-4">
+      <header className="flex min-w-0 items-baseline justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-4 py-2.5 sm:px-5">
         <h2
           id="producer-payments-summary-heading"
           className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--brand-primary-text))] uppercase"
@@ -225,7 +225,7 @@ function PaymentsSummary({
         {totals.map((total) => (
           <div
             key={total.currency}
-            className="grid min-w-0 grid-cols-1 gap-x-10 gap-y-2 px-3.5 py-2.5 sm:grid-cols-2 sm:px-4"
+            className="grid min-w-0 grid-cols-1 gap-x-10 gap-y-3 px-4 py-3.5 sm:grid-cols-2 sm:px-5"
           >
             <SummaryGroup
               label={`${periodLabel}${showCurrencyCode ? ` · ${total.currency}` : ""}`}
