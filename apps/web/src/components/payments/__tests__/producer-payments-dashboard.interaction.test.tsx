@@ -159,7 +159,8 @@ describe("ProducerPaymentsDashboard", () => {
     expect(screen.queryByRole("heading", { name: "By currency" })).toBeNull();
 
     // It still reads before the Artist list it describes.
-    const table = screen.getByRole("table", { name: /artists with their projects/i });
+    const table = screen.getAllByRole("table")[0];
+    if (!table) throw new Error("Expected an Artist table");
     expect(summary.compareDocumentPosition(table)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
@@ -199,18 +200,19 @@ describe("ProducerPaymentsDashboard", () => {
     };
     renderDashboard({ records: [firstProject, secondProject, repeatedProject] });
 
-    const table = screen.getByRole("table", { name: /artists with their projects/i });
+    const table = screen.getAllByRole("table")[0];
+    if (!table) throw new Error("Expected an Artist table");
     expect(
       within(table)
         .getAllByRole("columnheader")
         .map((header) => header.textContent),
-    ).toEqual(["Artist", "Next payment", "Paid so far", "Action"]);
+    ).toEqual(["Artist", "Payment", "Paid", "Action"]);
 
     const artistRow = within(table).getAllByRole("row")[1];
     if (!artistRow) throw new Error("Expected one Artist payment row");
     // Two distinct projects, the third record repeats one of them.
     expect(within(artistRow).getByRole("rowheader").textContent).toBe(
-      "Artist 00Project 0 +1 more",
+      "Artist 00· Project 0 +1 more",
     );
   });
 
@@ -300,21 +302,22 @@ describe("ProducerPaymentsDashboard", () => {
       records: [paymentRecord(0), overdue, upcoming, monthly, awaitingApproval],
     });
 
-    // A waiting proof outranks the next payment — reviewing it is the next move.
-    expect(screen.getAllByText("Proof sent Aug 3 · 5d ago").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Was due Aug 1 · 7d late").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Due Sep 10 · in 33d").length).toBeGreaterThan(0);
+    // A waiting proof outranks the next payment — reviewing it is the next move,
+    // and its amount is withheld because it is not the next payment's amount.
+    expect(screen.getAllByText("Proof to check — sent Aug 3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("was due Aug 1, 7 days ago").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("due Sep 10, in 33 days").length).toBeGreaterThan(0);
     // No date yet: say what the payment waits on instead of inventing one.
-    expect(screen.getAllByText("Monthly payment due").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("After final approval").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("monthly payment").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("after final approval").length).toBeGreaterThan(0);
   });
 
   it("never promises a future date for money the ledger already calls overdue", () => {
     // The fixture's due date is four days out while the status says overdue.
     renderDashboard({ records: [paymentRecord(1)] });
 
-    expect(screen.getAllByText("Was due Aug 12").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/in 4d/)).toBeNull();
+    expect(screen.getAllByText("was due Aug 12").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/in 4 days/)).toBeNull();
   });
 
   it("shows money paid against the whole agreed amount", () => {
@@ -322,7 +325,8 @@ describe("ProducerPaymentsDashboard", () => {
 
     const bars = screen.getAllByRole("progressbar", { name: "USD paid so far" });
     expect(bars[0]?.getAttribute("aria-valuenow")).toBe("50");
-    const table = screen.getByRole("table", { name: /artists with their projects/i });
+    const table = screen.getAllByRole("table")[0];
+    if (!table) throw new Error("Expected an Artist table");
     expect(table.textContent).toContain("$100 of $200");
   });
 
@@ -367,6 +371,33 @@ describe("ProducerPaymentsDashboard", () => {
     expect(screen.queryByText("Needs you")).toBeNull();
     expect(screen.queryByRole("button", { name: /overdue$/ })).toBeNull();
     expect(screen.getByText("All payments are up to date.")).not.toBeNull();
+  });
+
+  it("says when money last actually arrived, all-time", () => {
+    // The fixture's only payment landed Aug 3; the range is August.
+    renderDashboard({ records: [paymentRecord(2)] });
+    expect(screen.getAllByText("· last paid Aug 3").length).toBeGreaterThan(0);
+
+    cleanup();
+    // An Artist who has never paid says so rather than showing a blank.
+    renderDashboard({ records: [{ ...paymentRecord(2), payments: [], paidCents: 0 }] });
+    expect(screen.getAllByText("· no payments yet").length).toBeGreaterThan(0);
+  });
+
+  it("sorts rows under plain headings instead of colour-coding them", () => {
+    const overdue = withNextDue(paymentRecord(1), "2026-08-01T09:00:00.000Z", "overdue");
+    const upcoming = withNextDue(paymentRecord(2), "2026-09-10T09:00:00.000Z", "not_paid");
+    renderDashboard({ records: [paymentRecord(0), overdue, upcoming] });
+
+    expect(screen.getByRole("heading", { name: "Needs you" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Coming up" })).not.toBeNull();
+
+    // Actions live only under "Needs you"; "Coming up" says nothing at all.
+    const comingUp = screen.getByRole("table", { name: /money still to come/i });
+    expect(within(comingUp).queryByRole("link", { name: /Review/ })).toBeNull();
+    expect(within(comingUp).queryByRole("button", { name: /reminder/i })).toBeNull();
+    const needsYou = screen.getByRole("table", { name: /waiting on you/i });
+    expect(within(needsYou).getAllByRole("link", { name: /Review/ }).length).toBeGreaterThan(0);
   });
 
   it("uses the locked truthful empty state", () => {

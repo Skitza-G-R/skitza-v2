@@ -193,6 +193,8 @@ export interface ProducerPaymentArtistRow {
   paidByCurrency: readonly ProducerPaymentCurrencyAmount[];
   /** Everything this Artist ever agreed to pay, ignoring the time range. */
   totalByCurrency: readonly ProducerPaymentCurrencyAmount[];
+  /** When money last actually arrived — all-time, never clipped by the range. */
+  lastPaidAtIso: string | null;
   projectTitles: readonly string[];
   nextPayment: ProducerPaymentArtistNextPayment | null;
   pendingProofs: readonly ProducerPaymentArtistProofAction[];
@@ -531,6 +533,7 @@ export function aggregateProducerPaymentArtists(
       const totalLeft = new Map<string, number>();
       const paid = new Map<string, number>();
       const total = new Map<string, number>();
+      let lastPaidAtIso: string | null = null;
       const projectTitles = new Map<string, string>();
       const nextPayments: ProducerPaymentArtistNextPayment[] = [];
       const pendingProofs: ProducerPaymentArtistProofAction[] = [];
@@ -550,6 +553,11 @@ export function aggregateProducerPaymentArtists(
           (totalLeft.get(record.currency) ?? 0) + record.totalRemainingCents,
         );
         paid.set(record.currency, (paid.get(record.currency) ?? 0) + record.paidCents);
+        for (const payment of record.payments) {
+          if (lastPaidAtIso === null || payment.paidAtIso > lastPaidAtIso) {
+            lastPaidAtIso = payment.paidAtIso;
+          }
+        }
         total.set(record.currency, (total.get(record.currency) ?? 0) + record.totalCents);
         projectTitles.set(record.projectId, record.projectTitle);
         if (record.nextPayment) {
@@ -591,6 +599,7 @@ export function aggregateProducerPaymentArtists(
         totalLeftByCurrency: sortedCurrencyAmounts(totalLeft),
         paidByCurrency: sortedCurrencyAmounts(paid),
         totalByCurrency: sortedCurrencyAmounts(total),
+        lastPaidAtIso,
         projectTitles: [...projectTitles.values()].sort((left, right) =>
           left.localeCompare(right),
         ),
@@ -895,4 +904,104 @@ export function producerPaymentProjectLabel(titles: readonly string[]): string |
   const [first, ...rest] = titles;
   if (!first) return null;
   return rest.length === 0 ? first : `${first} +${String(rest.length)} more`;
+}
+
+// SK-275 — grouping replaces colour-coding: the heading above a row already
+// says whether it needs the producer, so the row itself can stay quiet.
+
+export type ProducerPaymentAttention = "needs_you" | "coming_up" | "paid_up";
+
+export interface ProducerPaymentLine {
+  /** Null when the money would not match the sentence — a waiting proof, or nothing left. */
+  amountCents: number | null;
+  currency: string;
+  detail: string;
+  tone: ProducerPaymentTimingTone;
+}
+
+const PLAIN_TRIGGER_PHRASES: Record<ProducerPaymentDueTrigger, string> = {
+  artist_approval: "after final approval",
+  acceptance: "when the artist accepts",
+  producer_import: "when added to Skitza",
+  monthly_anniversary: "after the first payment",
+};
+
+export function producerPaymentAttention(
+  artist: ProducerPaymentArtistRow,
+): ProducerPaymentAttention {
+  if (artist.status === "all_paid") return "paid_up";
+  if (
+    artist.status === "overdue" ||
+    artist.status === "needs_review" ||
+    artist.status === "due_now"
+  ) {
+    return "needs_you";
+  }
+  return "coming_up";
+}
+
+function dayCount(days: number): string {
+  return days === 1 ? "1 day" : `${String(days)} days`;
+}
+
+/**
+ * One plain sentence per row. The amount is returned separately so the row can
+ * lead with it, and is withheld whenever it would not describe the sentence —
+ * a proof's value is not the next payment's value.
+ */
+export function producerPaymentLine(
+  artist: ProducerPaymentArtistRow,
+  timeZone: string,
+  nowIso: string,
+): ProducerPaymentLine {
+  const tone = TIMING_TONE[artist.status];
+  const currency = artist.nextPayment?.currency ?? artist.totalByCurrency[0]?.currency ?? "USD";
+
+  const proof = earliestPendingProof(artist.pendingProofs);
+  if (proof) {
+    const date = producerPaymentShortDate(proof.submittedAtIso, timeZone, nowIso);
+    return { amountCents: null, currency, detail: `Proof to check — sent ${date}`, tone };
+  }
+
+  const next = artist.nextPayment;
+  if (!next) return { amountCents: null, currency, detail: "Fully paid", tone };
+
+  const amountCents = next.amountCents;
+  if (next.dueAtIso) {
+    const date = producerPaymentShortDate(next.dueAtIso, timeZone, nowIso);
+    const days = producerPaymentDaysBetween(nowIso, next.dueAtIso, timeZone);
+    // The ledger's own `overdue` outranks the calendar.
+    if (next.status === "overdue" || (days !== null && days < 0)) {
+      return {
+        amountCents,
+        currency,
+        detail:
+          days !== null && days < 0
+            ? `was due ${date}, ${dayCount(-days)} ago`
+            : `was due ${date}`,
+        tone,
+      };
+    }
+    if (days === null) return { amountCents, currency, detail: `due ${date}`, tone };
+    if (days === 0) return { amountCents, currency, detail: "due today", tone };
+    return { amountCents, currency, detail: `due ${date}, in ${dayCount(days)}`, tone };
+  }
+
+  if (next.dueTrigger === "artist_approval" && next.triggeredAtIso) {
+    return { amountCents, currency, detail: "final approval is done", tone };
+  }
+  if (next.dueTrigger === "monthly_anniversary" && next.triggeredAtIso) {
+    return { amountCents, currency, detail: "monthly payment", tone };
+  }
+  return { amountCents, currency, detail: PLAIN_TRIGGER_PHRASES[next.dueTrigger], tone };
+}
+
+/** "last paid Jul 30", or an honest note when no money has arrived yet. */
+export function producerPaymentLastPaidLabel(
+  artist: ProducerPaymentArtistRow,
+  timeZone: string,
+  nowIso: string,
+): string {
+  if (artist.lastPaidAtIso === null) return "no payments yet";
+  return `last paid ${producerPaymentShortDate(artist.lastPaidAtIso, timeZone, nowIso)}`;
 }

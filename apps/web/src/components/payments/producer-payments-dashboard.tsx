@@ -18,14 +18,15 @@ import {
   filterProducerPaymentRecords,
   paginateProducerPaymentArtists,
   producerPaymentArtistProgress,
+  producerPaymentAttention,
+  producerPaymentLastPaidLabel,
+  producerPaymentLine,
   producerPaymentNeedsYou,
   producerPaymentProjectLabel,
   producerPaymentShortDate,
-  producerPaymentTiming,
   summarizeProducerPayments,
   type ProducerPaymentArtistProgress,
   type ProducerPaymentArtistRow,
-  type ProducerPaymentArtistStatus,
   type ProducerPaymentCurrencySummary,
   type ProducerPaymentHistoryEvent,
   type ProducerPaymentStatusFilter,
@@ -33,7 +34,6 @@ import {
   type ProducerPaymentsView,
   type ProducerPaymentTimePreset,
   type ProducerPaymentTimeRange,
-  type ProducerPaymentTimingTone,
 } from "./producer-payments-dashboard-model";
 
 interface ProducerPaymentsDashboardProps {
@@ -66,35 +66,24 @@ const STATUS_OPTIONS: readonly Readonly<{
   { value: "all_paid", label: "All paid" },
 ];
 
-const STATUS_LABELS: Record<ProducerPaymentArtistStatus, string> = {
-  overdue: "Overdue",
-  needs_review: "Needs review",
-  due_now: "Due now",
-  waiting_milestone: "Waiting on work",
-  upcoming: "Upcoming",
-  all_paid: "All paid",
-};
-
-// A 3px left edge does the work the old status pill did, without the width.
-const STATUS_EDGE: Record<ProducerPaymentArtistStatus, string> = {
-  overdue: "border-l-[3px] border-l-[rgb(var(--fg-danger))]",
-  due_now: "border-l-[3px] border-l-[rgb(var(--fg-danger))]",
-  needs_review: "border-l-[3px] border-l-[rgb(var(--brand-primary-text))]",
-  waiting_milestone: "border-l-[3px] border-l-transparent",
-  upcoming: "border-l-[3px] border-l-transparent",
-  all_paid: "border-l-[3px] border-l-transparent",
-};
-
 // Wears the Badge skin (10px bold uppercase pill); the ::before overlay
 // stretches the touch target to ~44px without inflating the pill itself.
+const ATTENTION_GROUPS = [
+  {
+    id: "needs_you",
+    label: "Needs you",
+    caption: "Artists waiting on you: a payment proof to review, or money that is late",
+  },
+  {
+    id: "coming_up",
+    label: "Coming up",
+    caption: "Artists with money still to come, and when each payment is expected",
+  },
+  { id: "paid_up", label: "Paid up", caption: "Artists who have paid everything" },
+] as const;
+
 const NEEDS_YOU_CHIP =
   "sk-press relative shrink-0 cursor-pointer py-1 before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none";
-
-const TIMING_TONE_CLASS: Record<ProducerPaymentTimingTone, string> = {
-  danger: "text-[rgb(var(--fg-danger))]",
-  accent: "text-[rgb(var(--brand-primary-text))]",
-  muted: "text-[rgb(var(--fg-muted))]",
-};
 
 function safeDomId(value: string): string {
   return value.replaceAll(/[^A-Za-z0-9_-]/gu, "-");
@@ -275,62 +264,27 @@ function PaymentsSummary({
   );
 }
 
-function ArtistName({ artist, inline = false }: { artist: ProducerPaymentArtistRow; inline?: boolean }) {
+function ArtistName({ artist }: { artist: ProducerPaymentArtistRow }) {
   const projectLabel = producerPaymentProjectLabel(artist.projectTitles);
-  const link = (
-    <Link
-      href={clientPaymentsHref(artist.clientContactId)}
-      className={cn(
-        "text-[12.5px] font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none",
-        inline ? "inline-flex min-h-11 shrink-0 items-center" : "truncate",
-      )}
-    >
-      {artist.clientName}
-    </Link>
-  );
-  if (inline) {
-    return (
-      <span className="flex min-w-0 items-center gap-1.5">
-        {link}
-        {projectLabel ? (
-          <span className="min-w-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
-            · {projectLabel}
-          </span>
-        ) : null}
-      </span>
-    );
-  }
   return (
-    <span className="flex min-w-0 flex-col">
-      {link}
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <Link
+        href={clientPaymentsHref(artist.clientContactId)}
+        className="shrink-0 text-[13px] font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+      >
+        {artist.clientName}
+      </Link>
       {projectLabel ? (
-        <span className="mt-0.5 truncate text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
-          {projectLabel}
+        <span className="min-w-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+          · {projectLabel}
         </span>
       ) : null}
     </span>
   );
 }
 
-function ArtistNextAmount({ artist }: { artist: ProducerPaymentArtistRow }) {
-  const next = artist.nextPayment;
-  if (!next) {
-    return <span className="font-mono text-[12px] text-[rgb(var(--fg-muted))]">—</span>;
-  }
-  const owed = artist.status === "overdue" || artist.status === "due_now";
-  return (
-    <span
-      className={cn(
-        "block font-mono text-[12px] leading-tight font-bold whitespace-nowrap tabular-nums",
-        owed ? "text-[rgb(var(--fg-danger-text))]" : "text-[rgb(var(--fg-default))]",
-      )}
-    >
-      {formatMoney(next.amountCents, next.currency, { withCents: true })}
-    </span>
-  );
-}
-
-function ArtistTiming({
+/** Amount then plain sentence — the words carry the meaning, not the colour. */
+function ArtistLine({
   artist,
   timeZone,
   nowIso,
@@ -339,25 +293,44 @@ function ArtistTiming({
   timeZone: string;
   nowIso: string;
 }) {
-  const timing = producerPaymentTiming(artist, timeZone, nowIso);
+  const line = producerPaymentLine(artist, timeZone, nowIso);
   return (
-    <span className={cn("block truncate text-[11px] leading-snug", TIMING_TONE_CLASS[timing.tone])}>
-      {timing.text}
+    <span className="block min-w-0 text-[12.5px] leading-snug">
+      {line.amountCents === null ? null : (
+        <span
+          className={cn(
+            "font-mono font-bold whitespace-nowrap tabular-nums",
+            line.tone === "danger"
+              ? "text-[rgb(var(--fg-danger-text))]"
+              : "text-[rgb(var(--fg-default))]",
+          )}
+        >
+          {formatMoney(line.amountCents, line.currency, { withCents: true })}
+          <span className="font-sans font-normal text-[rgb(var(--fg-muted))]"> — </span>
+        </span>
+      )}
+      <span className="text-[rgb(var(--fg-secondary))]">{line.detail}</span>
     </span>
   );
 }
 
 function ProgressText({ row }: { row: ProducerPaymentArtistProgress }) {
   return (
-    <span className="block font-mono text-[11px] leading-tight whitespace-nowrap text-[rgb(var(--fg-secondary))] tabular-nums">
+    <span className="block font-mono text-[11px] leading-tight whitespace-nowrap text-[rgb(var(--fg-muted))] tabular-nums">
       {formatMoney(row.paidCents, row.currency)}
-      <span className="text-[rgb(var(--fg-muted))]"> of </span>
+      <span> of </span>
       {formatMoney(row.totalCents, row.currency)}
     </span>
   );
 }
 
-function ProgressBar({ row, className }: { row: ProducerPaymentArtistProgress; className?: string }) {
+function ProgressBar({
+  row,
+  className,
+}: {
+  row: ProducerPaymentArtistProgress;
+  className?: string;
+}) {
   return (
     <span
       role="progressbar"
@@ -366,7 +339,7 @@ function ProgressBar({ row, className }: { row: ProducerPaymentArtistProgress; c
       aria-valuemax={100}
       aria-label={`${row.currency} paid so far`}
       className={cn(
-        "block h-[3px] w-full overflow-hidden rounded-[var(--radius-sm)] bg-[rgb(var(--border-subtle))]",
+        "block h-[3px] overflow-hidden rounded-[var(--radius-sm)] bg-[rgb(var(--border-subtle))]",
         className,
       )}
     >
@@ -378,24 +351,39 @@ function ProgressBar({ row, className }: { row: ProducerPaymentArtistProgress; c
   );
 }
 
-function ArtistProgress({ artist }: { artist: ProducerPaymentArtistRow }) {
+function ArtistProgress({
+  artist,
+  timeZone,
+  nowIso,
+}: {
+  artist: ProducerPaymentArtistRow;
+  timeZone: string;
+  nowIso: string;
+}) {
   const rows = producerPaymentArtistProgress(artist);
   if (rows.length === 0) {
     return <span className="text-[11px] text-[rgb(var(--fg-muted))]">—</span>;
   }
   return (
     <span className="flex min-w-0 flex-col gap-1.5">
-      {rows.map((row) => (
-        <span key={row.currency} className="block min-w-0 max-w-[150px]">
-          <ProgressText row={row} />
-          <ProgressBar row={row} className="mt-1.5" />
+      {rows.map((row, index) => (
+        <span key={row.currency} className="block min-w-0">
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+            <ProgressText row={row} />
+            {index === 0 ? (
+              <span className="text-[10.5px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
+                · {producerPaymentLastPaidLabel(artist, timeZone, nowIso)}
+              </span>
+            ) : null}
+          </span>
+          <ProgressBar row={row} className="mt-1.5 w-full max-w-[190px]" />
         </span>
       ))}
     </span>
   );
 }
 
-/** Review beats Remind: confirming a waiting proof can clear the debt outright. */
+/** Only ever rendered inside "Needs you" — elsewhere the heading says it all. */
 function ArtistAction({ artist }: { artist: ProducerPaymentArtistRow }) {
   const proof = artist.pendingProofs[0];
   if (proof) {
@@ -410,20 +398,39 @@ function ArtistAction({ artist }: { artist: ProducerPaymentArtistRow }) {
     );
   }
   const next = artist.nextPayment;
-  if (next && (artist.status === "overdue" || artist.status === "due_now")) {
-    return (
-      <PaymentReminderButton
-        layout="inline"
-        purchaseId={next.purchaseId}
-        installmentId={next.installmentId}
-        installmentLabel={`${next.purchaseTitle} · ${amountLabel(next.amountCents, next.currency)}`}
-      />
-    );
-  }
+  if (!next) return null;
   return (
-    <span className="text-[11px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
-      {STATUS_LABELS[artist.status]}
-    </span>
+    <PaymentReminderButton
+      layout="inline"
+      purchaseId={next.purchaseId}
+      installmentId={next.installmentId}
+      installmentLabel={`${next.purchaseTitle} · ${amountLabel(next.amountCents, next.currency)}`}
+    />
+  );
+}
+
+function GroupHeading({
+  label,
+  count,
+  tone,
+}: {
+  label: string;
+  count: number;
+  tone: "danger" | "muted";
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3 pt-1 pb-2">
+      <h3
+        className={cn(
+          "font-mono text-[9px] font-bold tracking-[0.14em] whitespace-nowrap uppercase",
+          tone === "danger" ? "text-[rgb(var(--fg-danger-text))]" : "text-[rgb(var(--fg-muted))]",
+        )}
+      >
+        {label}
+      </h3>
+      <span aria-hidden="true" className="h-px flex-1 bg-[rgb(var(--border-subtle))]" />
+      <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">{String(count)}</span>
+    </div>
   );
 }
 
@@ -431,35 +438,47 @@ function ArtistDesktopTable({
   artists,
   timeZone,
   nowIso,
+  withAction,
+  caption,
+  showHeader,
 }: {
   artists: readonly ProducerPaymentArtistRow[];
   timeZone: string;
   nowIso: string;
+  withAction: boolean;
+  caption: string;
+  showHeader: boolean;
 }) {
   return (
     <div className="hidden overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] md:block">
       <table className="w-full table-fixed border-collapse text-left">
-        <caption className="sr-only">
-          Artists with their projects, the next payment and its date, money paid so far, and the
-          action that needs you
-        </caption>
+        <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
+          <tr
+            className={cn(
+              showHeader &&
+                "border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]",
+            )}
+          >
             {[
-              ["Artist", "w-[32%]"],
-              ["Next payment", "w-[27%]"],
-              ["Paid so far", "w-[24%]"],
-              ["Action", "w-[17%]"],
+              ["Artist", "w-[28%]"],
+              ["Payment", "w-[33%]"],
+              ["Paid", "w-[25%]"],
+              ["Action", "w-[14%]"],
             ].map(([label, width]) => (
               <th
                 key={label}
                 scope="col"
                 className={cn(
                   width,
-                  "px-3 py-2 text-[9px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase xl:px-4",
+                  showHeader
+                    ? "px-3 py-2 text-[9px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase xl:px-4"
+                    : "h-0 p-0",
                 )}
               >
-                {label}
+                <span className={cn((!showHeader || label === "Action") && "sr-only")}>
+                  {label}
+                </span>
               </th>
             ))}
           </tr>
@@ -470,21 +489,17 @@ function ArtistDesktopTable({
               key={artist.clientContactId}
               className="align-middle hover:bg-[rgb(var(--bg-sunken))]"
             >
-              <th
-                scope="row"
-                className={cn("py-2.5 pr-3 pl-2.5 text-left xl:pl-3", STATUS_EDGE[artist.status])}
-              >
+              <th scope="row" className="px-3 py-2.5 text-left xl:px-4">
                 <ArtistName artist={artist} />
               </th>
               <td className="px-3 py-2.5 xl:px-4">
-                <ArtistNextAmount artist={artist} />
-                <ArtistTiming artist={artist} timeZone={timeZone} nowIso={nowIso} />
+                <ArtistLine artist={artist} timeZone={timeZone} nowIso={nowIso} />
               </td>
               <td className="px-3 py-2.5 xl:px-4">
-                <ArtistProgress artist={artist} />
+                <ArtistProgress artist={artist} timeZone={timeZone} nowIso={nowIso} />
               </td>
               <td className="px-3 py-2.5 xl:px-4">
-                <ArtistAction artist={artist} />
+                {withAction ? <ArtistAction artist={artist} /> : null}
               </td>
             </tr>
           ))}
@@ -498,48 +513,41 @@ function ArtistMobileRows({
   artists,
   timeZone,
   nowIso,
+  withAction,
 }: {
   artists: readonly ProducerPaymentArtistRow[];
   timeZone: string;
   nowIso: string;
+  withAction: boolean;
 }) {
   return (
     <ul className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] md:hidden">
       {artists.map((artist) => {
         const progress = producerPaymentArtistProgress(artist);
-        const single = progress.length === 1 ? progress[0] : null;
         return (
-          <li
-            key={artist.clientContactId}
-            className={cn("min-w-0 py-2 pr-1 pl-2.5", STATUS_EDGE[artist.status])}
-          >
+          <li key={artist.clientContactId} className="min-w-0 py-2.5">
             <div className="flex min-w-0 items-center gap-3">
               <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <ArtistName artist={artist} inline />
-                  <ArtistNextAmount artist={artist} />
-                </div>
-                <div className="flex min-w-0 items-baseline justify-between gap-2">
-                  <span className="min-w-0">
-                    <ArtistTiming artist={artist} timeZone={timeZone} nowIso={nowIso} />
-                  </span>
-                  {single ? <ProgressText row={single} /> : null}
-                </div>
+                <ArtistName artist={artist} />
+                <span className="mt-0.5 block">
+                  <ArtistLine artist={artist} timeZone={timeZone} nowIso={nowIso} />
+                </span>
               </div>
-              <ArtistAction artist={artist} />
+              {withAction ? <ArtistAction artist={artist} /> : null}
             </div>
-            {single ? (
-              <ProgressBar row={single} className="mt-2" />
-            ) : (
-              <div className="mt-2 flex flex-col gap-1.5">
+            <div className="mt-2 flex flex-col gap-1.5">
+              {progress.map((row) => (
+                <ProgressBar key={row.currency} row={row} className="w-full" />
+              ))}
+              <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
                 {progress.map((row) => (
-                  <div key={row.currency}>
-                    <ProgressText row={row} />
-                    <ProgressBar row={row} className="mt-1" />
-                  </div>
+                  <ProgressText key={row.currency} row={row} />
                 ))}
-              </div>
-            )}
+                <span className="text-[10.5px] whitespace-nowrap text-[rgb(var(--fg-muted))]">
+                  · {producerPaymentLastPaidLabel(artist, timeZone, nowIso)}
+                </span>
+              </span>
+            </div>
           </li>
         );
       })}
@@ -1167,9 +1175,6 @@ export function ProducerPaymentsDashboard({
           <div className="flex min-w-0 flex-wrap items-center gap-2" aria-live="polite">
             {needsYou.overdueArtists > 0 || needsYou.pendingProofs > 0 ? (
               <>
-                <span className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--fg-secondary))] uppercase">
-                  Needs you
-                </span>
                 {needsYou.overdueArtists > 0 ? (
                   <button
                     type="button"
@@ -1245,20 +1250,40 @@ export function ProducerPaymentsDashboard({
             </section>
           ) : null}
 
-          <section aria-labelledby="artist-payment-table-heading" className="min-w-0">
+          <section aria-labelledby="artist-payment-table-heading" className="min-w-0 space-y-4">
             <h2 id="artist-payment-table-heading" className="sr-only">
               Artists
             </h2>
-            <ArtistDesktopTable
-              artists={artistPage.items}
-              timeZone={producerTimeZone}
-              nowIso={initialNowIso}
-            />
-            <ArtistMobileRows
-              artists={artistPage.items}
-              timeZone={producerTimeZone}
-              nowIso={initialNowIso}
-            />
+            {ATTENTION_GROUPS.filter((group) =>
+              artistPage.items.some((artist) => producerPaymentAttention(artist) === group.id),
+            ).map((group, groupIndex) => {
+              const rows = artistPage.items.filter(
+                (artist) => producerPaymentAttention(artist) === group.id,
+              );
+              return (
+                <div key={group.id} className="min-w-0">
+                  <GroupHeading
+                    label={group.label}
+                    count={rows.length}
+                    tone={group.id === "needs_you" ? "danger" : "muted"}
+                  />
+                  <ArtistDesktopTable
+                    artists={rows}
+                    timeZone={producerTimeZone}
+                    nowIso={initialNowIso}
+                    withAction={group.id === "needs_you"}
+                    caption={group.caption}
+                    showHeader={groupIndex === 0}
+                  />
+                  <ArtistMobileRows
+                    artists={rows}
+                    timeZone={producerTimeZone}
+                    nowIso={initialNowIso}
+                    withAction={group.id === "needs_you"}
+                  />
+                </div>
+              );
+            })}
             <Pagination
               page={artistPage.page}
               totalPages={artistPage.totalPages}
