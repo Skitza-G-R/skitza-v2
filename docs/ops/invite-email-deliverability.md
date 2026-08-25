@@ -53,12 +53,9 @@ invitation. It sends now.
 ### Why it is branded, and what that cost
 
 The first version was bare text. Gili's call after seeing it land (25 Aug 2026):
-it had to look official, and it had to remind people what Skitza is, because
-the beta list signed up for early access more than two months earlier.
-
-So the invitation now uses Skitza's own email palette — the dark lockup band
-(`#0e0d08`), a cream card (`#FBF7F0` on `#F4EFE7`), the Georgia/copper heading
-and the amber CTA — matching the templates in `apps/web/src/server/email/`.
+it had to look official, it had to remind people what Skitza is — the beta list
+signed up for early access more than two months earlier — and the first branded
+pass still "lacked style".
 
 **Tab placement is measured, not argued about.** Each version went to a real
 Gmail `+tag` address:
@@ -67,8 +64,12 @@ Gmail `+tag` address:
 | --- | --- |
 | Clerk's own invitation | Promotions |
 | ours, plain text | **Primary** |
-| ours, plain + small logo + reminder | **Primary** |
-| ours, fully branded (this one) | **Primary** |
+| plain + small logo + reminder | **Primary** |
+| branded: band, card, CTA | **Primary** |
+| designed: tagline, kicker, rows | **Primary** |
+
+Branding did not cost the fix. What decides the tab is the *sender*, not the
+decoration — see "What must survive" below.
 
 How to re-check after editing the template — in Gmail, or through any Gmail
 API client:
@@ -80,6 +81,37 @@ category:primary    from:gili@send.skitza.app   -> must return the message
 
 The `category:` operator is the only reliable read. Gmail's API does not expose
 `CATEGORY_*` in `labelIds`, so an absent Promotions label proves nothing.
+
+### Where the design came from
+
+Researched against SaaS welcome/invite teardowns, then matched to Skitza's own
+brand rather than a generic template. The findings that changed the layout:
+
+- The template that performs *worst* is the default one — 600px wide, logo
+  header, text block, CTA button. That is exactly what the first branded pass
+  was, and why it read as empty.
+  ([Email Marketing Bible](https://www.emailmarketingskill.com/17-best-email-designs-2026))
+- Dub.co puts a **tagline in the header** to elevate the core value. That is
+  what fills the dead space beside the lockup — here, "One app. Your whole
+  studio." ([Knock](https://knock.app/blog/welcome-email-examples))
+- Miro and Arcade break the pitch into **three digestible rows** instead of a
+  paragraph. Hence `VALUE_ROWS`. ([Knock](https://knock.app/blog/welcome-email-examples))
+- Dub.co, Loom, Todoist and Arcade all sign off **founder-led**. Hence
+  "Founder, Skitza". ([Knock](https://knock.app/blog/welcome-email-examples))
+- Miro's email matches the **product's own look**. So the email borrows the
+  landing hero's devices instead of inventing new ones: the amber kicker bar,
+  muted-cream secondary type on the band, and hairline rules between rows.
+  `apps/web/src/app/opengraph-image.tsx` is the reference, and its stated rule
+  — *one deliberate accent per block, not scattered punctuation* — is why the
+  kicker bar and the CTA are the only amber in the message.
+
+Palette and card shape stay aligned with the templates in
+`apps/web/src/server/email/`, so Skitza's mail reads as one family.
+
+**Width:** `width:100%` plus `max-width:520px`, never `width:520px` with
+`max-width:100%` — the latter leaves the table hanging off the right edge of a
+390px phone. Outlook ignores `max-width` entirely, so an `[if mso]` ghost table
+pins the width there. A test asserts both.
 
 ### The logo is an inline attachment, not a hosted URL
 

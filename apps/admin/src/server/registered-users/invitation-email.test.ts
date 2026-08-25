@@ -109,8 +109,24 @@ describe("invitation email body", () => {
   it("re-introduces Skitza in both parts, for invitees who signed up months ago", () => {
     for (const part of [message.html, message.text]) {
       expect(part).toContain("You signed up for early access");
-      expect(part).toContain("one app for your whole studio");
+      for (const lead of ["One link for your client.", "Everything in one place.", "No chasing."]) {
+        expect(part).toContain(lead);
+      }
     }
+  });
+
+  // The lockup alone left most of the band as dead space.
+  it("carries the product tagline in the lockup band", () => {
+    expect(message.html).toContain("One app. Your whole studio.");
+  });
+
+  // `width:520px` + `max-width:100%` leaves the table hanging off the right
+  // edge of a 390px phone. The reverse is what actually reflows, and the mso
+  // ghost table pins the width for Outlook, which ignores max-width.
+  it("sizes the container so a 390px phone does not overflow", () => {
+    expect(message.html).toContain("width:100%;max-width:520px");
+    expect(message.html).not.toContain("width:520px;max-width:100%");
+    expect(message.html).toContain("<!--[if mso]>");
   });
 
   it("escapes the accept link into the href", () => {

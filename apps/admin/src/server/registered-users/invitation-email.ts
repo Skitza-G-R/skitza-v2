@@ -41,28 +41,6 @@ import {
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
-// Skitza's email palette, shared with the templates in apps/web. BAND must
-// stay #0e0d08: the lockup PNG carries that exact background, so any other
-// value shows a seam around the image.
-const BAND = "#0e0d08";
-const PAGE = "#F4EFE7";
-const CARD = "#FBF7F0";
-const INK = "#1A1714";
-const MUTED = "#6B6158";
-const HEADING = "#A25A28";
-const AMBER = "#C98A0A";
-const ON_AMBER = "#1A1407";
-const RULE = "#E8E2D9";
-const SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-
-// These invitees signed up for early access months ago, so the message has
-// to re-introduce Skitza before it asks for anything. One source of truth
-// keeps the HTML and plain-text parts from drifting apart.
-const REMINDER =
-  "You signed up for early access a couple of months ago, so a quick reminder of " +
-  "what Skitza is: one app for your whole studio. You send a client one link — they " +
-  "listen to your tracks, book a session and pay you — and every project, agreement " +
-  "and payment stays in one place.";
 const MAX_ACCEPT_URL_LENGTH = 2000;
 
 const RESEND_KEY_NAMES = {
@@ -85,6 +63,43 @@ const REPLY_TO_NAMES = {
 // skimming a crowded inbox.
 const FROM_PATTERN = /^(?<displayName>[^<>"]{1,100}?)\s+<(?<mailbox>[^\s@<>]+@[^\s@<>]+)>$/;
 const MAILBOX_PATTERN = /^[^\s@<>]+@[^\s@<>]+$/;
+
+// Skitza's email palette, shared with the templates in apps/web. BAND must
+// stay #0e0d08: the lockup PNG carries that exact background, so any other
+// value shows a seam around the image.
+const BAND = "#0e0d08";
+const PAGE = "#F4EFE7";
+const CARD = "#FBF7F0";
+const INK = "#1A1714";
+const MUTED = "#6B6158";
+const HEADING = "#A25A28";
+const AMBER = "#C98A0A";
+const ON_AMBER = "#1A1407";
+const RULE = "#E8E2D9";
+const SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+// Secondary type on the dark band. Flattened from the hero's
+// rgba(242,237,230,0.42) — email clients cannot be trusted with alpha.
+const BAND_MUTED = "#847E75";
+
+// Borrowed from the landing hero so the email reads as the same product:
+// the tagline, and the amber "kicker" bar that closes a headline block.
+// The hero's rule is one deliberate accent per block, not scattered
+// punctuation — so the kicker and the CTA are the only amber here.
+const TAGLINE = "One app. Your whole studio.";
+
+// These invitees signed up for early access months ago, so the message has
+// to re-introduce Skitza before it asks for anything. Three scannable rows
+// rather than one paragraph — a wall of text is what made the first draft
+// read as empty. One source of truth keeps HTML and plain text in step.
+const INTRO =
+  "You signed up for early access a couple of months ago, so here is the short version of what Skitza does.";
+
+const VALUE_ROWS = [
+  ["One link for your client.", "They listen to your tracks, book a session and pay you."],
+  ["Everything in one place.", "Projects, agreements, payment records and delivery history."],
+  ["No chasing.", "Skitza tracks what is due and sends the reminders for you."],
+] as const;
 
 export type AdminInvitationEmailConfig = Readonly<{
   apiKey: string;
@@ -186,6 +201,21 @@ export function renderProducerInvitationEmail(
   const href = escapeHtml(input.acceptUrl);
   const signature = escapeHtml(input.signature);
   const subject = "Your Skitza account is ready";
+
+  // Run-in heads with a hairline between, the way the landing page sets a
+  // list. `font-size:0;line-height:0` on the rule keeps Outlook from
+  // padding it into a visible gap.
+  const rows = VALUE_ROWS.map(([lead, rest], index) =>
+    [
+      index === 0
+        ? ""
+        : `<tr><td style="padding:14px 0 0;"><div style="border-top:1px solid ${RULE};font-size:0;line-height:0;">&nbsp;</div></td></tr>`,
+      `<tr><td style="padding:${index === 0 ? "0" : "14px"} 0 0;font-size:16px;line-height:1.55;color:${INK};">`,
+      `<strong style="font-weight:600;">${escapeHtml(lead)}</strong> ${escapeHtml(rest)}`,
+      "</td></tr>",
+    ].join(""),
+  ).join("\n");
+
   return {
     // Tables and inline styles are not a stylistic choice — Outlook has no
     // flexbox and every client strips <style> blocks differently.
@@ -200,40 +230,60 @@ export function renderProducerInvitationEmail(
       `<body style="margin:0;padding:0;background-color:${PAGE};">`,
       `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${PAGE};">`,
       '<tr><td align="center" style="padding:24px 12px;">',
-      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="width:520px;max-width:100%;">',
+      // `width:100%` + `max-width` is the pattern that actually reflows;
+      // `width:520px` with `max-width:100%` leaves the table overflowing a
+      // 390px phone. Outlook ignores max-width entirely, hence the ghost
+      // table that pins it to 520 there and nowhere else.
+      '<!--[if mso]><table role="presentation" width="520" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->',
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;max-width:520px;margin:0 auto;">',
 
-      // Lockup band. The cell colour is cream so that a client with images
-      // switched off shows the word "Skitza" instead of a gap.
-      `<tr><td style="background-color:${BAND};border-radius:12px 12px 0 0;padding:22px 28px;color:${PAGE};font-family:${SANS};font-size:18px;font-weight:700;">`,
+      // Lockup band. Cell colour is cream so an images-off client shows the
+      // word "Skitza" rather than a gap, and the tagline keeps the band
+      // from reading as empty space beside the logo.
+      `<tr><td style="background-color:${BAND};border-radius:12px 12px 0 0;padding:26px 28px 22px;color:${PAGE};font-family:${SANS};font-size:18px;font-weight:700;">`,
       `<img src="cid:${INVITE_LOGO_CID}" alt="Skitza" width="${String(INVITE_LOGO_WIDTH)}" height="${String(INVITE_LOGO_HEIGHT)}" style="display:block;border:0;">`,
+      `<div style="margin:14px 0 0;font-family:${SANS};font-size:14px;font-weight:400;letter-spacing:0.01em;color:${BAND_MUTED};">${TAGLINE}</div>`,
       "</td></tr>",
 
-      `<tr><td style="background-color:${CARD};border-radius:0 0 12px 12px;padding:28px;font-family:${SANS};font-size:16px;line-height:1.55;color:${INK};">`,
-      `<h1 style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:26px;line-height:1.25;color:${HEADING};">You&rsquo;re in</h1>`,
-      '<p style="margin:0 0 16px;">Hi — your Skitza account is ready to set up.</p>',
-      `<p style="margin:0 0 26px;">${escapeHtml(REMINDER)}</p>`,
+      `<tr><td style="background-color:${CARD};border-radius:0 0 12px 12px;padding:30px 28px 28px;font-family:${SANS};font-size:16px;line-height:1.55;color:${INK};">`,
+      `<h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:27px;line-height:1.2;color:${HEADING};">You&rsquo;re in</h1>`,
+
+      // The kicker bar — the hero's signature punctuation, and the only
+      // amber in the message besides the CTA.
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 0;"><tr><td style="width:56px;height:4px;background-color:${AMBER};border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr></table>`,
+
+      '<p style="margin:22px 0 0;">Hi — your Skitza account is ready to set up.</p>',
+      `<p style="margin:14px 0 22px;color:${MUTED};">${escapeHtml(INTRO)}</p>`,
+
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">',
+      rows,
+      "</table>",
 
       // Bulletproof button: colour on the cell, padding on the anchor.
-      '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>',
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 0;"><tr>',
       `<td style="background-color:${AMBER};border-radius:8px;">`,
       `<a href="${href}" style="display:inline-block;padding:13px 26px;font-family:${SANS};font-size:16px;font-weight:600;color:${ON_AMBER};text-decoration:none;">Finish setting up your account</a>`,
       "</td></tr></table>",
 
-      `<p style="margin:26px 0 0;font-size:14px;color:${MUTED};">The link works for the next 7 days and only from this email address.</p>`,
-      '<p style="margin:16px 0 0;">If it gives you any trouble, just reply — this comes straight to me.</p>',
-      `<p style="margin:16px 0 0;">— ${signature}</p>`,
+      `<p style="margin:20px 0 0;font-size:14px;color:${MUTED};">The link works for the next 7 days and only from this email address.</p>`,
+      '<p style="margin:22px 0 0;">If it gives you any trouble, just reply — this comes straight to me.</p>',
+      `<p style="margin:20px 0 0;line-height:1.4;">— ${signature}<br><span style="font-size:14px;color:${MUTED};">Founder, Skitza</span></p>`,
       `<hr style="border:0;border-top:1px solid ${RULE};margin:26px 0 0;">`,
       `<p style="margin:18px 0 0;font-size:13px;line-height:1.5;color:${MUTED};">You are getting this because you signed up for early access at skitza.app.</p>`,
       "</td></tr>",
 
-      "</table></td></tr></table>",
+      "</table>",
+      "<!--[if mso]></td></tr></table><![endif]-->",
+      "</td></tr></table>",
       "</body></html>",
     ].join("\n"),
     subject,
     text: [
       "Hi — your Skitza account is ready to set up.",
       "",
-      REMINDER,
+      INTRO,
+      "",
+      ...VALUE_ROWS.map(([lead, rest]) => `* ${lead} ${rest}`),
       "",
       "Finish setting up your account here:",
       input.acceptUrl,
@@ -243,6 +293,7 @@ export function renderProducerInvitationEmail(
       "If it gives you any trouble, just reply — this comes straight to me.",
       "",
       `— ${input.signature}`,
+      "Founder, Skitza",
       "",
       "You are getting this because you signed up for early access at skitza.app.",
     ].join("\n"),
