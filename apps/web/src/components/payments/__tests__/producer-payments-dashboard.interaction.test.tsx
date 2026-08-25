@@ -210,9 +210,9 @@ describe("ProducerPaymentsDashboard", () => {
 
     const artistRow = within(table).getAllByRole("row")[1];
     if (!artistRow) throw new Error("Expected one Artist payment row");
-    // Two distinct projects, the third record repeats one of them.
+    // Desktop stacks the name over its projects; two distinct, the third repeats.
     expect(within(artistRow).getByRole("rowheader").textContent).toBe(
-      "Artist 00· Project 0 +1 more",
+      "Artist 00Project 0 +1 more",
     );
   });
 
