@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CalendarDays } from "lucide-react";
 
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
+import { PushMomentBanner } from "~/components/push/push-moment-banner";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   ARTIST_SESSIONS_TAB_KEYS,
@@ -193,7 +194,12 @@ export function MySessionsScreen({
         >
           {activeTab === "upcoming" ? (
             <>
-              {justBooked ? <ConfirmationHero session={justBooked} /> : null}
+              {justBooked ? (
+                <>
+                  <ConfirmationHero session={justBooked} />
+                  <PushMomentBanner message="Get an alert the moment your session is confirmed." />
+                </>
+              ) : null}
 
               {!groups.next && groups.held.length === 0 && groups.upcoming.length === 0 ? (
                 <SessionsEmptyState

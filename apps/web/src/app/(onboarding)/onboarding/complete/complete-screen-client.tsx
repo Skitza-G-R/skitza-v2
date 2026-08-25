@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { ConfettiBurst } from "~/components/onboarding/wizard-shell/confetti-burst";
+import { PushMomentBanner } from "~/components/push/push-moment-banner";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { buildJoinUrl } from "~/lib/share/public-url";
 
@@ -178,6 +179,8 @@ export function CompleteScreenClient({
           Open dashboard
           <ArrowRight aria-hidden size={17} />
         </Link>
+
+        <PushMomentBanner message="Get an alert when clients book, pay, or comment." />
 
         <Link
           href={previewHref}
