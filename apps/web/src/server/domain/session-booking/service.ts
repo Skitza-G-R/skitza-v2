@@ -1812,9 +1812,12 @@ async function createSessionBookingInTransaction(
   const status = options.forceConfirmed
     ? "confirmed"
     : initialSessionBookingStatus(context.producer.autoConfirmBookings);
+  // SK-280: Gili extended the producer's answer window from 24h to 48h.
+  // Must stay in lockstep with the bookings_held_expiry_shape CHECK
+  // (migration 0058) — the database enforces this exact LEAST() value.
   const heldExpiresAt =
     status === "pending_approval"
-      ? new Date(Math.min(now.getTime() + 24 * 60 * 60 * 1000, startsAt.getTime()))
+      ? new Date(Math.min(now.getTime() + 48 * 60 * 60 * 1000, startsAt.getTime()))
       : null;
   const booking = await transaction.insertBooking({
     producerId: input.producerId,

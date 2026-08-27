@@ -671,7 +671,7 @@ export const bookings = pgTable(
     cancellationPolicyBackfilled: boolean("cancellation_policy_backfilled")
       .notNull()
       .default(false),
-    // Held requests expire at min(createdAt + 24h, startsAt). Confirmed-at-
+    // Held requests expire at min(createdAt + 48h, startsAt). Confirmed-at-
     // creation bookings never enter Held and therefore keep this NULL.
     heldExpiresAt: timestamp("held_expires_at", { withTimezone: true }),
     heldExpiredAt: timestamp("held_expired_at", { withTimezone: true }),
@@ -788,6 +788,7 @@ export const bookings = pgTable(
         (${t.status} <> 'pending_approval' OR ${t.heldExpiresAt} IS NOT NULL)
         AND (
           ${t.heldExpiresAt} IS NULL
+          OR ${t.heldExpiresAt} = LEAST(${t.createdAt} + interval '48 hours', ${t.startsAt})
           OR ${t.heldExpiresAt} = LEAST(${t.createdAt} + interval '24 hours', ${t.startsAt})
         )
         AND (
