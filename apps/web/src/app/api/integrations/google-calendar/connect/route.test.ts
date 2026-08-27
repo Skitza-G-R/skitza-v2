@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
 vi.mock("~/server/google-calendar/config", () => ({
   isGoogleCalendarServerConfigured: mocks.isConfigured,
+  loadGoogleCalendarServerConfig: () => ({
+    redirectUri: "https://skitza.test/api/integrations/google-calendar/callback",
+  }),
 }));
 vi.mock("~/server/google-calendar/oauth", () => ({
   GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS: 600,
@@ -114,13 +117,19 @@ describe("Google Calendar OAuth connect route", () => {
     },
   );
 
-  it("returns fixed safe copy when OAuth start fails", async () => {
+  // SK-280: a failed begin lands the producer back on the Calendar screen
+  // with the standard error toast instead of a bare 502 dead end — and the
+  // redirect still leaks nothing from the underlying failure.
+  it("redirects back to the calendar with safe copy when OAuth start fails", async () => {
     mocks.begin.mockRejectedValue(new Error("raw state and provider response"));
 
     const response = await request();
 
-    expect(response.status).toBe(502);
-    expect(await response.text()).toBe("Google Calendar is unavailable");
-    expect(response.headers.get("Location")).toBeNull();
+    expect(response.status).toBe(303);
+    expect(response.headers.get("Location")).toBe(
+      "https://skitza.test/dashboard/calendar?tab=availability&google=error",
+    );
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
   });
 });

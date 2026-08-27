@@ -308,7 +308,10 @@ describe("SessionManagementSheet", () => {
     expect(screen.getByRole("listbox", { name: "Date" })).toBeTruthy();
   });
 
-  it("keeps ended confirmed sessions view-only, including a direct reschedule entry", () => {
+  // SK-280: an ended confirmed session is no longer a dead end — the sheet
+  // offers the close-out transitions (completed / no-show / late cancel) so
+  // the recorded outcome matches what actually happened.
+  it("offers the close-out actions on ended confirmed sessions instead of a dead end", () => {
     const endedSession: SessionListItem = {
       ...session,
       startsAt: "2020-08-11T07:00:00.000Z",
@@ -316,11 +319,17 @@ describe("SessionManagementSheet", () => {
     renderSheet(vi.fn(), "reschedule", endedSession);
 
     expect(screen.getByRole("heading", { name: "Session details" })).toBeTruthy();
-    expect(screen.getByText("This session has ended. Its details are view-only.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "This session has ended. Record what happened so the artist's session count stays right.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reschedule" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit title" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark completed" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark no-show" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Artist cancelled late — record it" })).toBeTruthy();
     expect(mocks.getSessionRescheduleAvailability).not.toHaveBeenCalled();
   });
 

@@ -72,7 +72,7 @@ describe("focused short booking process", () => {
     expect(clientSrc).toMatch(/studioTimeZone=\{availability\.studioTimeZone\}/);
     expect(clientSrc).toMatch(/formatSessionTimeZoneLabel/);
     expect(clientSrc).toMatch(/formatTime\(slot\.startsAtISO, artistTimeZone, true\)/);
-    expect(clientSrc).toMatch(/formatGmtClockTime\(new Date\(iso\), timeZone\)/);
+    expect(clientSrc).toMatch(/formatGmtClockTime\(new Date\(iso\), timeZone, "en-US"\)/);
   });
 
   it("adds concise Studio time only on Review", () => {
