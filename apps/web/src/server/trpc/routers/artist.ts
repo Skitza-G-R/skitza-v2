@@ -41,9 +41,18 @@ import {
   assertArtistMusicProjectAvailable,
   resolveProjectOwnership,
 } from "~/server/artist/access";
-import { SITE_URL, sendNewCommentFromArtistEmail } from "~/server/email/send";
+import {
+  SITE_URL,
+  sendBookingConfirmedEmail,
+  sendBookingRequestEmail,
+  sendNewCommentFromArtistEmail,
+} from "~/server/email/send";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
-import { emitBookingRequested, emitCommentCreated } from "~/server/notifications/emit";
+import {
+  emitBookingChangeRequested,
+  emitBookingRequested,
+  emitCommentCreated,
+} from "~/server/notifications/emit";
 import {
   cancelArtistSessionBooking,
   createSessionBooking,
@@ -1067,7 +1076,13 @@ function mapSessionBookingDomainError(error: unknown): never {
     error.code === "BOOKING_DISABLED" ||
     error.code === "NOT_FOUND"
   ) {
-    throw new TRPCError({ code: "NOT_FOUND" });
+    // SK-280: a message-less TRPCError renders its code, so artists saw the
+    // literal string "NOT_FOUND" in the red error box.
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message:
+        "This session or package is no longer open for booking. Ask your producer if that seems wrong.",
+    });
   }
   if (error.code === "CANCELLATION_WINDOW" || error.code === "HELD_EXPIRED") {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
@@ -1106,6 +1121,7 @@ async function loadArtistSessionRows(
       producerEmail: producers.email,
       producerSlug: producers.slug,
       producerTimezone: producers.timezone,
+      producerClosedAt: producers.closedAt,
       artistTimezone: artistProfiles.timezone,
       autoConfirm: producers.autoConfirmBookings,
       cancellationPolicyHours: producers.cancellationPolicyHours,
@@ -1231,6 +1247,7 @@ function presentArtistSession(row: ArtistSessionRow, now: Date) {
         purchaseLifecycleStatus: row.purchaseLifecycleStatus,
         projectLifecycleStatus: row.projectLifecycleStatus,
         allowanceClosedAt: row.allowanceClosedAt,
+        producerClosedAt: row.producerClosedAt,
         now,
       }),
     },
@@ -1335,6 +1352,14 @@ const bookSubrouter = router({
               eq(purchases.id, bookings.purchaseId),
               eq(purchases.producerId, bookings.producerId),
               eq(purchases.projectId, bookings.projectId),
+            ),
+          )
+          .innerJoin(
+            projects,
+            and(
+              eq(projects.id, purchases.projectId),
+              eq(projects.producerId, purchases.producerId),
+              eq(projects.clientContactId, purchases.clientContactId),
             ),
           )
           .innerJoin(
@@ -1790,6 +1815,8 @@ const bookSubrouter = router({
       deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
 
       if (result.created) {
+        const createdRows = await loadArtistSessionRows(ctx.db, ctx.clerkUserId, result.booking.id);
+        const createdRow = createdRows[0];
         try {
           await emitBookingRequested(ctx.db, {
             producerId: result.booking.producerId,
@@ -1797,6 +1824,7 @@ const bookSubrouter = router({
             artistName: result.booking.artistName,
             artistEmail: result.booking.artistEmail,
             when: result.booking.startsAt,
+            timeZone: createdRow?.producerTimezone ?? "UTC",
           });
         } catch (error) {
           console.warn("[notify] booking-requested failed", error);
@@ -1821,7 +1849,7 @@ const bookSubrouter = router({
               created.commercialSnapshot,
               created.projectTitle,
             );
-            await emitArtistSessionNotificationBestEffort(ctx.db, {
+            const emailEnabled = await emitArtistSessionNotificationBestEffort(ctx.db, {
               recipientClerkUserId: ctx.clerkUserId,
               producerId: created.booking.producerId,
               bookingId: created.booking.id,
@@ -1830,6 +1858,44 @@ const bookSubrouter = router({
               kind: "booking_confirmed",
               sourceEventId: created.booking.id,
             });
+            // SK-280: the branded confirmation was designed but never wired —
+            // the artist previously received only the bare ICS invite.
+            if (!emailEnabled) return;
+            try {
+              await sendBookingConfirmedEmail(created.booking.artistEmail, {
+                artistName: created.booking.artistName,
+                producerName,
+                productName: sessionName,
+                startsAt: created.booking.startsAt,
+                producerTimezone: created.producerTimezone,
+              });
+            } catch (error) {
+              console.warn("[email] booking auto-confirm failed", error);
+            }
+          });
+        } else {
+          // SK-280: the "new booking request" email was designed but never
+          // wired — producers only learned about requests from in-app rows
+          // and best-effort push.
+          after(async () => {
+            if (!createdRow?.producerEmail) return;
+            const snapshot = createdRow.commercialSnapshot;
+            try {
+              await sendBookingRequestEmail(createdRow.producerEmail, {
+                producerName: createdRow.producerName ?? "there",
+                artistName: result.booking.artistName,
+                productName: purchaseProductName(snapshot, createdRow.projectTitle),
+                startsAt: result.booking.startsAt,
+                producerTimezone: createdRow.producerTimezone,
+                currency: snapshot.currency,
+                priceCents: snapshot.lineItems.reduce((total, item) => total + item.totalCents, 0),
+                depositCents: 0,
+                notes: undefined,
+                reviewUrl: `${SITE_URL}/dashboard/calendar?booking=${result.booking.id}`,
+              });
+            } catch (error) {
+              console.warn("[email] booking request to producer failed", error);
+            }
           });
         }
       }
@@ -2052,6 +2118,21 @@ const bookSubrouter = router({
         mapSessionBookingDomainError(error);
       }
       if (!result.replayed) {
+        // SK-280: push alone silently reaches nobody when the producer has no
+        // installed PWA — write the durable inbox row too.
+        try {
+          await emitBookingChangeRequested(ctx.db, {
+            producerId: before.booking.producerId,
+            bookingId: before.booking.id,
+            artistName: before.booking.artistName,
+            kind: "cancel",
+            currentStartsAt: before.booking.startsAt,
+            proposedStartsAt: null,
+            timeZone: before.producerTimezone,
+          });
+        } catch (error) {
+          console.warn("[notify] booking-change-requested failed", error);
+        }
         after(async () => {
           try {
             await deliverPushToProducer(ctx.db, before.booking.producerId, {
@@ -2114,6 +2195,21 @@ const bookSubrouter = router({
         mapSessionBookingDomainError(error);
       }
       if (!result.replayed) {
+        // SK-280: push alone silently reaches nobody when the producer has no
+        // installed PWA — write the durable inbox row too.
+        try {
+          await emitBookingChangeRequested(ctx.db, {
+            producerId: before.booking.producerId,
+            bookingId: before.booking.id,
+            artistName: before.booking.artistName,
+            kind: "reschedule",
+            currentStartsAt: before.booking.startsAt,
+            proposedStartsAt: input.startsAt,
+            timeZone: before.producerTimezone,
+          });
+        } catch (error) {
+          console.warn("[notify] booking-change-requested failed", error);
+        }
         after(async () => {
           try {
             await deliverPushToProducer(ctx.db, before.booking.producerId, {

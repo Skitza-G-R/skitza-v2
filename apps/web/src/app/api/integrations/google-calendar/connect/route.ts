@@ -1,7 +1,10 @@
 import { auth } from "~/server/auth/clerk-identity";
 import { NextResponse } from "next/server";
 
-import { isGoogleCalendarServerConfigured } from "~/server/google-calendar/config";
+import {
+  isGoogleCalendarServerConfigured,
+  loadGoogleCalendarServerConfig,
+} from "~/server/google-calendar/config";
 import {
   GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS,
   GOOGLE_CALENDAR_OAUTH_BROWSER_COOKIE_NAME,
@@ -70,6 +73,16 @@ export async function GET(request: Request): Promise<Response> {
     });
     return response;
   } catch {
-    return privateResponse("Google Calendar is unavailable", 502);
+    // SK-280: a failed begin (stale reconnect state, transient DB error) used
+    // to strand the producer on a bare 502 text page with no way back. Land
+    // them on the Calendar screen with the standard error toast instead,
+    // exactly as the OAuth callback already does.
+    const location = new URL("/dashboard/calendar", loadGoogleCalendarServerConfig().redirectUri);
+    location.searchParams.set("tab", "availability");
+    location.searchParams.set("google", "error");
+    return new NextResponse(null, {
+      status: 303,
+      headers: { ...PRIVATE_HEADERS, Location: location.toString() },
+    });
   }
 }

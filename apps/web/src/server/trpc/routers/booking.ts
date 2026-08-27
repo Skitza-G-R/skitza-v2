@@ -34,7 +34,10 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
-import { sendBookingCancelledOrRescheduledEmail } from "~/server/email/send";
+import {
+  sendBookingCancelledOrRescheduledEmail,
+  sendBookingConfirmedEmail,
+} from "~/server/email/send";
 import { mergePreservedPaymentPlans, normalizeProductPaymentPlans } from "~/lib/payment-plans";
 import { findWeekBlocksIssues } from "~/lib/availability/windows";
 import {
@@ -1940,10 +1943,15 @@ export const bookingRouter = router({
             producerId: ctx.producerId,
             ...window,
           });
+          // SK-280: regenerating the whole horizon is the expensive path —
+          // skip the second pass when Google contributed no busy intervals
+          // (mirrors the artist availability procedure).
+          const finalAvailability =
+            googleBusy.intervals.length === 0
+              ? skitzaOnly
+              : generateProducerManualSessionAvailability(snapshot, googleBusy.intervals);
           return {
-            ...publicExactSessionAvailability(
-              generateProducerManualSessionAvailability(snapshot, googleBusy.intervals),
-            ),
+            ...publicExactSessionAvailability(finalAvailability),
             googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
           };
         } catch (error) {
@@ -2154,10 +2162,17 @@ export const bookingRouter = router({
             producerId: ctx.producerId,
             ...window,
           });
+          // SK-280: skip the second generation when Google is quiet, and
+          // surface canBook so the sheet can say WHY nothing is selectable
+          // (paused project, closed allowance) instead of an unexplained
+          // wall of "Full" days.
+          const finalAvailability =
+            googleBusy.intervals.length === 0
+              ? skitzaOnly
+              : generateProducerSessionRescheduleAvailability(snapshot, googleBusy.intervals);
           return {
-            ...publicExactSessionAvailability(
-              generateProducerSessionRescheduleAvailability(snapshot, googleBusy.intervals),
-            ),
+            ...publicExactSessionAvailability(finalAvailability),
+            canBook: snapshot.canBook,
             googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
           };
         } catch (error) {
@@ -2294,6 +2309,7 @@ export const bookingRouter = router({
         z.object({
           requestId: z.string().uuid(),
           decision: z.enum(["approved", "rejected"]),
+          acknowledgedReducedGoogleProtection: z.boolean().default(false),
           operationKey: z.string().trim().min(1).max(200),
         }),
       )
@@ -2336,6 +2352,19 @@ export const bookingRouter = router({
                 timeMax: sessionWindowEnd(request.proposedStartsAt, before.booking.durationMin),
               })
             : null;
+        // SK-280: approving a reschedule during a Google outage silently
+        // skipped the busy check. Demand the same explicit reduced-protection
+        // review the other two producer writes require.
+        if (googleBusy) {
+          try {
+            reviewedFinalGoogleCalendarProtection({
+              protection: googleBusy.protection,
+              acknowledgedReducedGoogleProtection: input.acknowledgedReducedGoogleProtection,
+            });
+          } catch (error) {
+            mapSessionBookingDomainError(error);
+          }
+        }
 
         let result;
         try {
@@ -2431,7 +2460,9 @@ export const bookingRouter = router({
           and(
             eq(bookings.producerId, ctx.producerId),
             eq(bookings.status, "confirmed"),
-            gte(bookings.startsAt, now),
+            // SK-280: a session is "upcoming" until it ENDS — filtering on the
+            // start instant made running sessions vanish the moment they began.
+            gte(sql`${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute'`, now),
             lte(bookings.startsAt, horizon),
           ),
         )
@@ -2651,7 +2682,7 @@ export const bookingRouter = router({
         after(async () => {
           const sessionName = purchaseProductName(before.commercialSnapshot, "Session");
           const changed = before.booking.rescheduledFromBookingId !== null;
-          await emitArtistBookingNotificationBestEffort(ctx.db, {
+          const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
             recipientClerkUserId: before.artistClerkUserId,
             producerId: ctx.producerId,
             bookingId: result.booking.id,
@@ -2660,6 +2691,20 @@ export const bookingRouter = router({
             kind: changed ? "booking_changed" : "booking_confirmed",
             sourceEventId: result.booking.id,
           });
+          // SK-280: the branded confirmation email was designed but never
+          // wired — the artist previously received only the bare ICS invite.
+          if (!emailEnabled) return;
+          try {
+            await sendBookingConfirmedEmail(before.booking.artistEmail, {
+              artistName: before.booking.artistName,
+              producerName: before.producerDisplayName ?? "Your producer",
+              productName: sessionName,
+              startsAt: result.booking.startsAt,
+              producerTimezone: before.producerTimezone,
+            });
+          } catch (error) {
+            console.error("[email] booking confirmation failed", error);
+          }
         });
         after(async () => {
           try {

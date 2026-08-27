@@ -146,7 +146,15 @@ export type GoogleCalendarBusyResult = Readonly<{
 function failOpenBusyResult(
   health: Exclude<GoogleCalendarBusyHealth, "healthy">,
 ): GoogleCalendarBusyResult {
-  return { protection: "skitza_only", health, intervals: [] };
+  // SK-280: a producer with no Google connection has nothing to protect.
+  // Reporting "skitza_only" made every booking surface nag about reduced
+  // protection and forced an extra review click on studios that never
+  // connected Google. Degraded-but-connected states stay "skitza_only".
+  return {
+    protection: health === "not_connected" ? "google_aware" : "skitza_only",
+    health,
+    intervals: [],
+  };
 }
 
 function publicCandidate(candidate: GoogleCalendarCandidateRecord): GoogleCalendarPublicCandidate {
@@ -1202,7 +1210,11 @@ export function createGoogleCalendarService(
         connection.status === "reconnect_required" ||
         !UUID_PATTERN.test(options.destinationCalendarId) ||
         availabilityCalendarIds.length < 1 ||
-        availabilityCalendarIds.length > 10_000 ||
+        // SK-280: Google freeBusy rejects >50 calendars; accepting more here
+        // silently disabled conflict checking forever while the panel kept
+        // showing a healthy "Connected" state. Enforce the provider limit at
+        // save time instead of failing open at read time.
+        availabilityCalendarIds.length > GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS ||
         availabilityCalendarIds.some((id) => !UUID_PATTERN.test(id))
       ) {
         throw new GoogleCalendarServiceError(

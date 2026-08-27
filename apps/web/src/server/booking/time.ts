@@ -9,21 +9,30 @@ type WallClock = Readonly<{
   weekday: number;
 }>;
 
+// SK-280: availability generation calls this thousands of times per request
+// and Intl.DateTimeFormat construction dominates that cost (~8x the actual
+// formatting). Cache one formatter per timezone; only successful
+// constructions are cached so an invalid zone still throws every time.
+const wallClockFormatters = new Map<string, Intl.DateTimeFormat>();
+
 export function zonedWallClockAt(instant: Date, timeZone: string): WallClock {
-  let formatter: Intl.DateTimeFormat;
-  try {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      weekday: "short",
-      hourCycle: "h23",
-    });
-  } catch {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The studio timezone is invalid");
+  let formatter = wallClockFormatters.get(timeZone);
+  if (!formatter) {
+    try {
+      formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        weekday: "short",
+        hourCycle: "h23",
+      });
+    } catch {
+      throw new SessionBookingDomainError("INVALID_SLOT", "The studio timezone is invalid");
+    }
+    wallClockFormatters.set(timeZone, formatter);
   }
 
   let parts: Record<string, string>;
