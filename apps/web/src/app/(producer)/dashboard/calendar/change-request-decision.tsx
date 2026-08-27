@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
@@ -28,6 +28,9 @@ export function ChangeRequestDecision({
   const router = useRouter();
   const online = useOnlineStatus();
   const { toast } = useToast();
+  // SK-280: when Google can't be checked at approve time the server demands
+  // an explicit review — the second tap approves with the acknowledgement.
+  const [needsReducedReview, setNeedsReducedReview] = useState(false);
 
   if (!request) return null;
 
@@ -48,11 +51,21 @@ export function ChangeRequestDecision({
         requestId: request.id,
         decision,
         operationKey,
+        acknowledgedReducedGoogleProtection: needsReducedReview,
       });
       if (!result.ok) {
+        if ("requiresReducedGoogleProtectionReview" in result) {
+          setNeedsReducedReview(true);
+          toast(
+            "Google busy times can't be checked right now. Tap Approve anyway to continue without them.",
+            "info",
+          );
+          return;
+        }
         toast(result.error, "error");
         return;
       }
+      setNeedsReducedReview(false);
       const reducedProtection =
         decision === "approved" &&
         request.kind === "reschedule" &&
@@ -106,7 +119,7 @@ export function ChangeRequestDecision({
           }}
           className="sk-cta-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-xs font-bold text-[rgb(var(--bg-sidebar))] disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
         >
-          {isPending ? "Saving…" : "Approve"}
+          {isPending ? "Saving…" : needsReducedReview ? "Approve anyway" : "Approve"}
         </button>
       </div>
       {!online ? (

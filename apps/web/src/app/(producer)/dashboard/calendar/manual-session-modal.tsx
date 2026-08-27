@@ -376,6 +376,13 @@ export function ManualSessionModal({
         setStudioDate("");
         setStudioStartMin(null);
         setStartsAtIso(null);
+        // SK-280: say WHY the picked time is gone instead of silently
+        // swapping in a different one.
+        if (studioStartMin !== null) {
+          setError(
+            "That exact time isn't bookable for this package — it may be inside its minimum-notice window. Pick another time below.",
+          );
+        }
       }
       setActivePicker("when");
       requestManualFocus("manual-date-wheel");
@@ -1354,13 +1361,16 @@ function findPreferredSlot(
   preferred: { studioDate: string; studioStartMin: number | null },
 ) {
   const preferredDay = availability.days.find((day) => day.date === preferred.studioDate);
-  if (preferredDay) {
-    const exact = preferredDay.slots.find(
-      (slot) => slot.studioStartMin === preferred.studioStartMin,
+  // SK-280: an explicit grid pick (double-clicked cell) must never be
+  // silently replaced — falling back to "the earliest slot anywhere" booked
+  // a different day than the one on screen. No pick means the modal may
+  // still suggest the earliest slot.
+  if (preferred.studioStartMin !== null) {
+    return (
+      preferredDay?.slots.find((slot) => slot.studioStartMin === preferred.studioStartMin) ?? null
     );
-    if (exact) return exact;
-    if (preferredDay.slots[0]) return preferredDay.slots[0];
   }
+  if (preferredDay?.slots[0]) return preferredDay.slots[0];
   return availability.days.flatMap((day) => day.slots)[0] ?? null;
 }
 
