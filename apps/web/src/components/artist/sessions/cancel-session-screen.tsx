@@ -34,10 +34,20 @@ export function CancelSessionScreen({
     setSubmitting(true);
     setError(null);
     operationKey.current ??= crypto.randomUUID();
-    const result = await cancelSessionAction({
-      id: sessionId,
-      operationKey: operationKey.current,
-    });
+    // SK-280: without this catch a dropped connection mid-request left the
+    // screen frozen — both buttons disabled and "Sending request…" forever.
+    // The stable operationKey makes the retry idempotent.
+    let result;
+    try {
+      result = await cancelSessionAction({
+        id: sessionId,
+        operationKey: operationKey.current,
+      });
+    } catch {
+      setSubmitting(false);
+      setError("Couldn't send this just now. Check your connection and try again.");
+      return;
+    }
     if (!result.ok) {
       setSubmitting(false);
       setError(result.error);
