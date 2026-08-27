@@ -18,6 +18,10 @@ import { applyGoogleCalendarSessionReconciliation } from "~/server/domain/sessio
 import { sessionBookingRepository } from "~/server/domain/session-booking/db";
 import { sendSessionCalendarEmail } from "~/server/email/send";
 import {
+  runSessionReminderSweep,
+  type SessionReminderSweepResult,
+} from "~/server/calendar/session-reminder-sweep";
+import {
   createGoogleCalendarProvider,
   createGoogleCalendarLinkedEventReader,
   createGoogleCalendarRepository,
@@ -38,7 +42,8 @@ type CalendarCronPhase =
   | "reconciliation"
   | "google_delivery"
   | "fallback_ics"
-  | "ics_delivery";
+  | "ics_delivery"
+  | "session_reminders";
 
 async function runCalendarCronPhase<T>(
   phase: CalendarCronPhase,
@@ -192,6 +197,22 @@ export async function GET(req: Request) {
     const ics = await runCalendarCronPhase("ics_delivery", failedPhases, EMPTY_ICS_DELIVERY, () =>
       processCalendarSyncJobs(deliveryRepository, sendSessionCalendarEmail),
     );
+    // SK-280: the Hobby plan caps deployments at two cron jobs, so the
+    // held-expiry + reminder sweep (formerly the never-registered
+    // /api/cron/session-reminders) rides along here. Its windows are
+    // cadence-independent; see session-reminder-sweep.ts for the exact
+    // semantics on a daily tick.
+    const EMPTY_REMINDER_SWEEP: SessionReminderSweepResult = {
+      scanned: { held: 0, twentyFour: 0, one: 0 },
+      expiredHeld: 0,
+      sent: { twentyFour: 0, one: 0 },
+    };
+    const sessionReminders = await runCalendarCronPhase(
+      "session_reminders",
+      failedPhases,
+      EMPTY_REMINDER_SWEEP,
+      () => runSessionReminderSweep(db, new Date()),
+    );
     const googleCounters = {
       claimed: google.claimed,
       completed: google.completed,
@@ -212,6 +233,7 @@ export async function GET(req: Request) {
       reconciliation,
       google: googleCounters,
       ics,
+      sessionReminders,
       ...(failedPhases.size > 0 ? { failedPhases: [...failedPhases] } : {}),
     };
     return NextResponse.json(body, { status: failedPhases.size > 0 ? 500 : 200 });
