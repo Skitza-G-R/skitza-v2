@@ -1,4 +1,6 @@
 import { auth } from "~/server/auth/clerk-identity";
+import { TRPCError } from "@trpc/server";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
@@ -40,9 +42,23 @@ export async function ArtistBookFlow({ searchParams }: ArtistBookPageProps) {
     caller.artist.studios(),
     readArtistStudioPreference(providerUserId),
   ]);
-  const rescheduleSession = sp.session
-    ? await caller.artist.book.session({ id: sp.session })
-    : null;
+  // SK-280: a stale link (archived client contact, deleted booking, malformed
+// id from an old push notification or calendar entry) must render the normal
+// not-found screen — an uncaught throw here crashed the whole artist shell.
+  let rescheduleSession = null;
+  if (sp.session) {
+    try {
+      rescheduleSession = await caller.artist.book.session({ id: sp.session });
+    } catch (error) {
+      if (
+        error instanceof TRPCError &&
+        (error.code === "NOT_FOUND" || error.code === "BAD_REQUEST")
+      ) {
+        notFound();
+      }
+      throw error;
+    }
+  }
 
   // Default to the studio from the search param, or the most-recent
   // studio. `studios` is already sorted desc by lastSeenAt server-side.

@@ -74,10 +74,13 @@ type Props = {
 
 type Step = "package" | "day" | "time" | "review";
 
+// SK-280: pin the locale exactly like book-data.ts — `undefined` resolves to
+// en-US on the server and to the BROWSER locale on the client, so every
+// non-English artist watched the dates flip language during hydration.
 function civilDate(date: string, options: Intl.DateTimeFormatOptions): string {
   const [year, month, day] = date.split("-").map(Number);
   if (!year || !month || !day) return date;
-  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString(undefined, {
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
     ...options,
     timeZone: "UTC",
   });
@@ -103,11 +106,11 @@ function formatDuration(minutes: number): string {
 }
 
 function formatInstant(iso: string, timeZone: string, options: Intl.DateTimeFormatOptions): string {
-  return new Date(iso).toLocaleString(undefined, { ...options, timeZone });
+  return new Date(iso).toLocaleString("en-US", { ...options, timeZone });
 }
 
 function formatTime(iso: string, timeZone: string, includeZone = false): string {
-  if (includeZone) return formatGmtClockTime(new Date(iso), timeZone);
+  if (includeZone) return formatGmtClockTime(new Date(iso), timeZone, "en-US");
   return formatInstant(iso, timeZone, {
     hour: "numeric",
     minute: "2-digit",

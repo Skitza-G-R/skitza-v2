@@ -16,8 +16,11 @@ import { useToast } from "~/components/ui/toast";
 
 import {
   cancelSession,
+  completeSession,
   getSessionRescheduleAvailability,
+  markSessionNoShow,
   previewSessionReschedule,
+  recordLateArtistCancel,
   rescheduleSession,
   setSessionTitle,
   type ManualWarningCode,
@@ -80,6 +83,14 @@ function canCancel(session: SessionListItem, ended: boolean): boolean {
 
 function canEditTitle(session: SessionListItem, ended: boolean): boolean {
   return !ended && session.status === "confirmed";
+}
+
+// SK-280: completed / no-show / late-cancel existed on the server with no UI,
+// so an ended session stayed "confirmed" in the database forever and a phone
+// late-cancel could only be recorded as a producer cancel — which REFUNDS the
+// artist's session use instead of consuming it.
+function canRecordOutcome(session: SessionListItem, ended: boolean): boolean {
+  return ended && session.status === "confirmed" && !session.changeRequest;
 }
 
 function sessionHasEnded(session: SessionListItem, nowMs: number): boolean {
@@ -379,6 +390,41 @@ export function SessionManagementSheet({
     });
   }
 
+  function recordOutcome(kind: "completed" | "no_show" | "late_cancel"): void {
+    if (isPending) return;
+    if (!online) {
+      setError("Reconnect to record this session's outcome.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result =
+          kind === "completed"
+            ? await completeSession({ id: session.id })
+            : kind === "no_show"
+              ? await markSessionNoShow({ id: session.id })
+              : await recordLateArtistCancel({ id: session.id });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        toast(
+          kind === "completed"
+            ? "Session marked completed."
+            : kind === "no_show"
+              ? "Session recorded as a no-show."
+              : "Late cancellation recorded. This uses one of the artist's sessions.",
+          "success",
+        );
+        onOpenChange(false);
+        router.refresh();
+      } catch {
+        setError("Could not record this session's outcome. Please try again.");
+      }
+    });
+  }
+
   function saveTitle(): void {
     const nextTitle = sessionTitle.trim();
     if (!nextTitle) {
@@ -542,7 +588,9 @@ export function SessionManagementSheet({
                 ) : null}
                 {ended ? (
                   <p className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4 text-sm text-[rgb(var(--fg-secondary))]">
-                    This session has ended. Its details are view-only.
+                    {canRecordOutcome(session, ended)
+                      ? "This session has ended. Record what happened so the artist's session count stays right."
+                      : "This session has ended. Its details are view-only."}
                   </p>
                 ) : null}
               </div>
@@ -551,6 +599,12 @@ export function SessionManagementSheet({
                 <p className="text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
                   Choose a new time for {session.artistName}. Duration and billing stay the same.
                 </p>
+                {availability?.canBook === false ? (
+                  <p className="mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.08)] p-4 text-sm">
+                    New times can’t be booked for this session right now — its project or package
+                    isn’t active. Reactivate it to reschedule; cancelling still works.
+                  </p>
+                ) : null}
                 <div className="mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3.5">
                   {isAvailabilityPending ? (
                     <div className="flex min-h-52 items-center justify-center text-center text-sm text-[rgb(var(--fg-muted))]">
@@ -637,6 +691,20 @@ export function SessionManagementSheet({
                   This frees the slot, returns the session use, and notifies {session.artistName}.
                   Any refund still follows the signed agreement off-app.
                 </p>
+                {/* SK-280: a phone late-cancel must be recordable as the
+                    ARTIST's late cancellation (uses a session) — a producer
+                    cancel refunds it. The server rejects this while the
+                    cancellation window hasn't started. */}
+                <button
+                  type="button"
+                  disabled={isPending || !online}
+                  onClick={() => {
+                    recordOutcome("late_cancel");
+                  }}
+                  className="mt-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger-text))] underline decoration-dotted underline-offset-4 disabled:opacity-50"
+                >
+                  The artist cancelled late — record it instead (uses their session)
+                </button>
                 <fieldset className="mt-5">
                   <legend className="text-sm font-semibold">Reason</legend>
                   <div className="mt-2 grid grid-cols-2 gap-2">
@@ -723,9 +791,44 @@ export function SessionManagementSheet({
                   Cancel session
                 </button>
               ) : null}
+              {canRecordOutcome(session, ended) ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={isPending || !online}
+                    onClick={() => {
+                      recordOutcome("completed");
+                    }}
+                    className={`${primaryButtonClass} w-full`}
+                  >
+                    {isPending ? "Saving…" : "Mark completed"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPending || !online}
+                    onClick={() => {
+                      recordOutcome("no_show");
+                    }}
+                    className={secondaryButtonClass}
+                  >
+                    Mark no-show
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPending || !online}
+                    onClick={() => {
+                      recordOutcome("late_cancel");
+                    }}
+                    className={dangerQuietButtonClass}
+                  >
+                    Artist cancelled late — record it
+                  </button>
+                </>
+              ) : null}
               {!canReschedule(session, ended) &&
               !canEditTitle(session, ended) &&
-              !canCancel(session, ended) ? (
+              !canCancel(session, ended) &&
+              !canRecordOutcome(session, ended) ? (
                 <button
                   type="button"
                   onClick={() => {

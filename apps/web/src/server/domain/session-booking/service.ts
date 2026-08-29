@@ -1048,6 +1048,19 @@ export async function applyGoogleCalendarSessionReconciliation(
       const resized = event.timing.endsAt.getTime() !== canonicalRemoteEnd.getTime();
 
       if (moved) {
+        // SK-280: a pending artist change request must be decided by the
+        // producer before an inbound Google move may cancel-and-replace the
+        // booking it points at; otherwise the request row is orphaned on a
+        // cancelled booking and Approve can never succeed. Surface the same
+        // producer-facing conflict state used for Skitza overlaps (the sync
+        // error enum has no dedicated value; adding one needs a migration).
+        if (await transaction.findPendingChangeRequest(booking.id)) {
+          await correctBooking({
+            syncState: "conflict",
+            errorCode: "skitza_overlap",
+          });
+          return { outcome: "conflict" };
+        }
         const overlaps = hasCoreSkitzaOverlap(
           await transaction.listScheduleEntries(booking.producerId),
           {
@@ -1472,6 +1485,10 @@ export function sessionBookingCapabilities(input: {
   purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
   projectLifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   allowanceClosedAt: Date | null;
+  // SK-280: a closed studio can't serve the reschedule flow (its availability
+  // read 404s), so the button must not be offered. Optional so producer-side
+  // callers, which can't be closed for themselves, stay unchanged.
+  producerClosedAt?: Date | null;
   now: Date;
 }): Readonly<{
   cancellationDeadline: Date;
@@ -1509,7 +1526,8 @@ export function sessionBookingCapabilities(input: {
       isOnTime &&
       input.purchaseLifecycleStatus === "active" &&
       input.projectLifecycleStatus === "active" &&
-      input.allowanceClosedAt === null,
+      input.allowanceClosedAt === null &&
+      (input.producerClosedAt ?? null) === null,
   };
 }
 
@@ -1625,6 +1643,11 @@ async function createSessionBookingInTransaction(
     requireExactWarningAcknowledgements?: boolean;
     manualClientContactId?: string;
     googleBusyIntervals?: readonly SessionBusyInterval[];
+    // SK-280: minimum-lead-time reference clock. Approving an artist
+    // reschedule validates the lead window against the moment the ARTIST
+    // asked, not the moment the producer decides — otherwise a valid request
+    // becomes permanently un-approvable once time passes the lead cutoff.
+    leadTimeNow?: Date;
   }>,
 ): Promise<CreateSessionBookingResult> {
   const context = options.preloadedContext ?? (await transaction.loadCreateContext(input));
@@ -1719,6 +1742,7 @@ async function createSessionBookingInTransaction(
   // timezone change (including a newly introduced DST gap).
   const startsAt = requestedSessionStart(input, context.producer.timeZone);
   const now = commandNow(input.now);
+  const leadTimeNow = options.leadTimeNow ?? now;
 
   const uses = await transaction.listAllowanceUses(input.producerId, input.sessionAllowanceId);
   const distinctConsumingUses = new Map<
@@ -1747,7 +1771,7 @@ async function createSessionBookingInTransaction(
     billingTreatmentMode: options.transitionKind === "rescheduled" ? "preserve" : "choose",
     requestedDurationMin: context.allowance.durationMin,
     startsAt,
-    now,
+    now: leadTimeNow,
   });
   const slotIssues = classifySessionSlot({
     actor: options.slotActor ?? (options.actorKind === "producer" ? "producer" : "artist"),
@@ -1760,7 +1784,7 @@ async function createSessionBookingInTransaction(
     existingBookings: await transaction.listScheduleEntries(input.producerId),
     ...(options.googleBusyIntervals ? { googleBusyIntervals: options.googleBusyIntervals } : {}),
     maxSessionsPerDay: context.producer.maxSessionsPerDay,
-    now,
+    now: leadTimeNow,
     minLeadHours: context.allowance.minLeadHours,
     ...(options.ignoredBookingId ? { ignoreBookingId: options.ignoredBookingId } : {}),
   });
@@ -1788,9 +1812,12 @@ async function createSessionBookingInTransaction(
   const status = options.forceConfirmed
     ? "confirmed"
     : initialSessionBookingStatus(context.producer.autoConfirmBookings);
+  // SK-280: Gili extended the producer's answer window from 24h to 48h.
+  // Must stay in lockstep with the bookings_held_expiry_shape CHECK
+  // (migration 0058) — the database enforces this exact LEAST() value.
   const heldExpiresAt =
     status === "pending_approval"
-      ? new Date(Math.min(now.getTime() + 24 * 60 * 60 * 1000, startsAt.getTime()))
+      ? new Date(Math.min(now.getTime() + 48 * 60 * 60 * 1000, startsAt.getTime()))
       : null;
   const booking = await transaction.insertBooking({
     producerId: input.producerId,
@@ -2345,9 +2372,11 @@ export function rejectSessionBooking(
     command: "producer-reject",
     kind: "rejected",
     actorKind: "producer",
-    assertAllowed: (context, now) => {
+    // SK-280: no assertHeldUnexpired here — declining a request must keep
+    // working after the 24h hold lapses, or an unexpired-by-cron hold wedges
+    // forever with no producer action able to clear it.
+    assertAllowed: (context) => {
       assertPending(context);
-      assertHeldUnexpired(context, now);
     },
     next: () => ({ status: "rejected", outcome: "cancelled_by_producer" }),
     calendarAction: "delete",
@@ -2443,7 +2472,8 @@ export function cancelProducerSessionBooking(
     actorKind: "producer",
     assertAllowed: (context, now) => {
       assertActiveStatus(context.booking);
-      assertHeldUnexpired(context, now);
+      // SK-280: no assertHeldUnexpired — cancelling an expired hold is a
+      // terminating action and must never be blocked by a missed expiry cron.
       assertProducerSessionHasNotEnded(context.booking, now, "cancelled");
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_by_producer" }),
@@ -2502,7 +2532,14 @@ export function recordLateArtistCancellation(
     kind: "artist_cancelled",
     actorKind: "producer",
     assertAllowed: (context, now) => {
-      assertActiveStatus(context.booking);
+      // SK-280: a hold the producer never confirmed must not burn a purchased
+      // session use — late-cancel accounting applies to confirmed sessions only.
+      if (context.booking.status !== "confirmed") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Only a confirmed session can record a late cancellation",
+        );
+      }
       if (
         artistCancellationOutcome({
           startsAt: context.booking.startsAt,
@@ -3429,6 +3466,7 @@ export async function decideProducerSessionChangeRequest(
           slotActor: "artist",
           forceConfirmed: true,
           preloadedContext: context,
+          leadTimeNow: request.requestedAt,
           ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
       );

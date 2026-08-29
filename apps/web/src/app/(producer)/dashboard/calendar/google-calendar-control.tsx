@@ -800,21 +800,27 @@ function CalendarSelectionPanel({
             Busy time comes from
           </legend>
           <p className="mt-1 text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            Choose one or more calendars. Skitza only checks busy and free time.
+            Choose one or more calendars (up to 50 — Google's busy-check limit). Skitza only
+            checks busy and free time.
           </p>
           <div className="mt-3 space-y-2">
-            {model.calendars.map((calendar) => (
-              <CalendarOptionRow
-                key={calendar.selectionKey}
-                calendar={calendar}
-                kind="busy"
-                checked={busySelectionKeys.includes(calendar.selectionKey)}
-                disabled={false}
-                onChange={(checked) => {
-                  onBusyChange(calendar.selectionKey, checked);
-                }}
-              />
-            ))}
+            {model.calendars.map((calendar) => {
+              const checked = busySelectionKeys.includes(calendar.selectionKey);
+              return (
+                <CalendarOptionRow
+                  key={calendar.selectionKey}
+                  calendar={calendar}
+                  kind="busy"
+                  checked={checked}
+                  // SK-280: Google freeBusy refuses more than 50 calendars per
+                  // query; past this cap conflict checking silently shut off.
+                  disabled={!checked && busySelectionKeys.length >= 50}
+                  onChange={(nextChecked) => {
+                    onBusyChange(calendar.selectionKey, nextChecked);
+                  }}
+                />
+              );
+            })}
           </div>
         </fieldset>
 

@@ -22,6 +22,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@skitza/db", () => ({ createDb: mocks.createDb }));
+vi.mock("~/server/calendar/session-reminder-sweep", () => ({
+  runSessionReminderSweep: () =>
+    Promise.resolve({
+      scanned: { held: 0, twentyFour: 0, one: 0 },
+      expiredHeld: 0,
+      sent: { twentyFour: 0, one: 0 },
+    }),
+}));
 vi.mock("~/server/calendar/repository", () => ({
   calendarDeliveryRepository: mocks.calendarDeliveryRepository,
 }));
@@ -259,6 +267,11 @@ describe("GET /api/cron/calendar-sync", () => {
         retried: 1,
         terminal: 0,
         leaseLost: 0,
+      },
+      sessionReminders: {
+        scanned: { held: 0, twentyFour: 0, one: 0 },
+        expiredHeld: 0,
+        sent: { twentyFour: 0, one: 0 },
       },
     });
   });

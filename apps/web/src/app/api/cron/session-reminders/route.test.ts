@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+// SK-280: the sweep body moved to a shared module (the nightly calendar-sync
+// cron runs it too); the contract below now reads that module, and the route
+// itself must stay a thin authenticated wrapper around it.
+const source = readFileSync(
+  new URL("../../../../server/calendar/session-reminder-sweep.ts", import.meta.url),
+  "utf8",
+);
+const routeSource = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
 
 describe("session reminder and Held-expiry cron contract", () => {
   it("expires overdue Held bookings through the serialized domain service", () => {
@@ -38,5 +45,15 @@ describe("session reminder and Held-expiry cron contract", () => {
   it("gates only artist email on saved preferences", () => {
     expect(source.match(/if \(artistEmailEnabled\)/g)).toHaveLength(2);
     expect(source.match(/if \(ctx\.producerEmail\)/g)).toHaveLength(2);
+  });
+
+  it("releases a claim when the artist send fails so the next sweep retries", () => {
+    expect(source.match(/await unclaimReminder\(db, b\.id, "24h"\)/g)).toHaveLength(1);
+    expect(source.match(/await unclaimReminder\(db, b\.id, "1h"\)/g)).toHaveLength(1);
+  });
+
+  it("keeps the route a thin authenticated wrapper around the shared sweep", () => {
+    expect(routeSource).toContain("Bearer ${expected}");
+    expect(routeSource).toContain("runSessionReminderSweep(createDb(dbUrl), new Date())");
   });
 });

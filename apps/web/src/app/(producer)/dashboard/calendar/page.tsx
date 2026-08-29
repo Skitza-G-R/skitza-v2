@@ -117,6 +117,9 @@ export default async function CalendarPage({
     message: b.notes,
     receivedAtIso: b.createdAt.toISOString(),
   }));
+  // SK-280: feed the week grid from the full list, not the 21-day upcoming
+  // window — otherwise "Previous week" was always empty, in-progress sessions
+  // vanished at their start instant, and navigating 3+ weeks ahead went blank.
   const scheduleSessions: ScheduleSession[] = [
     ...pending.map<ScheduleSession>((b) => ({
       id: b.id,
@@ -127,15 +130,17 @@ export default async function CalendarPage({
       packageName: b.projectName,
       status: "pending_approval",
     })),
-    ...upcoming.map<ScheduleSession>((b) => ({
-      id: b.id,
-      startsAt: b.startsAt.toISOString(),
-      durationMin: b.durationMin,
-      artistName: b.artistName,
-      artistEmail: b.artistEmail,
-      packageName: b.projectName,
-      status: "confirmed",
-    })),
+    ...list
+      .filter((b) => b.status === "confirmed")
+      .map<ScheduleSession>((b) => ({
+        id: b.id,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        packageName: b.projectName,
+        status: "confirmed",
+      })),
   ];
   // SK-56 — sessions-first mobile view for the schedule tab (the week
   // grid is desktop-only). Pending + the 21-day upcoming window mapped

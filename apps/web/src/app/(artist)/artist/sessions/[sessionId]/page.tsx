@@ -1,5 +1,6 @@
 import { auth } from "~/server/auth/clerk-identity";
-import { redirect } from "next/navigation";
+import { TRPCError } from "@trpc/server";
+import { notFound, redirect } from "next/navigation";
 
 import type { SessionDetail } from "~/components/artist/sessions/book-data";
 import { SessionDetailScreen } from "~/components/artist/sessions/session-detail-screen";
@@ -13,7 +14,18 @@ export default async function ArtistSessionDetailPage({ params }: PageProps) {
 
   const { sessionId } = await params;
   const caller = appRouter.createCaller({ userId });
-  const row = await caller.artist.book.session({ id: sessionId });
+  // SK-280: a stale link (archived client contact, deleted booking, malformed
+// id from an old push notification or calendar entry) must render the normal
+// not-found screen — an uncaught throw here crashed the whole artist shell.
+  let row;
+  try {
+    row = await caller.artist.book.session({ id: sessionId });
+  } catch (error) {
+    if (error instanceof TRPCError && (error.code === "NOT_FOUND" || error.code === "BAD_REQUEST")) {
+      notFound();
+    }
+    throw error;
+  }
   const session: SessionDetail = {
     id: row.id,
     producerId: row.producerId,

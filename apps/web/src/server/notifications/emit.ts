@@ -32,19 +32,68 @@ export async function emitCommentCreated(db: Db, input: {
   });
 }
 
+// SK-280: notification rows render calendar dates in the PRODUCER's timezone.
+// The previous UTC slice showed evening sessions on the wrong day.
+function producerLocalDate(when: Date, timeZone: string): string {
+  try {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(when);
+  } catch {
+    return when.toISOString().slice(0, 10);
+  }
+}
+
 export async function emitBookingRequested(db: Db, input: {
   producerId: string;
   bookingId: string;
   artistName: string;
   artistEmail: string;
   when: Date;
+  timeZone: string;
 }): Promise<void> {
-  const dateStr = input.when.toISOString().slice(0, 10);
+  const dateStr = producerLocalDate(input.when, input.timeZone);
   await db.insert(notifications).values({
     producerId: input.producerId,
     kind: "booking_requested",
     title: `${input.artistName} requested a session`,
     body: `For ${dateStr} — ${input.artistEmail}`,
+    bookingId: input.bookingId,
+  });
+}
+
+// SK-280: an artist's reschedule/cancel request previously produced only a
+// best-effort Web Push — nothing durable reached the producer inbox, so a
+// producer without the installed PWA could only discover the request by
+// happening to open the calendar. Reuses the `booking_requested` kind (the
+// notification_kind enum is a pg enum; a dedicated value needs a migration)
+// — the title carries the actual meaning and the bookingId routes the click.
+export async function emitBookingChangeRequested(db: Db, input: {
+  producerId: string;
+  bookingId: string;
+  artistName: string;
+  kind: "cancel" | "reschedule";
+  currentStartsAt: Date;
+  proposedStartsAt: Date | null;
+  timeZone: string;
+}): Promise<void> {
+  const currentDate = producerLocalDate(input.currentStartsAt, input.timeZone);
+  const body =
+    input.kind === "reschedule" && input.proposedStartsAt
+      ? `From ${currentDate} to ${producerLocalDate(input.proposedStartsAt, input.timeZone)} — needs your decision`
+      : `Session on ${currentDate} — needs your decision`;
+  await db.insert(notifications).values({
+    producerId: input.producerId,
+    kind: "booking_requested",
+    title:
+      input.kind === "reschedule"
+        ? `${input.artistName} asked to move a session`
+        : `${input.artistName} asked to cancel a session`,
+    body,
     bookingId: input.bookingId,
   });
 }

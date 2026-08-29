@@ -94,8 +94,20 @@ export function GoogleCalendarControlBoundary({
   useEffect(() => {
     if (!syncRepairSignature || !navigator.onLine) return;
     let active = true;
+    // SK-280: an unrepairable sync issue used to re-run the repair and force
+    // a full page refresh every 30 seconds forever. A successful repair
+    // changes the model (and with it this effect's signature), so a signature
+    // that survives three attempts is terminal — stop retrying until it
+    // changes or the page is reopened.
+    let attempts = 0;
+    let intervalId = 0;
     const repair = async () => {
       if (repairInFlight.current || !navigator.onLine) return;
+      if (attempts >= 3) {
+        window.clearInterval(intervalId);
+        return;
+      }
+      attempts += 1;
       repairInFlight.current = true;
       try {
         const result = await repairGoogleCalendarSync({ forcePending: false });
@@ -107,7 +119,7 @@ export function GoogleCalendarControlBoundary({
       }
     };
     void repair();
-    const intervalId = window.setInterval(() => void repair(), 30_000);
+    intervalId = window.setInterval(() => void repair(), 30_000);
     return () => {
       active = false;
       window.clearInterval(intervalId);

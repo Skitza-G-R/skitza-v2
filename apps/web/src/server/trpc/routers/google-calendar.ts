@@ -11,7 +11,10 @@ import {
   isGoogleCalendarServerConfigured,
   loadGoogleCalendarServerConfig,
 } from "~/server/google-calendar/config";
-import { createGoogleCalendarProvider } from "~/server/google-calendar/provider";
+import {
+  createGoogleCalendarProvider,
+  GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS,
+} from "~/server/google-calendar/provider";
 import {
   createGoogleCalendarRepository,
   dismissGoogleCalendarSyncWarning,
@@ -36,7 +39,11 @@ const oauthCompletionInput = z.object({
 });
 const selectionInput = z.object({
   destinationCalendarId: z.string().uuid(),
-  availabilityCalendarIds: z.array(z.string().uuid()).min(1).max(10_000),
+  // SK-280: mirror the Google freeBusy hard limit — see saveSelection.
+  availabilityCalendarIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS),
 });
 const busyWeekInput = z.object({
   weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),

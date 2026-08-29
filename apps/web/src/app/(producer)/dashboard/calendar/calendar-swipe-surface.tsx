@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
 
@@ -58,6 +58,15 @@ export function CalendarSwipeSurface({
     session: SessionListItem;
     step: SessionManagementStep;
   } | null>(null);
+  // SK-280: once the server-rendered tab matches the swiped-to target, the
+  // optimistic entry has done its job — keeping it made a later soft
+  // navigation back to the source tab render the WRONG panel (URL said
+  // Sessions, Availability rendered) until a full reload.
+  useEffect(() => {
+    if (optimistic && normalizeCalendarSwipeItem(active) === optimistic.value) {
+      setOptimistic(null);
+    }
+  }, [active, optimistic]);
   const displayActive: CalendarTabKey = optimistic?.source === active ? optimistic.value : active;
   const displaySwipeItem = normalizeCalendarSwipeItem(displayActive);
   const sessionsActive = displaySwipeItem === "sessions";

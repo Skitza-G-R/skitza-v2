@@ -1847,12 +1847,13 @@ describe("session booking lifecycle commands", () => {
     });
   });
 
-  it("expires Held idempotently at min(created + 24h, startsAt) and blocks confirmation", async () => {
+  it("expires Held idempotently at min(created + 48h, startsAt) and blocks confirmation", async () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: false }),
     );
     const created = await createSessionBooking(repository, createInput());
-    const expiresAt = new Date("2026-07-20T06:00:00.000Z");
+    // SK-280: the 48h fuse clamps to the session start here (start is sooner).
+    const expiresAt = new Date("2026-07-20T10:00:00.000Z");
     expect(created.booking.heldExpiresAt).toEqual(expiresAt);
 
     await expect(

@@ -29,8 +29,10 @@ export async function readGoogleCalendarBusyIntervals(
       timeMax: input.timeMax,
     });
   } catch {
+    // SK-280: reaching this catch means the Google integration is not
+    // configured at all — nothing to protect, so no reduced-protection nag.
     return {
-      protection: "skitza_only",
+      protection: "google_aware",
       health: "not_connected",
       intervals: [],
     };
