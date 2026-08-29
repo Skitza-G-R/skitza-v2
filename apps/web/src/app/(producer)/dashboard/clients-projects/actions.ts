@@ -165,6 +165,7 @@ export async function presignManualReceiptAction(input: {
   fileName: string;
   contentType: ManualReceiptContentType;
   sizeBytes: number;
+  markFinalMilestone?: boolean;
 }): Promise<ActionDataResult<{ uploadUrl: string; uploadToken: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -208,6 +209,8 @@ export async function recordManualPaymentAction(input: {
   paidAtIso: string;
   note?: string;
   uploadToken?: string;
+  /** SK-293 — settling a final half whose artist approval never happened. */
+  markFinalMilestone?: boolean;
 }): Promise<ActionDataResult<RecordManualPaymentOutcome>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -222,6 +225,7 @@ export async function recordManualPaymentAction(input: {
       paidAt,
       ...(input.note ? { note: input.note } : {}),
       ...(input.uploadToken ? { uploadToken: input.uploadToken } : {}),
+      ...(input.markFinalMilestone ? { markFinalMilestone: true } : {}),
     });
     revalidateProjectSurfaces(input.projectId);
     revalidatePath("/dashboard/payments");

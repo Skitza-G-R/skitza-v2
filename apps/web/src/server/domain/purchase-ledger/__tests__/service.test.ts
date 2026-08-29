@@ -9,7 +9,7 @@ import {
   readPurchaseLedger,
   reconcilePurchaseLedger,
   recordConfirmedPurchasePayment,
-  requestImportedFinalPayment,
+  requestFinalPayment,
   resumePaymentPausedProject,
   setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
@@ -163,7 +163,7 @@ class MemoryLedgerRepository implements PurchaseLedgerRepository {
         void changedAt;
         return Promise.resolve(changed);
       },
-      triggerImportedFinalInstallment: (installmentId, triggeredAt) => {
+      triggerFinalPaymentInstallment: (installmentId, triggeredAt) => {
         let changed = false;
         this.current = {
           ...this.current,
@@ -1083,8 +1083,9 @@ describe("purchase ledger transitions", () => {
 // final version inside Skitza. A client the producer imported by hand may never
 // join, so that approval can never happen and the outstanding half is stuck:
 // never due, never recordable, never even waivable. The producer — the only
-// person who can say the imported work is finished — gets to say it.
-describe("imported work asks for its own final payment", () => {
+// person left who can say the work is finished — gets to say it. SK-293 opened
+// that to any purchase, not only imported work.
+describe("the producer asks for the final payment themselves", () => {
   const REQUESTED_AT = new Date("2026-08-29T09:00:00.000Z");
 
   function importedSplit(): PurchaseLedgerSnapshot {
@@ -1117,7 +1118,7 @@ describe("imported work asks for its own final payment", () => {
   it("makes the stuck half due, recordable, and waivable", async () => {
     const repository = new MemoryLedgerRepository(importedSplit());
 
-    const result = await requestImportedFinalPayment(repository, request());
+    const result = await requestFinalPayment(repository, request());
 
     expect(result).toMatchObject({ installmentId: "installment-2", changed: true });
     expect(result.dueAt.toISOString()).toBe(REQUESTED_AT.toISOString());
@@ -1153,29 +1154,32 @@ describe("imported work asks for its own final payment", () => {
       code: "CONFLICT",
     });
 
-    await requestImportedFinalPayment(repository, request());
+    await requestFinalPayment(repository, request());
 
     await expect(recordConfirmedPurchasePayment(repository, payment)).resolves.toMatchObject({
       created: true,
     });
   });
 
-  it("is impossible on a purchase the artist can still approve in Skitza", async () => {
+  // SK-293 — the same dead end reaches clients who bought through Skitza and
+  // then stopped using it. They approve over WhatsApp and pay by transfer, so
+  // the half never triggers and the producer can neither record nor waive it.
+  it("also works on a purchase sold through Skitza whose client never approved", async () => {
     const repository = new MemoryLedgerRepository(snapshot("split_50_50"));
 
-    await expect(requestImportedFinalPayment(repository, request())).rejects.toMatchObject({
-      code: "CONFLICT",
-      message: "Only imported work can be marked finished here.",
+    await expect(requestFinalPayment(repository, request())).resolves.toMatchObject({
+      installmentId: "installment-2",
+      changed: true,
     });
-    expect(repository.current.installments[1]?.dueAt).toBeNull();
-    expect(repository.current.installments[1]?.triggeredAt).toBeNull();
+    expect(repository.current.installments[1]?.dueAt).toEqual(REQUESTED_AT);
+    expect(repository.current.installments[1]?.triggeredAt).toEqual(REQUESTED_AT);
   });
 
   it("never triggers twice, however many times it is pressed", async () => {
     const repository = new MemoryLedgerRepository(importedSplit());
 
-    const first = await requestImportedFinalPayment(repository, request());
-    const second = await requestImportedFinalPayment(
+    const first = await requestFinalPayment(repository, request());
+    const second = await requestFinalPayment(
       repository,
       request({ requestedAt: new Date("2026-09-05T09:00:00.000Z") }),
     );
@@ -1192,7 +1196,7 @@ describe("imported work asks for its own final payment", () => {
     const repository = new MemoryLedgerRepository(importedSplit());
 
     await expect(
-      requestImportedFinalPayment(repository, request({ producerId: "producer-b" })),
+      requestFinalPayment(repository, request({ producerId: "producer-b" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(repository.current.installments[1]?.dueAt).toBeNull();
     expect(repository.current.installments[1]?.triggeredAt).toBeNull();
@@ -1202,7 +1206,7 @@ describe("imported work asks for its own final payment", () => {
     const repository = new MemoryLedgerRepository(importedSplit());
 
     await expect(
-      requestImportedFinalPayment(repository, request({ installmentId: "installment-9" })),
+      requestFinalPayment(repository, request({ installmentId: "installment-9" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

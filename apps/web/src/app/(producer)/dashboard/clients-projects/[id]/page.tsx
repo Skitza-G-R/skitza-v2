@@ -219,16 +219,23 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   const purchaseSummaries: ProjectPurchaseSummary[] = paymentModel.projects.flatMap(
     (paymentProject) =>
       paymentProject.purchases.map((purchase) => {
-        // SK-269 — the same rule the mutation enforces decides whether the
-        // producer is offered "the work is done" on this purchase.
+        // SK-269 / SK-293 — the same rule the mutation enforces answers
+        // whether this purchase's final half may be settled at all. Who gets
+        // nudged to do it is a separate question, decided right below.
         const finalPayment = decideFinalPaymentRequest({
           purchase,
           installments: purchase.installments,
         });
+        const pendingFinalInstallmentId =
+          finalPayment.status === "ready" ? finalPayment.installmentId : null;
+        // The standalone "the work is done" card stays imported-work-only. A
+        // healthy in-flight project must never be nudged to collect before its
+        // client approves; on those, the producer reaches the same milestone
+        // deliberately, by recording money that already arrived.
         const waitingFinalInstallment =
-          finalPayment.status === "ready"
+          pendingFinalInstallmentId !== null && purchase.sourceKind === "imported_existing_work"
             ? purchase.installments.find(
-                (installment) => installment.id === finalPayment.installmentId,
+                (installment) => installment.id === pendingFinalInstallmentId,
               )
             : undefined;
         return {
@@ -261,6 +268,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             payableNow:
               purchase.lifecycleStatus !== "canceled" &&
               isInstallmentPayableForInstructions(installment, now),
+            finalMilestonePending: installment.id === pendingFinalInstallmentId,
           })),
         };
       }),

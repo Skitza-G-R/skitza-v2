@@ -137,11 +137,11 @@ export interface PurchaseLedgerTransaction {
     changedAt: Date,
   ): Promise<number>;
   /**
-   * SK-269 — make an imported purchase's approval-triggered final half due
+   * SK-269 / SK-293 — make a purchase's approval-triggered final half due
    * today. Writes both dates only while they are still empty, so a racing
    * second press changes nothing and reports false.
    */
-  triggerImportedFinalInstallment(installmentId: string, triggeredAt: Date): Promise<boolean>;
+  triggerFinalPaymentInstallment(installmentId: string, triggeredAt: Date): Promise<boolean>;
   setInstallmentStatuses(
     rows: readonly Readonly<{ installmentId: string; status: LedgerInstallmentInput["status"] }>[],
     changedAt: Date,
@@ -773,14 +773,14 @@ export async function waiveInstallmentDebt(
   });
 }
 
-export type RequestImportedFinalPaymentInput = Readonly<{
+export type RequestFinalPaymentInput = Readonly<{
   producerId: string;
   purchaseId: string;
   installmentId: string;
   requestedAt?: Date;
 }>;
 
-export type RequestImportedFinalPaymentResult = Readonly<{
+export type RequestFinalPaymentResult = Readonly<{
   installmentId: string;
   dueAt: Date;
   /** False when the payment was already due, so a second press is harmless. */
@@ -789,17 +789,18 @@ export type RequestImportedFinalPaymentResult = Readonly<{
 }>;
 
 /**
- * SK-269 — the producer says the imported work is finished, so the final half
- * is owed now.
+ * SK-269 / SK-293 — the producer says the work is finished, so the final half
+ * is owed now. Any purchase they own qualifies, not only imported work: a
+ * client who approved outside Skitza strands the half just as permanently.
  *
  * `decideFinalPaymentRequest` owns the rule; this function only carries it out
  * under the ledger lock and reconciles afterwards, so the half immediately
  * reads as due, becomes recordable, and becomes waivable.
  */
-export async function requestImportedFinalPayment(
+export async function requestFinalPayment(
   repository: PurchaseLedgerRepository,
-  rawInput: RequestImportedFinalPaymentInput,
-): Promise<RequestImportedFinalPaymentResult> {
+  rawInput: RequestFinalPaymentInput,
+): Promise<RequestFinalPaymentResult> {
   const scope = {
     producerId: identifier(rawInput.producerId, "Producer id"),
     purchaseId: identifier(rawInput.purchaseId, "Purchase id"),
@@ -835,7 +836,7 @@ export async function requestImportedFinalPayment(
       return { installmentId, dueAt, changed: false, projection: reconciled.projection };
     }
 
-    if (!(await transaction.triggerImportedFinalInstallment(installmentId, requestedAt))) {
+    if (!(await transaction.triggerFinalPaymentInstallment(installmentId, requestedAt))) {
       throw new PurchaseLedgerDomainError(
         "CONFLICT",
         "The final payment changed while it was being requested",

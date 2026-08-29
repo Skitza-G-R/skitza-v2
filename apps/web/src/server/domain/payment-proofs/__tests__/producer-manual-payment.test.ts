@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertInstallmentAcceptsManualPayment,
+  isPendingFinalMilestone,
   recordProducerManualPayment,
 } from "../producer-manual-payment";
 import { PaymentProofDomainError, type InstallmentRow, type LedgerSnapshot } from "../service";
@@ -109,6 +110,94 @@ describe("assertInstallmentAcceptsManualPayment", () => {
       }),
     ).toMatch(/not due yet/);
     expect(failure({ ...OPEN, ledger: ledger(50_000) })).toMatch(/Nothing is left/);
+  });
+});
+
+// SK-293 — דור שמר approved over WhatsApp and paid by transfer, so the 50/50
+// final half never triggered. It was unrecordable *and* unwaivable, leaving the
+// ledger permanently wrong about a client who had already paid in full.
+describe("the final half whose artist approval never happened", () => {
+  const pendingFinal = installment({
+    position: 2,
+    dueTrigger: "artist_approval",
+    dueAt: null,
+    triggeredAt: null,
+    status: "not_paid",
+    requiredForActivation: false,
+  });
+
+  it("recognises only the exact row the trigger write will accept", () => {
+    expect(isPendingFinalMilestone(pendingFinal)).toBe(true);
+    expect(isPendingFinalMilestone(installment({ dueTrigger: "acceptance" }))).toBe(false);
+    expect(isPendingFinalMilestone({ ...pendingFinal, triggeredAt: NOW })).toBe(false);
+    expect(isPendingFinalMilestone({ ...pendingFinal, dueAt: NOW })).toBe(false);
+    expect(isPendingFinalMilestone({ ...pendingFinal, status: "confirmed" })).toBe(false);
+  });
+
+  it("stays not-due until this operation says it is declaring the milestone", () => {
+    expect(failure({ ...OPEN, installment: pendingFinal })).toMatch(/not due yet/);
+    expect(
+      assertInstallmentAcceptsManualPayment({
+        ...OPEN,
+        installment: pendingFinal,
+        allowPendingFinalMilestone: true,
+      }),
+    ).toBe(50_000);
+  });
+
+  it("is not a skeleton key past any other refusal", () => {
+    const allowed = { ...OPEN, allowPendingFinalMilestone: true };
+    // A date that has simply not arrived is not a missing milestone.
+    expect(
+      failure({
+        ...allowed,
+        installment: installment({
+          position: 2,
+          dueTrigger: "monthly_anniversary",
+          dueAt: new Date("2026-12-01T00:00:00.000Z"),
+          requiredForActivation: false,
+        }),
+      }),
+    ).toMatch(/not due yet/);
+    expect(
+      failure({
+        ...allowed,
+        installment: pendingFinal,
+        context: { lifecycleStatus: "canceled", producerClosedAt: null },
+      }),
+    ).toMatch(/canceled purchase/);
+    expect(
+      failure({
+        ...allowed,
+        installment: pendingFinal,
+        context: { lifecycleStatus: "active", producerClosedAt: NOW },
+      }),
+    ).toMatch(/closed studio/);
+    expect(
+      failure({
+        ...allowed,
+        installment: pendingFinal,
+        proofs: [{ installmentId: "inst-1", status: "pending" }],
+      }),
+    ).toMatch(/proof waiting for review/);
+    expect(failure({ ...allowed, installment: pendingFinal, ledger: ledger(50_000) })).toMatch(
+      /Nothing is left/,
+    );
+  });
+
+  it("declares the milestone inside the same transaction that settles it", () => {
+    // Ordering is the whole point: the ledger refuses to settle an untriggered
+    // installment, and the trigger must not survive a failed payment.
+    const trigger = moduleSource.indexOf("requestFinalPayment(");
+    const record = moduleSource.indexOf("recordConfirmedPurchasePayment(");
+    expect(trigger).toBeGreaterThan(-1);
+    expect(trigger).toBeLessThan(record);
+    expect(moduleSource).toContain("input.markFinalMilestone && isPendingFinalMilestone(");
+    // Re-read after triggering, or the gate would still see the stale dates.
+    const recordSource = moduleSource.slice(
+      moduleSource.indexOf("export async function recordProducerManualPayment"),
+    );
+    expect(recordSource.match(/loadOwnedInstallment\(/g)).toHaveLength(2);
   });
 });
 

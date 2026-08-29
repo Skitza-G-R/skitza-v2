@@ -6,10 +6,7 @@ import {
   type FinalPaymentPurchaseInput,
 } from "../final-payment";
 
-const IMPORTED: FinalPaymentPurchaseInput = {
-  sourceKind: "imported_existing_work",
-  lifecycleStatus: "active",
-};
+const ACTIVE: FinalPaymentPurchaseInput = { lifecycleStatus: "active" };
 
 function halves(
   final: Partial<FinalPaymentInstallmentInput> = {},
@@ -34,28 +31,26 @@ function halves(
 }
 
 describe("decideFinalPaymentRequest", () => {
-  it("lets the producer ask for the final half of imported work", () => {
-    expect(decideFinalPaymentRequest({ purchase: IMPORTED, installments: halves() })).toEqual({
+  it("lets the producer ask for a final half that is still waiting", () => {
+    expect(decideFinalPaymentRequest({ purchase: ACTIVE, installments: halves() })).toEqual({
       status: "ready",
       installmentId: "installment-2",
     });
   });
 
-  it("refuses every purchase the artist can still approve inside Skitza", () => {
-    for (const sourceKind of [
-      "store_product",
-      "private_offer",
-      "session_product",
-      "paid_add_on",
-      "no_charge_add_on",
-    ] as const) {
+  // SK-293 — a client who bought through Skitza and then went quiet strands the
+  // final half exactly as an imported client does. The old rule answered
+  // "not_imported_work" here, which left a paid producer unable to record the
+  // money and unable to waive it.
+  it("no longer refuses a purchase just because it was sold through Skitza", () => {
+    for (const purchase of [ACTIVE, { lifecycleStatus: "waiting_for_payment" } as const]) {
       expect(
         decideFinalPaymentRequest({
-          purchase: { sourceKind, lifecycleStatus: "active" },
+          purchase,
           installments: halves(),
           installmentId: "installment-2",
         }),
-      ).toEqual({ status: "unavailable", reason: "not_imported_work" });
+      ).toEqual({ status: "ready", installmentId: "installment-2" });
     }
   });
 
@@ -63,7 +58,7 @@ describe("decideFinalPaymentRequest", () => {
     const triggeredAt = new Date("2026-08-29T09:00:00.000Z");
     expect(
       decideFinalPaymentRequest({
-        purchase: IMPORTED,
+        purchase: ACTIVE,
         installments: halves({ dueAt: triggeredAt, triggeredAt }),
         installmentId: "installment-2",
       }),
@@ -73,7 +68,7 @@ describe("decideFinalPaymentRequest", () => {
   it("has nothing to ask for on a plan with no finished-work milestone", () => {
     expect(
       decideFinalPaymentRequest({
-        purchase: IMPORTED,
+        purchase: ACTIVE,
         installments: [
           {
             id: "installment-1",
@@ -97,7 +92,7 @@ describe("decideFinalPaymentRequest", () => {
   it("only answers about the installment it was asked about", () => {
     expect(
       decideFinalPaymentRequest({
-        purchase: IMPORTED,
+        purchase: ACTIVE,
         installments: halves(),
         installmentId: "installment-1",
       }),
@@ -107,7 +102,7 @@ describe("decideFinalPaymentRequest", () => {
   it("refuses a canceled purchase and an already-settled half", () => {
     expect(
       decideFinalPaymentRequest({
-        purchase: { ...IMPORTED, lifecycleStatus: "canceled" },
+        purchase: { lifecycleStatus: "canceled" },
         installments: halves(),
         installmentId: "installment-2",
       }),
@@ -116,7 +111,7 @@ describe("decideFinalPaymentRequest", () => {
     for (const status of ["awaiting_review", "waived", "canceled", "partially_paid"] as const) {
       expect(
         decideFinalPaymentRequest({
-          purchase: IMPORTED,
+          purchase: ACTIVE,
           installments: halves({ status }),
           installmentId: "installment-2",
         }),

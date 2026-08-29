@@ -12,6 +12,7 @@ import {
   paidAtIsoFromDate,
   parseAmountToCents,
   receiptContentType,
+  selectablePayments,
   successMessage,
   summarizeRecordable,
   validateAmount,
@@ -116,10 +117,62 @@ describe("listRecordablePayments", () => {
     );
     expect(summary).toEqual({
       openCount: 2,
+      milestoneCount: 0,
       remainingByCurrency: [
         { currency: "ILS", cents: 30_000 },
         { currency: "USD", cents: 9_900 },
       ],
+    });
+  });
+});
+
+// SK-293 — a 50/50 final half whose artist approval never happened in Skitza.
+// It is not due, but the producer may still record money that already arrived.
+describe("the final half waiting on an approval that never came", () => {
+  const stuck = () =>
+    listRecordablePayments([
+      purchase({
+        id: "p1",
+        installments: [
+          installment({ id: "i1", status: "confirmed", remainingCents: 0 }),
+          installment({
+            id: "i2",
+            position: 2,
+            dueAtIso: null,
+            payableNow: false,
+            finalMilestonePending: true,
+            remainingCents: 50_000,
+          }),
+        ],
+      }),
+    ]);
+
+  it("reads as its own state rather than a flat refusal", () => {
+    expect(stuck().map((payment) => [payment.id, payment.state])).toEqual([
+      ["i2", "needs_milestone"],
+    ]);
+    // Without the flag it is the dead end the producer hit.
+    const plain = listRecordablePayments([
+      purchase({
+        id: "p1",
+        installments: [installment({ id: "i2", position: 2, dueAtIso: null, payableNow: false })],
+      }),
+    ]);
+    expect(plain[0]?.state).toBe("not_due");
+  });
+
+  it("is selectable and auto-selected when it is the only thing left", () => {
+    expect(selectablePayments(stuck()).map((payment) => payment.id)).toEqual(["i2"]);
+    expect(defaultPaymentSelection(stuck())).toBe("i2");
+  });
+
+  it("is counted apart from money that is genuinely due", () => {
+    // A healthy in-flight project must not read as owed money it is not owed,
+    // but the tab still has to offer the button.
+    expect(summarizeRecordable(stuck())).toEqual({
+      openCount: 0,
+      milestoneCount: 1,
+      remainingByCurrency: [],
     });
   });
 });

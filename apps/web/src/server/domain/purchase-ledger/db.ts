@@ -369,7 +369,7 @@ function transactionAdapter(
     // SK-269 — the same one-way write the artist's own approval performs, with
     // the empty-date guards doing the idempotency so two presses cannot both
     // win. `protect_purchase_installment_terms` rejects any later change.
-    triggerImportedFinalInstallment: async (installmentId, triggeredAt) => {
+    triggerFinalPaymentInstallment: async (installmentId, triggeredAt) => {
       const updated = await tx
         .update(purchaseInstallments)
         .set({ dueAt: triggeredAt, triggeredAt, updatedAt: triggeredAt })

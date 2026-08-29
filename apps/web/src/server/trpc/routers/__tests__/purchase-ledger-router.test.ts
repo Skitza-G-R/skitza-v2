@@ -53,7 +53,7 @@ describe("purchase-ledger router security contract", () => {
     expect(routerSource).toContain("correctPurchasePayment(");
     expect(routerSource).toContain("waiveInstallmentDebt(");
     // SK-269: the "work is done" decision is a domain rule, never a router if.
-    expect(routerSource).toContain("requestImportedFinalPayment(");
+    expect(routerSource).toContain("requestFinalPayment(");
     expect(routerSource).not.toContain("imported_existing_work");
     expect(routerSource).not.toContain("cancelPurchase(");
     expect(routerSource).toContain("pauseProjectForOverdueInstallment(");

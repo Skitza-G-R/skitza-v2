@@ -5,7 +5,10 @@ import {
   lockPurchaseLedgerScope,
   purchaseLedgerRepositoryForTransaction,
 } from "~/server/domain/purchase-ledger/db";
-import { recordConfirmedPurchasePayment } from "~/server/domain/purchase-ledger/service";
+import {
+  recordConfirmedPurchasePayment,
+  requestFinalPayment,
+} from "~/server/domain/purchase-ledger/service";
 import {
   resolveCapabilitySecret,
   type CapabilityVerificationSecrets,
@@ -50,6 +53,11 @@ import { createProofUploadToken, proofObjectKeys, verifyProofUploadToken } from 
 // nothing left to review. The payment itself is a regular `manual` ledger
 // row, so every downstream rule (activation, downloads, reminders) is shared
 // with artist-submitted proofs.
+//
+// SK-293 — when the chosen installment is a 50/50 final half whose artist
+// approval never happened in Skitza, `markFinalMilestone` declares that
+// milestone inside this same transaction, so the money can land on a row the
+// ledger would otherwise refuse to settle.
 
 type ManualPaymentBlocker =
   | "purchase_canceled"
@@ -74,6 +82,22 @@ function blocked(reason: ManualPaymentBlocker): never {
 }
 
 /**
+ * SK-293 — a 50/50 final half still waiting on an artist approval that never
+ * came. These are exactly the rows `triggerFinalPaymentInstallment` will write,
+ * so the offer, the gate, and the write agree on one definition.
+ */
+export function isPendingFinalMilestone(
+  installment: Pick<InstallmentRow, "dueTrigger" | "dueAt" | "triggeredAt" | "status">,
+): boolean {
+  return (
+    installment.dueTrigger === "artist_approval" &&
+    installment.triggeredAt === null &&
+    installment.dueAt === null &&
+    installment.status === "not_paid"
+  );
+}
+
+/**
  * Shared eligibility gate for both the presign and the final record step,
  * so a receipt can only be staged for an installment that can actually take
  * the payment right now.
@@ -84,6 +108,8 @@ export function assertInstallmentAcceptsManualPayment(input: {
   ledger: LedgerSnapshot;
   proofs: readonly Pick<(typeof paymentProofs)["$inferSelect"], "installmentId" | "status">[];
   now: Date;
+  /** SK-293 — this operation will declare the final milestone before settling. */
+  allowPendingFinalMilestone?: boolean | undefined;
 }): number {
   if (input.context.producerClosedAt !== null) blocked("studio_closed");
   if (input.context.lifecycleStatus === "canceled") blocked("purchase_canceled");
@@ -98,7 +124,10 @@ export function assertInstallmentAcceptsManualPayment(input: {
   if (status === "confirmed" || status === "waived" || status === "canceled") {
     blocked("installment_settled");
   }
-  if (!isInstallmentPayableForInstructions(input.installment, input.now)) {
+  if (
+    !isInstallmentPayableForInstructions(input.installment, input.now) &&
+    !(input.allowPendingFinalMilestone && isPendingFinalMilestone(input.installment))
+  ) {
     blocked("installment_not_due");
   }
   const remaining = installmentRemainingCents(input.installment, input.ledger);
@@ -142,6 +171,7 @@ export async function prepareProducerReceiptUpload(
     originalFileName: string;
     contentType: ProofContentType;
     sizeBytes: number;
+    markFinalMilestone?: boolean | undefined;
     serverSecret: string;
     now?: Date | undefined;
   },
@@ -159,12 +189,16 @@ export async function prepareProducerReceiptUpload(
         loadLedgerSnapshot(tx, context),
         loadProofRows(tx, context),
       ]);
+      // Staging a receipt writes nothing to the schedule, so the pending
+      // milestone is only tolerated here; `recordProducerManualPayment` is
+      // where it is actually declared.
       assertInstallmentAcceptsManualPayment({
         context: { lifecycleStatus: context.lifecycleStatus, producerClosedAt },
         installment,
         ledger,
         proofs,
         now,
+        allowPendingFinalMilestone: input.markFinalMilestone ?? false,
       });
       const signed = createProofUploadToken(
         requireServerSecret(input.serverSecret),
@@ -216,6 +250,7 @@ export async function recordProducerManualPayment(
     paidAt: Date;
     note?: string | undefined;
     uploadToken?: string | undefined;
+    markFinalMilestone?: boolean | undefined;
     serverSecret: CapabilityVerificationSecrets;
     now?: Date | undefined;
   },
@@ -262,7 +297,23 @@ export async function recordProducerManualPayment(
       );
       if (!context) throw new PaymentProofDomainError("NOT_FOUND", "Purchase was not found");
       const producerClosedAt = await lockProducerClosureState(tx, context.producerId);
-      const installment = await loadOwnedInstallment(tx, context, input.installmentId);
+      let installment = await loadOwnedInstallment(tx, context, input.installmentId);
+
+      // SK-293 — the client approved outside Skitza, so this half is still
+      // waiting on a trigger that will never fire on its own. Money the
+      // producer already received is that milestone. Declaring it here, under
+      // the ledger lock this transaction already holds, keeps the ledger's own
+      // rule intact: nothing ever settles an untriggered installment.
+      if (input.markFinalMilestone && isPendingFinalMilestone(installment)) {
+        await requestFinalPayment(purchaseLedgerRepositoryForTransaction(tx, ledgerScope), {
+          producerId: context.producerId,
+          purchaseId: context.purchaseId,
+          installmentId: installment.id,
+          requestedAt: now,
+        });
+        installment = await loadOwnedInstallment(tx, context, input.installmentId);
+      }
+
       const [ledger, proofs] = await Promise.all([
         loadLedgerSnapshot(tx, context),
         loadProofRows(tx, context),

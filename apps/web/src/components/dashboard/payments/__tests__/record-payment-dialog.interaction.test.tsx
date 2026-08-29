@@ -165,6 +165,59 @@ describe("RecordPaymentDialog", () => {
     });
   });
 
+  // SK-293 — the client approved over WhatsApp, so the 50/50 final half never
+  // triggered. The producer holding their money must still be able to record it.
+  it("records a final half whose approval never happened, and says what that means", async () => {
+    const onClose = vi.fn();
+    render(
+      <RecordPaymentDialog
+        open
+        onClose={onClose}
+        projectId="project-1"
+        purchases={[
+          purchase({
+            id: "p1",
+            installments: [
+              installment({ id: "i1", status: "confirmed", remainingCents: 0 }),
+              installment({
+                id: "i2",
+                position: 2,
+                dueAtIso: null,
+                payableNow: false,
+                finalMilestonePending: true,
+              }),
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    const radio = screen.getByRole("radio", { name: /Full production/ });
+    expect(radio.getAttribute("aria-disabled")).toBeNull();
+    expect(radio.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText(/Recording it marks the work finished/)).toBeTruthy();
+
+    submitForm(submitButton(/Record ₪500/));
+
+    await waitFor(() => {
+      expect(record).toHaveBeenCalledTimes(1);
+    });
+    expect(firstCallInput(record)).toMatchObject({
+      installmentId: "i2",
+      amountCents: 50_000,
+      markFinalMilestone: true,
+    });
+  });
+
+  it("never declares the milestone on a payment that is simply due", async () => {
+    render(<RecordPaymentDialog open onClose={vi.fn()} projectId="project-1" purchases={SINGLE} />);
+    submitForm(submitButton(/Record ₪500/));
+    await waitFor(() => {
+      expect(record).toHaveBeenCalledTimes(1);
+    });
+    expect(firstCallInput(record).markFinalMilestone).toBeUndefined();
+  });
+
   it("keeps blocked installments unselectable with their reason", () => {
     render(
       <RecordPaymentDialog

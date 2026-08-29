@@ -44,7 +44,12 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
   const { toast } = useToast();
   const recordable = useMemo(() => listRecordablePayments(purchases), [purchases]);
   const summary = useMemo(() => summarizeRecordable(recordable), [recordable]);
-  const canRecord = summary.openCount > 0;
+  const hasDue = summary.openCount > 0;
+  // SK-293 — a 50/50 final half whose approval never happened is not due, but
+  // the producer may still record money that already arrived against it. It
+  // must not read as "open", or a healthy project would look like it is owed
+  // money it is not yet owed.
+  const canRecord = hasDue || summary.milestoneCount > 0;
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
@@ -122,12 +127,14 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
         <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <div className="min-w-0">
             <p className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
-              {canRecord
+              {hasDue
                 ? `${String(summary.openCount)} payment${summary.openCount === 1 ? "" : "s"} open`
-                : "Nothing is waiting for payment"}
+                : canRecord
+                  ? "Nothing is due yet"
+                  : "Nothing is waiting for payment"}
             </p>
             <p className="mt-0.5 text-[12px] text-[rgb(var(--fg-muted))]">
-              {canRecord ? (
+              {hasDue ? (
                 <>
                   {summary.remainingByCurrency
                     .map((total) => formatMoney(total.cents, total.currency))
@@ -138,6 +145,8 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
                     Drop a receipt anywhere here to record one.
                   </span>
                 </>
+              ) : canRecord ? (
+                "The last payment is waiting for your client's approval. Paid outside Skitza already? You can still record it."
               ) : (
                 "Got paid outside Skitza? Record it here once a payment is due."
               )}

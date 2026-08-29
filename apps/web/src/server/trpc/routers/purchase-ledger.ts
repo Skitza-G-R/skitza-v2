@@ -24,7 +24,7 @@ import {
   correctPurchasePayment,
   pauseProjectForOverdueInstallment,
   reconcilePurchaseLedger,
-  requestImportedFinalPayment,
+  requestFinalPayment,
   resumePaymentPausedProject,
   setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
@@ -143,6 +143,7 @@ export const purchaseLedgerRouter = router({
           fileName: z.string().min(1).max(200),
           contentType: z.enum(PROOF_CONTENT_TYPES),
           sizeBytes: z.number().int().positive().max(MAX_PROOF_BYTES),
+          markFinalMilestone: z.boolean().optional(),
         })
         .strict(),
     )
@@ -157,6 +158,7 @@ export const purchaseLedgerRouter = router({
           originalFileName: input.fileName,
           contentType: input.contentType,
           sizeBytes: input.sizeBytes,
+          markFinalMilestone: input.markFinalMilestone,
           serverSecret: proofServerSecret(),
         });
       } catch (error) {
@@ -202,6 +204,10 @@ export const purchaseLedgerRouter = router({
           paidAt: z.date(),
           note: z.string().trim().max(2_000).optional(),
           uploadToken: z.string().min(1).max(4096).optional(),
+          // SK-293 — the producer is settling a final half whose artist
+          // approval never happened in Skitza, so this operation declares the
+          // milestone too. The domain re-checks that the row really qualifies.
+          markFinalMilestone: z.boolean().optional(),
         })
         .strict(),
     )
@@ -219,6 +225,7 @@ export const purchaseLedgerRouter = router({
           paidAt: input.paidAt,
           note: input.note,
           uploadToken: input.uploadToken,
+          markFinalMilestone: input.markFinalMilestone,
           serverSecret: proofVerificationSecrets(),
         });
       } catch (error) {
@@ -353,8 +360,8 @@ export const purchaseLedgerRouter = router({
       }
     }),
 
-  // SK-269 — the producer says an imported job is finished, so its final half
-  // stops waiting for an artist approval that can never happen. The domain
+  // SK-269 / SK-293 — the producer says the job is finished, so its final half
+  // stops waiting for an artist approval that will never happen. The domain
   // decides whether this purchase qualifies; the router only carries identity.
   requestFinalPayment: producerProcedure
     .input(
@@ -367,7 +374,7 @@ export const purchaseLedgerRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const result = await requestImportedFinalPayment(purchaseLedgerRepository(ctx.db), {
+        const result = await requestFinalPayment(purchaseLedgerRepository(ctx.db), {
           producerId: ctx.producerId,
           purchaseId: input.purchaseId,
           installmentId: input.installmentId,

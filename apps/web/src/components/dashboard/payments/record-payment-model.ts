@@ -6,7 +6,17 @@ import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/pro
 // without React: which installments are offered, which are blocked and why,
 // amount parsing, receipt validation, and the note that lands in the ledger.
 
-export type RecordablePaymentState = "open" | "not_due" | "proof_pending" | "purchase_canceled";
+export type RecordablePaymentState =
+  | "open"
+  /**
+   * SK-293 — a 50/50 final half waiting on an artist approval that never
+   * happened in Skitza. Selectable, but recording it also declares the work
+   * finished, so the form says so before the producer commits.
+   */
+  | "needs_milestone"
+  | "not_due"
+  | "proof_pending"
+  | "purchase_canceled";
 
 export interface RecordablePayment {
   id: string;
@@ -22,7 +32,7 @@ export interface RecordablePayment {
 }
 
 export const BLOCKED_STATE_LABELS: Readonly<
-  Record<Exclude<RecordablePaymentState, "open">, string>
+  Record<Exclude<RecordablePaymentState, "open" | "needs_milestone">, string>
 > = {
   not_due: "Not due yet",
   proof_pending: "Proof waiting for review",
@@ -54,7 +64,9 @@ export function listRecordablePayments(
             ? "proof_pending"
             : installment.payableNow
               ? "open"
-              : "not_due";
+              : installment.finalMilestonePending
+                ? "needs_milestone"
+                : "not_due";
       result.push({
         id: installment.id,
         purchaseId: purchase.id,
@@ -76,14 +88,29 @@ export function openPayments(list: readonly RecordablePayment[]): RecordablePaym
   return list.filter((payment) => payment.state === "open");
 }
 
+/**
+ * Everything the producer may actually record against — money that is due, plus
+ * a final half they can settle by declaring the milestone themselves (SK-293).
+ */
+export function selectablePayments(list: readonly RecordablePayment[]): RecordablePayment[] {
+  return list.filter((payment) => payment.state === "open" || payment.state === "needs_milestone");
+}
+
 /** Pre-select only when the choice is unambiguous. */
 export function defaultPaymentSelection(list: readonly RecordablePayment[]): string | null {
-  const open = openPayments(list);
-  return open.length === 1 ? (open[0]?.id ?? null) : null;
+  const selectable = selectablePayments(list);
+  return selectable.length === 1 ? (selectable[0]?.id ?? null) : null;
 }
 
 export interface RecordableSummary {
   openCount: number;
+  /**
+   * SK-293 — final halves that are not due, but that the producer may settle
+   * by declaring the work finished. Counted apart from `openCount` so a healthy
+   * in-flight project still reads as "nothing due" rather than being pushed to
+   * collect early.
+   */
+  milestoneCount: number;
   /** Remaining cents per currency across open installments. */
   remainingByCurrency: readonly { currency: string; cents: number }[];
 }
@@ -97,6 +124,7 @@ export function summarizeRecordable(list: readonly RecordablePayment[]): Recorda
   }
   return {
     openCount,
+    milestoneCount: list.filter((payment) => payment.state === "needs_milestone").length,
     remainingByCurrency: [...totals.entries()].map(([currency, cents]) => ({ currency, cents })),
   };
 }
