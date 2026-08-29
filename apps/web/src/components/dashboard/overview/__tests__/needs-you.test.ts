@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { PAYMENTS_NEEDS_YOU_ANCHOR } from "~/components/payments/producer-payments-dashboard-model";
+
 import {
   buildNeedsYouQueue,
   capNeedsYouQueue,
   groupFollowUps,
+  shortActionLabel,
   type NeedsYouSources,
 } from "../needs-you";
 
@@ -15,21 +18,22 @@ const EMPTY: NeedsYouSources = {
   followUps: [],
   unresolvedItems: [],
   urgentProjects: [],
-  payments: [],
   showSetupNudge: false,
 };
 
 describe("groupFollowUps", () => {
   it("renders one follow-up per project and preserves the session count", () => {
     const groups = groupFollowUps([
-      { id: "s-1", artistName: "Maya", projectTitle: "EP", projectId: "p-1" },
-      { id: "s-2", artistName: "Maya", projectTitle: "EP", projectId: "p-1" },
-      { id: "s-3", artistName: "Lior", projectTitle: "Single", projectId: "p-2" },
+      { id: "s-1", artistName: "Maya", projectTitle: "EP", projectId: "p-1", bookingId: "b-1" },
+      { id: "s-2", artistName: "Maya", projectTitle: "EP", projectId: "p-1", bookingId: "b-2" },
+      { id: "s-3", artistName: "Lior", projectTitle: "Single", projectId: "p-2", bookingId: "b-3" },
     ]);
 
+    // The first row per project wins the booking id — the server already
+    // orders each group newest-session-first.
     expect(groups).toEqual([
-      { projectId: "p-1", artistName: "Maya", projectTitle: "EP", count: 2 },
-      { projectId: "p-2", artistName: "Lior", projectTitle: "Single", count: 1 },
+      { projectId: "p-1", artistName: "Maya", projectTitle: "EP", bookingId: "b-1", count: 2 },
+      { projectId: "p-2", artistName: "Lior", projectTitle: "Single", bookingId: "b-3", count: 1 },
     ]);
   });
 
@@ -40,6 +44,7 @@ describe("groupFollowUps", () => {
         artistName: "Maya",
         projectTitle: "EP",
         projectId: "p-1",
+        bookingId: "b-1",
         count: 3,
       },
       {
@@ -47,6 +52,7 @@ describe("groupFollowUps", () => {
         artistName: "Maya",
         projectTitle: "EP",
         projectId: "p-1",
+        bookingId: "b-2",
         count: 2,
       },
     ]);
@@ -102,7 +108,7 @@ describe("buildNeedsYouQueue", () => {
       "purchase_request",
       "session_approval",
     ]);
-    expect(queue[1]?.href).toBe("/dashboard/payments#payment-history-due-overdue");
+    expect(queue[1]?.href).toBe(`/dashboard/payments#${PAYMENTS_NEEDS_YOU_ANCHOR}`);
   });
 
   it("keeps unresolved work separate from notification read state and orders real decisions first", () => {
@@ -117,25 +123,22 @@ describe("buildNeedsYouQueue", () => {
       ],
       purchaseRequests: [{ id: "r-1", artistName: "Maya", productNameSnapshot: "Mix & Master" }],
       pendingApprovals: [{ id: "b-1", artistName: "Dana", packageNameSnapshot: "Session" }],
-      followUps: [{ id: "s-1", artistName: "NeedJuice", projectTitle: "Album", projectId: "p-1" }],
+      followUps: [
+        {
+          id: "s-1",
+          artistName: "NeedJuice",
+          projectTitle: "Album",
+          projectId: "p-1",
+          bookingId: "b-2",
+        },
+      ],
       unresolvedItems: [
         {
           id: "comment:c-1",
           kind: "comment",
           title: "Lior",
           subtitle: "Please check the bridge",
-          href: "/dashboard/clients-projects/p-2",
-        },
-      ],
-      payments: [
-        {
-          id: "paid-1",
-          artistName: "Noa",
-          packageNameSnapshot: null,
-          unitPriceCents: 100_00,
-          songQty: null,
-          projectId: "p-3",
-          projectName: "Single",
+          href: "/dashboard/music/v-2",
         },
       ],
       showSetupNudge: true,
@@ -147,7 +150,6 @@ describe("buildNeedsYouQueue", () => {
       "session_approval",
       "follow_up",
       "comment",
-      "payment_received",
       "setup",
     ]);
     expect(queue[0]?.href).toBe("/dashboard/payments/proof-1");
@@ -180,7 +182,7 @@ describe("buildNeedsYouQueue", () => {
           title: "Single",
           clientName: "Lior",
           stage: "in_production",
-          urgency: "overdue",
+          urgency: "stuck",
         },
       ],
     });
@@ -197,6 +199,7 @@ describe("buildNeedsYouQueue", () => {
           artistName: "Lior",
           projectTitle: "Single",
           projectId: "p-2",
+          bookingId: "b-7",
         },
       ],
       urgentProjects: [
@@ -272,5 +275,87 @@ describe("capNeedsYouQueue", () => {
     const result = capNeedsYouQueue(items, true);
     expect(result.visible).toHaveLength(5);
     expect(result.hiddenCount).toBe(0);
+  });
+});
+
+// SK-283 — a Needs You row is only honest if its button lands on a screen
+// that can actually clear it. Before this suite, three rows pointed at pages
+// with no matching control, so the producer clicked, found nothing to do, and
+// the row stayed forever.
+describe("SK-283 — every row lands where the work gets finished", () => {
+  it("sends a finished-session follow-up to the calendar, where sessions are marked completed", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      followUps: [
+        {
+          id: "s-1",
+          artistName: "Lital",
+          projectTitle: "Album",
+          projectId: "p-1",
+          bookingId: "b-9",
+        },
+      ],
+    });
+
+    // The project page has no "Mark completed" control — the calendar does,
+    // and ?booking= already resolves the right tab from the booking's status.
+    expect(queue[0]?.href).toBe("/dashboard/calendar?booking=b-9");
+  });
+
+  it("keeps one row per project but points it at that project's newest finished session", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      followUps: [
+        {
+          id: "s-1",
+          artistName: "Lital",
+          projectTitle: "Album",
+          projectId: "p-1",
+          bookingId: "b-newest",
+          count: 2,
+        },
+      ],
+    });
+
+    expect(queue).toHaveLength(1);
+    expect(queue[0]?.title).toBe("2 finished sessions");
+    expect(queue[0]?.href).toBe("/dashboard/calendar?booking=b-newest");
+  });
+
+  it("sends a payment-due row to an anchor that exists on the payments page", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      paymentBalances: [
+        {
+          purchaseId: "purchase-1",
+          projectId: "p-1",
+          projectTitle: "EP",
+          clientName: "Maya",
+          purchaseTitle: "EP production",
+        },
+      ],
+    });
+
+    // The old target, #payment-history-due-overdue, matches no element in the
+    // app, so the browser silently ignored it.
+    expect(queue[0]?.href).toBe(`/dashboard/payments#${PAYMENTS_NEEDS_YOU_ANCHOR}`);
+    expect(queue[0]?.href).not.toContain("payment-history-due-overdue");
+  });
+
+});
+
+// The phone button is min-w-[76px] with px-3, so a two-word action has to
+// collapse. "Open project" already did; "Open calendar" is longer still and
+// would push the row past the 360px budget.
+describe("shortActionLabel", () => {
+  it("collapses every two-word Open action to one word on phones", () => {
+    expect(shortActionLabel("Open project")).toBe("Open");
+    expect(shortActionLabel("Open calendar")).toBe("Open");
+  });
+
+  it("leaves the one-word actions alone", () => {
+    expect(shortActionLabel("Review")).toBe("Review");
+    expect(shortActionLabel("Open")).toBe("Open");
+    expect(shortActionLabel("Finish setup")).toBe("Finish setup");
   });
 });

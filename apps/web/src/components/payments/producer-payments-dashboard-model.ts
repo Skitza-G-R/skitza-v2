@@ -1,5 +1,13 @@
 export type ProducerPaymentsView = "overview" | "history";
 
+/**
+ * DOM id of the "Needs you" attention group in the payments workspace.
+ * Shared so a link into that group can never drift from the element it
+ * targets — the dashboard's payment-due row previously pointed at
+ * `#payment-history-due-overdue`, which matched nothing.
+ */
+export const PAYMENTS_NEEDS_YOU_ANCHOR = "payments-needs-you";
+
 export type ProducerPaymentTimePreset =
   | "this_month"
   | "last_month"

@@ -257,3 +257,23 @@ describe("SK-69 payment surface wiring", () => {
     expect(artistPurchasePayment).not.toContain("Accepted purchase");
   });
 });
+
+// SK-283 — the dashboard's "Payment due" row used to link to
+// #payment-history-due-overdue, an id that existed nowhere in the app, so the
+// browser silently ignored the fragment. The link and the element it targets
+// now share one constant, and this pins that they stay wired together.
+describe("SK-283 payment-due deep link", () => {
+  const dashboard = read("components", "payments", "producer-payments-dashboard.tsx");
+  const needsYou = read("components", "dashboard", "overview", "needs-you.ts");
+
+  it("renders the Needs you group with the id the dashboard links to", () => {
+    expect(dashboard).toContain("PAYMENTS_NEEDS_YOU_ANCHOR");
+    expect(dashboard).toContain('id={group.id === "needs_you" ? PAYMENTS_NEEDS_YOU_ANCHOR');
+    expect(dashboard).toContain("scroll-mt-24");
+  });
+
+  it("builds the dashboard link from that same constant", () => {
+    expect(needsYou).toContain("PAYMENTS_NEEDS_YOU_ANCHOR");
+    expect(needsYou).not.toContain("payment-history-due-overdue");
+  });
+});

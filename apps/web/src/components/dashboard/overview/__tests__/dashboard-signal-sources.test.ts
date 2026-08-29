@@ -16,7 +16,7 @@ const producerRouter = readFileSync(
 
 describe("dashboard signal sources", () => {
   it("groups follow-ups by project before applying a bounded cap", () => {
-    const procedure = bookingRouter.match(/needsFollowUp:[\s\S]*?recentPaidUnacknowledged:/)?.[0];
+    const procedure = bookingRouter.match(/needsFollowUp:[\s\S]*?\n {2}\w+:/)?.[0];
 
     expect(procedure).toBeDefined();
     expect(procedure).toContain("count(${bookings.id})::int");
@@ -26,18 +26,46 @@ describe("dashboard signal sources", () => {
   });
 
   it("does not infer payment signals from legacy booking history", () => {
-    const procedure = bookingRouter.match(
-      /recentPaidUnacknowledged:[\s\S]*?acknowledgePayment:/,
-    )?.[0];
-
-    expect(procedure).toBeDefined();
-    expect(procedure).toContain("query((): RecentPaymentCompatibility[] => [])");
-    expect(procedure).not.toMatch(/PAYMENT_SIGNAL_RETENTION_DAYS|statusChangedAt.*gte/);
+    // SK-283 deleted the stubs that used to hold this line. The rule they
+    // protected still stands: money signals come from the purchase ledger,
+    // never from booking rows.
+    expect(bookingRouter).not.toContain("recentPaidUnacknowledged");
+    expect(bookingRouter).not.toContain("acknowledgePayment");
+    expect(bookingRouter).not.toMatch(/PAYMENT_SIGNAL_RETENTION_DAYS|statusChangedAt.*gte/);
   });
 
   it("returns comments independently and leaves removed invoices out of Today", () => {
     expect(producerRouter).toContain("const needsYouUnresolvedItems =");
     expect(producerRouter).toMatch(/return \{[\s\S]*?items,[\s\S]*?needsYouUnresolvedItems,/);
     expect(producerRouter).not.toMatch(/invoiceItems|unpaidInvoiceRows|kind:\s*"invoice"/);
+  });
+});
+
+// SK-283 — the two dead-end fixes that live in the routers, plus proof the
+// unreachable payment_received path is gone rather than merely unused.
+describe("SK-283 signal sources land where the work gets finished", () => {
+  const needsYou = readFileSync(join(here, "..", "needs-you.ts"), "utf8");
+
+  it("carries the newest finished booking id so the follow-up can open the calendar", () => {
+    const procedure = bookingRouter.match(/needsFollowUp:[\s\S]*?\n {2}\w+:/)?.[0];
+
+    expect(procedure).toBeDefined();
+    // A grouped row must still name one concrete booking, otherwise the card
+    // can only address the project — which is the page with no control.
+    expect(procedure).toContain("bookingId");
+    expect(procedure).toContain("bookings.startsAt");
+  });
+
+  it("gives an open comment the song-version link where Resolve actually lives", () => {
+    const builder = producerRouter.match(/const commentItems = [\s\S]*?\}\)\);/)?.[0];
+
+    expect(builder).toBeDefined();
+    expect(builder).toContain("/dashboard/music/");
+    expect(builder).not.toContain("/dashboard/clients-projects/${c.projectId}");
+  });
+
+  it("no longer carries the unreachable payment_received row", () => {
+    expect(needsYou).not.toContain("payment_received");
+    expect(needsYou).not.toContain("PaymentSource");
   });
 });
