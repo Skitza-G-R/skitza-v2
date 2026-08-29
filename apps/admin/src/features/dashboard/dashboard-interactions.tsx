@@ -182,15 +182,6 @@ export function Breadcrumbs({ recordLabel }: { recordLabel?: string }) {
   );
 }
 
-export function SimulatedNotice() {
-  return (
-    <span className={styles.simulatedNotice}>
-      <span className={styles.simulatedDot} aria-hidden="true" />
-      Simulated / reset on reload
-    </span>
-  );
-}
-
 export type DashboardAction = {
   disabled?: boolean;
   label: string;
