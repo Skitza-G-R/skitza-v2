@@ -6308,3 +6308,45 @@ export const betaInvitees = pgTable(
 );
 export type BetaInvitee = typeof betaInvitees.$inferSelect;
 export type NewBetaInvitee = typeof betaInvitees.$inferInsert;
+
+// ─── Producer attention dismissals (SK-284) ──────────────────────────
+// A producer can hide a nagging "Needs you" row without claiming the work is
+// done. Stores a TIMESTAMP rather than a boolean, exactly like
+// booking_calendar_links.attention_dismissed_at (migration 0053): the row is
+// hidden only while dismissed_at >= the subject's last-changed time, so it
+// reappears by itself the next time the subject actually changes. No other
+// code path has to remember to clear it.
+//
+// Only the three deadline-free rows are dismissible; money and time-boxed
+// decisions are excluded by the CHECK so no future caller can hide them.
+export const producerAttentionDismissals = pgTable(
+  "producer_attention_dismissals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    itemKind: text("item_kind", { enum: ["follow_up", "comment", "urgent_project"] }).notNull(),
+    /** Project id for follow_up and urgent_project; comment id for comment. */
+    subjectId: uuid("subject_id").notNull(),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    subjectUnique: uniqueIndex("producer_attention_dismissals_subject_unique").on(
+      t.producerId,
+      t.itemKind,
+      t.subjectId,
+    ),
+    producerIdx: index("producer_attention_dismissals_producer_idx").on(t.producerId),
+    kindAllowed: check(
+      "producer_attention_dismissals_kind_allowed",
+      sql`${t.itemKind} IN ('follow_up', 'comment', 'urgent_project')`,
+    ),
+    timestampShape: check(
+      "producer_attention_dismissals_timestamp_shape",
+      sql`${t.dismissedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+export type ProducerAttentionDismissal = typeof producerAttentionDismissals.$inferSelect;
+export type NewProducerAttentionDismissal = typeof producerAttentionDismissals.$inferInsert;

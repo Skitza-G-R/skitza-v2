@@ -6,9 +6,12 @@ import {
   buildNeedsYouQueue,
   capNeedsYouQueue,
   groupFollowUps,
+  isDismissed,
   shortActionLabel,
   type NeedsYouSources,
 } from "../needs-you";
+
+const FIXTURE_ENDED = new Date("2026-07-01T12:00:00Z");
 
 const EMPTY: NeedsYouSources = {
   paymentProofs: [],
@@ -18,22 +21,58 @@ const EMPTY: NeedsYouSources = {
   followUps: [],
   unresolvedItems: [],
   urgentProjects: [],
+  dismissals: [],
   showSetupNudge: false,
 };
 
 describe("groupFollowUps", () => {
   it("renders one follow-up per project and preserves the session count", () => {
     const groups = groupFollowUps([
-      { id: "s-1", artistName: "Maya", projectTitle: "EP", projectId: "p-1", bookingId: "b-1" },
-      { id: "s-2", artistName: "Maya", projectTitle: "EP", projectId: "p-1", bookingId: "b-2" },
-      { id: "s-3", artistName: "Lior", projectTitle: "Single", projectId: "p-2", bookingId: "b-3" },
+      {
+        id: "s-1",
+        artistName: "Maya",
+        projectTitle: "EP",
+        projectId: "p-1",
+        bookingId: "b-1",
+        lastSessionEndedAt: FIXTURE_ENDED,
+      },
+      {
+        id: "s-2",
+        artistName: "Maya",
+        projectTitle: "EP",
+        projectId: "p-1",
+        bookingId: "b-2",
+        lastSessionEndedAt: FIXTURE_ENDED,
+      },
+      {
+        id: "s-3",
+        artistName: "Lior",
+        projectTitle: "Single",
+        projectId: "p-2",
+        bookingId: "b-3",
+        lastSessionEndedAt: FIXTURE_ENDED,
+      },
     ]);
 
     // The first row per project wins the booking id — the server already
     // orders each group newest-session-first.
     expect(groups).toEqual([
-      { projectId: "p-1", artistName: "Maya", projectTitle: "EP", bookingId: "b-1", count: 2 },
-      { projectId: "p-2", artistName: "Lior", projectTitle: "Single", bookingId: "b-3", count: 1 },
+      {
+        projectId: "p-1",
+        artistName: "Maya",
+        projectTitle: "EP",
+        bookingId: "b-1",
+        lastSessionEndedAt: FIXTURE_ENDED,
+        count: 2,
+      },
+      {
+        projectId: "p-2",
+        artistName: "Lior",
+        projectTitle: "Single",
+        bookingId: "b-3",
+        lastSessionEndedAt: FIXTURE_ENDED,
+        count: 1,
+      },
     ]);
   });
 
@@ -45,6 +84,7 @@ describe("groupFollowUps", () => {
         projectTitle: "EP",
         projectId: "p-1",
         bookingId: "b-1",
+      lastSessionEndedAt: FIXTURE_ENDED,
         count: 3,
       },
       {
@@ -53,6 +93,7 @@ describe("groupFollowUps", () => {
         projectTitle: "EP",
         projectId: "p-1",
         bookingId: "b-2",
+      lastSessionEndedAt: FIXTURE_ENDED,
         count: 2,
       },
     ]);
@@ -130,11 +171,14 @@ describe("buildNeedsYouQueue", () => {
           projectTitle: "Album",
           projectId: "p-1",
           bookingId: "b-2",
+      lastSessionEndedAt: FIXTURE_ENDED,
         },
       ],
       unresolvedItems: [
         {
           id: "comment:c-1",
+          commentId: "c-1",
+          occurredAt: FIXTURE_ENDED,
           kind: "comment",
           title: "Lior",
           subtitle: "Please check the bridge",
@@ -170,6 +214,8 @@ describe("buildNeedsYouQueue", () => {
       unresolvedItems: [
         {
           id: "comment:c-1",
+          commentId: "c-1",
+          occurredAt: FIXTURE_ENDED,
           kind: "comment",
           title: "Lior",
           subtitle: "Please check the bridge",
@@ -183,6 +229,7 @@ describe("buildNeedsYouQueue", () => {
           clientName: "Lior",
           stage: "in_production",
           urgency: "stuck",
+          lastActivityAt: FIXTURE_ENDED,
         },
       ],
     });
@@ -200,6 +247,7 @@ describe("buildNeedsYouQueue", () => {
           projectTitle: "Single",
           projectId: "p-2",
           bookingId: "b-7",
+      lastSessionEndedAt: FIXTURE_ENDED,
         },
       ],
       urgentProjects: [
@@ -209,6 +257,7 @@ describe("buildNeedsYouQueue", () => {
           clientName: "Lior",
           stage: "in_production",
           urgency: "stuck",
+          lastActivityAt: FIXTURE_ENDED,
         },
       ],
     });
@@ -222,6 +271,8 @@ describe("buildNeedsYouQueue", () => {
       unresolvedItems: [
         {
           id: "comment:c-1",
+          commentId: "c-1",
+          occurredAt: FIXTURE_ENDED,
           kind: "comment",
           title: "Lior",
           subtitle: "Please check the bridge",
@@ -235,6 +286,7 @@ describe("buildNeedsYouQueue", () => {
           clientName: "Lior",
           stage: "in_production",
           urgency: "stuck",
+          lastActivityAt: FIXTURE_ENDED,
         },
       ],
     });
@@ -293,6 +345,7 @@ describe("SK-283 — every row lands where the work gets finished", () => {
           projectTitle: "Album",
           projectId: "p-1",
           bookingId: "b-9",
+      lastSessionEndedAt: FIXTURE_ENDED,
         },
       ],
     });
@@ -312,6 +365,7 @@ describe("SK-283 — every row lands where the work gets finished", () => {
           projectTitle: "Album",
           projectId: "p-1",
           bookingId: "b-newest",
+      lastSessionEndedAt: FIXTURE_ENDED,
           count: 2,
         },
       ],
@@ -357,5 +411,120 @@ describe("shortActionLabel", () => {
     expect(shortActionLabel("Review")).toBe("Review");
     expect(shortActionLabel("Open")).toBe("Open");
     expect(shortActionLabel("Finish setup")).toBe("Finish setup");
+  });
+});
+
+// SK-284 — "hide until it changes". A dismissal is a timestamp, so a row is
+// hidden only while the producer's click is NEWER than the last real change to
+// the thing it describes. The moment the subject moves again, the row is back
+// without anything having to remember to un-hide it.
+describe("isDismissed", () => {
+  const T0 = new Date("2026-08-01T10:00:00Z");
+  const LATER = new Date("2026-08-20T10:00:00Z");
+
+  it("shows a row nobody has dismissed", () => {
+    expect(isDismissed([], "follow_up", "p-1", T0)).toBe(false);
+  });
+
+  it("hides a row dismissed after the subject last changed", () => {
+    const dismissals = [{ itemKind: "follow_up" as const, subjectId: "p-1", dismissedAt: LATER }];
+    expect(isDismissed(dismissals, "follow_up", "p-1", T0)).toBe(true);
+  });
+
+  it("brings the row back once the subject changes again", () => {
+    // Dismissed on the 1st, another session finished on the 20th.
+    const dismissals = [{ itemKind: "follow_up" as const, subjectId: "p-1", dismissedAt: T0 }];
+    expect(isDismissed(dismissals, "follow_up", "p-1", LATER)).toBe(false);
+  });
+
+  it("treats a dismissal at the exact change time as still hidden", () => {
+    const dismissals = [{ itemKind: "follow_up" as const, subjectId: "p-1", dismissedAt: T0 }];
+    expect(isDismissed(dismissals, "follow_up", "p-1", T0)).toBe(true);
+  });
+
+  it("does not leak a dismissal to another subject", () => {
+    const dismissals = [{ itemKind: "follow_up" as const, subjectId: "p-1", dismissedAt: LATER }];
+    expect(isDismissed(dismissals, "follow_up", "p-2", T0)).toBe(false);
+  });
+
+  it("keeps the two rows about one project independent", () => {
+    // Hiding "N finished sessions" must not also hide "Project needs movement".
+    const dismissals = [{ itemKind: "follow_up" as const, subjectId: "p-1", dismissedAt: LATER }];
+    expect(isDismissed(dismissals, "urgent_project", "p-1", T0)).toBe(false);
+  });
+});
+
+describe("buildNeedsYouQueue — dismissals", () => {
+  const T0 = new Date("2026-08-01T10:00:00Z");
+  const LATER = new Date("2026-08-20T10:00:00Z");
+
+  const followUp = {
+    id: "s-1",
+    artistName: "Lital",
+    projectTitle: "Album",
+    projectId: "p-1",
+    bookingId: "b-9",
+    lastSessionEndedAt: T0,
+  };
+
+  it("drops a dismissed finished-session row", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      followUps: [followUp],
+      dismissals: [{ itemKind: "follow_up", subjectId: "p-1", dismissedAt: LATER }],
+    });
+
+    expect(queue).toHaveLength(0);
+  });
+
+  it("brings it back when another session finishes", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      followUps: [{ ...followUp, lastSessionEndedAt: LATER, count: 3 }],
+      dismissals: [{ itemKind: "follow_up", subjectId: "p-1", dismissedAt: T0 }],
+    });
+
+    expect(queue.map((item) => item.title)).toEqual(["3 finished sessions"]);
+  });
+
+  it("never lets a dismissal hide money or a booking request", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      paymentProofs: [{ proofId: "proof-1", artistName: "Noa", productNameSnapshot: "Single" }],
+      paymentBalances: [
+        {
+          purchaseId: "purchase-1",
+          projectId: "p-1",
+          projectTitle: "EP",
+          clientName: "Maya",
+          purchaseTitle: "EP production",
+        },
+      ],
+      pendingApprovals: [{ id: "b-1", artistName: "Dana", packageNameSnapshot: "Session" }],
+      // A stale or hostile row naming an undismissable kind must do nothing.
+      dismissals: [
+        { itemKind: "follow_up", subjectId: "proof-1", dismissedAt: LATER },
+        { itemKind: "follow_up", subjectId: "purchase-1", dismissedAt: LATER },
+        { itemKind: "follow_up", subjectId: "b-1", dismissedAt: LATER },
+      ],
+    });
+
+    expect(queue.map((item) => item.kind)).toEqual([
+      "payment_proof",
+      "payment_due",
+      "session_approval",
+    ]);
+  });
+
+  it("marks a dismissible row with the key the server needs, and leaves the rest bare", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      followUps: [followUp],
+      pendingApprovals: [{ id: "b-1", artistName: "Dana", packageNameSnapshot: "Session" }],
+    });
+
+    const [session, finished] = queue;
+    expect(session?.dismiss).toBeUndefined();
+    expect(finished?.dismiss).toEqual({ kind: "follow_up", subjectId: "p-1" });
   });
 });

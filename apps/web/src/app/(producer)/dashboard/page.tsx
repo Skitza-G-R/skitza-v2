@@ -58,6 +58,7 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     pendingPaymentProofs,
     paymentReadModel,
     urgent,
+    dismissals,
   ] = await Promise.all([
     skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null),
     caller.producer.today(),
@@ -68,6 +69,7 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     caller.producer.purchase.proofOfPayment.pending(),
     caller.purchaseLedger.overview(),
     caller.producer.overview.urgent({ limit: 50 }),
+    caller.producer.attention.list(),
   ]);
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
@@ -153,6 +155,7 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
             projectTitle: session.projectTitle,
             projectId: session.projectId,
             bookingId: session.bookingId,
+            lastSessionEndedAt: session.lastSessionEndedAt,
             count: session.count,
           }))}
           todaySession={todaySession}
@@ -167,8 +170,10 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
             projectId: upload.projectId,
             projectClientName: upload.projectClientName,
           }))}
+          dismissals={dismissals}
           unresolvedItems={today.needsYouUnresolvedItems.map((item) => ({
             id: item.id,
+            commentId: item.commentId,
             kind: item.kind,
             title: item.title,
             subtitle: item.subtitle,

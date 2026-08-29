@@ -3,6 +3,43 @@ import type { Stage } from "~/lib/projects/stages";
 
 export const NEEDS_YOU_VISIBLE_LIMIT = 3;
 
+/**
+ * The only rows a producer may hide. Money and time-boxed decisions are
+ * deliberately absent: a payment proof, a due balance, a purchase request and
+ * a session request all either cost money or expire on a clock, so hiding one
+ * would turn "Nothing needs you right now" into a lie. The DB CHECK on
+ * producer_attention_dismissals.item_kind enforces the same list.
+ */
+export const DISMISSIBLE_KINDS = ["follow_up", "comment", "urgent_project"] as const;
+
+export type DismissibleKind = (typeof DISMISSIBLE_KINDS)[number];
+
+export type AttentionDismissal = {
+  itemKind: DismissibleKind;
+  subjectId: string;
+  dismissedAt: Date;
+};
+
+/**
+ * "Hide until it changes." A dismissal is a timestamp, not a flag, so a row is
+ * hidden only while the producer's click is at least as new as the last real
+ * change to its subject. When the subject moves again — another session ends,
+ * a new upload lands, the artist writes again — `changedAt` overtakes the
+ * dismissal and the row returns on its own. Nothing has to clear it.
+ */
+export function isDismissed(
+  dismissals: readonly AttentionDismissal[],
+  kind: DismissibleKind,
+  subjectId: string,
+  changedAt: Date,
+): boolean {
+  const hit = dismissals.find(
+    (dismissal) => dismissal.itemKind === kind && dismissal.subjectId === subjectId,
+  );
+  if (!hit) return false;
+  return hit.dismissedAt.getTime() >= changedAt.getTime();
+}
+
 export type FollowUpSource = {
   id: string;
   artistName: string;
@@ -10,6 +47,8 @@ export type FollowUpSource = {
   projectId: string;
   /** Newest finished booking on the project — the one the calendar opens. */
   bookingId: string;
+  /** End of that newest finished session; a later one un-hides the row. */
+  lastSessionEndedAt: Date;
   count?: number;
 };
 
@@ -18,6 +57,7 @@ export type FollowUpGroup = {
   artistName: string;
   projectTitle: string;
   bookingId: string;
+  lastSessionEndedAt: Date;
   count: number;
 };
 
@@ -51,6 +91,8 @@ export type NeedsYouItem = {
   href: string;
   actionLabel: "Review" | "Open" | "Open project" | "Open calendar" | "Finish setup";
   priority: number;
+  /** Present only on rows the producer is allowed to hide. */
+  dismiss?: { kind: DismissibleKind; subjectId: string };
 };
 
 export type NeedsYouSources = {
@@ -69,10 +111,14 @@ export type NeedsYouSources = {
   followUps: readonly FollowUpSource[];
   unresolvedItems: readonly {
     id: string;
+    /** Bare comment id — the dismissal key, without the "comment:" prefix. */
+    commentId: string;
     kind: "comment";
     title: string;
     subtitle: string;
     href: string;
+    /** When the comment was written; a newer one is simply a different row. */
+    occurredAt: Date;
   }[];
   urgentProjects: readonly {
     id: string;
@@ -80,7 +126,10 @@ export type NeedsYouSources = {
     clientName: string;
     stage: Stage;
     urgency: "stuck";
+    /** Newest upload, else the project's own updatedAt — the staleness clock. */
+    lastActivityAt: Date;
   }[];
+  dismissals: readonly AttentionDismissal[];
   showSetupNudge: boolean;
 };
 
@@ -101,6 +150,7 @@ export function groupFollowUps(followUps: readonly FollowUpSource[]): FollowUpGr
       artistName: followUp.artistName,
       projectTitle: followUp.projectTitle,
       bookingId: followUp.bookingId,
+      lastSessionEndedAt: followUp.lastSessionEndedAt,
       count: followUp.count ?? 1,
     });
   }
@@ -165,6 +215,9 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
   }
 
   for (const group of groupFollowUps(sources.followUps)) {
+    if (isDismissed(sources.dismissals, "follow_up", group.projectId, group.lastSessionEndedAt)) {
+      continue;
+    }
     items.push({
       id: `follow-up:${group.projectId}`,
       kind: "follow_up",
@@ -176,10 +229,16 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       href: `/dashboard/calendar?booking=${group.bookingId}`,
       actionLabel: "Open calendar",
       priority: 30,
+      dismiss: { kind: "follow_up", subjectId: group.projectId },
     });
   }
 
   for (const unresolved of sources.unresolvedItems) {
+    if (
+      isDismissed(sources.dismissals, "comment", unresolved.commentId, unresolved.occurredAt)
+    ) {
+      continue;
+    }
     items.push({
       id: `unresolved:${unresolved.id}`,
       kind: unresolved.kind,
@@ -188,10 +247,14 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       href: unresolved.href,
       actionLabel: "Open project",
       priority: 45,
+      dismiss: { kind: "comment", subjectId: unresolved.commentId },
     });
   }
 
   for (const project of sources.urgentProjects) {
+    if (isDismissed(sources.dismissals, "urgent_project", project.id, project.lastActivityAt)) {
+      continue;
+    }
     items.push({
       id: `urgent:${project.id}`,
       // `classifyUrgency` only ever returns "stuck" — the money-flavoured
@@ -202,6 +265,7 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       href: `/dashboard/clients-projects/${project.id}`,
       actionLabel: "Open project",
       priority: 50,
+      dismiss: { kind: "urgent_project", subjectId: project.id },
     });
   }
 
