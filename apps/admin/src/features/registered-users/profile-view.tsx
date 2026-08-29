@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import type { AdminEnvironmentId } from "~/server/environment";
 import {
   REGISTERED_USER_PROFILE_TABS,
   type RegisteredUserBusinessCounts,
@@ -104,17 +103,15 @@ function SummaryTab({ header }: { header: RegisteredUserProfileHeader }) {
 function ActivityTab({
   activityCursor,
   data,
-  environment,
   header,
   userId,
 }: {
   activityCursor: string | null;
   data: Extract<RegisteredUserProfileTabData, { tab: "activity" }>;
-  environment: AdminEnvironmentId;
   header: RegisteredUserProfileHeader;
   userId: string;
 }) {
-  const newestHref = buildUserProfileHref(environment, userId, "activity");
+  const newestHref = buildUserProfileHref(userId, "activity");
   return (
     <section aria-labelledby="activity-heading" className={styles.panel}>
       <header className={styles.panelHeader}>
@@ -173,7 +170,7 @@ function ActivityTab({
       <div className={styles.panelFooter}>
         {data.nextCursor ? (
           <Link
-            href={buildUserProfileHref(environment, userId, "activity", data.nextCursor)}
+            href={buildUserProfileHref(userId, "activity", data.nextCursor)}
             prefetch={false}
           >
             Older activity →
@@ -322,12 +319,10 @@ function BusinessTab({
 
 function SupportTab({
   data,
-  environment,
   providerDashboardUrl,
   userId,
 }: {
   data: Extract<RegisteredUserProfileTabData, { tab: "support" }>["data"];
-  environment: AdminEnvironmentId;
   providerDashboardUrl: string;
   userId: string;
 }) {
@@ -401,7 +396,7 @@ function SupportTab({
                   {item.outcome ? ` · ${humanizeAdminCode(item.outcome)}` : ""}
                 </p>
                 {item.kind === "note" ? (
-                  <RevealSupportNote environment={environment} noteId={item.id} userId={userId} />
+                  <RevealSupportNote noteId={item.id} userId={userId} />
                 ) : null}
               </li>
             ))}
@@ -419,7 +414,6 @@ function SupportTab({
 
 export function RegisteredUserProfile({
   activityCursor,
-  environment,
   header,
   providerDashboardUrl,
   requestedTab,
@@ -428,7 +422,6 @@ export function RegisteredUserProfile({
   userId,
 }: {
   activityCursor: string | null;
-  environment: AdminEnvironmentId;
   header: RegisteredUserProfileHeader;
   providerDashboardUrl: string;
   requestedTab: RegisteredUserProfileTab;
@@ -448,11 +441,11 @@ export function RegisteredUserProfile({
   return (
     <div className={styles.page}>
       <nav aria-label="Breadcrumb" className={styles.breadcrumbs}>
-        <Link href={`/${environment}`} prefetch={false}>
+        <Link href="/" prefetch={false}>
           Overview
         </Link>
         <span aria-hidden="true">/</span>
-        <Link href={`/${environment}/users`} prefetch={false}>
+        <Link href="/users" prefetch={false}>
           Users
         </Link>
         <span aria-hidden="true">/</span>
@@ -483,7 +476,6 @@ export function RegisteredUserProfile({
           {canInviteAsProducer ? (
             <ProducerInvitationControl
               displayEmail={header.email}
-              environment={environment}
               userId={userId}
             />
           ) : null}
@@ -508,7 +500,6 @@ export function RegisteredUserProfile({
             aria-current={tab === profileTab ? "page" : undefined}
             data-active={tab === profileTab}
             href={buildUserProfileHref(
-              environment,
               userId,
               profileTab,
               profileTab === "activity" ? activityCursor : null,
@@ -526,7 +517,6 @@ export function RegisteredUserProfile({
         <ActivityTab
           activityCursor={activityCursor}
           data={tabData}
-          environment={environment}
           header={header}
           userId={userId}
         />
@@ -535,7 +525,6 @@ export function RegisteredUserProfile({
       {tabData.tab === "support" ? (
         <SupportTab
           data={tabData.data}
-          environment={environment}
           providerDashboardUrl={providerDashboardUrl}
           userId={userId}
         />

@@ -1,4 +1,4 @@
-import type { AdminEnvironmentId, AdminEnvironmentMap } from "~/server/environment";
+import type { AdminEnvironmentMap } from "~/server/environment";
 import {
   INVITE_LOGO_CID,
   INVITE_LOGO_FILENAME,
@@ -43,20 +43,9 @@ const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 const MAX_ACCEPT_URL_LENGTH = 2000;
 
-const RESEND_KEY_NAMES = {
-  live: "ADMIN_LIVE_RESEND_API_KEY",
-  test: "ADMIN_TEST_RESEND_API_KEY",
-} as const;
-
-const FROM_NAMES = {
-  live: "ADMIN_LIVE_INVITE_FROM",
-  test: "ADMIN_TEST_INVITE_FROM",
-} as const;
-
-const REPLY_TO_NAMES = {
-  live: "ADMIN_LIVE_INVITE_REPLY_TO",
-  test: "ADMIN_TEST_INVITE_REPLY_TO",
-} as const;
+const RESEND_KEY_NAME = "ADMIN_LIVE_RESEND_API_KEY";
+const FROM_NAME = "ADMIN_LIVE_INVITE_FROM";
+const REPLY_TO_NAME = "ADMIN_LIVE_INVITE_REPLY_TO";
 
 // "Gili from Skitza <gili@skitza.app>" — the display name is required, not
 // cosmetic: a bare address reads as machine mail to Gmail and to a human
@@ -142,52 +131,36 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Resolves the Resend credentials and sender identity for one admin
- * environment. Live and Test must not share an API key or a From address,
- * so a Test wave can never go out over the Live domain's reputation.
+ * Resolves the Resend credentials and sender identity. SK-288 removed the
+ * Live/Test split, so there is one key and one From address; every shape
+ * check that guarded them stays, because a malformed From is what puts a
+ * message in Promotions.
  */
 export function resolveAdminInvitationEmailConfig(
   environment: AdminEnvironmentMap,
-  selected: AdminEnvironmentId,
 ): AdminInvitationEmailConfig {
-  const apiKeys = {} as Record<AdminEnvironmentId, string>;
-  const froms = {} as Record<AdminEnvironmentId, string>;
-  const replyTos = {} as Record<AdminEnvironmentId, string>;
-  const signatures = {} as Record<AdminEnvironmentId, string>;
+  const apiKey = required(environment, RESEND_KEY_NAME);
+  const from = required(environment, FROM_NAME);
+  const replyTo = required(environment, REPLY_TO_NAME);
 
-  for (const environmentId of ["live", "test"] as const) {
-    const apiKey = required(environment, RESEND_KEY_NAMES[environmentId]);
-    const from = required(environment, FROM_NAMES[environmentId]);
-    const replyTo = required(environment, REPLY_TO_NAMES[environmentId]);
-
-    const parsedFrom = FROM_PATTERN.exec(from);
-    const displayName = parsedFrom?.groups?.displayName?.trim();
-    if (
-      !/^re_[A-Za-z0-9_-]{8,}$/.test(apiKey) ||
-      !displayName ||
-      !MAILBOX_PATTERN.test(replyTo) ||
-      replyTo.length > 320
-    ) {
-      throw new AdminInvitationEmailConfigurationError();
-    }
-
-    apiKeys[environmentId] = apiKey;
-    froms[environmentId] = from;
-    replyTos[environmentId] = replyTo;
-    // Sign off with the first word of the From display name, so the copy
-    // stays personal without a fourth environment variable to keep in sync.
-    signatures[environmentId] = displayName.split(/\s+/)[0] ?? displayName;
-  }
-
-  if (apiKeys.live === apiKeys.test || froms.live === froms.test) {
+  const parsedFrom = FROM_PATTERN.exec(from);
+  const displayName = parsedFrom?.groups?.displayName?.trim();
+  if (
+    !/^re_[A-Za-z0-9_-]{8,}$/.test(apiKey) ||
+    !displayName ||
+    !MAILBOX_PATTERN.test(replyTo) ||
+    replyTo.length > 320
+  ) {
     throw new AdminInvitationEmailConfigurationError();
   }
 
   return {
-    apiKey: apiKeys[selected],
-    from: froms[selected],
-    replyTo: replyTos[selected],
-    signature: signatures[selected],
+    apiKey,
+    from,
+    replyTo,
+    // Sign off with the first word of the From display name, so the copy
+    // stays personal without another environment variable to keep in sync.
+    signature: displayName.split(/\s+/)[0] ?? displayName,
   };
 }
 

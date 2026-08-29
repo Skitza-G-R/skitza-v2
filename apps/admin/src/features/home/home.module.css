@@ -1,0 +1,124 @@
+.page {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.pageHeader {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  border-bottom: 1px solid rgb(var(--border-subtle));
+  padding: 0.15rem 0 1.1rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: rgb(var(--fg-muted));
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.pageHeader h1 {
+  margin: 0.32rem 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.15rem, 4.6vw, 3.55rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.96;
+}
+
+.pageHeader > div:first-child > p:last-child {
+  max-width: 40rem;
+  margin: 0.6rem 0 0;
+  color: rgb(var(--fg-secondary));
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+.empty {
+  margin: 0;
+  border: 1px dashed rgb(var(--border-strong));
+  border-radius: var(--radius-lg);
+  padding: 2.4rem 1.2rem;
+  color: rgb(var(--fg-muted));
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.rowList {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: var(--radius-lg);
+  background: rgb(var(--bg-elevated));
+  padding: 0.9rem 1.1rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.row[data-linked="true"]:hover,
+.row[data-linked="true"]:focus-visible {
+  border-color: rgb(var(--border-strong));
+}
+
+.rowMarker {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgb(var(--fg-muted));
+}
+
+.rowMarker[data-tone="broken"] {
+  background: rgb(var(--live));
+}
+
+.rowMarker[data-tone="waiting"] {
+  background: rgb(var(--brand-primary));
+}
+
+.rowCount {
+  flex: none;
+  min-width: 2.2rem;
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.rowCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.16rem;
+}
+
+.rowLabel {
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.rowHint {
+  color: rgb(var(--fg-muted));
+  font-size: 0.78rem;
+  line-height: 1.45;
+}

@@ -50,8 +50,7 @@ export async function POST(request: Request) {
     const emailProvided = body.emailAddress !== undefined;
     if (waveProvided === emailProvided) throw new AdminDataHttpError();
 
-    const selected = new URL(request.url).searchParams.get("environment");
-    const runtime = createBetaRuntime(selected ?? undefined);
+    const runtime = createBetaRuntime();
 
     let emails: readonly string[];
     if (waveProvided) {
@@ -81,11 +80,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const clerk = resolveAdminClerkEnvironment(process.env, runtime.environment);
-    const webAppUrl = resolveAdminWebAppUrl(process.env, runtime.environment);
+    const clerk = resolveAdminClerkEnvironment(process.env);
+    const webAppUrl = resolveAdminWebAppUrl(process.env);
     const provider = createClerkProducerInvitationProvider(clerk.secretKey);
     const emailSender = createResendInvitationEmailSender(
-      resolveAdminInvitationEmailConfig(process.env, runtime.environment),
+      resolveAdminInvitationEmailConfig(process.env),
     );
     const redirectUrl = new URL("/sign-up", webAppUrl).toString();
 

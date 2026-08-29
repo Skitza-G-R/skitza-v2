@@ -1,4 +1,3 @@
-import type { AdminEnvironmentId } from "~/server/environment";
 import { BetaRowActions, ImportBetaList, ReleaseWaveButton } from "./beta-controls";
 import styles from "./beta.module.css";
 import {
@@ -24,11 +23,9 @@ function SummaryChip({ label, value }: { label: string; value: number }) {
 }
 
 function WaveSection({
-  environment,
   invitees,
   wave,
 }: {
-  environment: AdminEnvironmentId;
   invitees: readonly BetaInviteeView[];
   wave: number;
 }) {
@@ -43,7 +40,7 @@ function WaveSection({
             {counts.active} active
           </p>
         </div>
-        <ReleaseWaveButton environment={environment} pendingCount={counts.pending} wave={wave} />
+        <ReleaseWaveButton pendingCount={counts.pending} wave={wave} />
       </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -77,7 +74,6 @@ function WaveSection({
                 <td>
                   <BetaRowActions
                     email={invitee.email}
-                    environment={environment}
                     status={invitee.status}
                     wave={invitee.wave}
                   />
@@ -92,10 +88,8 @@ function WaveSection({
 }
 
 export function BetaView({
-  environment,
   invitees,
 }: {
-  environment: AdminEnvironmentId;
   invitees: readonly BetaInviteeView[];
 }) {
   const counts = countBetaStatuses(invitees);
@@ -109,9 +103,8 @@ export function BetaView({
           <h1>Beta invites</h1>
           <p>
             Import your email list, release invitation waves, and watch people move from invited to
-            active. Statuses refresh from the {environment === "live" ? "Live" : "Test"} database
-            every time this page loads; stalled invitees get one automatic nudge email each from the
-            daily cron.
+            active. Statuses refresh from the live database every time this page loads; stalled
+            invitees get one automatic nudge email each from the daily cron.
           </p>
         </div>
       </header>
@@ -124,7 +117,7 @@ export function BetaView({
         <SummaryChip label="Active" value={counts.active} />
       </section>
 
-      <ImportBetaList environment={environment} />
+      <ImportBetaList />
 
       {waves.length === 0 ? (
         <p className={styles.empty}>
@@ -134,7 +127,6 @@ export function BetaView({
       ) : (
         waves.map(([wave, waveInvitees]) => (
           <WaveSection
-            environment={environment}
             invitees={waveInvitees}
             key={wave}
             wave={wave}

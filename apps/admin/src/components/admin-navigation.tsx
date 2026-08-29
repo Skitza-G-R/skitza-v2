@@ -3,19 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import type { AdminEnvironmentId } from "~/server/environment";
-
 const ITEMS = [
-  { icon: "grid", label: "Overview", section: "" },
+  { icon: "grid", label: "Home", section: "" },
   { icon: "users", label: "Users", section: "users" },
   { icon: "flag", label: "Beta", section: "beta" },
-  { icon: "payments", label: "Payments", section: "payments" },
-  { icon: "chart", label: "Analytics", section: "analytics" },
-  {
-    icon: "pulse",
-    label: "Health & history",
-    section: "system-health",
-  },
 ] as const;
 
 type IconName = (typeof ITEMS)[number]["icon"];
@@ -43,19 +34,6 @@ function NavigationIcon({ name }: { name: IconName }) {
         <path d="M4 22v-7" />
       </>
     ),
-    payments: (
-      <>
-        <rect height="14" rx="2" width="20" x="2" y="5" />
-        <path d="M2 10h20M6 15h2" />
-      </>
-    ),
-    chart: (
-      <>
-        <path d="M4 19V9M10 19V5M16 19v-7M22 19V2" />
-        <path d="M2 19h22" />
-      </>
-    ),
-    pulse: <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />,
   };
 
   return (
@@ -67,19 +45,13 @@ function NavigationIcon({ name }: { name: IconName }) {
   );
 }
 
-export function AdminNavigation({
-  environment,
-  mobile = false,
-}: {
-  environment: AdminEnvironmentId;
-  mobile?: boolean;
-}) {
+export function AdminNavigation({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
 
   return (
     <nav aria-label="Admin sections" className="admin-navigation" data-mobile={mobile || undefined}>
       {ITEMS.map((item) => {
-        const href = `/${environment}${item.section ? `/${item.section}` : ""}`;
+        const href = item.section ? `/${item.section}` : "/";
         const active =
           item.section === ""
             ? pathname === href || pathname === `${href}/`

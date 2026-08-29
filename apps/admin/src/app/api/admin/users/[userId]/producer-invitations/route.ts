@@ -55,12 +55,11 @@ export async function POST(request: Request, context: { params: Promise<{ userId
       );
     }
 
-    const selected = new URL(request.url).searchParams.get("environment");
-    const resolved = resolveAdminEnvironment(process.env, selected ?? undefined);
-    const clerk = resolveAdminClerkEnvironment(process.env, resolved.publicContext.id);
-    const webAppUrl = resolveAdminWebAppUrl(process.env, resolved.publicContext.id);
+    const resolved = resolveAdminEnvironment(process.env);
+    const clerk = resolveAdminClerkEnvironment(process.env);
+    const webAppUrl = resolveAdminWebAppUrl(process.env);
     const emailSender = createResendInvitationEmailSender(
-      resolveAdminInvitationEmailConfig(process.env, resolved.publicContext.id),
+      resolveAdminInvitationEmailConfig(process.env),
     );
     const operationKey = operationKeyFromRequest(request);
     const { userId } = await context.params;

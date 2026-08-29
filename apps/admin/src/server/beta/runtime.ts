@@ -7,13 +7,13 @@ import { createBetaRepository, type BetaRepository } from "./repository";
 // page's working set, mirroring registered-users/runtime.ts. The databaseUrl
 // is exposed for the release route's per-email advisory locks.
 
-export function createBetaRuntime(selectedEnvironment: string | undefined): Readonly<{
+export function createBetaRuntime(): Readonly<{
   databaseUrl: string;
   db: Db;
   environment: AdminEnvironmentId;
   repository: BetaRepository;
 }> {
-  const resolved = resolveAdminEnvironment(process.env, selectedEnvironment);
+  const resolved = resolveAdminEnvironment(process.env);
   const db = createDb(resolved.databaseUrl);
   return {
     databaseUrl: resolved.databaseUrl,

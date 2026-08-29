@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -27,10 +27,9 @@ function renderedSource(relativePath: string): string {
     .replace(/^\s*\/\/.*$/gm, "");
 }
 
-const CHROME_FILES = [
-  "components/admin-shell.tsx",
-  "components/environment-choice.tsx",
-] as const;
+// SK-288 removed the environment chooser along with the Live/Test split, so
+// admin-shell is the only chrome left that could carry such a claim.
+const CHROME_FILES = ["components/admin-shell.tsx"] as const;
 
 describe("admin chrome never claims external actions are disabled", () => {
   it.each(CHROME_FILES)("%s makes no blanket simulation claim", (file) => {
@@ -41,8 +40,24 @@ describe("admin chrome never claims external actions are disabled", () => {
     expect(rendered).not.toContain("disconnected actions");
   });
 
-  it("keeps the Live/Test environment label, which is the true part", () => {
+  it("keeps the environment label, which is the true part", () => {
     expect(source("components/admin-shell.tsx")).toContain("environment");
+  });
+});
+
+describe("no screen presents invented data as real", () => {
+  // SK-288 deleted the fixture layer: four of six tabs served hardcoded
+  // people and numbers, and the home page was one of them. The badge that
+  // half-admitted it ("Simulated / reset on reload") went with them. If a
+  // fixture screen ever returns, this fails before it reaches the founder.
+  it("has no simulated-data badge anywhere in the console", () => {
+    const offenders = readdirSync(SRC, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+      .map((entry) => join(entry.parentPath, entry.name))
+      .filter((file) => !file.endsWith("truthful-environment-copy.test.ts"))
+      .filter((file) => /simulated \/ reset on reload/i.test(readFileSync(file, "utf8")));
+
+    expect(offenders).toEqual([]);
   });
 });
 

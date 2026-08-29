@@ -53,7 +53,6 @@ const founder: FounderIdentity = {
   userId: "user_founder",
 };
 const originalLive = process.env.ADMIN_LIVE_DATABASE_URL;
-const originalTest = process.env.ADMIN_TEST_DATABASE_URL;
 const provider = {
   getInstanceId: vi.fn(),
   getPage: vi.fn(),
@@ -68,7 +67,7 @@ function request(
     idempotencyKey?: string;
   }> = {},
 ): Request {
-  const cursor = input.cursor ? `&cursor=${encodeURIComponent(input.cursor)}` : "";
+  const cursor = input.cursor ? `?cursor=${encodeURIComponent(input.cursor)}` : "";
   const headers = new Headers({
     origin: "https://admin.skitza.app",
     "sec-fetch-site": "same-origin",
@@ -77,7 +76,7 @@ function request(
     headers.set("idempotency-key", input.idempotencyKey);
   }
   return new Request(
-    `https://admin.skitza.app/api/admin/users/reconcile?environment=test${cursor}`,
+    `https://admin.skitza.app/api/admin/users/reconcile${cursor}`,
     { headers, method: "POST" },
   );
 }
@@ -86,12 +85,11 @@ describe("registered-user reconciliation route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ADMIN_LIVE_DATABASE_URL = "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL = "postgresql://test.example.test/skitza";
     vi.mocked(requireActiveAdminAccess).mockResolvedValue(founder);
     vi.mocked(isSameOriginMutation).mockReturnValue(true);
     vi.mocked(resolveAdminClerkEnvironment).mockReturnValue({
-      instanceId: "ins_test",
-      secretKey: "sk_test_hidden",
+      instanceId: "ins_live",
+      secretKey: "sk_live_hidden",
     });
     vi.mocked(createClerkReconciliationProvider).mockReturnValue(provider);
     vi.mocked(createRegisteredAccountReconciliationRepository).mockReturnValue(repository);
@@ -111,11 +109,6 @@ describe("registered-user reconciliation route", () => {
       delete process.env.ADMIN_LIVE_DATABASE_URL;
     } else {
       process.env.ADMIN_LIVE_DATABASE_URL = originalLive;
-    }
-    if (originalTest === undefined) {
-      delete process.env.ADMIN_TEST_DATABASE_URL;
-    } else {
-      process.env.ADMIN_TEST_DATABASE_URL = originalTest;
     }
   });
 
@@ -187,15 +180,15 @@ describe("registered-user reconciliation route", () => {
     const reconciliationInput = vi.mocked(reconcileRegisteredAccounts).mock.calls[0]?.[0];
     expect(reconciliationInput).toMatchObject({
       actorClerkUserId: "user_founder",
-      clerkInstanceId: "ins_test",
+      clerkInstanceId: "ins_live",
       cursor: "opaque_cursor",
-      environment: "test",
+      environment: "live",
       operationKey: "sync-page-2",
       provider,
       repository,
     });
     expect(typeof reconciliationInput?.identityResolver.resolveCanonicalUserId).toBe("function");
-    expect(JSON.stringify(body)).not.toContain("sk_test_hidden");
+    expect(JSON.stringify(body)).not.toContain("sk_live_hidden");
   });
 
   it("maps a different-intent retry to a private 409", async () => {

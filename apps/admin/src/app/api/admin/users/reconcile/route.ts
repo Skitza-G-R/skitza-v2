@@ -24,10 +24,9 @@ export async function POST(request: Request) {
         { status: 403, headers: privateAdminResponseHeaders() },
       );
     }
-    const selected = new URL(request.url).searchParams.get("environment");
     const cursor = new URL(request.url).searchParams.get("cursor");
-    const resolved = resolveAdminEnvironment(process.env, selected ?? undefined);
-    const clerk = resolveAdminClerkEnvironment(process.env, resolved.publicContext.id);
+    const resolved = resolveAdminEnvironment(process.env);
+    const clerk = resolveAdminClerkEnvironment(process.env);
     const database = createDb(resolved.databaseUrl);
     const result = await reconcileRegisteredAccounts({
       actorClerkUserId: identity.userId,

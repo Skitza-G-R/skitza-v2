@@ -30,11 +30,7 @@ export async function POST(
       return forbiddenAdminMutationResponse();
     }
     const { noteId, userId } = await context.params;
-    const selected = new URL(request.url).searchParams.get("environment");
-    const resolved = resolveAdminEnvironment(
-      process.env,
-      selected ?? undefined,
-    );
+    const resolved = resolveAdminEnvironment(process.env);
     const environment = resolved.publicContext.id;
     const body = await exactJsonObject(request, ["reason"]);
     const reason = requiredBodyString(body, "reason");

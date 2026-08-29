@@ -77,7 +77,6 @@ const founder: FounderIdentity = {
   userId: "user_founder",
 };
 const originalLive = process.env.ADMIN_LIVE_DATABASE_URL;
-const originalTest = process.env.ADMIN_TEST_DATABASE_URL;
 const findProfileHeader = vi.fn();
 const db = {} as Db;
 const provider = {
@@ -121,12 +120,11 @@ describe("Producer invitation admin route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ADMIN_LIVE_DATABASE_URL = "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL = "postgresql://test.example.test/skitza";
     vi.mocked(requireActiveAdminAccess).mockResolvedValue(founder);
     vi.mocked(isSameOriginMutation).mockReturnValue(true);
     vi.mocked(resolveAdminClerkEnvironment).mockReturnValue({
-      instanceId: "ins_test",
-      secretKey: "sk_test_hidden",
+      instanceId: "ins_live",
+      secretKey: "sk_live_hidden",
     });
     vi.mocked(resolveAdminWebAppUrl).mockReturnValue("https://skitza-test.example");
     vi.mocked(withNeonSessionAdvisoryLock).mockImplementation(
@@ -156,11 +154,6 @@ describe("Producer invitation admin route", () => {
       delete process.env.ADMIN_LIVE_DATABASE_URL;
     } else {
       process.env.ADMIN_LIVE_DATABASE_URL = originalLive;
-    }
-    if (originalTest === undefined) {
-      delete process.env.ADMIN_TEST_DATABASE_URL;
-    } else {
-      process.env.ADMIN_TEST_DATABASE_URL = originalTest;
     }
   });
 
@@ -198,15 +191,15 @@ describe("Producer invitation admin route", () => {
       status: "pending",
     });
     expect(withNeonSessionAdvisoryLock).toHaveBeenCalledWith(
-      "postgresql://test.example.test/skitza",
-      "admin:producer-invitation:test:user_artist",
+      "postgresql://live.example.test/skitza",
+      "admin:producer-invitation:live:user_artist",
       expect.any(Function),
     );
-    expect(createRegisteredUserRepository).toHaveBeenCalledWith(db, "test");
+    expect(createRegisteredUserRepository).toHaveBeenCalledWith(db, "live");
     expect(findProfileHeader).toHaveBeenCalledWith("user_artist");
-    expect(createClerkProducerInvitationProvider).toHaveBeenCalledWith("sk_test_hidden");
+    expect(createClerkProducerInvitationProvider).toHaveBeenCalledWith("sk_live_hidden");
     expect(sendProducerInvitation).toHaveBeenCalledWith({
-      clerkInstanceId: "ins_test",
+      clerkInstanceId: "ins_live",
       emailSender: expect.anything() as InvitationEmailSender,
       operationKey: "producer-invite:request-1",
       provider,
@@ -267,6 +260,6 @@ describe("Producer invitation admin route", () => {
     expect(payload).toEqual({
       error: "producer_invitation_unavailable",
     });
-    expect(JSON.stringify(payload)).not.toContain("sk_test_hidden");
+    expect(JSON.stringify(payload)).not.toContain("sk_live_hidden");
   });
 });

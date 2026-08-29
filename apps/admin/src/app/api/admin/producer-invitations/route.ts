@@ -53,12 +53,11 @@ export async function POST(request: Request) {
     const operationKey = operationKeyFromRequest(request);
     const body = await exactJsonObject(request, ["emailAddress"]);
     const emailAddress = requiredBodyString(body, "emailAddress");
-    const selected = new URL(request.url).searchParams.get("environment");
-    const resolved = resolveAdminEnvironment(process.env, selected ?? undefined);
-    const clerk = resolveAdminClerkEnvironment(process.env, resolved.publicContext.id);
-    const webAppUrl = resolveAdminWebAppUrl(process.env, resolved.publicContext.id);
+    const resolved = resolveAdminEnvironment(process.env);
+    const clerk = resolveAdminClerkEnvironment(process.env);
+    const webAppUrl = resolveAdminWebAppUrl(process.env);
     const emailSender = createResendInvitationEmailSender(
-      resolveAdminInvitationEmailConfig(process.env, resolved.publicContext.id),
+      resolveAdminInvitationEmailConfig(process.env),
     );
     const emailLock = createHash("sha256").update(emailAddress.trim().toLowerCase()).digest("hex");
 

@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import type { AdminEnvironmentId } from "~/server/environment";
 import type { RegisteredUserDirectoryQuery } from "~/server/registered-users/model";
 import type {
   RegisteredUserDirectoryPage,
@@ -42,10 +41,8 @@ function Badge({
 }
 
 function Identity({
-  environment,
   user,
 }: {
-  environment: AdminEnvironmentId;
   user: RegisteredUserSummary;
 }) {
   return (
@@ -56,7 +53,7 @@ function Identity({
       <div>
         <Link
           className={styles.recordLink}
-          href={`/${environment}/users/${encodeURIComponent(user.clerkUserId)}`}
+          href={`/users/${encodeURIComponent(user.clerkUserId)}`}
           prefetch={false}
         >
           {user.displayName}
@@ -73,12 +70,10 @@ function Identity({
 
 function SortLink({
   children,
-  environment,
   query,
   sort,
 }: {
   children: string;
-  environment: AdminEnvironmentId;
   query: RegisteredUserDirectoryQuery;
   sort: RegisteredUserDirectoryQuery["sort"];
 }) {
@@ -94,7 +89,7 @@ function SortLink({
     <Link
       aria-label={`${children}, sort ${direction === "asc" ? "ascending" : "descending"}`}
       className={styles.sortLink}
-      href={buildUsersDirectoryHref(environment, query, {
+      href={buildUsersDirectoryHref(query, {
         direction,
         sort,
       })}
@@ -170,17 +165,15 @@ function AdvancedFilters({
 }
 
 function MobileCard({
-  environment,
   user,
 }: {
-  environment: AdminEnvironmentId;
   user: RegisteredUserSummary;
 }) {
   const deleted = user.status === "Deleted";
   return (
     <article className={styles.mobileCard}>
       <div className={styles.mobileCardTop}>
-        <Identity environment={environment} user={user} />
+        <Identity user={user} />
         <Badge tone={statusTone(user.status)}>{user.status}</Badge>
       </div>
       <dl className={styles.mobileFacts}>
@@ -218,7 +211,7 @@ function MobileCard({
       </dl>
       <Link
         className={styles.cardLink}
-        href={`/${environment}/users/${encodeURIComponent(user.clerkUserId)}`}
+        href={`/users/${encodeURIComponent(user.clerkUserId)}`}
         prefetch={false}
       >
         Open profile <span aria-hidden="true">→</span>
@@ -229,19 +222,17 @@ function MobileCard({
 
 export function RegisteredUsersDirectory({
   data,
-  environment,
   query,
 }: {
   data: RegisteredUserDirectoryPage;
-  environment: AdminEnvironmentId;
   query: RegisteredUserDirectoryQuery;
 }) {
   const filtered = hasDirectoryFilters(query);
   return (
     <div className={styles.page}>
       <nav aria-label="Breadcrumb" className={styles.breadcrumbs}>
-        <Link href={`/${environment}`} prefetch={false}>
-          Overview
+        <Link href="/" prefetch={false}>
+          Home
         </Link>
         <span aria-hidden="true">/</span>
         <span aria-current="page">Users</span>
@@ -261,8 +252,8 @@ export function RegisteredUsersDirectory({
             <span aria-hidden="true" />
             Real data · Founder only
           </span>
-          <NewProducerInvitationControl environment={environment} />
-          <ReconcileRegisteredUsers environment={environment} />
+          <NewProducerInvitationControl />
+          <ReconcileRegisteredUsers />
         </div>
       </header>
 
@@ -274,7 +265,7 @@ export function RegisteredUsersDirectory({
       ) : null}
 
       <section aria-label="Find registered users" className={styles.filterPanel}>
-        <form action={`/${environment}/users`} className={styles.searchForm}>
+        <form action="/users" className={styles.searchForm}>
           <label className={styles.searchField}>
             <span className={styles.visuallyHidden}>Search registered users</span>
             <input
@@ -301,7 +292,7 @@ export function RegisteredUsersDirectory({
           {filtered ? (
             <Link
               className={styles.quietButton}
-              href={`/${environment}/users`}
+              href="/users"
               prefetch={false}
             >
               Clear
@@ -333,7 +324,7 @@ export function RegisteredUsersDirectory({
             <Link
               aria-current={query.role === filter.value ? "page" : undefined}
               data-active={query.role === filter.value}
-              href={buildUsersDirectoryHref(environment, query, {
+              href={buildUsersDirectoryHref(query, {
                 role: filter.value,
               })}
               key={filter.value}
@@ -368,7 +359,6 @@ export function RegisteredUsersDirectory({
           · 25 per page
           <span aria-hidden="true">·</span>
           <SortLink
-            environment={environment}
             query={query}
             sort="signup"
           >
@@ -388,7 +378,7 @@ export function RegisteredUsersDirectory({
               : "Use “Refresh from Clerk” to safely populate the support index."}
           </p>
           {filtered ? (
-            <Link href={`/${environment}/users`} prefetch={false}>
+            <Link href="/users" prefetch={false}>
               Clear all filters
             </Link>
           ) : null}
@@ -401,7 +391,6 @@ export function RegisteredUsersDirectory({
                 <tr>
                   <th>
                     <SortLink
-                      environment={environment}
                       query={query}
                       sort="name"
                     >
@@ -411,7 +400,6 @@ export function RegisteredUsersDirectory({
                   <th>Role</th>
                   <th>
                     <SortLink
-                      environment={environment}
                       query={query}
                       sort="status"
                     >
@@ -422,7 +410,6 @@ export function RegisteredUsersDirectory({
                   <th>Activation</th>
                   <th>
                     <SortLink
-                      environment={environment}
                       query={query}
                       sort="last-activity"
                     >
@@ -435,7 +422,7 @@ export function RegisteredUsersDirectory({
                 {data.items.map((user) => (
                   <tr key={user.clerkUserId}>
                     <td>
-                      <Identity environment={environment} user={user} />
+                      <Identity user={user} />
                     </td>
                     <td>
                       {user.status === "Deleted" ? (
@@ -474,7 +461,6 @@ export function RegisteredUsersDirectory({
           <div aria-label="Registered users" className={styles.mobileCards}>
             {data.items.map((user) => (
               <MobileCard
-                environment={environment}
                 key={user.clerkUserId}
                 user={user}
               />
@@ -491,7 +477,7 @@ export function RegisteredUsersDirectory({
         <div>
           {data.previousCursor ? (
             <Link
-              href={buildUsersDirectoryHref(environment, query, {
+              href={buildUsersDirectoryHref(query, {
                 cursor: data.previousCursor,
               })}
               prefetch={false}
@@ -503,7 +489,7 @@ export function RegisteredUsersDirectory({
           )}
           {data.nextCursor ? (
             <Link
-              href={buildUsersDirectoryHref(environment, query, {
+              href={buildUsersDirectoryHref(query, {
                 cursor: data.nextCursor,
               })}
               prefetch={false}

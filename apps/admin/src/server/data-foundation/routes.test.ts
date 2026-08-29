@@ -10,8 +10,6 @@ import { createAdminDataFoundationRuntime } from "./runtime";
 import { AdminDataFoundationError } from "./service";
 import { POST as createSupportNote } from "~/app/api/admin/support-notes/route";
 import { POST as recordReveal } from "~/app/api/admin/sensitive-content-reveals/route";
-import { POST as transitionProblem } from "~/app/api/admin/system-problems/state/route";
-import { POST as purgeHistory } from "~/app/api/admin/maintenance/history-retention/route";
 
 vi.mock("~/server/auth/access", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/server/auth/access")>();
@@ -38,7 +36,6 @@ const FOUNDER: FounderIdentity = {
   userId: "user-founder",
 };
 const ORIGINAL_LIVE_URL = process.env.ADMIN_LIVE_DATABASE_URL;
-const ORIGINAL_TEST_URL = process.env.ADMIN_TEST_DATABASE_URL;
 const PROBLEM_ID = "9de0f153-9400-49a5-9249-f810d0fbfd27";
 const addSupportNote = vi.fn();
 const purgeExpiredAdminHistory = vi.fn();
@@ -67,22 +64,6 @@ const protectedEntries = [
     name: "sensitive reveal",
     path: "/api/admin/sensitive-content-reveals",
   },
-  {
-    body: {
-      privateNote: "Founder-only provider context",
-      problemId: PROBLEM_ID,
-      state: "seen",
-    },
-    handler: transitionProblem,
-    name: "problem transition",
-    path: "/api/admin/system-problems/state",
-  },
-  {
-    body: {},
-    handler: purgeHistory,
-    name: "history cleanup",
-    path: "/api/admin/maintenance/history-retention",
-  },
 ] as const;
 
 function request(
@@ -107,7 +88,6 @@ describe("SK-132 admin data entry-point authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ADMIN_LIVE_DATABASE_URL = "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL = "postgresql://test.example.test/skitza";
     vi.mocked(requireActiveAdminAccess).mockResolvedValue(FOUNDER);
     vi.mocked(isSameOriginMutation).mockReturnValue(true);
     vi.mocked(createAdminDataFoundationRuntime).mockReturnValue({
@@ -134,11 +114,6 @@ describe("SK-132 admin data entry-point authorization", () => {
       delete process.env.ADMIN_LIVE_DATABASE_URL;
     } else {
       process.env.ADMIN_LIVE_DATABASE_URL = ORIGINAL_LIVE_URL;
-    }
-    if (ORIGINAL_TEST_URL === undefined) {
-      delete process.env.ADMIN_TEST_DATABASE_URL;
-    } else {
-      process.env.ADMIN_TEST_DATABASE_URL = ORIGINAL_TEST_URL;
     }
   });
 
@@ -179,7 +154,9 @@ describe("SK-132 admin data entry-point authorization", () => {
   );
 
   it("takes the environment only from the explicit server-resolved selector", async () => {
-    const missing = await createSupportNote(
+    // SK-288 removed the client-facing selector. A caller that still sends
+    // one must be ignored rather than obeyed — the server decides.
+    const smuggled = await createSupportNote(
       request(
         "/api/admin/support-notes",
         {
@@ -187,11 +164,15 @@ describe("SK-132 admin data entry-point authorization", () => {
           targetId: "user-42",
           targetType: "registered_account",
         },
-        null,
+        "test",
       ),
     );
-    expect(missing.status).toBe(400);
-    expect(createAdminDataFoundationRuntime).not.toHaveBeenCalled();
+    expect(smuggled.status).toBe(201);
+    expect(createAdminDataFoundationRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({ environment: "live" }),
+    );
+    vi.mocked(createAdminDataFoundationRuntime).mockClear();
+    vi.mocked(addSupportNote).mockClear();
 
     const rejected = await createSupportNote(
       request("/api/admin/support-notes", {
@@ -213,13 +194,13 @@ describe("SK-132 admin data entry-point authorization", () => {
     );
     expect(response.status).toBe(201);
     expect(createAdminDataFoundationRuntime).toHaveBeenLastCalledWith({
-      databaseUrl: "postgresql://test.example.test/skitza",
-      environment: "test",
+      databaseUrl: "postgresql://live.example.test/skitza",
+      environment: "live",
     });
     expect(addSupportNote).toHaveBeenCalledWith({
       actorClerkUserId: "user-founder",
       body: "Private support note",
-      environment: "test",
+      environment: "live",
       operationKey: "request-1",
       targetId: "user-42",
       targetType: "registered_account",
@@ -253,7 +234,7 @@ describe("SK-132 admin data entry-point authorization", () => {
     expect(recordSensitiveReveal).toHaveBeenCalledWith({
       actorClerkUserId: "user-founder",
       contentKind: "payment_proof",
-      environment: "test",
+      environment: "live",
       operationKey: "request-1",
       reason: "safety_issue",
       targetId: "user-42",
@@ -261,39 +242,6 @@ describe("SK-132 admin data entry-point authorization", () => {
     });
   });
 
-  it("preserves a system private note when omitted and forwards explicit null to clear it", async () => {
-    const preserved = await transitionProblem(
-      request("/api/admin/system-problems/state", {
-        problemId: PROBLEM_ID,
-        state: "new",
-      }),
-    );
-
-    expect(preserved.status).toBe(201);
-    expect(transitionSystemProblem).toHaveBeenLastCalledWith({
-      actorClerkUserId: "user-founder",
-      environment: "test",
-      operationKey: "request-1",
-      problemId: PROBLEM_ID,
-      state: "new",
-    });
-
-    await transitionProblem(
-      request("/api/admin/system-problems/state", {
-        privateNote: null,
-        problemId: PROBLEM_ID,
-        state: "resolved",
-      }),
-    );
-    expect(transitionSystemProblem).toHaveBeenLastCalledWith({
-      actorClerkUserId: "user-founder",
-      environment: "test",
-      operationKey: "request-1",
-      privateNote: null,
-      problemId: PROBLEM_ID,
-      state: "resolved",
-    });
-  });
 
   it.each([
     {
@@ -315,12 +263,16 @@ describe("SK-132 admin data entry-point authorization", () => {
       status: 409,
     },
   ] as const)("maps a $name service failure to its private API contract", async (testCase) => {
-    transitionSystemProblem.mockRejectedValueOnce(new AdminDataFoundationError(testCase.code));
+    // SK-288 deleted the problem-transition route with the Health tab. The
+    // error mapping it proved is shared by every data-foundation route, so
+    // the coverage moved onto one that is still reachable.
+    addSupportNote.mockRejectedValueOnce(new AdminDataFoundationError(testCase.code));
 
-    const response = await transitionProblem(
-      request("/api/admin/system-problems/state", {
-        problemId: testCase.code === "INVALID_INPUT" ? "problem-1" : PROBLEM_ID,
-        state: "seen",
+    const response = await createSupportNote(
+      request("/api/admin/support-notes", {
+        body: "Private support note",
+        targetId: "user-42",
+        targetType: "registered_account",
       }),
     );
 
@@ -328,11 +280,4 @@ describe("SK-132 admin data entry-point authorization", () => {
     await expect(response.json()).resolves.toEqual(testCase.expectedBody);
   });
 
-  it("invokes retention only through the selected protected environment", async () => {
-    const response = await purgeHistory(request("/api/admin/maintenance/history-retention", {}));
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ deleted: 2 });
-    expect(purgeExpiredAdminHistory).toHaveBeenCalledWith("test");
-  });
 });

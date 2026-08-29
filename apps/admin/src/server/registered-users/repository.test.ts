@@ -278,7 +278,7 @@ describe("registered-user repository contract", () => {
     const directoryFixture = databaseWithPages([leakedRow]);
     const directory = createRegisteredUserRepository(
       directoryFixture.database,
-      "test",
+      "live",
     );
     const page = await directory.findDirectory(
       parseRegisteredUserDirectoryQuery({ status: "deleted" }),
@@ -301,7 +301,7 @@ describe("registered-user repository contract", () => {
     const profileFixture = databaseWithPages([leakedRow]);
     const profile = createRegisteredUserRepository(
       profileFixture.database,
-      "test",
+      "live",
     );
     await expect(profile.findProfileHeader("user_01")).resolves.toMatchObject({
       audienceType: "unknown",
@@ -331,7 +331,7 @@ describe("registered-user repository contract", () => {
     );
     const repository = createRegisteredUserRepository(
       fixture.database,
-      "test",
+      "live",
       () => new Date("2026-07-30T00:00:00.000Z"),
     );
     const query = parseRegisteredUserDirectoryQuery({
@@ -348,8 +348,8 @@ describe("registered-user repository contract", () => {
     expect(result.previousCursor).toBeNull();
     expect(
       decodeRegisteredUserCursor(result.nextCursor as string, {
-        environment: "test",
-        filterDigest: registeredUserFilterDigest("test", query),
+        environment: "live",
+        filterDigest: registeredUserFilterDigest("live", query),
         sort: "name",
       }),
     ).toMatchObject({
@@ -402,7 +402,7 @@ describe("registered-user repository contract", () => {
     );
     const repository = createRegisteredUserRepository(
       fixture.database,
-      "test",
+      "live",
     );
     const query = parseRegisteredUserDirectoryQuery({ sort: "name" });
 
@@ -410,8 +410,8 @@ describe("registered-user repository contract", () => {
 
     expect(
       decodeRegisteredUserCursor(result.nextCursor as string, {
-        environment: "test",
-        filterDigest: registeredUserFilterDigest("test", query),
+        environment: "live",
+        filterDigest: registeredUserFilterDigest("live", query),
         sort: "name",
       }).sortValue,
     ).toBe(isoName);
@@ -423,7 +423,7 @@ describe("registered-user repository contract", () => {
     );
     const repository = createRegisteredUserRepository(
       fixture.database,
-      "test",
+      "live",
     );
     const base = parseRegisteredUserDirectoryQuery({
       dir: "asc",
@@ -434,8 +434,8 @@ describe("registered-user repository contract", () => {
       cursor: encodeRegisteredUserCursor({
         clerkUserId: "user_26",
         direction: "before" as const,
-        environment: "test" as const,
-        filterDigest: registeredUserFilterDigest("test", base),
+        environment: "live" as const,
+        filterDigest: registeredUserFilterDigest("live", base),
         nullRank: 0 as const,
         sortValue: "same name",
         version: 1 as const,
@@ -455,11 +455,11 @@ describe("registered-user repository contract", () => {
       dir: "desc",
       sort: "signup",
     });
-    const digest = registeredUserFilterDigest("test", base);
+    const digest = registeredUserFilterDigest("live", base);
     const stale = encodeRegisteredUserCursor({
       clerkUserId: "user_stale",
       direction: "after",
-      environment: "test",
+      environment: "live",
       filterDigest: digest,
       nullRank: 0,
       sortValue: "2020-01-01T00:00:00.000Z",
@@ -474,7 +474,7 @@ describe("registered-user repository contract", () => {
     );
     const repository = createRegisteredUserRepository(
       fixture.database,
-      "test",
+      "live",
     );
 
     const result = await repository.findDirectory({
@@ -509,7 +509,7 @@ describe("registered-user repository contract", () => {
       const fixture = databaseWithPages([...rows]);
       const repository = createRegisteredUserRepository(
         fixture.database,
-        "test",
+        "live",
       );
 
       const result = await repository.findProfileTab("user_selected", tab);
@@ -524,7 +524,7 @@ describe("registered-user repository contract", () => {
     const activeHeaderThenDeleted = databaseWithPages([]);
     const activeRepository = createRegisteredUserRepository(
       activeHeaderThenDeleted.database,
-      "test",
+      "live",
     );
 
     await expect(
@@ -536,7 +536,7 @@ describe("registered-user repository contract", () => {
     ]);
     const deletedRepository = createRegisteredUserRepository(
       deletedHeaderStillDeleted.database,
-      "test",
+      "live",
     );
     await expect(
       deletedRepository.findProfileTab("user_selected", "summary", {
@@ -620,7 +620,7 @@ describe("registered-user repository contract", () => {
       const fixture = databaseWithPages([]);
       const repository = createRegisteredUserRepository(
         fixture.database,
-        "test",
+        "live",
       );
 
       await expect(

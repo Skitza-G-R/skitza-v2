@@ -13,14 +13,14 @@ export default async function AdminUserProfilePage({
   params,
   searchParams,
 }: {
-  params: Promise<{ environment: string; userId: string }>;
+  params: Promise<{ userId: string }>;
   searchParams: Promise<{
     cursor?: string | readonly string[];
     tab?: string | readonly string[];
   }>;
 }) {
   await requireActiveAdminPage();
-  const { environment: rawEnvironment, userId } = await params;
+  const { userId } = await params;
   if (!isValidRegisteredUserId(userId)) notFound();
 
   const search = await searchParams;
@@ -35,7 +35,7 @@ export default async function AdminUserProfilePage({
     rawCursor && /^[A-Za-z0-9_-]{1,2000}$/.test(rawCursor)
       ? rawCursor
       : null;
-  const runtime = createRegisteredUserRuntime(rawEnvironment);
+  const runtime = createRegisteredUserRuntime();
   const header = await runtime.repository.findProfileHeader(userId);
   if (!header) notFound();
 
@@ -52,7 +52,6 @@ export default async function AdminUserProfilePage({
     return (
       <RegisteredUserProfile
         activityCursor={activityCursor}
-        environment={runtime.environment}
         header={header}
         providerDashboardUrl={runtime.providerDashboardUrl}
         requestedTab={requestedTab}

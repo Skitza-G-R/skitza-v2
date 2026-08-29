@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import type { AdminEnvironmentId } from "~/server/environment";
 import styles from "./beta.module.css";
 import type { BetaInviteeStatus } from "./view-model";
 
@@ -15,10 +14,9 @@ type PostResult = Readonly<{ ok: boolean; payload: unknown; status: number }>;
 
 async function postBeta(
   path: "import" | "release" | "remove" | "wave",
-  environment: AdminEnvironmentId,
   body: Readonly<Record<string, unknown>>,
 ): Promise<PostResult> {
-  const response = await fetch(`/api/admin/beta/${path}?environment=${environment}`, {
+  const response = await fetch(`/api/admin/beta/${path}`, {
     body: JSON.stringify(body),
     cache: "no-store",
     headers: {
@@ -63,7 +61,7 @@ function isReleaseSummary(value: unknown): value is Readonly<{
   );
 }
 
-export function ImportBetaList({ environment }: { environment: AdminEnvironmentId }) {
+export function ImportBetaList() {
   const router = useRouter();
   const [list, setList] = useState("");
   const [busy, setBusy] = useState(false);
@@ -78,7 +76,7 @@ export function ImportBetaList({ environment }: { environment: AdminEnvironmentI
     setMessage(null);
     setInvalidLines([]);
     try {
-      const result = await postBeta("import", environment, { list });
+      const result = await postBeta("import", { list });
       if (!result.ok || !isImportSummary(result.payload)) {
         setError(
           result.status === 400
@@ -162,11 +160,9 @@ function releaseFailureReason(code: string): string {
 }
 
 export function ReleaseWaveButton({
-  environment,
   pendingCount,
   wave,
 }: {
-  environment: AdminEnvironmentId;
   pendingCount: number;
   wave: number;
 }) {
@@ -186,7 +182,7 @@ export function ReleaseWaveButton({
     setMessage(null);
     setFailures([]);
     try {
-      const result = await postBeta("release", environment, { wave });
+      const result = await postBeta("release", { wave });
       if (!result.ok || !isReleaseSummary(result.payload)) {
         setError("The wave was not released. It is safe to try again.");
         return;
@@ -269,12 +265,10 @@ export function ReleaseWaveButton({
 
 export function BetaRowActions({
   email,
-  environment,
   status,
   wave,
 }: {
   email: string;
-  environment: AdminEnvironmentId;
   status: BetaInviteeStatus;
   wave: number;
 }) {
@@ -314,7 +308,7 @@ export function BetaRowActions({
           onChange={(event) => {
             void run(
               () =>
-                postBeta("wave", environment, {
+                postBeta("wave", {
                   emailAddress: email,
                   wave: Number(event.target.value),
                 }),
@@ -336,7 +330,7 @@ export function BetaRowActions({
           disabled={busy}
           onClick={() => {
             void run(
-              () => postBeta("release", environment, { emailAddress: email }),
+              () => postBeta("release", { emailAddress: email }),
               "The invitation was not re-sent.",
             );
           }}
@@ -366,7 +360,7 @@ export function BetaRowActions({
             disabled={busy}
             onClick={() => {
               void run(
-                () => postBeta("remove", environment, { emailAddress: email }),
+                () => postBeta("remove", { emailAddress: email }),
                 "The row was not removed.",
               );
             }}

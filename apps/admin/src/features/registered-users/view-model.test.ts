@@ -22,30 +22,24 @@ describe("registered-users UI model", () => {
       sort: "name",
     });
 
-    expect(buildUsersDirectoryHref("test", query)).toBe(
-      "/test/users?q=Gili&role=producer&sort=name",
-    );
+    expect(buildUsersDirectoryHref(query)).toBe("/users?q=Gili&role=producer&sort=name");
     expect(
-      buildUsersDirectoryHref("test", query, {
+      buildUsersDirectoryHref(query, {
         cursor: "next_cursor",
       }),
-    ).toBe(
-      "/test/users?q=Gili&role=producer&sort=name&cursor=next_cursor",
-    );
+    ).toBe("/users?q=Gili&role=producer&sort=name&cursor=next_cursor");
     expect(
-      buildUsersDirectoryHref("test", query, {
+      buildUsersDirectoryHref(query, {
         query: "new",
       }),
-    ).toBe("/test/users?q=new&role=producer&sort=name");
+    ).toBe("/users?q=new&role=producer&sort=name");
   });
 
   it("keeps profile tabs and activity cursors explicit", () => {
-    expect(buildUserProfileHref("live", "user_1", "summary")).toBe(
-      "/live/users/user_1",
+    expect(buildUserProfileHref("user_1", "summary")).toBe("/users/user_1");
+    expect(buildUserProfileHref("user_1", "activity", "next_page")).toBe(
+      "/users/user_1?tab=activity&cursor=next_page",
     );
-    expect(
-      buildUserProfileHref("live", "user_1", "activity", "next_page"),
-    ).toBe("/live/users/user_1?tab=activity&cursor=next_page");
   });
 
   it("detects visible and advanced filter state", () => {

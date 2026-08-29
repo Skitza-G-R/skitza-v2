@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       return forbiddenAdminMutationResponse();
     }
 
-    const { environment, foundation } = runtimeForRequest(request);
+    const { environment, foundation } = runtimeForRequest();
     const body = await exactJsonObject(request, ["body", "targetId", "targetType"]);
     const result = await foundation.addSupportNote({
       actorClerkUserId: identity.userId,

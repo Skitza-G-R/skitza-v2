@@ -28,8 +28,7 @@ export async function POST(request: Request) {
       throw new AdminDataHttpError();
     }
 
-    const selected = new URL(request.url).searchParams.get("environment");
-    const runtime = createBetaRuntime(selected ?? undefined);
+    const runtime = createBetaRuntime();
     const parsed = parseBetaListInput(list);
     const imported = await runtime.repository.importRows(parsed.rows, new Date());
 

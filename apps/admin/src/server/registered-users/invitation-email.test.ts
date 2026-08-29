@@ -14,20 +14,28 @@ const environment = {
   ADMIN_LIVE_INVITE_FROM: "Gili from Skitza <gili@skitza.app>",
   ADMIN_LIVE_INVITE_REPLY_TO: "gili@skitza.app",
   ADMIN_LIVE_RESEND_API_KEY: "re_live_abcdefgh",
-  ADMIN_TEST_INVITE_FROM: "Gili from Skitza (test) <gili@test.skitza.app>",
-  ADMIN_TEST_INVITE_REPLY_TO: "gili@test.skitza.app",
-  ADMIN_TEST_RESEND_API_KEY: "re_test_abcdefgh",
 } as const;
 
 describe("invitation email configuration", () => {
-  it("resolves the selected environment and signs off with the sender's first name", () => {
-    expect(resolveAdminInvitationEmailConfig(environment, "live")).toEqual({
+  it("resolves the live binding and signs off with the sender's first name", () => {
+    expect(resolveAdminInvitationEmailConfig(environment)).toEqual({
       apiKey: "re_live_abcdefgh",
       from: "Gili from Skitza <gili@skitza.app>",
       replyTo: "gili@skitza.app",
       signature: "Gili",
     });
-    expect(resolveAdminInvitationEmailConfig(environment, "test").apiKey).toBe("re_test_abcdefgh");
+  });
+
+  it("ignores leftover Test bindings instead of demanding them", () => {
+    // SK-288 removed the Live/Test split. A stale ADMIN_TEST_* value left in
+    // the deployment must never be required, and must never be sent from.
+    expect(
+      resolveAdminInvitationEmailConfig({
+        ...environment,
+        ADMIN_TEST_INVITE_FROM: "Someone Else <nobody@example.test>",
+        ADMIN_TEST_RESEND_API_KEY: "re_test_abcdefgh",
+      }).apiKey,
+    ).toBe("re_live_abcdefgh");
   });
 
   it.each([
@@ -39,22 +47,10 @@ describe("invitation email configuration", () => {
     ["ADMIN_LIVE_INVITE_FROM", "<gili@skitza.app>"],
   ])("rejects an invalid %s: %s", (name, value) => {
     expect(() =>
-      resolveAdminInvitationEmailConfig({ ...environment, [name]: value }, "live"),
+      resolveAdminInvitationEmailConfig({ ...environment, [name]: value }),
     ).toThrow(AdminInvitationEmailConfigurationError);
   });
 
-  it.each(["ADMIN_TEST_RESEND_API_KEY", "ADMIN_TEST_INVITE_FROM"])(
-    "refuses to let Test reuse the Live %s",
-    (name) => {
-      const collided = name.replace("TEST", "LIVE") as keyof typeof environment;
-      expect(() =>
-        resolveAdminInvitationEmailConfig(
-          { ...environment, [name]: environment[collided] },
-          "live",
-        ),
-      ).toThrow(AdminInvitationEmailConfigurationError);
-    },
-  );
 });
 
 describe("invitation email body", () => {
