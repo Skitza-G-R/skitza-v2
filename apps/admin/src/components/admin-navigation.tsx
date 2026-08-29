@@ -9,7 +9,6 @@ const ITEMS = [
   { icon: "grid", label: "Overview", section: "" },
   { icon: "users", label: "Users", section: "users" },
   { icon: "flag", label: "Beta", section: "beta" },
-  { icon: "payments", label: "Payments", section: "payments" },
   {
     icon: "pulse",
     label: "Health & history",
@@ -40,12 +39,6 @@ function NavigationIcon({ name }: { name: IconName }) {
       <>
         <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
         <path d="M4 22v-7" />
-      </>
-    ),
-    payments: (
-      <>
-        <rect height="14" rx="2" width="20" x="2" y="5" />
-        <path d="M2 10h20M6 15h2" />
       </>
     ),
     pulse: <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />,
