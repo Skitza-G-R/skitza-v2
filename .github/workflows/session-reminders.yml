@@ -29,8 +29,25 @@ name: Session reminders
 
 on:
   schedule:
-    # Every 15 minutes. GitHub delays scheduled runs under load; the route's
-    # 75-minute window absorbs that drift.
+    # Asks for every 15 minutes. DO NOT TRUST THIS TO ACTUALLY HAPPEN.
+    #
+    # Measured on 2026-08-29, the day this shipped: the first scheduled run
+    # took 6h14m to arrive after the file landed on the default branch, and
+    # over the following ~8 hours GitHub delivered exactly ONE tick out of the
+    # ~32 requested. Config was verified correct throughout (public repo, not
+    # a fork, Actions enabled, workflow `active`, file on the default branch,
+    # `workflow_dispatch` working).
+    #
+    # The 1h reminder window is only [now, now+75m], so a booking is missed
+    # unless a sweep lands inside it. At the observed cadence, sessions WILL
+    # be missed silently. Treat this trigger as best-effort on top of the
+    # nightly Vercel calendar-sync sweep — not as the thing that makes 1h
+    # reminders reliable. See SK-282 for the measurements.
+    #
+    # The fix is a scheduler with its own clock: Vercel Pro cron (also lifts
+    # the Hobby 2-cron cap that forced the nightly-piggyback design), or an
+    # external pinger (cron-job.org / Upstash QStash) calling this same URL
+    # with the same bearer token. Nothing else here needs to change.
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
