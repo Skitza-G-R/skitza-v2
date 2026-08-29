@@ -203,6 +203,7 @@ export async function runSessionReminderSweep(
           productName,
           startsAt: b.startsAt,
           producerTimezone: ctx.timezone,
+          durationMin: b.durationMin,
         });
       } catch (error) {
         // Release the claim so the next sweep retries this reminder.
@@ -220,6 +221,7 @@ export async function runSessionReminderSweep(
           productName,
           startsAt: b.startsAt,
           producerTimezone: ctx.timezone,
+          durationMin: b.durationMin,
         });
       } catch (error) {
         // The artist half already went out — keep the claim, drop only this

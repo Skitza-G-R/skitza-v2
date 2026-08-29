@@ -1,6 +1,11 @@
 import { render } from "@react-email/components";
 import type { ErrorResponse } from "resend";
 
+import {
+  EMAIL_LOGO_CID,
+  EMAIL_LOGO_FILENAME,
+  EMAIL_LOGO_PNG_BASE64,
+} from "./brand-logo";
 import { FROM_ADDRESS, getResend, SITE_URL } from "./client";
 import { EmailDeliveryError } from "./delivery-error";
 import { BetaActivationHelp, type BetaActivationHelpProps } from "./templates/beta-activation-help";
@@ -110,16 +115,29 @@ export async function sendBookingConfirmedEmail(
   assertResendAccepted(result);
 }
 
+// `siteUrl` is injected here rather than asked of every caller — the cron
+// sweep has no reason to know the public origin. The Skitza lockup rides
+// along as an inline Content-ID attachment; see brand-logo.ts for why it is
+// embedded instead of linked.
 export async function sendSessionReminder24h(
   to: string,
-  props: SessionReminder24hProps,
+  props: Omit<SessionReminder24hProps, "siteUrl">,
 ): Promise<void> {
-  const html = await render(<SessionReminder24h {...props} />);
+  const html = await render(<SessionReminder24h {...props} siteUrl={SITE_URL} />);
   const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Reminder · session tomorrow with ${props.counterpartName}`,
     html,
+    attachments: [
+      {
+        content: EMAIL_LOGO_PNG_BASE64,
+        // camelCase here: this app is on resend 6.x. The admin app still
+        // writes `content_id` because it pins an older major.
+        contentId: EMAIL_LOGO_CID,
+        filename: EMAIL_LOGO_FILENAME,
+      },
+    ],
   });
   assertResendAccepted(result);
 }

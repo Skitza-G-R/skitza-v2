@@ -11,16 +11,8 @@
  * to UTC when `tz` is invalid.
  */
 export function formatSessionTimeForEmail(d: Date, tz: string): string {
-  // Validate the tz once — Intl throws RangeError on bad zones.
-  let safeTz: string;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    safeTz = tz;
-  } catch {
-    safeTz = "UTC";
-  }
   return d.toLocaleString("en-US", {
-    timeZone: safeTz,
+    timeZone: safeTimeZone(tz),
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -46,4 +38,55 @@ export function formatCurrencyForEmail(cents: number, code: string): string {
   } catch {
     return `${code} ${(cents / 100).toFixed(2)}`;
   }
+}
+
+/**
+ * Resolve a timezone once, falling back to UTC when the zone is unknown.
+ * Intl throws RangeError on bad zones, and a reminder must still render.
+ */
+function safeTimeZone(tz: string): string {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
+
+/**
+ * The same instant as `formatSessionTimeForEmail`, but split so a template
+ * can lay a booking out as a card — weekday on one line, date under it, and
+ * the time given its own weight — instead of one run-on sentence.
+ */
+export function formatSessionDatePartsForEmail(
+  d: Date,
+  tz: string,
+): { weekday: string; date: string; time: string } {
+  const timeZone = safeTimeZone(tz);
+  return {
+    weekday: d.toLocaleString("en-US", { timeZone, weekday: "long" }),
+    date: d.toLocaleString("en-US", {
+      timeZone,
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }),
+    time: d.toLocaleString("en-US", { timeZone, hour: "numeric", minute: "2-digit" }),
+  };
+}
+
+/**
+ * Render a session length the way a person would say it: "2 hours",
+ * "90 min" becomes "1 hr 30 min". Returns null when there is nothing
+ * meaningful to show, so the caller can drop the row entirely rather
+ * than print "0 min".
+ */
+export function formatSessionLengthForEmail(minutes: number): string | null {
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  const whole = Math.round(minutes);
+  const hours = Math.floor(whole / 60);
+  const rest = whole % 60;
+  if (hours === 0) return `${String(rest)} min`;
+  const hourLabel = `${String(hours)} ${hours === 1 ? "hour" : "hours"}`;
+  return rest === 0 ? hourLabel : `${hourLabel} ${String(rest)} min`;
 }
