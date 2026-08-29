@@ -9,7 +9,6 @@ import {
   bookingChangeRequests,
   bookings,
   clientContacts,
-  desc,
   eq,
   gte,
   inArray,
@@ -542,11 +541,6 @@ const ProductUpdateInput = z.object({
   agreementPdf: AgreementPdfChange.optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
 });
-
-// Dashboard safety bound. Follow-ups are grouped in SQL before the cap, so
-// one project with many old sessions cannot starve other projects. Payment
-// signals remain fail-closed until they are sourced from purchase history.
-const FOLLOW_UP_PROJECT_CAP = 50;
 
 // Weekly availability replaces the entire week atomically — easier UX
 // than per-row editing + means we don't need to expose internal block
@@ -2484,51 +2478,6 @@ export const bookingRouter = router({
       next7DaysCents: 0,
       currency,
     };
-  }),
-
-  // Producer dashboard follow-ups — confirmed sessions whose end time has
-  // passed while the linked project is still `booked` or `in_production`.
-  // The producer hasn't moved the project forward (uploaded files, marked
-  // delivered) so we surface a nudge to follow up. Group before applying
-  // the safety cap: a project with many sessions must still occupy one row.
-  needsFollowUp: producerProcedure.query(async ({ ctx }) => {
-    const now = new Date();
-    const rows = await ctx.db
-      .select({
-        projectId: projects.id,
-        artistName: projects.artistName,
-        projectTitle: projects.title,
-        count: sql<number>`count(${bookings.id})::int`,
-        // The grouped row still has to name one concrete booking so the
-        // dashboard card can open the calendar on it — Mark completed lives
-        // there, not on the project page. Newest finished session wins.
-        bookingId: sql<string>`(array_agg(${bookings.id} ORDER BY ${bookings.startsAt} DESC))[1]`,
-        // End of the newest finished session. SK-284 compares a dismissal
-        // against this, so the row returns the moment another session ends.
-        lastSessionEndedAt: sql<Date>`max(${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute')`,
-      })
-      .from(bookings)
-      .innerJoin(projects, eq(projects.id, bookings.projectId))
-      .where(
-        and(
-          eq(bookings.producerId, ctx.producerId),
-          eq(bookings.status, "confirmed"),
-          lte(sql`${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute'`, now),
-          eq(projects.lifecycleStatus, "active"),
-        ),
-      )
-      .groupBy(projects.id)
-      .orderBy(desc(sql`max(${bookings.startsAt})`))
-      .limit(FOLLOW_UP_PROJECT_CAP);
-    return rows.map((r) => ({
-      id: r.projectId,
-      artistName: r.artistName,
-      projectId: r.projectId,
-      projectTitle: r.projectTitle,
-      bookingId: r.bookingId,
-      lastSessionEndedAt: r.lastSessionEndedAt,
-      count: r.count,
-    }));
   }),
 
   list: producerProcedure

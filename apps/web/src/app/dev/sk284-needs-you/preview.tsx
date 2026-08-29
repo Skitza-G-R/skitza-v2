@@ -5,11 +5,9 @@ import { RuntimeStateProvider } from "~/components/runtime-state/runtime-state-p
 
 // Fixed instants so every render of this gallery is identical.
 const NOW = new Date("2026-08-29T09:00:00.000Z");
-const SESSION_ENDED = new Date("2026-08-27T14:00:00.000Z");
 const COMMENT_AT = new Date("2026-08-28T08:30:00.000Z");
 const STALE_SINCE = new Date("2026-07-20T10:00:00.000Z");
 
-const PROJECT_A = "00000000-0000-4000-8000-0000000003a1";
 const PROJECT_B = "00000000-0000-4000-8000-0000000003a2";
 const COMMENT_ID = "00000000-0000-4000-8000-0000000003b1";
 
@@ -49,18 +47,6 @@ export function Sk284Preview() {
           paymentBalances={[]}
           purchaseRequests={[]}
           pendingApprovals={[]}
-          // The two rows from Gili's screenshot.
-          followUps={[
-            {
-              id: "00000000-0000-4000-8000-0000000003d1",
-              artistName: "lital ohayon",
-              projectTitle: "באלי אהבה",
-              projectId: PROJECT_A,
-              bookingId: "00000000-0000-4000-8000-0000000003e1",
-              lastSessionEndedAt: SESSION_ENDED,
-              count: 2,
-            },
-          ]}
           todaySession={null}
           urgentProjects={[
             {
@@ -88,7 +74,7 @@ export function Sk284Preview() {
           ]}
           dismissals={[]}
           showSetupNudge={false}
-          // Show every row rather than the top three, so all four states are
+          // Show every row rather than the top three, so all three states are
           // visible in one screenshot.
           showAllNeedsYou
           now={NOW}

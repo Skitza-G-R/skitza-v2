@@ -8,9 +8,11 @@ export const NEEDS_YOU_VISIBLE_LIMIT = 3;
  * deliberately absent: a payment proof, a due balance, a purchase request and
  * a session request all either cost money or expire on a clock, so hiding one
  * would turn "Nothing needs you right now" into a lie. The DB CHECK on
- * producer_attention_dismissals.item_kind enforces the same list.
+ * producer_attention_dismissals.item_kind still names "follow_up" as well; the
+ * finished-session row it belonged to is gone, so those leftover rows are read
+ * and ignored rather than migrated away.
  */
-export const DISMISSIBLE_KINDS = ["follow_up", "comment", "urgent_project"] as const;
+export const DISMISSIBLE_KINDS = ["comment", "urgent_project"] as const;
 
 export type DismissibleKind = (typeof DISMISSIBLE_KINDS)[number];
 
@@ -40,27 +42,6 @@ export function isDismissed(
   return hit.dismissedAt.getTime() >= changedAt.getTime();
 }
 
-export type FollowUpSource = {
-  id: string;
-  artistName: string;
-  projectTitle: string;
-  projectId: string;
-  /** Newest finished booking on the project — the one the calendar opens. */
-  bookingId: string;
-  /** End of that newest finished session; a later one un-hides the row. */
-  lastSessionEndedAt: Date;
-  count?: number;
-};
-
-export type FollowUpGroup = {
-  projectId: string;
-  artistName: string;
-  projectTitle: string;
-  bookingId: string;
-  lastSessionEndedAt: Date;
-  count: number;
-};
-
 export type PaymentProofSource = {
   proofId: string;
   artistName: string;
@@ -82,14 +63,13 @@ export type NeedsYouItem = {
     | "payment_due"
     | "purchase_request"
     | "session_approval"
-    | "follow_up"
     | "comment"
     | "urgent_project"
     | "setup";
   title: string;
   meta: string;
   href: string;
-  actionLabel: "Review" | "Open" | "Open project" | "Open calendar" | "Finish setup";
+  actionLabel: "Review" | "Open" | "Open project" | "Finish setup";
   priority: number;
   /** Present only on rows the producer is allowed to hide. */
   dismiss?: { kind: DismissibleKind; subjectId: string };
@@ -108,7 +88,6 @@ export type NeedsYouSources = {
     artistName: string;
     packageNameSnapshot: string | null;
   }[];
-  followUps: readonly FollowUpSource[];
   unresolvedItems: readonly {
     id: string;
     /** Bare comment id — the dismissal key, without the "comment:" prefix. */
@@ -132,30 +111,6 @@ export type NeedsYouSources = {
   dismissals: readonly AttentionDismissal[];
   showSetupNudge: boolean;
 };
-
-/**
- * Collapse every finished session for the same project into one action.
- * Map insertion order preserves the server's newest-first project order.
- */
-export function groupFollowUps(followUps: readonly FollowUpSource[]): FollowUpGroup[] {
-  const byProject = new Map<string, FollowUpGroup>();
-  for (const followUp of followUps) {
-    const existing = byProject.get(followUp.projectId);
-    if (existing) {
-      existing.count += followUp.count ?? 1;
-      continue;
-    }
-    byProject.set(followUp.projectId, {
-      projectId: followUp.projectId,
-      artistName: followUp.artistName,
-      projectTitle: followUp.projectTitle,
-      bookingId: followUp.bookingId,
-      lastSessionEndedAt: followUp.lastSessionEndedAt,
-      count: followUp.count ?? 1,
-    });
-  }
-  return [...byProject.values()];
-}
 
 /**
  * Build one deterministic unresolved-work queue. This is deliberately
@@ -211,25 +166,6 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       href: `/dashboard/calendar?booking=${approval.id}`,
       actionLabel: "Review",
       priority: 20,
-    });
-  }
-
-  for (const group of groupFollowUps(sources.followUps)) {
-    if (isDismissed(sources.dismissals, "follow_up", group.projectId, group.lastSessionEndedAt)) {
-      continue;
-    }
-    items.push({
-      id: `follow-up:${group.projectId}`,
-      kind: "follow_up",
-      title: group.count === 1 ? "Finished session" : `${String(group.count)} finished sessions`,
-      meta: `${group.artistName} · ${group.projectTitle}`,
-      // The calendar owns Mark completed / No-show, which is what actually
-      // clears this row. The project page has no such control, so pointing
-      // there left the producer with nothing to do.
-      href: `/dashboard/calendar?booking=${group.bookingId}`,
-      actionLabel: "Open calendar",
-      priority: 30,
-      dismiss: { kind: "follow_up", subjectId: group.projectId },
     });
   }
 

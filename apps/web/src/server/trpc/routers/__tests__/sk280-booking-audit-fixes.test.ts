@@ -192,7 +192,12 @@ describe("producer calendar surfaces", () => {
     expect(upcoming).not.toContain("gte(bookings.startsAt, now)");
   });
 
-  it("the artist close-out transitions are reachable from the calendar actions", () => {
+  // The close-out buttons are gone: completed / no-show / late-cancel all
+  // consume exactly what a plain booked session already consumed, so asking
+  // the producer to pick one after the fact changed nothing. The ONE case that
+  // still moves value survives — a producer cancel RETURNS the session use, so
+  // a phone late-cancel must still be recordable as the artist's.
+  it("keeps the late-cancel action, the only close-out that changes the count", () => {
     const actionsSource = read(
       "..",
       "..",
@@ -204,9 +209,9 @@ describe("producer calendar surfaces", () => {
       "calendar",
       "calendar-actions.ts",
     );
-    expect(actionsSource).toContain("booking.complete({");
-    expect(actionsSource).toContain("booking.noShow({");
     expect(actionsSource).toContain("booking.recordLateCancellation({");
+    expect(actionsSource).not.toContain("booking.complete({");
+    expect(actionsSource).not.toContain("booking.noShow({");
   });
 });
 

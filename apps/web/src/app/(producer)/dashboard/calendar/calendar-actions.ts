@@ -132,38 +132,6 @@ export async function setSessionTitle(input: { id: string; title: string }): Pro
   }
 }
 
-export async function completeSession(input: { id: string }): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.booking.complete({
-      id: input.id,
-      operationKey: `producer-complete:${input.id}:v1`,
-    });
-    revalidatePath(CALENDAR_PATH);
-    revalidatePath("/artist/sessions");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function markSessionNoShow(input: { id: string }): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.booking.noShow({
-      id: input.id,
-      operationKey: `producer-no-show:${input.id}:v1`,
-    });
-    revalidatePath(CALENDAR_PATH);
-    revalidatePath("/artist/sessions");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
 export async function recordLateArtistCancel(input: { id: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;

@@ -14,9 +14,9 @@ import type { DismissibleKind } from "./needs-you";
 
 // SK-284 — the ✕ on a "Needs you" row.
 //
-// Only the three deadline-free rows get one: a finished-session follow-up, an
-// artist comment, and a stuck project. Money and anything on a clock never do,
-// so "Nothing needs you right now" stays true.
+// Only the two deadline-free rows get one: an artist comment and a stuck
+// project. Money and anything on a clock never do, so "Nothing needs you right
+// now" stays true.
 //
 // Hiding is optimistic — the row leaves immediately — but the parent puts it
 // straight back if the save fails, and the error is announced rather than

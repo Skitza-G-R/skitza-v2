@@ -52,7 +52,6 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     packages,
     today,
     me,
-    followUpRaw,
     pendingBookings,
     pendingPurchaseRequests,
     pendingPaymentProofs,
@@ -63,7 +62,6 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null),
     caller.producer.today(),
     caller.producer.me(),
-    caller.booking.needsFollowUp(),
     caller.booking.list({ status: "pending_approval" }),
     caller.producer.purchase.list({ status: "pending" }),
     caller.producer.purchase.proofOfPayment.pending(),
@@ -118,6 +116,12 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
         purchaseTitle: purchase.commercialSnapshot.productOrOfferName,
       })),
   );
+  // The finished-session row is gone, but its old dismissals are still in the
+  // table (the DB CHECK still allows the kind). Drop them on read — no
+  // migration, and `DISMISSIBLE_KINDS` stays truthful about what can be hidden.
+  const liveDismissals = dismissals.flatMap((row) =>
+    row.itemKind === "follow_up" ? [] : [{ ...row, itemKind: row.itemKind }],
+  );
   const queueVersion = producerDashboardQueueVersion({
     proofIds: pendingPaymentProofs.proofs.map((proof) => proof.proofId),
     requestIds: pendingPurchaseRequests.requests.map((request) => request.id),
@@ -149,15 +153,6 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
           paymentBalances={paymentBalances}
           purchaseRequests={pendingPurchaseRequests.requests}
           pendingApprovals={pendingApprovals}
-          followUps={followUpRaw.map((session) => ({
-            id: session.id,
-            artistName: session.artistName,
-            projectTitle: session.projectTitle,
-            projectId: session.projectId,
-            bookingId: session.bookingId,
-            lastSessionEndedAt: session.lastSessionEndedAt,
-            count: session.count,
-          }))}
           todaySession={todaySession}
           urgentProjects={urgent.items}
           recentUploads={today.recentUploads.map((upload) => ({
@@ -170,7 +165,7 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
             projectId: upload.projectId,
             projectClientName: upload.projectClientName,
           }))}
-          dismissals={dismissals}
+          dismissals={liveDismissals}
           unresolvedItems={today.needsYouUnresolvedItems.map((item) => ({
             id: item.id,
             commentId: item.commentId,
