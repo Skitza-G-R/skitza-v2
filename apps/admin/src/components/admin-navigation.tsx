@@ -9,11 +9,6 @@ const ITEMS = [
   { icon: "grid", label: "Overview", section: "" },
   { icon: "users", label: "Users", section: "users" },
   { icon: "flag", label: "Beta", section: "beta" },
-  {
-    icon: "pulse",
-    label: "Health & history",
-    section: "system-health",
-  },
 ] as const;
 
 type IconName = (typeof ITEMS)[number]["icon"];
@@ -41,7 +36,6 @@ function NavigationIcon({ name }: { name: IconName }) {
         <path d="M4 22v-7" />
       </>
     ),
-    pulse: <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />,
   };
 
   return (
