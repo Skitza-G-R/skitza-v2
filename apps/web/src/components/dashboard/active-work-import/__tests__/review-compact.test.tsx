@@ -687,7 +687,9 @@ describe("compact active-work setup", () => {
           position: 2,
           dueTrigger: "monthly_anniversary",
           dueAtIso: null,
-          reminderEligible: false,
+          // Armed like every other unpaid instalment — the server only marks it
+          // as waiting, which is what keeps it out of the "Will turn on" list.
+          reminderEligible: true,
           reminderWaitingForDueDate: true,
         },
       ],
@@ -709,7 +711,7 @@ describe("compact active-work setup", () => {
     expect(screen.getByText("No date yet")).not.toBeNull();
     expect(
       screen.getByText(
-        "One payment below has no date yet, so no reminder can be sent for it. Skitza turns its reminder on by itself once it has a date.",
+        "One payment below has no date yet. Its reminder is turned on, but nothing can be sent until the payment has a date.",
       ),
     ).not.toBeNull();
   });

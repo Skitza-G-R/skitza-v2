@@ -171,10 +171,12 @@ describe("active work import setup scope loading", () => {
     ]);
   });
 
-  // Monthly instalments 2..N carry no date until the schedule is anchored, and
-  // the reminder engine skips every date-less instalment. Offering to arm one
-  // promises the producer something that can never fire.
-  it("does not call a payment with no due date reminder-eligible", async () => {
+  // Being armed and being able to send are different things. The reminder
+  // engine needs both a date and remindersEnabled, so a date-less instalment
+  // sends nothing yet — but Finish setup is the only place that ever arms an
+  // imported instalment, so refusing to arm it here loses the reminder for
+  // good once the date finally arrives.
+  it("still arms a payment with no due date, but marks it as waiting for one", async () => {
     mocks.read.mockImplementation((_repository, input) =>
       Promise.resolve(monthlyLedger((input as { purchaseId: string }).purchaseId)),
     );
@@ -192,16 +194,19 @@ describe("active work import setup scope loading", () => {
       reminderEligible: true,
       reminderWaitingForDueDate: false,
     });
+    // Armed, because Finish setup is the producer's only chance to arm it and
+    // the date arrives later. Flagged as waiting so the review screen can say
+    // plainly that nothing sends yet.
     expect(undated).toMatchObject({
       dueAt: null,
-      reminderEligible: false,
+      reminderEligible: true,
       reminderWaitingForDueDate: true,
     });
   });
 
   // The sibling wizard change gives many imported instalments a real first
-  // payment date. The rule must flip on its own once that date exists.
-  it("becomes reminder-eligible on its own once a due date exists", async () => {
+  // payment date. Once it exists, the instalment stops merely waiting.
+  it("stops waiting for a date once a due date exists", async () => {
     const dueAt = new Date("2026-09-20T12:00:00.000Z");
     mocks.read.mockImplementation((_repository, input) => {
       const base = monthlyLedger((input as { purchaseId: string }).purchaseId);

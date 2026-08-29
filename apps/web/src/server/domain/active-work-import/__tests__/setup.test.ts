@@ -110,16 +110,18 @@ function scope(): ActiveWorkImportSetupScope {
         amountCents: 5_000,
         remainingCents: 5_000,
         currency: "USD",
-        // Approved, so the ledger has given the final 50 its date. A payment
-        // with no date at all is not reminder-eligible and is covered by
-        // setup-scope.test.ts, which owns that rule.
+        // The final 50 of an imported 50/50, in the shape it ALWAYS has at
+        // Finish setup: undated, because only the producer marking the work
+        // finished (SK-269) gives it a date. Finish setup is its one chance to
+        // be armed, so it must still be enabled here — losing this fixture is
+        // how the regression got in.
         dueTrigger: "artist_approval",
-        dueAt: NOW,
-        triggeredAt: NOW,
+        dueAt: null,
+        triggeredAt: null,
         status: "not_paid",
         remindersEnabled: false,
         reminderEligible: true,
-        reminderWaitingForDueDate: false,
+        reminderWaitingForDueDate: true,
       },
     ],
   };
@@ -456,7 +458,7 @@ describe("active work import reviewed setup", () => {
     expect(completionChanges).toEqual([true, false]);
   });
 
-  it("needs no reminder selection and enables every unpaid installment with a due date", async () => {
+  it("needs no reminder selection and enables every unpaid installment, including the final 50 before it is due", async () => {
     const fake = repository();
 
     const result = await runActiveWorkImportSetup(fake.value, input());

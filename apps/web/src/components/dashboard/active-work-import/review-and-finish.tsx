@@ -719,10 +719,14 @@ export function ReviewAndFinish({
   const hasNeedsInfo = needsInfoRows.length > 0;
   const eligibleUnpaidInstallments =
     setupOptions?.installments.filter(
-      (installment) => installment.remainingCents > 0 && installment.reminderEligible,
+      (installment) =>
+        installment.remainingCents > 0 &&
+        installment.reminderEligible &&
+        !installment.reminderWaitingForDueDate,
     ) ?? [];
-  // Still owed, but with no date a reminder can never send. Show it plainly
-  // rather than hiding it or showing a toggle that would do nothing.
+  // Also armed by Finish setup, but with no date yet they cannot send. Listed
+  // separately so the producer is not told a reminder is live when it is only
+  // waiting — the two groups never overlap.
   const undatedUnpaidInstallments =
     setupOptions?.installments.filter((installment) => installment.reminderWaitingForDueDate) ?? [];
   const stillSending =
@@ -1012,8 +1016,8 @@ export function ReviewAndFinish({
                 <div className="mt-4">
                   <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
                     {undatedUnpaidInstallments.length === 1
-                      ? "One payment below has no date yet, so no reminder can be sent for it. Skitza turns its reminder on by itself once it has a date."
-                      : `${String(undatedUnpaidInstallments.length)} payments below have no date yet, so no reminders can be sent for them. Skitza turns their reminders on by itself once they have dates.`}
+                      ? "One payment below has no date yet. Its reminder is turned on, but nothing can be sent until the payment has a date."
+                      : `${String(undatedUnpaidInstallments.length)} payments below have no date yet. Their reminders are turned on, but nothing can be sent until they have dates.`}
                   </p>
                   <div className="mt-2.5 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
                     {undatedUnpaidInstallments.map((installment) => (

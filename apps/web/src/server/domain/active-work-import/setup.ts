@@ -123,12 +123,18 @@ export function activeWorkImportInvitationEligible(
 /**
  * The one place that decides whether Finish setup may arm a reminder.
  *
- * `automaticPaymentReminderSweep` skips every installment with no `dueAt`, so
- * a date-less installment can never produce a reminder. Offering to switch one
- * on promises the producer something that silently never happens, so it is not
- * eligible — it is only "waiting for a date". The rule reads the date it is
- * given, so an installment becomes eligible on its own as soon as a real due
- * date exists (monthly anchoring, or a first payment date on the import).
+ * Being switched on and being able to send are two different things, and
+ * conflating them loses real reminders. `automaticPaymentReminderSweep` needs
+ * BOTH `remindersEnabled` and a `dueAt`, so a date-less installment sends
+ * nothing today — but arming it now is still the right thing, because the
+ * date arrives later and Finish setup is the producer's only chance to arm it.
+ * The final half of an imported 50/50 is exactly that shape: undated until the
+ * producer marks the work finished (SK-269), and nothing else ever flips
+ * `remindersEnabled` for it afterwards.
+ *
+ * So anything still owed is eligible. `waiting_for_due_date` is the narrower
+ * answer for "armed, but it cannot send until it has a date", which the review
+ * screen shows plainly instead of pretending the reminder is live.
  */
 export function activeWorkImportReminderAvailability(
   input: Readonly<{
@@ -854,7 +860,7 @@ export async function loadActiveWorkImportSetupScope(
         triggeredAt: installment.triggeredAt,
         status: projected.status,
         remindersEnabled: installment.remindersEnabled,
-        reminderEligible: availability === "eligible",
+        reminderEligible: availability !== "not_needed",
         reminderWaitingForDueDate: availability === "waiting_for_due_date",
       };
     });
