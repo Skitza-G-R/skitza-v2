@@ -23,6 +23,16 @@ import type { NoChargeProposalPayload } from "./no-charge-token";
 
 type ReadDb = Pick<Db, "select">;
 
+/**
+ * Imported existing work is stored with no product, private offer or request
+ * behind it, and `purchases_source_link_shape` requires a no-charge add-on to
+ * name one of those three. Granting a free extra song on imported work is
+ * therefore a schema change, not a query change — so say that plainly instead
+ * of reporting the project as missing.
+ */
+export const NO_CHARGE_IMPORTED_WORK_REASON =
+  "Imported existing work has no Skitza product behind it, so a no-charge extra song cannot be offered here. Sell or offer a product on this project first.";
+
 function isCanonicalClerkUserId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value === value.trim();
 }
@@ -45,13 +55,20 @@ function includedSongSpaceCapacity(snapshot: unknown): number | null {
   return Number.isSafeInteger(capacity) && (capacity as number) >= 0 ? (capacity as number) : null;
 }
 
-async function activeSongSpaceCapacityExhausted(
+type ActivePurchaseFacts = Readonly<{
+  capacityExhausted: boolean;
+  /** Every active purchase on this project came in as imported existing work. */
+  importedOnly: boolean;
+}>;
+
+async function activePurchaseFacts(
   db: ReadDb,
   input: { producerId: string; projectId: string; clientContactId: string },
-): Promise<boolean> {
+): Promise<ActivePurchaseFacts> {
   const activePurchases = await db
     .select({
       purchaseId: purchases.id,
+      sourceKind: purchases.sourceKind,
       commercialSnapshot: purchases.commercialSnapshot,
     })
     .from(purchases)
@@ -63,7 +80,10 @@ async function activeSongSpaceCapacityExhausted(
         eq(purchases.lifecycleStatus, "active"),
       ),
     );
-  if (activePurchases.length === 0) return false;
+  if (activePurchases.length === 0) return { capacityExhausted: false, importedOnly: false };
+  const importedOnly = activePurchases.every(
+    (purchase) => purchase.sourceKind === "imported_existing_work",
+  );
 
   const allocatedTracks = await db
     .select({ purchaseId: projectTracks.purchaseId })
@@ -88,10 +108,11 @@ async function activeSongSpaceCapacityExhausted(
     allocatedByPurchase.set(track.purchaseId, (allocatedByPurchase.get(track.purchaseId) ?? 0) + 1);
   }
 
-  return activePurchases.every((purchase) => {
+  const capacityExhausted = activePurchases.every((purchase) => {
     const capacity = includedSongSpaceCapacity(purchase.commercialSnapshot);
     return capacity !== null && (allocatedByPurchase.get(purchase.purchaseId) ?? 0) === capacity;
   });
+  return { capacityExhausted, importedOnly };
 }
 
 async function loadProjectContext(
@@ -185,11 +206,16 @@ async function loadContext(
     clientContactId?: string;
     sourceProductId?: string;
     clerkUserId?: string;
+    /**
+     * Producer-only. The artist-facing paths stay deliberately opaque, so only
+     * the owning producer is told why the free extra song is unavailable.
+     */
+    explainMissingAnchor?: boolean;
   },
 ): Promise<NoChargeProposalContext | null> {
   const project = await loadProjectContext(db, input);
   if (!project) return null;
-  const [anchor, producerIdentity, capacityExhausted] = await Promise.all([
+  const [anchor, producerIdentity, facts] = await Promise.all([
     loadProductAnchor(db, {
       producerId: project.producerId,
       projectId: project.projectId,
@@ -197,20 +223,24 @@ async function loadContext(
       ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
     }),
     artistHasProducerIdentity(db, project.artistClerkUserId),
-    activeSongSpaceCapacityExhausted(db, {
+    activePurchaseFacts(db, {
       producerId: project.producerId,
       projectId: project.projectId,
       clientContactId: project.clientContactId,
     }),
   ]);
-  return anchor
-    ? {
-        ...project,
-        ...anchor,
-        artistHasProducerIdentity: producerIdentity,
-        activeSongSpaceCapacityExhausted: capacityExhausted,
-      }
-    : null;
+  if (!anchor) {
+    if (input.explainMissingAnchor && facts.importedOnly) {
+      throw new SongSpaceDomainError("INVALID_INPUT", NO_CHARGE_IMPORTED_WORK_REASON);
+    }
+    return null;
+  }
+  return {
+    ...project,
+    ...anchor,
+    artistHasProducerIdentity: producerIdentity,
+    activeSongSpaceCapacityExhausted: facts.capacityExhausted,
+  };
 }
 
 /**
@@ -222,10 +252,13 @@ async function loadContext(
 export function noChargeProposalRepository(db: Db): NoChargeProposalRepository {
   return {
     loadForProducer: (producerId, projectId) =>
-      db.transaction((tx) => loadContext(tx, { producerId, projectId }), {
-        isolationLevel: "repeatable read",
-        accessMode: "read only",
-      }),
+      db.transaction(
+        (tx) => loadContext(tx, { producerId, projectId, explainMissingAnchor: true }),
+        {
+          isolationLevel: "repeatable read",
+          accessMode: "read only",
+        },
+      ),
 
     loadForArtist: (payload, clerkUserId) =>
       db.transaction(
@@ -312,7 +345,7 @@ export function noChargeProposalRepository(db: Db): NoChargeProposalRepository {
               .limit(1)
               .for("share");
             if (!anchor) return null;
-            const capacityExhausted = await activeSongSpaceCapacityExhausted(tx, {
+            const facts = await activePurchaseFacts(tx, {
               producerId: project.producerId,
               projectId: project.projectId,
               clientContactId: project.clientContactId,
@@ -321,7 +354,7 @@ export function noChargeProposalRepository(db: Db): NoChargeProposalRepository {
               ...project,
               ...anchor,
               artistHasProducerIdentity: producerIdentity,
-              activeSongSpaceCapacityExhausted: capacityExhausted,
+              activeSongSpaceCapacityExhausted: facts.capacityExhausted,
             };
           },
           hasPurchaseForOperation: async (producerId, clientContactId, operationKey) => {

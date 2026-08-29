@@ -27,6 +27,7 @@ import {
   type SongUploadPublicExposure,
 } from "~/server/domain/song-publication/upload-exposure";
 
+import { NO_CHARGE_IMPORTED_WORK_REASON } from "./no-charge-db";
 import {
   summarizeProjectSongSpaces,
   type EmptySongSpaceSlot,
@@ -220,6 +221,13 @@ type NoChargeSourcePurchase = Readonly<{
   projectId: string;
   clientContactId: string;
   lifecycleStatus: "waiting_for_payment" | "active" | "canceled";
+  sourceKind:
+    | "store_product"
+    | "private_offer"
+    | "session_product"
+    | "paid_add_on"
+    | "no_charge_add_on"
+    | "imported_existing_work";
   productId: string | null;
   sourceProductId: string | null;
   sourceProductProducerId: string | null;
@@ -262,12 +270,15 @@ function noChargeAvailability(
     };
   }
 
-  const hasEligibleSource = projectPurchases.some(
+  const activeOwnedPurchases = projectPurchases.filter(
     (purchase) =>
       purchase.producerId === head.producerId &&
       purchase.projectId === head.id &&
       purchase.clientContactId === head.clientContactId &&
-      purchase.lifecycleStatus === "active" &&
+      purchase.lifecycleStatus === "active",
+  );
+  const hasEligibleSource = activeOwnedPurchases.some(
+    (purchase) =>
       purchase.currency === "ILS" &&
       typeof purchase.productId === "string" &&
       purchase.productId.length > 0 &&
@@ -275,9 +286,16 @@ function noChargeAvailability(
       purchase.sourceProductProducerId === head.producerId,
   );
   if (!hasEligibleSource) {
+    // Imported work can never qualify, so name the import rather than leaving
+    // the producer to guess why a project with paid work has no source.
+    const importedOnly =
+      activeOwnedPurchases.length > 0 &&
+      activeOwnedPurchases.every((purchase) => purchase.sourceKind === "imported_existing_work");
     return {
       available: false,
-      reason: "No active ILS product-backed purchase source was found for this project.",
+      reason: importedOnly
+        ? NO_CHARGE_IMPORTED_WORK_REASON
+        : "No active ILS product-backed purchase source was found for this project.",
     };
   }
   if (!Number.isSafeInteger(unusedActiveSongSpaceCount) || unusedActiveSongSpaceCount !== 0) {
@@ -331,6 +349,7 @@ async function buildProjectReadModels(
       clientContactId: purchases.clientContactId,
       lifecycleStatus: purchases.lifecycleStatus,
       commercialEstablishedAt: purchases.commercialEstablishedAt,
+      sourceKind: purchases.sourceKind,
       productId: purchases.productId,
       sourceProductId: products.id,
       sourceProductProducerId: products.producerId,

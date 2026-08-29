@@ -31,7 +31,6 @@ export default async function ArtistPaymentInstructionsPage({ params, searchPara
     const proofQuery = new URLSearchParams({ installment: data.installmentId });
     return (
       <PaymentInstructionsScreen
-        productId={data.productId ?? "private-offer"}
         studioId={data.producerId}
         purchaseId={data.purchaseId}
         installmentId={data.installmentId}
