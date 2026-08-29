@@ -11,12 +11,7 @@ import {
   Text,
 } from "@react-email/components";
 
-import {
-  EMAIL_LOGO_BAND,
-  EMAIL_LOGO_CID,
-  EMAIL_LOGO_HEIGHT,
-  EMAIL_LOGO_WIDTH,
-} from "../brand-logo";
+import { EMAIL_LOGO_CID, EMAIL_LOGO_HEIGHT, EMAIL_LOGO_WIDTH } from "../brand-logo";
 import { formatSessionDatePartsForEmail, formatSessionLengthForEmail } from "../format";
 
 // 24h-before reminder, sent to either the artist or the producer.
@@ -36,31 +31,58 @@ export interface SessionReminder24hProps {
   siteUrl: string;
 }
 
-// This template is deliberately DARK, and that is not a style preference.
+// ── Why this template is built light, with dark handled on top ──────────
 //
-// Gmail's Android client force-inverts light email: it rewrote a cream card
-// to near-black but left the lockup PNG alone, so the logo's own #0e0d08
-// background showed up as a black slab inside a white band. Images never
-// invert; backgrounds do. A dark-native email gives the inverter nothing to
-// flip, and the lockup blends into the page instead of fighting it.
+// No single palette survives every client, because they disagree on what
+// dark mode means:
 //
-// PAGE is exactly the lockup PNG's baked background, so the logo has no seam
-// anywhere it sits. Everything else comes from the app's own dark theme in
-// globals.css — kept as literals because mail clients strip CSS variables.
-const PAGE = EMAIL_LOGO_BAND; // #0e0d08 — must equal the PNG's background
-const CARD = "#1C1A14"; // --bg-elevated
-const SUNKEN = "#111009"; // --bg-background
-const INK = "#F2EDE6"; // --fg-default
-const SOFT = "#D7CEC2"; // --fg-secondary
-const MUTED = "#A89A8B"; // --fg-muted
-const HAIRLINE = "#3C3830"; // --border-strong
-const AMBER = "#E5A324"; // --brand-primary (dark)
-const AMBER_TEXT = "#F0B84E"; // --brand-primary-text (dark)
-const ON_AMBER = "#111009"; // --fg-inverse
+//   - Gmail Android partial-inverts: light backgrounds go dark, images are
+//     left untouched.
+//   - Gmail iOS / Outlook Windows FULL-invert, which turns a deliberately
+//     dark email back into a light one.
+//   - Apple Mail changes nothing unless the color-scheme meta tags are set,
+//     and then honours prefers-color-scheme.
+//
+// Gmail strips prefers-color-scheme entirely, so a "dark version" cannot be
+// served to it by CSS. Building light is therefore the compatible base: the
+// clients that darken produce the dark treatment themselves, and Apple Mail
+// gets the real thing from the media query below.
+//
+// The rule that actually matters is that images never invert. Nothing here
+// bakes a background into an image — see brand-logo.ts.
+//
+// Colours are the app's own tokens from globals.css, kept as literals
+// because mail clients strip CSS variables. Neither pure #fff nor #000:
+// some clients treat those as a cue for their most aggressive inversion.
+const PAGE = "#F2EDE6"; // --bg-background (light)
+const CARD = "#FDFBF7"; // --bg-elevated, nudged off pure white
+const SUNKEN = "#F7F2EA";
+const INK = "#111009"; // --fg-default (light)
+const SOFT = "#3D3730"; // --fg-secondary
+const MUTED = "#6B6359"; // --fg-muted
+const HAIRLINE = "#E8E1D4"; // --border-subtle
+const AMBER = "#D4960A"; // --brand-primary (light)
+const AMBER_INK = "#785000"; // --brand-primary-text, for amber-on-light text
+const ON_AMBER = "#1A1407"; // --fg-on-brand
 
-// Syne is a web font and mail clients strip @font-face, so the display face
-// is a plain system sans. A serif fallback here read as heavy and old.
+// Syne is a web font and every mail client strips @font-face, so the display
+// face is a plain system sans. A serif fallback read as heavy and dated.
 const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+// Apple Mail and Outlook for Mac honour this; Gmail ignores it and applies
+// its own inversion, which is why the light base above has to stand alone.
+const DARK_MODE_CSS = `
+  @media (prefers-color-scheme: dark) {
+    .sk-page { background-color: #0E0D08 !important; }
+    .sk-card { background-color: #1C1A14 !important; border-color: #3C3830 !important; }
+    .sk-block { background-color: #111009 !important; border-color: #3C3830 !important; }
+    .sk-ink { color: #F2EDE6 !important; }
+    .sk-soft { color: #D7CEC2 !important; }
+    .sk-muted { color: #A89A8B !important; }
+    .sk-amber { color: #F0B84E !important; }
+    .sk-rule { border-top-color: #3C3830 !important; }
+  }
+`;
 
 export function SessionReminder24h(props: SessionReminder24hProps) {
   const when = formatSessionDatePartsForEmail(props.startsAt, props.producerTimezone);
@@ -74,13 +96,13 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
   return (
     <Html>
       <Head>
-        {/* Tells clients this email is already dark, so the ones that honour
-            it (Apple Mail, Outlook) skip their own inversion pass. */}
-        <meta name="color-scheme" content="dark" />
-        <meta name="supported-color-schemes" content="dark" />
+        <meta name="color-scheme" content="light dark" />
+        <meta name="supported-color-schemes" content="light dark" />
+        <style dangerouslySetInnerHTML={{ __html: DARK_MODE_CSS }} />
       </Head>
       <Preview>{`${when.weekday} at ${when.time} · ${props.productName}`}</Preview>
       <Body
+        className="sk-page"
         style={{
           fontFamily: SANS,
           backgroundColor: PAGE,
@@ -89,20 +111,47 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
           padding: 0,
         }}
       >
-        <Container style={{ maxWidth: 520, margin: "0 auto", padding: "28px 12px 32px" }}>
-          {/* No band: the lockup sits straight on the page, whose colour is
-              the PNG's own background, so there is nothing to seam against. */}
+        <Container style={{ maxWidth: 520, margin: "0 auto", padding: "24px 12px 32px" }}>
+          {/* Brand mark: a self-contained amber tile (safe on any page colour
+              because images never invert) beside live text that each client
+              recolours for us. */}
           <Section style={{ padding: "0 0 20px" }}>
-            <Img
-              src={`cid:${EMAIL_LOGO_CID}`}
-              alt="Skitza"
-              width={EMAIL_LOGO_WIDTH}
-              height={EMAIL_LOGO_HEIGHT}
-              style={{ display: "block", border: 0 }}
-            />
+            <table cellPadding={0} cellSpacing={0} role="presentation">
+              <tbody>
+                <tr>
+                  <td style={{ paddingRight: 10, verticalAlign: "middle" }}>
+                    <Img
+                      src={`cid:${EMAIL_LOGO_CID}`}
+                      alt="Skitza"
+                      width={EMAIL_LOGO_WIDTH}
+                      height={EMAIL_LOGO_HEIGHT}
+                      style={{ display: "block", border: 0 }}
+                    />
+                  </td>
+                  <td style={{ verticalAlign: "middle" }}>
+                    <span
+                      className="sk-ink"
+                      style={{
+                        fontFamily: SANS,
+                        fontSize: 22,
+                        fontWeight: 700,
+                        letterSpacing: "-0.02em",
+                        color: INK,
+                      }}
+                    >
+                      skitza
+                      <span className="sk-amber" style={{ color: AMBER }}>
+                        .
+                      </span>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </Section>
 
           <Section
+            className="sk-card"
             style={{
               backgroundColor: CARD,
               borderRadius: 16,
@@ -111,18 +160,20 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
             }}
           >
             <Text
+              className="sk-amber"
               style={{
                 margin: 0,
                 fontSize: 12,
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
-                color: AMBER_TEXT,
+                color: AMBER_INK,
                 fontWeight: 700,
               }}
             >
               Session tomorrow
             </Text>
             <Heading
+              className="sk-ink"
               style={{
                 fontFamily: SANS,
                 fontWeight: 700,
@@ -135,13 +186,17 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
             >
               Your session with {props.counterpartName}
             </Heading>
-            <Text style={{ margin: "6px 0 0", fontSize: 15, lineHeight: "22px", color: SOFT }}>
+            <Text
+              className="sk-soft"
+              style={{ margin: "6px 0 0", fontSize: 15, lineHeight: "22px", color: SOFT }}
+            >
               Hi {firstName} — here are the details.
             </Text>
 
-            {/* The booking itself: date and time carry the weight, the rest
+            {/* The booking itself. Date and time carry the weight; the rest
                 reads as the ticket underneath. */}
             <Section
+              className="sk-block"
               style={{
                 backgroundColor: SUNKEN,
                 border: `1px solid ${HAIRLINE}`,
@@ -150,8 +205,11 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
                 margin: "20px 0 0",
               }}
             >
-              <Text style={{ margin: 0, fontSize: 14, color: MUTED }}>{when.weekday}</Text>
+              <Text className="sk-muted" style={{ margin: 0, fontSize: 14, color: MUTED }}>
+                {when.weekday}
+              </Text>
               <Text
+                className="sk-ink"
                 style={{
                   margin: "2px 0 0",
                   fontSize: 19,
@@ -163,18 +221,19 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
                 {when.date}
               </Text>
               <Text
+                className="sk-amber"
                 style={{
                   margin: "6px 0 0",
                   fontSize: 32,
                   lineHeight: "38px",
                   fontWeight: 700,
                   letterSpacing: "-0.02em",
-                  color: AMBER,
+                  color: AMBER_INK,
                 }}
               >
                 {when.time}
               </Text>
-              <Text style={{ margin: "4px 0 0", fontSize: 12, color: MUTED }}>
+              <Text className="sk-muted" style={{ margin: "4px 0 0", fontSize: 12, color: MUTED }}>
                 {props.producerTimezone.replace(/_/g, " ")}
               </Text>
 
@@ -193,7 +252,7 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
                   fontSize: 15,
                   fontWeight: 700,
                   lineHeight: "18px",
-                  padding: "13px 22px",
+                  padding: "14px 24px",
                   borderRadius: 16,
                   textDecoration: "none",
                   display: "inline-block",
@@ -203,12 +262,18 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
               </Button>
             </Section>
 
-            <Text style={{ margin: "18px 0 0", fontSize: 13, lineHeight: "18px", color: MUTED }}>
+            <Text
+              className="sk-muted"
+              style={{ margin: "18px 0 0", fontSize: 13, lineHeight: "18px", color: MUTED }}
+            >
               Need to reschedule? Just reply to this email.
             </Text>
           </Section>
 
-          <Text style={{ margin: "18px 0 0", fontSize: 12, color: MUTED, textAlign: "center" }}>
+          <Text
+            className="sk-muted"
+            style={{ margin: "18px 0 0", fontSize: 12, color: MUTED, textAlign: "center" }}
+          >
             Sent from Skitza
           </Text>
         </Container>
@@ -222,6 +287,7 @@ export function SessionReminder24h(props: SessionReminder24hProps) {
 function Row(props: { label: string; value: string; first?: boolean }) {
   return (
     <Text
+      className="sk-ink sk-rule"
       style={{
         margin: 0,
         marginTop: props.first ? 20 : 12,
@@ -232,7 +298,9 @@ function Row(props: { label: string; value: string; first?: boolean }) {
         color: INK,
       }}
     >
-      <span style={{ color: MUTED }}>{props.label}</span>
+      <span className="sk-muted" style={{ color: MUTED }}>
+        {props.label}
+      </span>
       <br />
       <strong>{props.value}</strong>
     </Text>
