@@ -385,6 +385,42 @@ function earliestPaymentAt(snapshot: PurchaseLedgerSnapshot): Date | null {
   return first ? new Date(first.paidAt) : null;
 }
 
+/**
+ * SK-270: the first due date an imported purchase's producer actually typed,
+ * or `null` when they skipped the optional question.
+ *
+ * The import writer (`importedFirstInstallmentDueAt` in
+ * ../active-work-import/service.ts) stores `importedAt` itself — the same
+ * instant it writes to `commercialEstablishedAt` — when the producer answered
+ * nothing, and producer-local midnight of the typed day when they did. So an
+ * exact match against `commercialEstablishedAt` is the honest "no date was
+ * captured" signal, and every row imported before SK-270 existed matches too,
+ * which is what keeps their anchoring from moving.
+ */
+function capturedImportedFirstDueAt(snapshot: PurchaseLedgerSnapshot): Date | null {
+  if (snapshot.purchase.sourceKind !== "imported_existing_work") return null;
+  const first = snapshot.installments.find((installment) => installment.position === 1);
+  if (!first?.dueAt) return null;
+  return first.dueAt.getTime() === snapshot.purchase.commercialEstablishedAt.getTime()
+    ? null
+    : new Date(first.dueAt);
+}
+
+/**
+ * SK-270: when an imported purchase carries a first due date the producer
+ * really typed, Monthly installments count forward from it and never wait for
+ * a payment that may never arrive.
+ *
+ * Everything else — including an import whose producer skipped the question
+ * and instead recorded the real payment history the wizard exists to capture —
+ * still anchors on the first confirmed payment, exactly as before. Anchoring
+ * such an import on its import day would re-date months of recorded history
+ * forward, which is the common case, not the rare one.
+ */
+function monthlyAnchorAt(snapshot: PurchaseLedgerSnapshot): Date | null {
+  return capturedImportedFirstDueAt(snapshot) ?? earliestPaymentAt(snapshot);
+}
+
 async function reconcileTransaction(
   transaction: PurchaseLedgerTransaction,
   scope: Readonly<{ producerId: string; purchaseId: string }>,
@@ -394,7 +430,7 @@ async function reconcileTransaction(
   let snapshot = ownedSnapshot(await transaction.loadSnapshot(), scope);
 
   if (snapshot.purchase.plan === "monthly") {
-    const anchor = earliestPaymentAt(snapshot);
+    const anchor = monthlyAnchorAt(snapshot);
     const missing = snapshot.installments.filter(
       (installment) => installment.position > 1 && installment.dueAt === null,
     );

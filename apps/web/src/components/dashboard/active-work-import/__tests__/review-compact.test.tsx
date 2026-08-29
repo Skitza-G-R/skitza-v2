@@ -25,6 +25,7 @@ function readyAssessment(): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour EP",
       deadlineAtIso: null,
+      firstPaymentDueDate: null,
       agreementPdf: null,
       plan: { kind: "monthly", installments: 2 },
       commercialSnapshot: {
@@ -286,6 +287,50 @@ describe("compact active-work Review", () => {
     expect(
       within(details).getByText("deal.pdf · 2.0 KB · frozen with this agreement"),
     ).not.toBeNull();
+  });
+
+  // SK-270: the producer must be able to SEE the first payment date they
+  // picked before they finish, and see plainly when they left it empty.
+  it("shows the captured first payment due date in the Ready details", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: {
+        ...base,
+        normalized: { ...base.normalized, firstPaymentDueDate: "2026-09-15" },
+      },
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} />);
+    const summary = screen.getByRole("region", { name: "Review items" }).querySelector("summary");
+    if (!summary) throw new Error("Expected the compact Review summary");
+    fireEvent.click(summary);
+
+    const details = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
+    if (!details) throw new Error("Expected dense Ready details");
+    expect(within(details).getByText("First payment due")).not.toBeNull();
+    expect(within(details).getByText("Sep 15, 2026")).not.toBeNull();
+  });
+
+  it("says the first payment lands on the import day when no date was captured", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: base,
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} />);
+    const summary = screen.getByRole("region", { name: "Review items" }).querySelector("summary");
+    if (!summary) throw new Error("Expected the compact Review summary");
+    fireEvent.click(summary);
+
+    const details = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
+    if (!details) throw new Error("Expected dense Ready details");
+    expect(within(details).getByText("The day you add this")).not.toBeNull();
   });
 
   it("explains the wait while ready items are being created", () => {

@@ -47,6 +47,24 @@ function dateLabel(value: string | null): string {
   }).format(date);
 }
 
+/**
+ * SK-270: the day the producer answered "When is the first payment due?" with,
+ * shown back before they finish. The value is a bare calendar day, so it is
+ * formatted in UTC on purpose — that renders the typed day itself, with no
+ * time zone able to shift it by one.
+ */
+function firstPaymentDueLabel(calendarDay: string | null): string {
+  if (!calendarDay) return "The day you add this";
+  const date = new Date(`${calendarDay}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return "The day you add this";
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function fileSizeLabel(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${String(sizeBytes)} B`;
   if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
@@ -298,6 +316,14 @@ function ReviewCard({ row, asArticle }: { row: WorkspaceImportRow; asArticle: bo
             </p>
             <p className="text-[11.5px] font-semibold text-[rgb(var(--fg-secondary))]">
               {planLabel(review)}
+            </p>
+          </div>
+          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-[rgb(var(--border-subtle))] py-2">
+            <p className="font-mono text-[9.5px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
+              First payment due
+            </p>
+            <p className="font-mono text-[11.5px] font-semibold text-[rgb(var(--fg-secondary))]">
+              {firstPaymentDueLabel(review.firstPaymentDueDate)}
             </p>
           </div>
           <div className="divide-y divide-[rgb(var(--border-subtle))]">

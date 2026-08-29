@@ -142,6 +142,33 @@ function shiftWallClockDays(value: WallClock, days: number): WallClock {
   };
 }
 
+/**
+ * SK-270: turn a calendar day a producer typed (`YYYY-MM-DD`) into the exact
+ * instant that day begins in the producer's own time zone.
+ *
+ * Everything downstream reads a stored due date back through that same zone —
+ * `isOverdueOnLocalDate` compares producer-local day numbers, and
+ * `monthlyInstallmentDates` takes its anniversaries from the anchor's
+ * producer-local wall clock. Storing the day as UTC midnight instead would
+ * land on the previous producer-local day for every zone west of UTC, so an
+ * import would read as overdue the moment it was entered and every monthly
+ * anniversary would fall a day early.
+ */
+export function localCalendarDayStart(calendarDay: string, timeZone: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(calendarDay)) {
+    throw new Error("calendarDay must be a YYYY-MM-DD day");
+  }
+  assertTimeZone(timeZone);
+  const [year, month, day] = calendarDay.split("-").map(Number) as [number, number, number];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+    throw new Error("calendarDay must be a real calendar day");
+  }
+  return instantForWallClock(
+    { year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 },
+    timeZone,
+  );
+}
+
 export function monthlyInstallmentDates(
   input: Readonly<{
     firstConfirmedAt: Date;

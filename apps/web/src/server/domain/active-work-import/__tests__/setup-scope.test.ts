@@ -53,7 +53,9 @@ function fakeDb(results: readonly (readonly unknown[])[]): Db {
 function ledger(purchaseId: string) {
   return {
     snapshot: {
-      purchase: { id: purchaseId, lifecycleStatus: "waiting_for_payment" },
+      // SK-268: an imported purchase is created active — the producer's
+      // attestation is the activation event.
+      purchase: { id: purchaseId, lifecycleStatus: "active" },
       installments: [
         {
           id: `${purchaseId}-installment-1`,

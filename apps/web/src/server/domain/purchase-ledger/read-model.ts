@@ -458,11 +458,14 @@ function installmentIsDueNow(
   ) {
     return false;
   }
-  if (
-    installment.status === "overdue" ||
-    installment.dueTrigger === "acceptance" ||
-    installment.dueTrigger === "producer_import"
-  ) {
+  // SK-270: this is the one server-side source of dueNowCents and of the
+  // producer bucket, and it must say exactly what the client-side copy in
+  // components/dashboard/clients/client-payments-model.ts says. An imported
+  // first payment carries the real date the producer captured at import, so
+  // it falls through to the dueAt check below and is due on that day, not a
+  // moment sooner. Acceptance-triggered installments are due the instant the
+  // artist accepts.
+  if (installment.status === "overdue" || installment.dueTrigger === "acceptance") {
     return true;
   }
   if (installment.dueAt !== null && installment.dueAt.getTime() <= asOf.getTime()) return true;

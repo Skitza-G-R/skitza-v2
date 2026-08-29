@@ -86,11 +86,10 @@ function isDueNow(installment: ClientPaymentInstallmentData, asOfIso: string): b
   ) {
     return false;
   }
-  if (
-    installment.status === "overdue" ||
-    installment.dueTrigger === "acceptance" ||
-    installment.dueTrigger === "producer_import"
-  ) {
+  // SK-270: an imported first payment now carries the real date the producer
+  // captured at import, so it is due on that day and not a moment sooner.
+  // Acceptance-triggered installments are due the instant the artist accepts.
+  if (installment.status === "overdue" || installment.dueTrigger === "acceptance") {
     return true;
   }
   const asOf = Date.parse(asOfIso);

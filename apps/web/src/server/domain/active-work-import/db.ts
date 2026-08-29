@@ -9,6 +9,7 @@ import {
   inArray,
   isNull,
   paymentProofs,
+  producers,
   products,
   projects,
   purchaseImportAttestations,
@@ -47,6 +48,7 @@ import {
   ActiveWorkImportDomainError,
   activeWorkImportExistingClientReason,
   assessActiveWorkImportDraft,
+  importedFirstInstallmentDueAt,
   type ActiveWorkImportAssessment,
   type NormalizedActiveWorkImport,
 } from "./service";
@@ -815,6 +817,24 @@ export async function materializeActiveWorkImportRowTransaction(
         "This draft changed before it was created. Review it and try again.",
       );
     }
+    // SK-270: the producer typed a calendar day, not an instant. Only their
+    // own time zone turns it into one, and the whole point of the question is
+    // that the answer must read back as that same day on every producer
+    // surface, so the zone is loaded here rather than assumed to be UTC.
+    const [producer] = await tx
+      .select({ timeZone: producers.timezone })
+      .from(producers)
+      .where(eq(producers.id, input.producerId))
+      .limit(1);
+    if (!producer) {
+      throw new ActiveWorkImportDomainError("NOT_FOUND", "Producer was not found");
+    }
+    const firstInstallmentDueAt = importedFirstInstallmentDueAt({
+      firstPaymentDueDate: input.normalized.firstPaymentDueDate,
+      producerTimeZone: producer.timeZone,
+      importedAt: input.importedAt,
+    });
+
     if (input.normalized.templateProductId) {
       const [template] = await tx
         .select({ id: products.id })
@@ -963,7 +983,11 @@ export async function materializeActiveWorkImportRowTransaction(
         producerId: input.producerId,
         clientContactId: client.id,
         title: input.normalized.projectTitle,
-        lifecycleStatus: "waiting_for_payment",
+        // SK-268: imported work is already running outside Skitza. The
+        // producer's import attestation IS the activation event, so the
+        // project goes live immediately; money still owed stays tracked in
+        // the purchase ledger.
+        lifecycleStatus: "active",
         lifecycleChangedAt: input.importedAt,
         clientName: client.name,
         clientEmail: client.email,
@@ -997,7 +1021,10 @@ export async function materializeActiveWorkImportRowTransaction(
         operationKey: row.operationKey,
         operationDigest: purchaseOperationDigest,
         refNumber: generateRefNumber(),
-        lifecycleStatus: "waiting_for_payment",
+        // SK-268: the producer's import attestation IS the activation event.
+        // Imported work is already live outside Skitza, so it must not sit in
+        // "waiting for payment"; money still owed stays tracked in the ledger.
+        lifecycleStatus: "active",
         paymentPlanKind: input.normalized.plan.kind,
         snapshotVersion: commercialSnapshot.version,
         snapshotDigest,
@@ -1008,6 +1035,7 @@ export async function materializeActiveWorkImportRowTransaction(
         currency: commercialSnapshot.currency,
         acceptedAt: null,
         commercialEstablishedAt: input.importedAt,
+        activatedAt: input.importedAt,
         createdAt: input.importedAt,
         updatedAt: input.importedAt,
       })
@@ -1023,7 +1051,12 @@ export async function materializeActiveWorkImportRowTransaction(
           amountCents: installment.amountCents,
           currency: input.normalized.commercialSnapshot.currency,
           dueTrigger: installment.trigger,
-          dueAt: installment.sequence === 1 ? input.importedAt : null,
+          // SK-270: the first installment carries the date the producer said
+          // the payment is really due, read in the producer's own time zone
+          // and defaulting to the import day. triggeredAt stays the import
+          // instant — it is the provenance anchor the SQL schedule validator
+          // pins.
+          dueAt: installment.sequence === 1 ? firstInstallmentDueAt : null,
           triggeredAt: installment.sequence === 1 ? input.importedAt : null,
           requiredForActivation: installment.sequence === 1,
           status: "not_paid" as const,

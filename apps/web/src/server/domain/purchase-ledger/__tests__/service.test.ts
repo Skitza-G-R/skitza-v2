@@ -497,6 +497,111 @@ describe("purchase ledger transitions", () => {
     );
   });
 
+  // SK-270: imported work carries the real first due date the producer typed
+  // in the wizard. Months must count forward from it, with no payment at all —
+  // an imported Monthly plan used to leave installments 2..N without any date.
+  it("anchors an imported Monthly plan on its own first due date without any payment", async () => {
+    const base = snapshot("monthly");
+    const firstDueAt = new Date("2026-03-10T00:00:00.000Z");
+    const repository = new MemoryLedgerRepository({
+      ...base,
+      purchase: {
+        ...base.purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+      },
+      installments: base.installments.map((installment, index) =>
+        index === 0
+          ? {
+              ...installment,
+              dueTrigger: "producer_import" as const,
+              dueAt: firstDueAt,
+              triggeredAt: ACCEPTED_AT,
+            }
+          : installment,
+      ),
+    });
+
+    await reconcilePurchaseLedger(repository, {
+      producerId: "producer-a",
+      purchaseId: "purchase-a",
+      asOf: ACCEPTED_AT,
+    });
+
+    expect(repository.current.payments).toHaveLength(0);
+    expect(repository.current.installments.map((row) => row.dueAt?.toISOString())).toEqual([
+      "2026-03-10T00:00:00.000Z",
+      "2026-04-10T00:00:00.000Z",
+      "2026-05-10T00:00:00.000Z",
+    ]);
+    expect(
+      repository.current.installments.slice(1).map((row) => row.triggeredAt?.toISOString()),
+    ).toEqual(["2026-03-10T00:00:00.000Z", "2026-03-10T00:00:00.000Z"]);
+  });
+
+  // SK-270 regression: recording real payment history is the whole point of
+  // the import wizard, so an import that has history and skipped the optional
+  // "when is the first payment due?" question must keep anchoring on the first
+  // recorded payment. Anchoring it on the import day instead would silently
+  // re-date months of history forward.
+  it("keeps anchoring an imported Monthly plan with payment history on its first payment", async () => {
+    const base = snapshot("monthly");
+    const firstPaidAt = new Date("2026-05-01T16:00:00.000Z");
+    const repository = new MemoryLedgerRepository({
+      ...base,
+      purchase: {
+        ...base.purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+      },
+      installments: base.installments.map((installment, index) =>
+        index === 0
+          ? {
+              ...installment,
+              dueTrigger: "producer_import" as const,
+              // No date was captured, so the writer stored the import instant
+              // itself — exactly `commercialEstablishedAt`.
+              dueAt: base.purchase.commercialEstablishedAt,
+              triggeredAt: base.purchase.commercialEstablishedAt,
+              status: "confirmed" as const,
+            }
+          : installment,
+      ),
+      payments: [
+        {
+          id: "payment-history-1",
+          purchaseId: "purchase-a",
+          installmentId: "installment-1",
+          producerId: "producer-a",
+          amountCents: base.installments[0]?.amountCents ?? 0,
+          currency: "USD",
+          operationKey: "import-payment-1",
+          operationDigest: "digest-import-payment-1",
+          source: "manual" as const,
+          proofId: null,
+          paidAt: firstPaidAt,
+          addedByClerkUserId: "clerk-producer",
+          note: null,
+        },
+      ],
+    });
+
+    await reconcilePurchaseLedger(repository, {
+      producerId: "producer-a",
+      purchaseId: "purchase-a",
+      asOf: new Date("2026-05-02T16:00:00.000Z"),
+    });
+
+    // Months still count from the recorded payment, not from the import day
+    // (2026-01-31), which would have produced February and March dates.
+    expect(repository.current.installments.slice(1).map((row) => row.dueAt?.toISOString())).toEqual(
+      ["2026-06-01T16:00:00.000Z", "2026-07-01T16:00:00.000Z"],
+    );
+    expect(
+      repository.current.installments.slice(1).map((row) => row.triggeredAt?.toISOString()),
+    ).toEqual([firstPaidAt.toISOString(), firstPaidAt.toISOString()]);
+  });
+
   it("does not accept the 50/50 final half before exact-version approval triggers it", async () => {
     const repository = new MemoryLedgerRepository(snapshot("split_50_50"));
     await expect(
