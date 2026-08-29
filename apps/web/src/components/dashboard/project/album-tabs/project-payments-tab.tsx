@@ -4,6 +4,7 @@ import { HandCoins, ImageUp } from "lucide-react";
 import { type DragEvent, useMemo, useRef, useState } from "react";
 
 import { RecordPaymentDialog } from "~/components/dashboard/payments/record-payment-dialog";
+import { RequestFinalPaymentCard } from "~/components/dashboard/payments/request-final-payment-card";
 import {
   formatMoney,
   isFileDrag,
@@ -103,6 +104,20 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
       onDrop={onDrop}
       data-drop-active={dragActive || undefined}
     >
+      {/* SK-269 — imported work whose last payment is still waiting for an
+          approval that will never arrive. Offering this above "Record a
+          payment" matches the order of the producer's own steps. */}
+      {purchases.map((purchase) =>
+        purchase.finalPaymentRequest ? (
+          <RequestFinalPaymentCard
+            key={purchase.id}
+            projectId={projectId}
+            purchase={purchase}
+            request={purchase.finalPaymentRequest}
+          />
+        ) : null,
+      )}
+
       {purchases.length > 0 ? (
         <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <div className="min-w-0">

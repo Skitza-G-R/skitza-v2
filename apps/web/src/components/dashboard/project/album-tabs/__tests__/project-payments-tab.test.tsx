@@ -26,6 +26,14 @@ vi.mock("~/components/dashboard/payments/record-payment-dialog", () => ({
   },
 }));
 
+const finalPaymentSpy = vi.fn();
+vi.mock("~/components/dashboard/payments/request-final-payment-card", () => ({
+  RequestFinalPaymentCard: (props: { purchase: { id: string } }) => {
+    finalPaymentSpy(props.purchase.id);
+    return <div data-testid="request-final-payment">The work is done</div>;
+  },
+}));
+
 const toast = vi.fn();
 vi.mock("~/components/ui/toast", () => ({
   useToast: () => ({ toast, dismissToast: vi.fn() }),
@@ -102,6 +110,7 @@ function paymentData(
 afterEach(() => {
   cleanup();
   dialogSpy.mockClear();
+  finalPaymentSpy.mockClear();
   toast.mockClear();
 });
 
@@ -205,6 +214,38 @@ describe("PaymentsTab", () => {
     fireEvent.drop(panel, fileDrag(receipt));
     expect(screen.getByTestId("record-payment-dialog")).not.toBeNull();
     expect(dialogSpy).toHaveBeenLastCalledWith(receipt);
+  });
+
+  // SK-269 — imported work whose last half waits on an approval the client
+  // will never give. The producer needs the way out right where the money is.
+  it("offers the finished-work control only for a purchase the server allows", () => {
+    const { rerender } = render(
+      <PaymentsTab
+        projectId="project-1"
+        payments={paymentData()}
+        purchases={[
+          openPurchase({
+            id: "imported-1",
+            sourceKind: "imported_existing_work",
+            finalPaymentRequest: { installmentId: "i2", amountCents: 25_000 },
+          }),
+        ]}
+      />,
+    );
+
+    const text = screen.getByRole("tabpanel").textContent;
+    expect(screen.getByTestId("request-final-payment")).not.toBeNull();
+    expect(finalPaymentSpy).toHaveBeenCalledWith("imported-1");
+    expect(text.indexOf("The work is done")).toBeLessThan(text.indexOf("1 payment open"));
+
+    rerender(
+      <PaymentsTab
+        projectId="project-1"
+        payments={paymentData()}
+        purchases={[openPurchase({ id: "imported-1", sourceKind: "imported_existing_work" })]}
+      />,
+    );
+    expect(screen.queryByTestId("request-final-payment")).toBeNull();
   });
 
   it("ignores drags when nothing can be recorded", () => {

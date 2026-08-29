@@ -366,6 +366,27 @@ function transactionAdapter(
       }
       return changed;
     },
+    // SK-269 — the same one-way write the artist's own approval performs, with
+    // the empty-date guards doing the idempotency so two presses cannot both
+    // win. `protect_purchase_installment_terms` rejects any later change.
+    triggerImportedFinalInstallment: async (installmentId, triggeredAt) => {
+      const updated = await tx
+        .update(purchaseInstallments)
+        .set({ dueAt: triggeredAt, triggeredAt, updatedAt: triggeredAt })
+        .where(
+          and(
+            eq(purchaseInstallments.id, installmentId),
+            eq(purchaseInstallments.purchaseId, scope.purchaseId),
+            eq(purchaseInstallments.producerId, scope.producerId),
+            eq(purchaseInstallments.dueTrigger, "artist_approval"),
+            eq(purchaseInstallments.status, "not_paid"),
+            isNull(purchaseInstallments.dueAt),
+            isNull(purchaseInstallments.triggeredAt),
+          ),
+        )
+        .returning({ id: purchaseInstallments.id });
+      return updated.length === 1;
+    },
     setInstallmentStatuses: async (rows, changedAt) => {
       let changed = 0;
       for (const row of rows) {

@@ -24,6 +24,7 @@ import {
   correctPurchasePayment,
   pauseProjectForOverdueInstallment,
   reconcilePurchaseLedger,
+  requestImportedFinalPayment,
   resumePaymentPausedProject,
   setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
@@ -347,6 +348,36 @@ export const purchaseLedgerRouter = router({
           actorId: requireActor(ctx.userId),
           waivedAt: new Date(),
         });
+      } catch (error) {
+        mapLedgerError(error);
+      }
+    }),
+
+  // SK-269 — the producer says an imported job is finished, so its final half
+  // stops waiting for an artist approval that can never happen. The domain
+  // decides whether this purchase qualifies; the router only carries identity.
+  requestFinalPayment: producerProcedure
+    .input(
+      z
+        .object({
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await requestImportedFinalPayment(purchaseLedgerRepository(ctx.db), {
+          producerId: ctx.producerId,
+          purchaseId: input.purchaseId,
+          installmentId: input.installmentId,
+          requestedAt: new Date(),
+        });
+        return {
+          installmentId: result.installmentId,
+          dueAt: result.dueAt,
+          changed: result.changed,
+        };
       } catch (error) {
         mapLedgerError(error);
       }

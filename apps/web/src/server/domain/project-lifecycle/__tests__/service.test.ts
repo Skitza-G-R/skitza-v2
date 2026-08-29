@@ -326,6 +326,8 @@ function memoryPurchaseLedgerRepository(
           return Promise.resolve({ ...input, id: `cancellation-${input.purchaseId}` });
         },
         setMonthlyInstallmentDates: () => Promise.resolve(0),
+        triggerImportedFinalInstallment: () =>
+          Promise.reject(new Error("Unexpected final payment trigger")),
         setInstallmentStatuses: (rows) => {
           const statusById = new Map(rows.map((row) => [row.installmentId, row.status]));
           let changed = 0;
