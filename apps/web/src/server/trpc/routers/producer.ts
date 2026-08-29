@@ -903,16 +903,25 @@ export const producerRouter = router({
           throw err;
         }
 
+        // One clock, and it has to be Postgres's. `created_at` is filled by
+        // the table's own DEFAULT now(), so a JS `new Date()` — read in this
+        // process before the statement had even reached Neon — is always a few
+        // milliseconds older than the row the database builds around it, and
+        // the `dismissed_at >= created_at` CHECK rejected every first
+        // dismissal. Letting the defaults stamp both columns makes them the
+        // same instant, and `now()` on the conflict path keeps a re-dismissal
+        // on that same clock: a second tap that lands while the first insert
+        // is still in flight would otherwise write an app timestamp older
+        // than the `created_at` the winning insert just took from the database.
+        //
         // Re-dismissing bumps the stamp rather than erroring, so a double tap
         // (or a click that raced the row sliding up) is harmless.
-        const now = new Date();
-        await ctx.db
+        const [row] = await ctx.db
           .insert(producerAttentionDismissals)
           .values({
             producerId: ctx.producerId,
             itemKind: kind,
             subjectId: input.subjectId,
-            dismissedAt: now,
           })
           .onConflictDoUpdate({
             target: [
@@ -920,9 +929,11 @@ export const producerRouter = router({
               producerAttentionDismissals.itemKind,
               producerAttentionDismissals.subjectId,
             ],
-            set: { dismissedAt: now, updatedAt: now },
-          });
-        return { dismissedAt: now };
+            set: { dismissedAt: sql`now()`, updatedAt: sql`now()` },
+          })
+          .returning({ dismissedAt: producerAttentionDismissals.dismissedAt });
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        return { dismissedAt: row.dismissedAt };
       }),
 
     // Undo. Deleting the row is the whole restore — visibility is recomputed

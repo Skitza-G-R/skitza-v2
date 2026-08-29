@@ -1,6 +1,7 @@
 import {
   artistProfiles,
   eq,
+  sql,
   type ArtistNotificationPreferences,
   type ArtistNotificationPreferenceCategory,
   type Db,
@@ -126,13 +127,17 @@ export async function saveArtistTimezone(
   if (!isValidIanaTimezone(timezone)) {
     throw new Error("INVALID_TIMEZONE");
   }
-  const now = new Date();
+  // One clock, and it has to be Postgres's. `created_at` takes the column's
+  // own DEFAULT now(), so a JS `new Date()` — read here, before the statement
+  // has even reached Neon — is older than the row the database builds around
+  // it, and an artist's first save would be rejected by
+  // `artist_profiles_timestamp_shape` (CHECK "updated_at" >= "created_at").
   await db
     .insert(artistProfiles)
-    .values({ clerkUserId, timezone, updatedAt: now })
+    .values({ clerkUserId, timezone })
     .onConflictDoUpdate({
       target: artistProfiles.clerkUserId,
-      set: { timezone, updatedAt: now },
+      set: { timezone, updatedAt: sql`now()` },
     });
   return timezone;
 }
@@ -143,17 +148,18 @@ export async function saveArtistNotificationPreferences(
   preferences: ResolvedArtistNotificationPreferences,
 ): Promise<ResolvedArtistNotificationPreferences> {
   const normalized = resolveArtistNotificationPreferences(preferences);
-  const now = new Date();
+  // Same one-clock rule as saveArtistTimezone above: the column defaults stamp
+  // the insert and now() bumps the conflict path, so `updated_at` is never
+  // older than the `created_at` Postgres wrote alongside it.
   await db
     .insert(artistProfiles)
     .values({
       clerkUserId,
       notificationPreferences: normalized,
-      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: artistProfiles.clerkUserId,
-      set: { notificationPreferences: normalized, updatedAt: now },
+      set: { notificationPreferences: normalized, updatedAt: sql`now()` },
     });
   return normalized;
 }
