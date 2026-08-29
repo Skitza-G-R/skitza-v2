@@ -303,7 +303,7 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
   return (
-    <li className="flex min-h-[72px] min-w-0 items-center gap-3 border-b border-[rgb(var(--fg-onsidebar)/0.16)] py-3 last:border-b-0 lg:min-h-[68px] lg:border-[rgb(var(--border-subtle))] lg:py-2.5">
+    <li className="flex min-h-[72px] min-w-0 items-center gap-2.5 border-b border-[rgb(var(--fg-onsidebar)/0.16)] py-3 last:border-b-0 lg:min-h-[68px] lg:border-[rgb(var(--border-subtle))] lg:py-2.5">
       <ActionIcon kind={item.kind} />
       <div className="min-w-0 flex-1">
         <span className="block text-[15px] leading-tight font-bold [overflow-wrap:anywhere] text-[rgb(var(--fg-onsidebar))] lg:truncate lg:text-[rgb(var(--fg-default))]">
@@ -322,7 +322,7 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
         href={item.href}
         aria-label={`${item.actionLabel}: ${item.title} — ${item.meta}`}
         className={[
-          "sk-press inline-flex h-11 min-w-[76px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:h-10 lg:min-w-[112px] lg:rounded-[var(--radius-md)]",
+          "sk-press inline-flex h-11 min-w-[64px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:h-10 lg:min-w-[112px] lg:rounded-[var(--radius-md)]",
           primary
             ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
             : "border border-[rgb(var(--fg-onsidebar)/0.34)] text-[rgb(var(--fg-onsidebar))] lg:border-[rgb(var(--border-strong))] lg:text-[rgb(var(--fg-default))]",

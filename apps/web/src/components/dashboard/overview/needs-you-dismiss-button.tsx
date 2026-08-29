@@ -77,7 +77,7 @@ export function NeedsYouDismissButton({
       onClick={hide}
       disabled={pending}
       aria-label={`Hide ${title} — ${meta}`}
-      className="sk-press-pop inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.62)] hover:bg-[rgb(var(--fg-onsidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50 lg:h-9 lg:w-9 lg:text-[rgb(var(--fg-muted))] lg:hover:bg-[rgb(var(--bg-overlay))]"
+      className="sk-press-pop relative -mr-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full before:absolute before:-inset-1 before:content-[''] text-[rgb(var(--fg-onsidebar)/0.62)] hover:bg-[rgb(var(--fg-onsidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50 lg:h-9 lg:w-9 lg:text-[rgb(var(--fg-muted))] lg:hover:bg-[rgb(var(--bg-overlay))]"
     >
       <X aria-hidden size={17} />
     </button>

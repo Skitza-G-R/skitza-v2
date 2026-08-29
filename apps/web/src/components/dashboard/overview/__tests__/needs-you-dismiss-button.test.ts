@@ -39,11 +39,15 @@ describe("Needs You dismiss button", () => {
     expect(BUTTON).toContain("useOnlineStatus");
   });
 
-  it("carries a press class so coarse pointers get the full 44px target", () => {
-    // globals.css only forces 44x44 under (pointer: coarse) for elements that
-    // carry a press primitive.
+  it("keeps a 44px hit area without spending 44px of a 360px row", () => {
+    // Measured in a real browser at 360px: a 44x44 element left the subtitle
+    // only 98px, which chopped a Hebrew project name. The element is now 36px
+    // and reclaims its touch target with a ::before overlay (36 + 2*4 = 44) —
+    // the same trick NEEDS_YOU_CHIP uses in the payments dashboard. Verified
+    // in-browser: getBoundingClientRect on the button still reports 44x44.
     expect(BUTTON).toContain("sk-press-pop");
-    expect(BUTTON).toContain("h-11 w-11");
+    expect(BUTTON).toContain("h-9 w-9");
+    expect(BUTTON).toContain("before:-inset-1");
     expect(BUTTON).toContain("rounded-full");
   });
 
