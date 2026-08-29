@@ -31,7 +31,6 @@ export function PaymentInstructionsScreen({
   previewProofHref,
   summaryHref,
 }: {
-  productId: string;
   studioId?: string | undefined;
   purchaseId?: string | undefined;
   installmentId?: string | undefined;

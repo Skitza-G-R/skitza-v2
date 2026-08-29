@@ -69,6 +69,8 @@ function historicalDraft(
     title: string;
     payments?: readonly Record<string, unknown>[];
     session?: Record<string, unknown>;
+    plan?: Record<string, unknown>;
+    firstPaymentDueAt?: string;
   }>,
 ): Record<string, unknown> {
   return {
@@ -91,9 +93,10 @@ function historicalDraft(
       totalCents: 10_000,
       currency: "USD",
       includedSongSpaces: 1,
-      plan: { kind: "full" },
+      plan: input.plan ?? { kind: "full" },
       revisionRule: null,
       royaltyTerms: null,
+      ...(input.firstPaymentDueAt ? { firstPaymentDueAt: input.firstPaymentDueAt } : {}),
       ...(input.session ? { session: input.session } : {}),
     },
     payments: input.payments ?? [],
@@ -1122,6 +1125,10 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
       dueTrigger: "producer_import",
       remindersEnabled: false,
       status: "confirmed",
+      // SK-270: with no captured date the first payment is due on the import
+      // day, and triggered_at stays the exact provenance anchor.
+      dueAt: importedAt,
+      triggeredAt: importedAt,
     });
     expect(attestations).toHaveLength(1);
     expect(tracks).toHaveLength(0);
@@ -1254,6 +1261,92 @@ describeWithConfirmedDatabase("SK-255 active work materialization — confirmed 
       closedAt: null,
     });
     expect(nonBookableAllowances).toHaveLength(0);
+  });
+
+  // SK-268 + SK-270: imported work goes live at once, and a Monthly plan dates
+  // every installment from the real first due date the producer captured —
+  // with no payment recorded at all.
+  it("goes live immediately and dates a Monthly schedule from the captured first due date", async () => {
+    const batch = await createActiveWorkImportBatch(activeDb(), {
+      producerId,
+      clerkUserId: producerClerkUserId,
+      operationKey: `sk270-batch-${suffix}`,
+      now: importedAt,
+    });
+    const draft = historicalDraft({
+      email: `sk270-${suffix}@example.invalid`,
+      title: `Imported monthly project ${suffix}`,
+      plan: { kind: "monthly", installments: 3 },
+      firstPaymentDueAt: "2035-09-05",
+    });
+    const saved = await saveActiveWorkImportRow(activeDb(), {
+      producerId,
+      batchId: batch.batch.id,
+      rowOperationKey: `sk270-row-${suffix}`,
+      expectedRevision: null,
+      draftPayload: draft,
+      now: importedAt,
+    });
+    const normalized = ready(draft, importedAt);
+    expect(normalized.firstPaymentDueDate).toBe("2035-09-05");
+
+    const created = await materializeActiveWorkImportRowTransaction(activeDb(), {
+      producerId,
+      clerkUserId: producerClerkUserId,
+      batchId: batch.batch.id,
+      rowId: saved.row.id,
+      expectedDraftRevision: saved.row.draftRevision,
+      expectedDraftDigest: digestCommercialSnapshot(saved.row.draftPayload),
+      creationDigest: activeWorkImportCreationDigest(normalized, []),
+      normalized,
+      proofCapabilities: new Map(),
+      agreementPdfCapability: null,
+      finalizeAgreementPdf: () => Promise.reject(new Error("no agreement PDF in this fixture")),
+      finalizeProof: () => Promise.reject(new Error("no proof in this fixture")),
+      importedAt,
+    });
+
+    const [[purchase], [project], installments, payments] = await Promise.all([
+      activeDb().select().from(purchases).where(eq(purchases.id, created.purchaseId)).limit(1),
+      activeDb().select().from(projects).where(eq(projects.id, created.projectId)).limit(1),
+      activeDb()
+        .select()
+        .from(purchaseInstallments)
+        .where(eq(purchaseInstallments.purchaseId, created.purchaseId))
+        .orderBy(purchaseInstallments.position),
+      activeDb()
+        .select()
+        .from(purchasePayments)
+        .where(eq(purchasePayments.purchaseId, created.purchaseId)),
+    ]);
+
+    expect(payments).toHaveLength(0);
+    expect(purchase).toMatchObject({
+      sourceKind: "imported_existing_work",
+      acceptedAt: null,
+      commercialEstablishedAt: importedAt,
+      lifecycleStatus: "active",
+      activatedAt: importedAt,
+    });
+    expect(project).toMatchObject({ lifecycleStatus: "active" });
+    expect(installments).toHaveLength(3);
+    expect(installments[0]).toMatchObject({
+      position: 1,
+      dueTrigger: "producer_import",
+      requiredForActivation: true,
+      remindersEnabled: false,
+      status: "not_paid",
+      // The fixture producer's time zone is UTC, so the day the producer typed
+      // starts at UTC midnight. A producer in America/New_York would get
+      // 2035-09-05T04:00:00.000Z from the same typed day.
+      dueAt: new Date("2035-09-05T00:00:00.000Z"),
+      triggeredAt: importedAt,
+    });
+    expect(installments.slice(1).map((row) => row.dueAt)).not.toContain(null);
+    expect(installments.slice(1).map((row) => row.dueTrigger)).toEqual([
+      "monthly_anniversary",
+      "monthly_anniversary",
+    ]);
   });
 
   it("rolls back one failed row without erasing another row or either draft", async () => {

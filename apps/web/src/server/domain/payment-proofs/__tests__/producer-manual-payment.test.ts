@@ -160,4 +160,16 @@ describe("producer manual payment ledger contract", () => {
     expect(routerSource).toContain("contentType: z.enum(PROOF_CONTENT_TYPES)");
     expect(routerSource).toContain("sendProofVerifiedEmail(email.artistEmail, email)");
   });
+
+  // SK-271 — the confirmation email is still wired up, but it must only fire
+  // when there is someone on the other end: a proof to point at, or a real
+  // Skitza account. An imported client with neither gets nothing.
+  it("only emails the payment confirmation when the client can actually receive it", () => {
+    expect(routerSource).toContain(
+      "const artistCanBeEmailed = Boolean(result.proofId) || Boolean(result.artistClerkUserId);",
+    );
+    expect(routerSource).toMatch(
+      /if \(artistCanBeEmailed && artistEmailEnabled\)[\s\S]*?sendProofVerifiedEmail\(email\.artistEmail, email\)/,
+    );
+  });
 });

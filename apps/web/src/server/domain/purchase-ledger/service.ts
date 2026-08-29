@@ -1,4 +1,5 @@
 import { digestCommercialSnapshot } from "../purchases/policy";
+import { decideFinalPaymentRequest, FINAL_PAYMENT_UNAVAILABLE_MESSAGES } from "./final-payment";
 import { proofPaymentOperationDigest } from "./operation-digest";
 import {
   projectPurchaseLedger,
@@ -135,6 +136,12 @@ export interface PurchaseLedgerTransaction {
     rows: readonly Readonly<{ installmentId: string; dueAt: Date; triggeredAt: Date }>[],
     changedAt: Date,
   ): Promise<number>;
+  /**
+   * SK-269 — make an imported purchase's approval-triggered final half due
+   * today. Writes both dates only while they are still empty, so a racing
+   * second press changes nothing and reports false.
+   */
+  triggerImportedFinalInstallment(installmentId: string, triggeredAt: Date): Promise<boolean>;
   setInstallmentStatuses(
     rows: readonly Readonly<{ installmentId: string; status: LedgerInstallmentInput["status"] }>[],
     changedAt: Date,
@@ -385,6 +392,42 @@ function earliestPaymentAt(snapshot: PurchaseLedgerSnapshot): Date | null {
   return first ? new Date(first.paidAt) : null;
 }
 
+/**
+ * SK-270: the first due date an imported purchase's producer actually typed,
+ * or `null` when they skipped the optional question.
+ *
+ * The import writer (`importedFirstInstallmentDueAt` in
+ * ../active-work-import/service.ts) stores `importedAt` itself — the same
+ * instant it writes to `commercialEstablishedAt` — when the producer answered
+ * nothing, and producer-local midnight of the typed day when they did. So an
+ * exact match against `commercialEstablishedAt` is the honest "no date was
+ * captured" signal, and every row imported before SK-270 existed matches too,
+ * which is what keeps their anchoring from moving.
+ */
+function capturedImportedFirstDueAt(snapshot: PurchaseLedgerSnapshot): Date | null {
+  if (snapshot.purchase.sourceKind !== "imported_existing_work") return null;
+  const first = snapshot.installments.find((installment) => installment.position === 1);
+  if (!first?.dueAt) return null;
+  return first.dueAt.getTime() === snapshot.purchase.commercialEstablishedAt.getTime()
+    ? null
+    : new Date(first.dueAt);
+}
+
+/**
+ * SK-270: when an imported purchase carries a first due date the producer
+ * really typed, Monthly installments count forward from it and never wait for
+ * a payment that may never arrive.
+ *
+ * Everything else — including an import whose producer skipped the question
+ * and instead recorded the real payment history the wizard exists to capture —
+ * still anchors on the first confirmed payment, exactly as before. Anchoring
+ * such an import on its import day would re-date months of recorded history
+ * forward, which is the common case, not the rare one.
+ */
+function monthlyAnchorAt(snapshot: PurchaseLedgerSnapshot): Date | null {
+  return capturedImportedFirstDueAt(snapshot) ?? earliestPaymentAt(snapshot);
+}
+
 async function reconcileTransaction(
   transaction: PurchaseLedgerTransaction,
   scope: Readonly<{ producerId: string; purchaseId: string }>,
@@ -394,7 +437,7 @@ async function reconcileTransaction(
   let snapshot = ownedSnapshot(await transaction.loadSnapshot(), scope);
 
   if (snapshot.purchase.plan === "monthly") {
-    const anchor = earliestPaymentAt(snapshot);
+    const anchor = monthlyAnchorAt(snapshot);
     const missing = snapshot.installments.filter(
       (installment) => installment.position > 1 && installment.dueAt === null,
     );
@@ -727,6 +770,84 @@ export async function waiveInstallmentDebt(
     });
     const reconciled = await reconcileTransaction(transaction, scope, waivedAt);
     return { record, projection: reconciled.projection, created: true };
+  });
+}
+
+export type RequestImportedFinalPaymentInput = Readonly<{
+  producerId: string;
+  purchaseId: string;
+  installmentId: string;
+  requestedAt?: Date;
+}>;
+
+export type RequestImportedFinalPaymentResult = Readonly<{
+  installmentId: string;
+  dueAt: Date;
+  /** False when the payment was already due, so a second press is harmless. */
+  changed: boolean;
+  projection: PurchaseLedgerProjection;
+}>;
+
+/**
+ * SK-269 — the producer says the imported work is finished, so the final half
+ * is owed now.
+ *
+ * `decideFinalPaymentRequest` owns the rule; this function only carries it out
+ * under the ledger lock and reconciles afterwards, so the half immediately
+ * reads as due, becomes recordable, and becomes waivable.
+ */
+export async function requestImportedFinalPayment(
+  repository: PurchaseLedgerRepository,
+  rawInput: RequestImportedFinalPaymentInput,
+): Promise<RequestImportedFinalPaymentResult> {
+  const scope = {
+    producerId: identifier(rawInput.producerId, "Producer id"),
+    purchaseId: identifier(rawInput.purchaseId, "Purchase id"),
+  };
+  const installmentId = identifier(rawInput.installmentId, "Installment id");
+  const requestedAt = date(rawInput.requestedAt ?? new Date(), "Final payment request time");
+
+  return repository.atomically(scope, async (transaction) => {
+    const snapshot = ownedSnapshot(await transaction.loadSnapshot(), scope);
+    // Proves the installment belongs to this purchase before any decision.
+    installmentFor(snapshot, installmentId);
+    const decision = decideFinalPaymentRequest({
+      purchase: snapshot.purchase,
+      installments: snapshot.installments,
+      installmentId,
+    });
+    if (decision.status === "unavailable") {
+      throw new PurchaseLedgerDomainError(
+        "CONFLICT",
+        FINAL_PAYMENT_UNAVAILABLE_MESSAGES[decision.reason],
+      );
+    }
+    if (decision.status === "already_requested") {
+      const reconciled = await reconcileTransaction(transaction, scope, requestedAt);
+      const current = installmentFor(reconciled.snapshot, installmentId);
+      const dueAt = current.dueAt ?? current.triggeredAt;
+      if (!dueAt) {
+        throw new PurchaseLedgerDomainError(
+          "CONFLICT",
+          "The final payment changed while it was being requested",
+        );
+      }
+      return { installmentId, dueAt, changed: false, projection: reconciled.projection };
+    }
+
+    if (!(await transaction.triggerImportedFinalInstallment(installmentId, requestedAt))) {
+      throw new PurchaseLedgerDomainError(
+        "CONFLICT",
+        "The final payment changed while it was being requested",
+      );
+    }
+    const reconciled = await reconcileTransaction(transaction, scope, requestedAt);
+    return {
+      installmentId,
+      dueAt: requestedAt,
+      changed: true,
+      projection: reconciled.projection,
+    };
   });
 }
 

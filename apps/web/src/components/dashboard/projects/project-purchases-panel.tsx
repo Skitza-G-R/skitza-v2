@@ -62,6 +62,12 @@ export interface ProjectPurchaseSummary {
   installments: readonly ProjectPurchaseInstallment[];
   reference?: string | null | undefined;
   provenanceNotice?: string | null | undefined;
+  /**
+   * SK-269 — set only when this is imported work whose last payment is still
+   * waiting for an artist approval that can never happen, so the producer can
+   * say the work is done. The server re-checks the same rule.
+   */
+  finalPaymentRequest?: Readonly<{ installmentId: string; amountCents: number }> | null | undefined;
 }
 
 export interface ProjectPurchasesPanelProps {

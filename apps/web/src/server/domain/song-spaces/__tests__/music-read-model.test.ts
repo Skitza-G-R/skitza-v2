@@ -765,6 +765,18 @@ describe("music song-space projection", () => {
       available: false,
       reason: "existing purchased song space",
     },
+    {
+      name: "a project whose only active purchase is imported existing work",
+      head: {},
+      purchase: {
+        sourceKind: "imported_existing_work",
+        productId: null,
+        sourceProductId: null,
+        sourceProductProducerId: null,
+      },
+      available: false,
+      reason: "Imported existing work",
+    },
   ] as const)(
     "derives no-charge availability from $name",
     async ({ head: headOverrides, purchase: purchaseOverrides, available, reason }) => {
@@ -793,6 +805,7 @@ describe("music song-space projection", () => {
         lifecycleStatus: "active",
         acceptedAt: now,
         commercialEstablishedAt: now,
+        sourceKind: "store_product",
         productId: "product-source",
         sourceProductId: "product-source",
         sourceProductProducerId: "producer-owned",

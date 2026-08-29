@@ -113,6 +113,9 @@ export type ActiveWorkImportDraft = {
     royaltyNotes: string;
     planKind: ImportPlanKind;
     monthlyInstallments: string;
+    // SK-270: when the first payment is really due, as a `YYYY-MM-DD` day.
+    // Empty means the import day, and Monthly counts forward from this date.
+    firstPaymentDueAt: string;
     // Sessions the outside agreement already includes. "none" keeps the
     // purchase non-bookable; "fixed"/"unlimited" freeze session terms so the
     // connected client can book without buying a new service. Location,
@@ -165,6 +168,13 @@ export type NormalizedImportReview = Readonly<{
   clientPhone: string | null;
   projectTitle: string;
   deadlineAtIso: string | null;
+  /**
+   * SK-270: the calendar day the producer typed for "When is the first payment
+   * due?", as `YYYY-MM-DD`, or `null` when they left it empty and the import
+   * day stands. It stays a day, never an instant — only the producer's own
+   * time zone turns it into one, and that happens on the server.
+   */
+  firstPaymentDueDate: string | null;
   plan:
     | Readonly<{ kind: "full" }>
     | Readonly<{ kind: "split_50_50" }>
@@ -270,6 +280,8 @@ export type SetupInstallmentOption = Readonly<{
   status: string;
   remindersEnabled: boolean;
   reminderEligible: boolean;
+  /** Still owed, but no due date yet, so a reminder cannot be armed for it. */
+  reminderWaitingForDueDate: boolean;
 }>;
 
 export type SetupOptionsView = Readonly<{
@@ -299,6 +311,10 @@ export type FinishSetupResultView = Readonly<{
     changed: boolean;
     reason: string | null;
   }>[];
+  // Whether the import is actually closed. It can stay open even when every
+  // invitation and reminder above succeeded, because saved drafts were never
+  // created. `unfinishedDraftCount` is null when closing was not attempted.
+  batch: Readonly<{ completed: boolean; unfinishedDraftCount: number | null }>;
 }>;
 
 export const STILL_SENDING_NOTICE = "Still sending — check again in a moment" as const;
@@ -335,6 +351,7 @@ export function newImportDraft(input: {
       royaltyNotes: "",
       planKind: "full",
       monthlyInstallments: "2",
+      firstPaymentDueAt: "",
       sessionsMode: "none",
       sessionCount: "",
       sessionDurationMin: "120",
@@ -499,6 +516,7 @@ export function parseStoredImportDraft(
         uiAgreement.monthlyInstallments,
         positiveIntegerText(rawPlan.installments, "2"),
       ),
+      firstPaymentDueAt: stringValue(agreement.firstPaymentDueAt).slice(0, 10),
       sessionsMode,
       sessionCount: positiveIntegerText(rawSessionLimit.count, ""),
       sessionDurationMin: positiveIntegerText(
@@ -663,6 +681,7 @@ type PublicImportAssessmentInput =
         clientPhone: string | null;
         projectTitle: string;
         deadlineAt: Date | null;
+        firstPaymentDueDate: string | null;
         plan: NormalizedImportReview["plan"];
         agreementPdf: Readonly<{ fileName: string; sizeBytes: number }> | null;
         commercialSnapshot: PurchaseCommercialSnapshot;
@@ -701,6 +720,7 @@ export function mapPublicImportAssessment(
       clientPhone: value.normalized.clientPhone,
       projectTitle: value.normalized.projectTitle,
       deadlineAtIso: value.normalized.deadlineAt?.toISOString() ?? null,
+      firstPaymentDueDate: value.normalized.firstPaymentDueDate,
       plan: value.normalized.plan,
       agreementPdf: value.normalized.agreementPdf
         ? {
@@ -901,6 +921,7 @@ export function toServerDraftPayload(draft: ActiveWorkImportDraft): Record<strin
           : {}),
       },
       plan,
+      firstPaymentDueAt: draft.agreement.firstPaymentDueAt || null,
     },
     payments: draft.payments.map((payment) => ({
       operationKey: payment.operationKey,

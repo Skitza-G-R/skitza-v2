@@ -241,6 +241,29 @@ export async function recordManualPaymentAction(input: {
   }
 }
 
+// SK-269 — imported work has no artist inside Skitza to approve the final
+// version, so the producer says the work is done and the last payment becomes
+// due. The server decides whether this purchase is allowed to do that.
+export async function requestFinalPaymentAction(input: {
+  projectId: string;
+  purchaseId: string;
+  installmentId: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.purchaseLedger.requestFinalPayment({
+      purchaseId: input.purchaseId,
+      installmentId: input.installmentId,
+    });
+    revalidateProjectSurfaces(input.projectId);
+    revalidatePath("/dashboard/payments");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Producer-only private notes for the Project Room → Notes tab. Wraps
 // the project.updateNotes tRPC procedure. Returns the new updatedAt so
 // the UI can render "Saved <relative>" without a refetch.

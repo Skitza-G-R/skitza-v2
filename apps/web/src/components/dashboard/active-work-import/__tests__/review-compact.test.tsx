@@ -25,6 +25,7 @@ function readyAssessment(): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour EP",
       deadlineAtIso: null,
+      firstPaymentDueDate: null,
       agreementPdf: null,
       plan: { kind: "monthly", installments: 2 },
       commercialSnapshot: {
@@ -288,6 +289,50 @@ describe("compact active-work Review", () => {
     ).not.toBeNull();
   });
 
+  // SK-270: the producer must be able to SEE the first payment date they
+  // picked before they finish, and see plainly when they left it empty.
+  it("shows the captured first payment due date in the Ready details", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: {
+        ...base,
+        normalized: { ...base.normalized, firstPaymentDueDate: "2026-09-15" },
+      },
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} />);
+    const summary = screen.getByRole("region", { name: "Review items" }).querySelector("summary");
+    if (!summary) throw new Error("Expected the compact Review summary");
+    fireEvent.click(summary);
+
+    const details = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
+    if (!details) throw new Error("Expected dense Ready details");
+    expect(within(details).getByText("First payment due")).not.toBeNull();
+    expect(within(details).getByText("Sep 15, 2026")).not.toBeNull();
+  });
+
+  it("says the first payment lands on the import day when no date was captured", () => {
+    const base = readyAssessment();
+    if (base.state !== "ready") throw new Error("Expected a ready assessment");
+    const ready = workspaceRow({
+      operationKey: "ready",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: base,
+    });
+    render(<ReviewAndFinish {...reviewProps([ready])} />);
+    const summary = screen.getByRole("region", { name: "Review items" }).querySelector("summary");
+    if (!summary) throw new Error("Expected the compact Review summary");
+    fireEvent.click(summary);
+
+    const details = document.querySelector<HTMLElement>('[data-review-ready-details="dense"]');
+    if (!details) throw new Error("Expected dense Ready details");
+    expect(within(details).getByText("The day you add this")).not.toBeNull();
+  });
+
   it("explains the wait while ready items are being created", () => {
     const ready = workspaceRow({
       operationKey: "ready",
@@ -441,11 +486,12 @@ describe("compact active-work setup", () => {
           remainingCents: 400_000,
           currency: "ILS",
           dueTrigger: "artist_approval",
-          dueAtIso: null,
-          triggeredAtIso: null,
+          dueAtIso: "2026-09-01T10:00:00.000Z",
+          triggeredAtIso: "2026-09-01T10:00:00.000Z",
           status: "pending",
           remindersEnabled: false,
           reminderEligible: true,
+          reminderWaitingForDueDate: false,
         },
       ],
     };
@@ -535,11 +581,12 @@ describe("compact active-work setup", () => {
           remainingCents: 400_000,
           currency: "ILS",
           dueTrigger: "artist_approval",
-          dueAtIso: null,
-          triggeredAtIso: null,
+          dueAtIso: "2026-09-01T10:00:00.000Z",
+          triggeredAtIso: "2026-09-01T10:00:00.000Z",
           status: "pending",
           remindersEnabled: false,
           reminderEligible: true,
+          reminderWaitingForDueDate: false,
         },
         {
           id: "installment-ineligible",
@@ -558,6 +605,7 @@ describe("compact active-work setup", () => {
           status: "canceled",
           remindersEnabled: false,
           reminderEligible: false,
+          reminderWaitingForDueDate: false,
         },
       ],
     };
@@ -593,5 +641,78 @@ describe("compact active-work setup", () => {
     expect(screen.getByText((text) => text.endsWith(longAgreement)).className).toContain(
       "[overflow-wrap:anywhere]",
     );
+  });
+
+  // A payment with no date can never produce a reminder, so it must not sit in
+  // the armed list. It also must not vanish without a word.
+  it("says plainly that a payment with no date has no reminder yet", () => {
+    const created = workspaceRow({
+      operationKey: "created",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: null,
+      materialized: true,
+    });
+    const installment = {
+      rowId: "created-row",
+      projectId: "project-created",
+      purchaseId: "purchase-created",
+      projectTitle: "Blue Hour EP",
+      agreementName: "Full production",
+      amountCents: 200_000,
+      remainingCents: 200_000,
+      currency: "ILS",
+      status: "not_paid",
+      remindersEnabled: false,
+      triggeredAtIso: null,
+    } as const;
+    const setupOptions: SetupOptionsView = {
+      setupDigest: `sha256:${"d".repeat(64)}`,
+      distinctClientCount: 1,
+      projectPurchaseCount: 1,
+      clients: [],
+      installments: [
+        {
+          ...installment,
+          id: "installment-dated",
+          position: 1,
+          dueTrigger: "producer_import",
+          dueAtIso: "2026-09-01T10:00:00.000Z",
+          reminderEligible: true,
+          reminderWaitingForDueDate: false,
+        },
+        {
+          ...installment,
+          id: "installment-undated",
+          position: 2,
+          dueTrigger: "monthly_anniversary",
+          dueAtIso: null,
+          // Armed like every other unpaid instalment — the server only marks it
+          // as waiting, which is what keeps it out of the "Will turn on" list.
+          reminderEligible: true,
+          reminderWaitingForDueDate: true,
+        },
+      ],
+    };
+
+    render(
+      <ReviewAndFinish
+        {...reviewProps([created])}
+        stage="setup"
+        canReturnToItems={false}
+        setupOptions={setupOptions}
+        effectiveReadyOperationKeys={new Set()}
+      />,
+    );
+
+    expect(screen.getAllByText("Will turn on")).toHaveLength(1);
+    expect(screen.getByText("Blue Hour EP · payment 1")).not.toBeNull();
+    expect(screen.getByText("Blue Hour EP · payment 2")).not.toBeNull();
+    expect(screen.getByText("No date yet")).not.toBeNull();
+    expect(
+      screen.getByText(
+        "One payment below has no date yet. Its reminder is turned on, but nothing can be sent until the payment has a date.",
+      ),
+    ).not.toBeNull();
   });
 });

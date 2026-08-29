@@ -9,6 +9,7 @@ import {
   readPurchaseLedger,
   reconcilePurchaseLedger,
   recordConfirmedPurchasePayment,
+  requestImportedFinalPayment,
   resumePaymentPausedProject,
   setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
@@ -160,6 +161,26 @@ class MemoryLedgerRepository implements PurchaseLedgerRepository {
           }),
         };
         void changedAt;
+        return Promise.resolve(changed);
+      },
+      triggerImportedFinalInstallment: (installmentId, triggeredAt) => {
+        let changed = false;
+        this.current = {
+          ...this.current,
+          installments: this.current.installments.map((installment) => {
+            if (
+              installment.id !== installmentId ||
+              installment.dueTrigger !== "artist_approval" ||
+              installment.status !== "not_paid" ||
+              installment.dueAt !== null ||
+              installment.triggeredAt !== null
+            ) {
+              return installment;
+            }
+            changed = true;
+            return { ...installment, dueAt: triggeredAt, triggeredAt };
+          }),
+        };
         return Promise.resolve(changed);
       },
       setInstallmentStatuses: (rows) => {
@@ -495,6 +516,111 @@ describe("purchase ledger transitions", () => {
     expect(repository.current.installments.slice(1).map((row) => row.dueAt?.toISOString())).toEqual(
       ["2026-02-28T15:00:00.000Z", "2026-03-31T14:00:00.000Z"],
     );
+  });
+
+  // SK-270: imported work carries the real first due date the producer typed
+  // in the wizard. Months must count forward from it, with no payment at all —
+  // an imported Monthly plan used to leave installments 2..N without any date.
+  it("anchors an imported Monthly plan on its own first due date without any payment", async () => {
+    const base = snapshot("monthly");
+    const firstDueAt = new Date("2026-03-10T00:00:00.000Z");
+    const repository = new MemoryLedgerRepository({
+      ...base,
+      purchase: {
+        ...base.purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+      },
+      installments: base.installments.map((installment, index) =>
+        index === 0
+          ? {
+              ...installment,
+              dueTrigger: "producer_import" as const,
+              dueAt: firstDueAt,
+              triggeredAt: ACCEPTED_AT,
+            }
+          : installment,
+      ),
+    });
+
+    await reconcilePurchaseLedger(repository, {
+      producerId: "producer-a",
+      purchaseId: "purchase-a",
+      asOf: ACCEPTED_AT,
+    });
+
+    expect(repository.current.payments).toHaveLength(0);
+    expect(repository.current.installments.map((row) => row.dueAt?.toISOString())).toEqual([
+      "2026-03-10T00:00:00.000Z",
+      "2026-04-10T00:00:00.000Z",
+      "2026-05-10T00:00:00.000Z",
+    ]);
+    expect(
+      repository.current.installments.slice(1).map((row) => row.triggeredAt?.toISOString()),
+    ).toEqual(["2026-03-10T00:00:00.000Z", "2026-03-10T00:00:00.000Z"]);
+  });
+
+  // SK-270 regression: recording real payment history is the whole point of
+  // the import wizard, so an import that has history and skipped the optional
+  // "when is the first payment due?" question must keep anchoring on the first
+  // recorded payment. Anchoring it on the import day instead would silently
+  // re-date months of history forward.
+  it("keeps anchoring an imported Monthly plan with payment history on its first payment", async () => {
+    const base = snapshot("monthly");
+    const firstPaidAt = new Date("2026-05-01T16:00:00.000Z");
+    const repository = new MemoryLedgerRepository({
+      ...base,
+      purchase: {
+        ...base.purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+      },
+      installments: base.installments.map((installment, index) =>
+        index === 0
+          ? {
+              ...installment,
+              dueTrigger: "producer_import" as const,
+              // No date was captured, so the writer stored the import instant
+              // itself — exactly `commercialEstablishedAt`.
+              dueAt: base.purchase.commercialEstablishedAt,
+              triggeredAt: base.purchase.commercialEstablishedAt,
+              status: "confirmed" as const,
+            }
+          : installment,
+      ),
+      payments: [
+        {
+          id: "payment-history-1",
+          purchaseId: "purchase-a",
+          installmentId: "installment-1",
+          producerId: "producer-a",
+          amountCents: base.installments[0]?.amountCents ?? 0,
+          currency: "USD",
+          operationKey: "import-payment-1",
+          operationDigest: "digest-import-payment-1",
+          source: "manual" as const,
+          proofId: null,
+          paidAt: firstPaidAt,
+          addedByClerkUserId: "clerk-producer",
+          note: null,
+        },
+      ],
+    });
+
+    await reconcilePurchaseLedger(repository, {
+      producerId: "producer-a",
+      purchaseId: "purchase-a",
+      asOf: new Date("2026-05-02T16:00:00.000Z"),
+    });
+
+    // Months still count from the recorded payment, not from the import day
+    // (2026-01-31), which would have produced February and March dates.
+    expect(repository.current.installments.slice(1).map((row) => row.dueAt?.toISOString())).toEqual(
+      ["2026-06-01T16:00:00.000Z", "2026-07-01T16:00:00.000Z"],
+    );
+    expect(
+      repository.current.installments.slice(1).map((row) => row.triggeredAt?.toISOString()),
+    ).toEqual([firstPaidAt.toISOString(), firstPaidAt.toISOString()]);
   });
 
   it("does not accept the 50/50 final half before exact-version approval triggers it", async () => {
@@ -951,4 +1077,132 @@ describe("purchase ledger transitions", () => {
       expect(repository.current.project.lifecycleStatus).toBe(lifecycleStatus);
     },
   );
+});
+
+// SK-269: on a 50/50 plan the second half waits for the artist to approve the
+// final version inside Skitza. A client the producer imported by hand may never
+// join, so that approval can never happen and the outstanding half is stuck:
+// never due, never recordable, never even waivable. The producer — the only
+// person who can say the imported work is finished — gets to say it.
+describe("imported work asks for its own final payment", () => {
+  const REQUESTED_AT = new Date("2026-08-29T09:00:00.000Z");
+
+  function importedSplit(): PurchaseLedgerSnapshot {
+    const value = snapshot("split_50_50");
+    return {
+      ...value,
+      purchase: {
+        ...value.purchase,
+        sourceKind: "imported_existing_work",
+        acceptedAt: null,
+        lifecycleStatus: "active",
+        activatedAt: ACCEPTED_AT,
+      },
+      installments: value.installments.map((installment, index) =>
+        index === 0 ? { ...installment, dueTrigger: "producer_import" as const } : installment,
+      ),
+    };
+  }
+
+  function request(overrides: Record<string, unknown> = {}) {
+    return {
+      producerId: "producer-a",
+      purchaseId: "purchase-a",
+      installmentId: "installment-2",
+      requestedAt: REQUESTED_AT,
+      ...overrides,
+    };
+  }
+
+  it("makes the stuck half due, recordable, and waivable", async () => {
+    const repository = new MemoryLedgerRepository(importedSplit());
+
+    const result = await requestImportedFinalPayment(repository, request());
+
+    expect(result).toMatchObject({ installmentId: "installment-2", changed: true });
+    expect(result.dueAt.toISOString()).toBe(REQUESTED_AT.toISOString());
+    const final = repository.current.installments[1];
+    expect(final?.dueAt?.toISOString()).toBe(REQUESTED_AT.toISOString());
+    expect(final?.triggeredAt?.toISOString()).toBe(REQUESTED_AT.toISOString());
+
+    await expect(
+      waiveInstallmentDebt(repository, {
+        producerId: "producer-a",
+        purchaseId: "purchase-a",
+        installmentId: "installment-2",
+        operationKey: "sk269-waive",
+        amountCents: 5_000,
+        reason: "This client will never pay the rest",
+        actorId: "clerk-producer",
+        waivedAt: REQUESTED_AT,
+      }),
+    ).resolves.toMatchObject({ created: true });
+  });
+
+  it("lets the producer record the money once the work is done", async () => {
+    const repository = new MemoryLedgerRepository(importedSplit());
+    const payment = manualInput({
+      installmentId: "installment-2",
+      operationKey: "sk269-final-half",
+      amountCents: 5_000,
+      paidAt: REQUESTED_AT,
+      occurredAt: REQUESTED_AT,
+    });
+
+    await expect(recordConfirmedPurchasePayment(repository, payment)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+
+    await requestImportedFinalPayment(repository, request());
+
+    await expect(recordConfirmedPurchasePayment(repository, payment)).resolves.toMatchObject({
+      created: true,
+    });
+  });
+
+  it("is impossible on a purchase the artist can still approve in Skitza", async () => {
+    const repository = new MemoryLedgerRepository(snapshot("split_50_50"));
+
+    await expect(requestImportedFinalPayment(repository, request())).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "Only imported work can be marked finished here.",
+    });
+    expect(repository.current.installments[1]?.dueAt).toBeNull();
+    expect(repository.current.installments[1]?.triggeredAt).toBeNull();
+  });
+
+  it("never triggers twice, however many times it is pressed", async () => {
+    const repository = new MemoryLedgerRepository(importedSplit());
+
+    const first = await requestImportedFinalPayment(repository, request());
+    const second = await requestImportedFinalPayment(
+      repository,
+      request({ requestedAt: new Date("2026-09-05T09:00:00.000Z") }),
+    );
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(second.dueAt.toISOString()).toBe(REQUESTED_AT.toISOString());
+    expect(repository.current.installments[1]?.dueAt?.toISOString()).toBe(
+      REQUESTED_AT.toISOString(),
+    );
+  });
+
+  it("stays invisible to another producer", async () => {
+    const repository = new MemoryLedgerRepository(importedSplit());
+
+    await expect(
+      requestImportedFinalPayment(repository, request({ producerId: "producer-b" })),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(repository.current.installments[1]?.dueAt).toBeNull();
+    expect(repository.current.installments[1]?.triggeredAt).toBeNull();
+  });
+
+  it("refuses an installment that belongs to another purchase", async () => {
+    const repository = new MemoryLedgerRepository(importedSplit());
+
+    await expect(
+      requestImportedFinalPayment(repository, request({ installmentId: "installment-9" })),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
 });

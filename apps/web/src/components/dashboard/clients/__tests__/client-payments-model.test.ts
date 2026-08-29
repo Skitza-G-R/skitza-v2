@@ -90,6 +90,8 @@ describe("buildClientPaymentsView", () => {
         installment("imported-first-payment", {
           dueTrigger: "producer_import",
           triggerLabel: "When added to Skitza",
+          dueAtIso: "2026-08-01T00:00:00.000Z",
+          triggeredAtIso: "2026-08-01T00:00:00.000Z",
         }),
       ],
       { dueNowCents: 10_000 },
@@ -102,6 +104,32 @@ describe("buildClientPaymentsView", () => {
       owesNowCents: 10_000,
       waitingOnMilestonesCents: 0,
     });
+  });
+
+  // SK-270: the producer can now say when the imported first payment is really
+  // due. Until that day arrives the row must not offer "Send a reminder".
+  it("does not call an imported first payment due before its captured due date", () => {
+    const importedPurchase = purchase(
+      "imported-future",
+      [
+        installment("imported-first-payment", {
+          dueTrigger: "producer_import",
+          triggerLabel: "When added to Skitza",
+          dueAtIso: "2026-09-30T00:00:00.000Z",
+          triggeredAtIso: "2026-08-01T00:00:00.000Z",
+        }),
+      ],
+      { dueNowCents: 0 },
+    );
+
+    const view = buildClientPaymentsView(data([project("imported-project", [importedPurchase])]));
+
+    // The row action is what this model really decides. `owesNowCents` is a
+    // straight passthrough of the `dueNowCents` handed in above, so asserting
+    // it here would prove nothing — the server copy of the same rule is
+    // covered in server/domain/purchase-ledger/__tests__/read-model.test.ts.
+    expect(view.currentGroups[0]?.rows[0]?.action).toEqual({ kind: "view_details" });
+    expect(view.currencySummaries[0]).toMatchObject({ waitingOnMilestonesCents: 0 });
   });
 
   it("keeps exact per-currency totals and the locked calculation meanings", () => {

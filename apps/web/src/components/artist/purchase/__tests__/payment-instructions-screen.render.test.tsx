@@ -13,7 +13,6 @@ function renderInstructions(
 ): string {
   return renderToStaticMarkup(
     <PaymentInstructionsScreen
-      productId="product-1"
       studioId="producer-1"
       purchaseId="purchase-1"
       installmentId="installment-1"

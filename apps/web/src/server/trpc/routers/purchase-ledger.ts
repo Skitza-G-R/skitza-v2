@@ -24,6 +24,7 @@ import {
   correctPurchasePayment,
   pauseProjectForOverdueInstallment,
   reconcilePurchaseLedger,
+  requestImportedFinalPayment,
   resumePaymentPausedProject,
   setInstallmentRemindersEnabled,
   waiveInstallmentDebt,
@@ -226,6 +227,14 @@ export const purchaseLedgerRouter = router({
 
       const email = result.email;
       if (result.created && email) {
+        // SK-271 — is there anyone on the other end of this email? A client the
+        // producer imported by hand may never have joined Skitza, and with no
+        // receipt attached there is no proof row either. Telling that person to
+        // "review your schedule from your home screen" points at a screen they
+        // cannot open, and they already hold the receipt the producer handed
+        // over when they paid in person. So Skitza stays silent here: inviting
+        // them is the producer's call, from Clients & Projects.
+        const artistCanBeEmailed = Boolean(result.proofId) || Boolean(result.artistClerkUserId);
         let artistEmailEnabled = true;
         try {
           if (result.proofId) {
@@ -262,7 +271,7 @@ export const purchaseLedgerRouter = router({
             // Push is best effort and must not expose delivery details.
           }
         });
-        if (artistEmailEnabled) {
+        if (artistCanBeEmailed && artistEmailEnabled) {
           after(async () => {
             try {
               await sendProofVerifiedEmail(email.artistEmail, email);
@@ -339,6 +348,36 @@ export const purchaseLedgerRouter = router({
           actorId: requireActor(ctx.userId),
           waivedAt: new Date(),
         });
+      } catch (error) {
+        mapLedgerError(error);
+      }
+    }),
+
+  // SK-269 — the producer says an imported job is finished, so its final half
+  // stops waiting for an artist approval that can never happen. The domain
+  // decides whether this purchase qualifies; the router only carries identity.
+  requestFinalPayment: producerProcedure
+    .input(
+      z
+        .object({
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await requestImportedFinalPayment(purchaseLedgerRepository(ctx.db), {
+          producerId: ctx.producerId,
+          purchaseId: input.purchaseId,
+          installmentId: input.installmentId,
+          requestedAt: new Date(),
+        });
+        return {
+          installmentId: result.installmentId,
+          dueAt: result.dueAt,
+          changed: result.changed,
+        };
       } catch (error) {
         mapLedgerError(error);
       }

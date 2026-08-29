@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  CalendarClock,
   Check,
   ChevronDown,
   CircleAlert,
@@ -39,6 +40,24 @@ function dateLabel(value: string | null): string {
   if (!value) return "No deadline";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "No deadline";
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+/**
+ * SK-270: the day the producer answered "When is the first payment due?" with,
+ * shown back before they finish. The value is a bare calendar day, so it is
+ * formatted in UTC on purpose — that renders the typed day itself, with no
+ * time zone able to shift it by one.
+ */
+function firstPaymentDueLabel(calendarDay: string | null): string {
+  if (!calendarDay) return "The day you add this";
+  const date = new Date(`${calendarDay}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return "The day you add this";
   return new Intl.DateTimeFormat("en", {
     year: "numeric",
     month: "short",
@@ -298,6 +317,14 @@ function ReviewCard({ row, asArticle }: { row: WorkspaceImportRow; asArticle: bo
             </p>
             <p className="text-[11.5px] font-semibold text-[rgb(var(--fg-secondary))]">
               {planLabel(review)}
+            </p>
+          </div>
+          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-[rgb(var(--border-subtle))] py-2">
+            <p className="font-mono text-[9.5px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
+              First payment due
+            </p>
+            <p className="font-mono text-[11.5px] font-semibold text-[rgb(var(--fg-secondary))]">
+              {firstPaymentDueLabel(review.firstPaymentDueDate)}
             </p>
           </div>
           <div className="divide-y divide-[rgb(var(--border-subtle))]">
@@ -692,8 +719,16 @@ export function ReviewAndFinish({
   const hasNeedsInfo = needsInfoRows.length > 0;
   const eligibleUnpaidInstallments =
     setupOptions?.installments.filter(
-      (installment) => installment.remainingCents > 0 && installment.reminderEligible,
+      (installment) =>
+        installment.remainingCents > 0 &&
+        installment.reminderEligible &&
+        !installment.reminderWaitingForDueDate,
     ) ?? [];
+  // Also armed by Finish setup, but with no date yet they cannot send. Listed
+  // separately so the producer is not told a reminder is live when it is only
+  // waiting — the two groups never overlap.
+  const undatedUnpaidInstallments =
+    setupOptions?.installments.filter((installment) => installment.reminderWaitingForDueDate) ?? [];
   const stillSending =
     finishResult?.invitations.some((invitation) => invitation.status === "requested") ?? false;
 
@@ -976,6 +1011,40 @@ export function ReviewAndFinish({
                   No eligible unpaid imported payments need reminders.
                 </p>
               )}
+
+              {undatedUnpaidInstallments.length > 0 ? (
+                <div className="mt-4">
+                  <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                    {undatedUnpaidInstallments.length === 1
+                      ? "One payment below has no date yet. Its reminder is turned on, but nothing can be sent until the payment has a date."
+                      : `${String(undatedUnpaidInstallments.length)} payments below have no date yet. Their reminders are turned on, but nothing can be sent until they have dates.`}
+                  </p>
+                  <div className="mt-2.5 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
+                    {undatedUnpaidInstallments.map((installment) => (
+                      <div key={installment.id} className="flex min-w-0 items-start gap-3 py-3.5">
+                        <CalendarClock
+                          size={16}
+                          strokeWidth={2.1}
+                          aria-hidden
+                          className="mt-0.5 shrink-0 text-[rgb(var(--fg-muted))]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12.5px] leading-relaxed font-bold [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-default))] sm:truncate">
+                            {installment.projectTitle} · payment {String(installment.position)}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-relaxed [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-muted))]">
+                            {formatImportMoney(installment.remainingCents, installment.currency)}{" "}
+                            remaining · {installment.agreementName}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[10.5px] font-bold text-[rgb(var(--fg-muted))]">
+                          No date yet
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <p className="border-t border-[rgb(var(--border-subtle))] pt-4 text-center text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">

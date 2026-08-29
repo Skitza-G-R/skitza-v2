@@ -3,6 +3,7 @@ import type { PaymentPlan, ProductRoyaltyTerms, PurchaseCommercialSnapshot } fro
 import { agreementPdfFileError } from "~/lib/agreement-pdf";
 
 import { assertCommercialSnapshotMatchesAcceptance } from "../purchases/commercial-snapshot";
+import { localCalendarDayStart } from "../purchase-ledger/schedule";
 import { createInstallmentSchedule, type PurchaseInstallment } from "../purchases/ledger";
 import { digestCommercialSnapshot, snapshotCommercialTerms } from "../purchases/policy";
 
@@ -32,6 +33,7 @@ export type ActiveWorkImportReasonCode =
   | "plan_invalid"
   | "song_spaces_invalid"
   | "deadline_invalid"
+  | "first_payment_due_invalid"
   | "payment_invalid"
   | "final_payment_requires_artist_approval"
   | "monthly_anchor_missing"
@@ -81,6 +83,14 @@ export type NormalizedActiveWorkImport = Readonly<{
   clientPhone: string | null;
   projectTitle: string;
   deadlineAt: Date | null;
+  /**
+   * SK-270: the calendar day the producer typed for "When is the first payment
+   * due?", as `YYYY-MM-DD`. It is deliberately NOT an instant: only the
+   * producer's own time zone can turn a typed day into one, and that zone is
+   * loaded where the row is written. `null` means "the import day", which is
+   * what the writer falls back to. Raw draft key: `agreement.firstPaymentDueAt`.
+   */
+  firstPaymentDueDate: string | null;
   plan: ActiveWorkImportPlan;
   agreementPdf: ActiveWorkImportAgreementPdfReference | null;
   commercialSnapshot: PurchaseCommercialSnapshot;
@@ -553,6 +563,24 @@ export function assessActiveWorkImportDraft(
     }
   }
 
+  // SK-270: one optional wizard question — "When is the first payment due?".
+  // Leaving it empty keeps the import day, so nothing is ever guessed. The
+  // answer stays the calendar day the producer typed; the writer resolves it
+  // against the producer's time zone.
+  let firstPaymentDueDate: string | null = null;
+  const firstPaymentDueText = nullableId(agreement.firstPaymentDueAt);
+  if (firstPaymentDueText) {
+    firstPaymentDueDate = utcDateOnly(firstPaymentDueText) === null ? null : firstPaymentDueText;
+    if (firstPaymentDueDate === null) {
+      reason(
+        reasons,
+        "first_payment_due_invalid",
+        "agreement.firstPaymentDueAt",
+        "Choose a valid first payment date.",
+      );
+    }
+  }
+
   const name = text(agreement.name);
   const service = nullableId(agreement.service);
   const deliverables = stringList(agreement.deliverables);
@@ -767,6 +795,7 @@ export function assessActiveWorkImportDraft(
       clientPhone,
       projectTitle,
       deadlineAt,
+      firstPaymentDueDate,
       plan,
       agreementPdf,
       commercialSnapshot: frozen.value as PurchaseCommercialSnapshot,
@@ -784,6 +813,34 @@ export type ActiveWorkImportAgreementPdfUploadShape = Readonly<{
   sizeBytes: number;
 }>;
 
+/**
+ * SK-270: the instant an imported purchase's first installment is due.
+ *
+ * Two rules live here together on purpose:
+ *
+ *  * A captured day is resolved in the PRODUCER's time zone, because every
+ *    downstream due-date check reads the stored instant back through that
+ *    same zone.
+ *  * Skipping the question stores `importedAt` itself — the exact instant
+ *    already written to `purchases.commercial_established_at`. That equality
+ *    is the only honest signal there is that the producer never answered, and
+ *    `monthlyAnchorAt` in ../purchase-ledger/service.ts reads it back to
+ *    decide whether to anchor a Monthly plan on this date or on the first
+ *    recorded payment. Do not "tidy" the skipped case into local midnight:
+ *    that would erase the signal and re-date real payment history.
+ */
+export function importedFirstInstallmentDueAt(
+  input: Readonly<{
+    firstPaymentDueDate: string | null;
+    producerTimeZone: string;
+    importedAt: Date;
+  }>,
+): Date {
+  return input.firstPaymentDueDate === null
+    ? input.importedAt
+    : localCalendarDayStart(input.firstPaymentDueDate, input.producerTimeZone);
+}
+
 export function activeWorkImportCreationDigest(
   normalized: NormalizedActiveWorkImport,
   proofUploads: readonly Readonly<{
@@ -799,6 +856,11 @@ export function activeWorkImportCreationDigest(
     kind: "active-work-import-row-v1",
     // Rows without a PDF keep the digest they had before PDFs existed.
     ...(agreementPdfUpload ? { agreementPdfUpload } : {}),
+    // Likewise, rows that keep the import day as the first due date keep the
+    // digest they had before SK-270 added the question.
+    ...(normalized.firstPaymentDueDate
+      ? { firstPaymentDueDate: normalized.firstPaymentDueDate }
+      : {}),
     client: {
       existingClientId: normalized.existingClientId,
       name: normalized.clientName,

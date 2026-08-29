@@ -278,6 +278,86 @@ describe("SK-69 payment read model", () => {
     expect(projection?.provenance).not.toHaveProperty("acceptedSnapshot");
   });
 
+  // SK-270: the producer can say when an imported first payment is really due.
+  // This is the SERVER copy of the due-now rule — the one source of
+  // dueNowCents and of the producer bucket — so it is asserted through the
+  // real read model rather than by handing the projection a number.
+  function importedSnapshotDueAt(dueAt: Date): PaymentLedgerReadSnapshot {
+    const establishedAt = new Date("2026-07-01T09:00:00.000Z");
+    const base = purchase({
+      id: "imported-purchase",
+      projectId: "project-imported",
+      name: "Existing agreement",
+      currency: "USD",
+      totalCents: 10_000,
+    });
+    const imported: PaymentReadPurchaseRecord = {
+      ...base,
+      sourceKind: "imported_existing_work",
+      acceptedAt: null,
+      commercialEstablishedAt: establishedAt,
+      createdAt: establishedAt,
+    };
+    return snapshotFor([imported], {
+      acceptances: [],
+      importAttestations: [
+        {
+          id: "attestation-imported-purchase",
+          purchaseId: imported.id,
+          producerId: imported.producerId,
+          clientContactId: imported.clientContactId,
+          importedSnapshot: imported.commercialSnapshot,
+          snapshotDigest: imported.snapshotDigest,
+          importedAt: establishedAt,
+        },
+      ],
+      installments: [
+        {
+          id: "imported-installment",
+          purchaseId: imported.id,
+          producerId: imported.producerId,
+          position: 1,
+          amountCents: imported.totalCents,
+          currency: imported.currency,
+          dueTrigger: "producer_import",
+          dueAt,
+          triggeredAt: establishedAt,
+          requiredForActivation: true,
+          status: "not_paid",
+          remindersEnabled: false,
+        },
+      ],
+    });
+  }
+
+  function importedProjection(dueAt: Date) {
+    const model = buildPaymentReadModel(importedSnapshotDueAt(dueAt), AS_OF);
+    const projection = Object.values(model.producerBuckets)
+      .flatMap((bucket) => bucket.projects)
+      .flatMap((project) => project.purchases)
+      .find((candidate) => candidate.id === "imported-purchase");
+    if (!projection) throw new Error("Expected the imported purchase in the read model");
+    return { model, projection };
+  }
+
+  it("does not call an imported payment due before the date the producer captured", () => {
+    const { model, projection } = importedProjection(new Date("2026-09-30T00:00:00.000Z"));
+
+    expect(projection.dueNowCents).toBe(0);
+    expect(projection.producerBucket).toBe("upcoming");
+    expect(projection.totalRemainingCents).toBe(10_000);
+    expect(model.producerBuckets.due_or_overdue.projects).toHaveLength(0);
+    expect(model.producerBuckets.upcoming.projects[0]?.id).toBe("project-imported");
+  });
+
+  it("still calls an imported payment due once its captured date has arrived", () => {
+    const { model, projection } = importedProjection(new Date("2026-07-19T00:00:00.000Z"));
+
+    expect(projection.dueNowCents).toBe(10_000);
+    expect(projection.producerBucket).toBe("due_or_overdue");
+    expect(model.producerBuckets.due_or_overdue.projects[0]?.id).toBe("project-imported");
+  });
+
   it("keeps currencies separate and shows Due now apart from Total remaining", () => {
     const usd = purchase({
       id: "purchase-usd",

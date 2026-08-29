@@ -93,6 +93,7 @@ function readyAssessment(creationDigest: string): ImportAssessmentView {
       clientPhone: null,
       projectTitle: "Blue Hour",
       deadlineAtIso: null,
+      firstPaymentDueDate: null,
       agreementPdf: null,
       plan: { kind: "full" },
       commercialSnapshot: {
@@ -509,11 +510,12 @@ function setupOptions(setupDigest = "setup-v1"): SetupOptionsView {
         remainingCents: 100_000,
         currency: "USD",
         dueTrigger: "producer_import",
-        dueAtIso: null,
+        dueAtIso: "2026-08-20T09:00:00.000Z",
         triggeredAtIso: "2026-08-20T09:00:00.000Z",
         status: "pending",
         remindersEnabled: false,
         reminderEligible: true,
+        reminderWaitingForDueDate: false,
       },
     ],
   };
@@ -618,6 +620,7 @@ beforeEach(() => {
       projectPurchaseCount: 1,
       invitations: [],
       reminders: [],
+      batch: { completed: true, unfinishedDraftCount: 0 },
     },
   });
   mocks.loadRows.mockReset().mockResolvedValue({ ok: true, data: { rows: [] } });
@@ -2449,6 +2452,7 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
             },
           ],
           reminders: [],
+          batch: { completed: false, unfinishedDraftCount: null },
         },
       })
       .mockResolvedValueOnce({ ok: false, error: "Second request stopped." });
@@ -2485,6 +2489,7 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
           },
         ],
         reminders: [],
+        batch: { completed: false, unfinishedDraftCount: null },
       },
     });
     mocks.loadSetup.mockResolvedValue({
@@ -2547,6 +2552,7 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
             reason: "This payment is already closed.",
           },
         ],
+        batch: { completed: false, unfinishedDraftCount: null },
       },
     });
     const user = await openCreatedSetup();
@@ -2569,6 +2575,49 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     expect(
       screen.getByText(/Reminders to clients who have not joined yet include your join link/),
     ).not.toBeNull();
+  });
+
+  // Every invitation and reminder succeeded, but saved drafts kept the import
+  // open. Leaving here is what made the wizard reappear with no explanation.
+  it("stays and names the unfinished drafts when the import did not actually finish", async () => {
+    mocks.finishSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        distinctClientCount: 2,
+        projectPurchaseCount: 1,
+        invitations: [],
+        reminders: [],
+        batch: { completed: false, unfinishedDraftCount: 2 },
+      },
+    });
+    const user = await openCreatedSetup();
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await screen.findByText(
+      "This import is not finished: 2 items are still saved as drafts and were never created, so it will still be here next time. Your created work, invitations and reminders are all safe. Go back, finish or remove those items, then press Finish setup again.",
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("leaves for Clients & Projects only once the import is really closed", async () => {
+    mocks.finishSetup.mockResolvedValue({
+      ok: true,
+      data: {
+        distinctClientCount: 2,
+        projectPurchaseCount: 1,
+        invitations: [],
+        reminders: [],
+        batch: { completed: true, unfinishedDraftCount: 0 },
+      },
+    });
+    const user = await openCreatedSetup();
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => {
+      expect(mocks.push).toHaveBeenCalledWith("/dashboard/clients-projects");
+    });
   });
 
   it("reloads current setup and rotates the operation key after a conflict", async () => {

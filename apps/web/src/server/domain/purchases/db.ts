@@ -19,15 +19,16 @@ import {
 
 import { generateRefNumber } from "~/lib/purchase/request-helpers";
 import { snapshotCommercialTerms } from "./policy";
-import type {
-  AcceptedPurchase,
-  PurchaseAcceptanceRecord,
-  PurchaseAtomicRepository,
-  PurchaseAtomicScope,
-  PurchaseAtomicTransaction,
-  PurchaseProjectActivation,
-  PurchaseSource,
-  PurchaseSourceDescriptor,
+import {
+  PurchaseDomainError,
+  type AcceptedPurchase,
+  type PurchaseAcceptanceRecord,
+  type PurchaseAtomicRepository,
+  type PurchaseAtomicScope,
+  type PurchaseAtomicTransaction,
+  type PurchaseProjectActivation,
+  type PurchaseSource,
+  type PurchaseSourceDescriptor,
 } from "./service";
 
 export type PurchaseSessionAllowanceDraft = Readonly<{
@@ -433,16 +434,32 @@ function transactionAdapter(tx: PurchaseTransactionDb): PurchaseAtomicTransactio
       return { product, privateOffer, purchaseRequest };
     },
 
-    findPurchaseByOperationKey: (scope) =>
-      loadAcceptedPurchase(
-        tx,
-        and(
-          eq(purchases.producerId, scope.producerId),
-          eq(purchases.clientContactId, scope.clientContactId),
-          eq(purchases.operationKey, scope.operationKey),
-        ),
-        false,
-      ),
+    findPurchaseByOperationKey: async (scope) => {
+      const [owner] = await tx
+        .select({ id: purchases.id, sourceKind: purchases.sourceKind })
+        .from(purchases)
+        .where(
+          and(
+            eq(purchases.producerId, scope.producerId),
+            eq(purchases.clientContactId, scope.clientContactId),
+            eq(purchases.operationKey, scope.operationKey),
+          ),
+        )
+        .limit(1);
+      if (!owner) return null;
+      // Imported existing work is never an accepted purchase, so a shared
+      // operation key is a collision rather than an idempotent replay.
+      // Loading it as one raises a bare Error (a 500), and skipping it would
+      // hand purchases_operation_key_unique a doomed insert, so name the
+      // collision as the domain's own conflict instead.
+      if (owner.sourceKind === "imported_existing_work") {
+        throw new PurchaseDomainError(
+          "OPERATION_KEY_CONFLICT",
+          "This operation key already belongs to imported existing work",
+        );
+      }
+      return loadAcceptedPurchase(tx, eq(purchases.id, owner.id), false);
+    },
 
     insertPurchase: async (input) => {
       const snapshot = input.commercialSnapshot.value as PurchaseCommercialSnapshot;

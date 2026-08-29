@@ -865,7 +865,6 @@ export default async function DevScreenPage({ params }: Params) {
     case "s8":
       return (
         <PaymentInstructionsScreen
-          productId={MOCK_PRODUCT.id}
           producerName={MOCK_PRODUCER.name}
           amountDueNowCents={120000}
           currency={MOCK_PRODUCT.currency}

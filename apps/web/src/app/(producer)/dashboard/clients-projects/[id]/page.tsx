@@ -17,6 +17,7 @@ import type { StudioLogEntry } from "~/components/dashboard/project/album-tabs/s
 import { buildProjectActivityEntries } from "~/components/dashboard/project/album-tabs/studio-log-activity";
 import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
 import { isInstallmentPayableForInstructions } from "~/server/domain/payment-instructions/policy";
+import { decideFinalPaymentRequest } from "~/server/domain/purchase-ledger/final-payment";
 import { classifySongUploadPublicExposure } from "~/server/domain/song-publication/upload-exposure";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -217,32 +218,52 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
 
   const purchaseSummaries: ProjectPurchaseSummary[] = paymentModel.projects.flatMap(
     (paymentProject) =>
-      paymentProject.purchases.map((purchase) => ({
-        id: purchase.id,
-        sourceKind: purchase.sourceKind,
-        sourceLabel: purchase.commercialSnapshot.productOrOfferName,
-        lifecycleStatus: purchase.lifecycleStatus,
-        totalCents: purchase.totalCents,
-        currency: purchase.currency,
-        reference: purchase.refNumber,
-        provenanceNotice:
-          purchase.provenance.kind === "producer_import" ? purchase.provenance.notice : null,
-        installments: purchase.installments.map((installment) => ({
-          id: installment.id,
-          position: installment.position,
-          amountCents: installment.amountCents,
-          currency: installment.currency,
-          dueAtIso: installment.dueAt?.toISOString() ?? null,
-          status: installment.status,
-          remainingCents: installment.remainingCents,
-          hasPendingProof: purchase.proofs.some(
-            (proof) => proof.installmentId === installment.id && proof.status === "pending",
-          ),
-          payableNow:
-            purchase.lifecycleStatus !== "canceled" &&
-            isInstallmentPayableForInstructions(installment, now),
-        })),
-      })),
+      paymentProject.purchases.map((purchase) => {
+        // SK-269 — the same rule the mutation enforces decides whether the
+        // producer is offered "the work is done" on this purchase.
+        const finalPayment = decideFinalPaymentRequest({
+          purchase,
+          installments: purchase.installments,
+        });
+        const waitingFinalInstallment =
+          finalPayment.status === "ready"
+            ? purchase.installments.find(
+                (installment) => installment.id === finalPayment.installmentId,
+              )
+            : undefined;
+        return {
+          id: purchase.id,
+          sourceKind: purchase.sourceKind,
+          sourceLabel: purchase.commercialSnapshot.productOrOfferName,
+          lifecycleStatus: purchase.lifecycleStatus,
+          totalCents: purchase.totalCents,
+          currency: purchase.currency,
+          reference: purchase.refNumber,
+          provenanceNotice:
+            purchase.provenance.kind === "producer_import" ? purchase.provenance.notice : null,
+          finalPaymentRequest: waitingFinalInstallment
+            ? {
+                installmentId: waitingFinalInstallment.id,
+                amountCents: waitingFinalInstallment.remainingCents,
+              }
+            : null,
+          installments: purchase.installments.map((installment) => ({
+            id: installment.id,
+            position: installment.position,
+            amountCents: installment.amountCents,
+            currency: installment.currency,
+            dueAtIso: installment.dueAt?.toISOString() ?? null,
+            status: installment.status,
+            remainingCents: installment.remainingCents,
+            hasPendingProof: purchase.proofs.some(
+              (proof) => proof.installmentId === installment.id && proof.status === "pending",
+            ),
+            payableNow:
+              purchase.lifecycleStatus !== "canceled" &&
+              isInstallmentPayableForInstructions(installment, now),
+          })),
+        };
+      }),
   );
   const paymentBucketPurchaseCount = (
     bucket: (typeof paymentModel.producerBuckets)["needs_review"],

@@ -3,6 +3,11 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   deliver: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  completeBatch: vi.fn<(...args: unknown[]) => Promise<{ changed: boolean }>>(),
+}));
+
+vi.mock("../db", () => ({
+  completeActiveWorkImportBatch: (...args: unknown[]) => mocks.completeBatch(...args),
 }));
 
 vi.mock("../../client-invitations/service", async (importOriginal) => {
@@ -154,5 +159,70 @@ describe("active work import setup repository delivery", () => {
       deliveryId: "delivery-client-a",
       error: failure,
     });
+  });
+});
+
+/** Minimal Drizzle-like chain: every builder call returns the same awaitable node. */
+function queryChain(result: readonly unknown[]) {
+  const node: Record<string, unknown> = {};
+  for (const method of ["from", "where", "limit"]) {
+    node[method] = () => node;
+  }
+  node.then = (
+    resolve: (value: readonly unknown[]) => unknown,
+    reject?: (reason: unknown) => unknown,
+  ) => Promise.resolve(result).then(resolve, reject);
+  return node;
+}
+
+function fakeDb(results: readonly (readonly unknown[])[]): Db {
+  const queue = [...results];
+  return {
+    select: () => {
+      const next = queue.shift();
+      if (!next) throw new Error("unexpected query");
+      return queryChain(next);
+    },
+  } as unknown as Db;
+}
+
+const COMPLETION_INPUT = { producerId: "producer-1", batchId: "batch-1", completedAt: NOW };
+
+describe("active work import setup repository batch completion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reports a closed batch when this call closed it", async () => {
+    mocks.completeBatch.mockResolvedValueOnce({ changed: true });
+
+    await expect(
+      activeWorkImportSetupRepository(fakeDb([]), () => Promise.resolve("id")).completeBatch(
+        COMPLETION_INPUT,
+      ),
+    ).resolves.toEqual({ changed: true, completed: true, unfinishedDraftCount: 0 });
+  });
+
+  // "Nothing changed" is ambiguous on its own. A replay after a lost response
+  // must not read as "this import is still open".
+  it("reports a closed batch when an earlier call already closed it", async () => {
+    mocks.completeBatch.mockResolvedValueOnce({ changed: false });
+
+    await expect(
+      activeWorkImportSetupRepository(fakeDb([[{ status: "completed" }], []]), () =>
+        Promise.resolve("id"),
+      ).completeBatch(COMPLETION_INPUT),
+    ).resolves.toEqual({ changed: false, completed: true, unfinishedDraftCount: 0 });
+  });
+
+  it("counts the saved drafts that are holding the batch open", async () => {
+    mocks.completeBatch.mockResolvedValueOnce({ changed: false });
+
+    await expect(
+      activeWorkImportSetupRepository(
+        fakeDb([[{ status: "in_progress" }], [{ id: "row-2" }, { id: "row-3" }]]),
+        () => Promise.resolve("id"),
+      ).completeBatch(COMPLETION_INPUT),
+    ).resolves.toEqual({ changed: false, completed: false, unfinishedDraftCount: 2 });
   });
 });

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isOverdueOnLocalDate,
+  monthlyInstallmentDates,
+} from "../../purchase-ledger/schedule";
+import {
   ACTIVE_WORK_IMPORT_NO_TERMS_TEXT,
   ACTIVE_WORK_IMPORT_NOTICE,
   activeWorkImportCreationDigest,
   activeWorkImportExistingClientReason,
   assessActiveWorkImportDraft,
+  importedFirstInstallmentDueAt,
 } from "../service";
 
 const NOW = new Date("2026-08-20T12:00:00.000Z");
@@ -649,5 +654,142 @@ describe("active work import assessment", () => {
     expect(
       activeWorkImportCreationDigest(normalized, proof, { ...agreementPdf, sizeBytes: 2_049 }),
     ).not.toBe(activeWorkImportCreationDigest(normalized, proof, agreementPdf));
+  });
+
+  // SK-270: the wizard asks one optional question — "When is the first payment
+  // due?" — so an imported client stops looking overdue the day after import.
+  it("captures the optional first payment due date and leaves it empty by default", () => {
+    expect(ready(draft()).firstPaymentDueDate).toBeNull();
+
+    const withDate = ready(
+      draft({
+        agreement: {
+          ...(draft().agreement as Record<string, unknown>),
+          firstPaymentDueAt: "2026-09-15",
+        },
+      }),
+    );
+    // The answer stays the calendar day the producer typed. Turning it into an
+    // instant needs the producer's time zone, which lives on the writer side.
+    expect(withDate.firstPaymentDueDate).toBe("2026-09-15");
+  });
+
+  it("rejects a first payment due date that is not a real calendar day", () => {
+    const assessment = assessActiveWorkImportDraft(
+      draft({
+        agreement: {
+          ...(draft().agreement as Record<string, unknown>),
+          firstPaymentDueAt: "2026-02-31",
+        },
+      }),
+      NOW,
+    );
+    expect(assessment.state).toBe("needs_info");
+    if (assessment.state !== "needs_info") throw new Error("expected needs info");
+    expect(assessment.reasons).toContainEqual({
+      code: "first_payment_due_invalid",
+      field: "agreement.firstPaymentDueAt",
+      message: "Choose a valid first payment date.",
+    });
+  });
+
+  it("keeps the creation digest stable for imports without a captured first due date", () => {
+    const normalized = ready(draft());
+    const withDate = ready(
+      draft({
+        agreement: {
+          ...(draft().agreement as Record<string, unknown>),
+          firstPaymentDueAt: "2026-09-15",
+        },
+      }),
+    );
+
+    expect(activeWorkImportCreationDigest(withDate, [])).not.toBe(
+      activeWorkImportCreationDigest(normalized, []),
+    );
+    expect(activeWorkImportCreationDigest({ ...withDate, firstPaymentDueDate: null }, [])).toBe(
+      activeWorkImportCreationDigest(normalized, []),
+    );
+  });
+});
+
+// SK-270 regression: the producer types a calendar day, and every downstream
+// due-date check reads the stored instant back through the PRODUCER's time
+// zone. Storing the typed day as UTC midnight put the payment on the previous
+// producer-local day for every zone west of UTC — so a producer in New York
+// who typed today's date saw the import go overdue the moment they entered it,
+// which is the exact bug SK-270 exists to kill.
+describe("SK-270 imported first installment due date", () => {
+  const NEW_YORK = "America/New_York";
+  const IMPORTED_AT = new Date("2026-08-29T12:00:00.000Z");
+
+  function localDay(instant: Date, timeZone: string): string {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(instant);
+    return parts;
+  }
+
+  it("is not overdue when a New York producer captures the day they are importing on", () => {
+    const dueAt = importedFirstInstallmentDueAt({
+      firstPaymentDueDate: localDay(IMPORTED_AT, NEW_YORK),
+      producerTimeZone: NEW_YORK,
+      importedAt: IMPORTED_AT,
+    });
+
+    expect(dueAt.toISOString()).toBe("2026-08-29T04:00:00.000Z");
+    expect(isOverdueOnLocalDate(dueAt, IMPORTED_AT, NEW_YORK)).toBe(false);
+    // The day the producer typed is the day it reads back as.
+    expect(localDay(dueAt, NEW_YORK)).toBe("2026-08-29");
+    // UTC midnight — what the day used to be stored as — is the previous
+    // producer-local day, and is already overdue.
+    expect(isOverdueOnLocalDate(new Date("2026-08-29T00:00:00.000Z"), IMPORTED_AT, NEW_YORK)).toBe(
+      true,
+    );
+  });
+
+  it("is not overdue when a New York producer captures today, whenever today is", () => {
+    const now = new Date();
+    const dueAt = importedFirstInstallmentDueAt({
+      firstPaymentDueDate: localDay(now, NEW_YORK),
+      producerTimeZone: NEW_YORK,
+      importedAt: now,
+    });
+
+    expect(isOverdueOnLocalDate(dueAt, now, NEW_YORK)).toBe(false);
+    expect(localDay(dueAt, NEW_YORK)).toBe(localDay(now, NEW_YORK));
+  });
+
+  it("puts every monthly anniversary on the captured producer-local day", () => {
+    const dueAt = importedFirstInstallmentDueAt({
+      firstPaymentDueDate: "2026-09-05",
+      producerTimeZone: NEW_YORK,
+      importedAt: IMPORTED_AT,
+    });
+
+    expect(
+      monthlyInstallmentDates({
+        firstConfirmedAt: dueAt,
+        installmentCount: 3,
+        timeZone: NEW_YORK,
+      }).map((row) => localDay(row.dueAt, NEW_YORK)),
+    ).toEqual(["2026-10-05", "2026-11-05"]);
+  });
+
+  it("stores the import instant itself when the producer skips the question", () => {
+    // This equality is load-bearing: monthlyAnchorAt in
+    // ../../purchase-ledger/service.ts reads it back as the only honest
+    // "no date was captured" signal, and imports with recorded payment
+    // history depend on it to keep anchoring on their first payment.
+    expect(
+      importedFirstInstallmentDueAt({
+        firstPaymentDueDate: null,
+        producerTimeZone: NEW_YORK,
+        importedAt: IMPORTED_AT,
+      }),
+    ).toEqual(IMPORTED_AT);
   });
 });

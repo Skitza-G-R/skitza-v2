@@ -335,6 +335,27 @@ function optionalReason(entry: object): string | null {
   return typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
 }
 
+// Whether the import is really closed. An answer we cannot read must not be
+// taken as "closed": that is the failure that redirects the producer away and
+// lets the wizard come back later with no explanation.
+function batchOutcome(result: object): FinishSetupResultView["batch"] {
+  const batch = (result as { batch?: unknown }).batch;
+  if (typeof batch !== "object" || batch === null) {
+    return { completed: false, unfinishedDraftCount: null };
+  }
+  const { completed, unfinishedDraftCount } = batch as {
+    completed?: unknown;
+    unfinishedDraftCount?: unknown;
+  };
+  return {
+    completed: completed === true,
+    unfinishedDraftCount:
+      typeof unfinishedDraftCount === "number" && Number.isInteger(unfinishedDraftCount)
+        ? unfinishedDraftCount
+        : null,
+  };
+}
+
 export async function finishImportSetupAction(input: {
   batchId: string;
   operationKey: string;
@@ -366,6 +387,7 @@ export async function finishImportSetupAction(input: {
           changed: reminder.changed,
           reason: optionalReason(reminder),
         })),
+        batch: batchOutcome(result),
       },
     };
   } catch (error) {

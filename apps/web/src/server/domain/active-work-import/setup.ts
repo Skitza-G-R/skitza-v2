@@ -7,6 +7,7 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   producers,
   projects,
   purchaseInstallments,
@@ -31,7 +32,7 @@ import {
 import { purchaseLedgerRepository } from "../purchase-ledger/db";
 import { PurchaseLedgerDomainError } from "../purchase-ledger/policy";
 import {
-  reconcilePurchaseLedger,
+  readPurchaseLedger,
   setInstallmentRemindersEnabled,
   type ReconciledPurchaseLedger,
 } from "../purchase-ledger/service";
@@ -51,8 +52,8 @@ type MaterializedProjectPurchase = Readonly<{
 
 type StoredInstallment = typeof purchaseInstallments.$inferSelect;
 
-// Each reconciliation opens its own locked transaction (one WebSocket each).
-const LEDGER_RECONCILE_CONCURRENCY = 5;
+// Each ledger read opens its own locked transaction (one WebSocket each).
+const LEDGER_READ_CONCURRENCY = 5;
 
 export type ActiveWorkImportSetupScope = Readonly<{
   clients: readonly Readonly<{
@@ -88,6 +89,12 @@ export type ActiveWorkImportSetupScope = Readonly<{
     status: StoredInstallment["status"];
     remindersEnabled: boolean;
     reminderEligible: boolean;
+    /**
+     * The payment still needs a reminder, but it has no due date yet, so the
+     * reminder engine would skip it. Monthly payments 2..N sit here until the
+     * schedule is anchored or the producer gives a first payment date.
+     */
+    reminderWaitingForDueDate: boolean;
   }>[];
 }>;
 
@@ -111,6 +118,40 @@ export function activeWorkImportInvitationEligible(
   state: ActiveWorkImportSetupScope["clients"][number]["invitationState"],
 ): boolean {
   return state === "available" || state === "send_in_progress_or_retryable";
+}
+
+/**
+ * The one place that decides whether Finish setup may arm a reminder.
+ *
+ * Being switched on and being able to send are two different things, and
+ * conflating them loses real reminders. `automaticPaymentReminderSweep` needs
+ * BOTH `remindersEnabled` and a `dueAt`, so a date-less installment sends
+ * nothing today — but arming it now is still the right thing, because the
+ * date arrives later and Finish setup is the producer's only chance to arm it.
+ * The final half of an imported 50/50 is exactly that shape: undated until the
+ * producer marks the work finished (SK-269), and nothing else ever flips
+ * `remindersEnabled` for it afterwards.
+ *
+ * So anything still owed is eligible. `waiting_for_due_date` is the narrower
+ * answer for "armed, but it cannot send until it has a date", which the review
+ * screen shows plainly instead of pretending the reminder is live.
+ */
+export function activeWorkImportReminderAvailability(
+  input: Readonly<{
+    purchaseLifecycleStatus: string;
+    status: StoredInstallment["status"];
+    remainingCents: number;
+    dueAt: Date | null;
+  }>,
+): "eligible" | "waiting_for_due_date" | "not_needed" {
+  const stillOwed =
+    input.purchaseLifecycleStatus !== "canceled" &&
+    input.remainingCents > 0 &&
+    input.status !== "confirmed" &&
+    input.status !== "waived" &&
+    input.status !== "canceled";
+  if (!stillOwed) return "not_needed";
+  return input.dueAt === null ? "waiting_for_due_date" : "eligible";
 }
 
 export type ActiveWorkImportInvitationStatus =
@@ -143,11 +184,22 @@ export type ActiveWorkImportSetupReminderResult =
       reason: string;
     }>;
 
+/**
+ * Whether this import is actually closed. `unfinishedDraftCount` is `null`
+ * when closing was not attempted, because the invitations or reminders above
+ * are not finished yet and are reported per entry.
+ */
+export type ActiveWorkImportSetupBatchOutcome = Readonly<{
+  completed: boolean;
+  unfinishedDraftCount: number | null;
+}>;
+
 export type ActiveWorkImportSetupResult = Readonly<{
   distinctClientCount: number;
   projectPurchaseCount: number;
   invitations: readonly ActiveWorkImportSetupInvitationResult[];
   reminders: readonly ActiveWorkImportSetupReminderResult[];
+  batch: ActiveWorkImportSetupBatchOutcome;
 }>;
 
 type ReservedInvitation = Readonly<{
@@ -206,7 +258,16 @@ export interface ActiveWorkImportSetupRepository {
       batchId: string;
       completedAt: Date;
     }>,
-  ): Promise<Readonly<{ changed: boolean }>>;
+  ): Promise<
+    Readonly<{
+      /** This call is what closed the batch. */
+      changed: boolean;
+      /** The batch is closed now, whether this call or an earlier one did it. */
+      completed: boolean;
+      /** Saved drafts that were never created, and so hold the batch open. */
+      unfinishedDraftCount: number;
+    }>
+  >;
 }
 
 function stableOperationKey(value: string): string {
@@ -237,12 +298,30 @@ export function activeWorkImportSetupInvitationOperationKey(
   })}`;
 }
 
+/**
+ * Fingerprint of what the producer actually reviewed, so Finish setup can
+ * refuse a stale review.
+ *
+ * It folds only what the producer owns: who is in the batch, what was created
+ * for them, and the agreed terms of each payment. It deliberately leaves out
+ * derived ledger state — `status`, `remainingCents`, `dueAt`, `triggeredAt`
+ * and `reminderEligible` — because that state moves on its own: an unpaid
+ * payment flips to overdue at local midnight, and reconciliation anchors
+ * monthly dates. Folding it in blocked a producer who reviewed at night and
+ * pressed Finish setup in the morning without changing anything.
+ *
+ * Nothing is lost by leaving it out. The finish action reloads the scope and
+ * re-derives which payments need a reminder, and enabling one re-checks the
+ * live ledger inside its own transaction, so a payment that settled in the
+ * meantime is reported per payment instead of blocking the whole review.
+ *
+ * Mutable delivery/connection state stays out for the same reason it always
+ * has: a successful finish action changes it itself and must stay safely
+ * replayable after a lost response.
+ */
 export function activeWorkImportSetupDigest(scope: ActiveWorkImportSetupScope): string {
   return `sha256:${digestCommercialSnapshot({
-    kind: "active-work-import-reviewed-setup-v1",
-    // Bind the reviewed recipients, but not mutable delivery/connection state.
-    // A successful finish action changes that state itself and must remain
-    // safely replayable after a lost response.
+    kind: "active-work-import-reviewed-setup-v2",
     clients: scope.clients.map((client) => ({
       id: client.id,
       name: client.name,
@@ -259,13 +338,8 @@ export function activeWorkImportSetupDigest(scope: ActiveWorkImportSetupScope): 
       agreementName: installment.agreementName,
       position: installment.position,
       amountCents: installment.amountCents,
-      remainingCents: installment.remainingCents,
       currency: installment.currency,
       dueTrigger: installment.dueTrigger,
-      dueAt: installment.dueAt?.toISOString() ?? null,
-      triggeredAt: installment.triggeredAt?.toISOString() ?? null,
-      status: installment.status,
-      reminderEligible: installment.reminderEligible,
     })),
   })}`;
 }
@@ -594,18 +668,27 @@ export async function runActiveWorkImportSetup(
     invitationResults.some(
       (invitation) => invitation.status === "failed" || invitation.status === "requested",
     ) || reminderResults.some((reminder) => reminder.status === "failed");
-  if (!hasUnresolvedEffect) {
-    await repository.completeBatch({
-      producerId: input.producerId,
-      batchId: input.batchId,
-      completedAt: requestedAt,
-    });
-  }
+  // Closing can still be refused because saved drafts were never created.
+  // Report that instead of returning a silent "done" the caller reads as
+  // success, which is what bounced the producer back into the wizard later.
+  const batch: ActiveWorkImportSetupBatchOutcome = hasUnresolvedEffect
+    ? { completed: false, unfinishedDraftCount: null }
+    : await repository
+        .completeBatch({
+          producerId: input.producerId,
+          batchId: input.batchId,
+          completedAt: requestedAt,
+        })
+        .then((outcome) => ({
+          completed: outcome.completed,
+          unfinishedDraftCount: outcome.unfinishedDraftCount,
+        }));
   return {
     distinctClientCount: scope.clients.length,
     projectPurchaseCount: scope.projectPurchases.length,
     invitations: invitationResults,
     reminders: reminderResults,
+    batch,
   };
 }
 
@@ -714,12 +797,18 @@ export async function loadActiveWorkImportSetupScope(
     producerId: input.producerId,
     clientContactIds: clientIds,
   });
+  // Read, never reconcile. This loader backs the Finish-setup review, which is
+  // a tRPC query React Query may refetch at any time, window focus included.
+  // Reconciling here would make a read write. Nothing is lost: materializing
+  // an imported row already reconciles its Purchase, and the nightly reminder
+  // sweep reconciles every automatic purchase. The projection shown to the
+  // producer is computed the same way either way.
   const ledgers: ReconciledPurchaseLedger[] = [];
-  for (let offset = 0; offset < purchaseIds.length; offset += LEDGER_RECONCILE_CONCURRENCY) {
+  for (let offset = 0; offset < purchaseIds.length; offset += LEDGER_READ_CONCURRENCY) {
     ledgers.push(
       ...(await Promise.all(
-        purchaseIds.slice(offset, offset + LEDGER_RECONCILE_CONCURRENCY).map((purchaseId) =>
-          reconcilePurchaseLedger(purchaseLedgerRepository(db), {
+        purchaseIds.slice(offset, offset + LEDGER_READ_CONCURRENCY).map((purchaseId) =>
+          readPurchaseLedger(purchaseLedgerRepository(db), {
             producerId: input.producerId,
             purchaseId,
           }),
@@ -749,12 +838,12 @@ export async function loadActiveWorkImportSetupScope(
           "An imported installment could not be reconciled",
         );
       }
-      const reminderEligible =
-        ledger.snapshot.purchase.lifecycleStatus !== "canceled" &&
-        projected.remainingCents > 0 &&
-        projected.status !== "confirmed" &&
-        projected.status !== "waived" &&
-        projected.status !== "canceled";
+      const availability = activeWorkImportReminderAvailability({
+        purchaseLifecycleStatus: ledger.snapshot.purchase.lifecycleStatus,
+        status: projected.status,
+        remainingCents: projected.remainingCents,
+        dueAt: installment.dueAt,
+      });
       return {
         id: installment.id,
         rowId: projectPurchase.rowId,
@@ -771,7 +860,8 @@ export async function loadActiveWorkImportSetupScope(
         triggeredAt: installment.triggeredAt,
         status: projected.status,
         remindersEnabled: installment.remindersEnabled,
-        reminderEligible,
+        reminderEligible: availability !== "not_needed",
+        reminderWaitingForDueDate: availability === "waiting_for_due_date",
       };
     });
   });
@@ -811,6 +901,39 @@ export async function loadActiveWorkImportSetupScope(
         left.projectTitle.localeCompare(right.projectTitle) || left.position - right.position,
     ),
   };
+}
+
+/**
+ * Read-only. `completeActiveWorkImportBatch` reports only whether it changed
+ * anything, which cannot tell "already closed" apart from "refused because
+ * saved drafts were never created". This answers that question.
+ */
+async function readActiveWorkImportBatchCompletion(
+  db: Db,
+  input: Readonly<{ producerId: string; batchId: string }>,
+): Promise<Readonly<{ completed: boolean; unfinishedDraftCount: number }>> {
+  const [batch] = await db
+    .select({ status: activeWorkImportBatches.status })
+    .from(activeWorkImportBatches)
+    .where(
+      and(
+        eq(activeWorkImportBatches.id, input.batchId),
+        eq(activeWorkImportBatches.producerId, input.producerId),
+      ),
+    )
+    .limit(1);
+  if (!batch) throw new ActiveWorkImportDomainError("NOT_FOUND", "Import batch was not found");
+  const unfinished = await db
+    .select({ id: activeWorkImportRows.id })
+    .from(activeWorkImportRows)
+    .where(
+      and(
+        eq(activeWorkImportRows.batchId, input.batchId),
+        eq(activeWorkImportRows.producerId, input.producerId),
+        isNull(activeWorkImportRows.materializedAt),
+      ),
+    );
+  return { completed: batch.status === "completed", unfinishedDraftCount: unfinished.length };
 }
 
 function invitationFailureReason(error: unknown): string {
@@ -903,6 +1026,10 @@ export function activeWorkImportSetupRepository(
       });
       return { changed: result.changed };
     },
-    completeBatch: (input) => completeActiveWorkImportBatch(db, input),
+    completeBatch: async (input) => {
+      const outcome = await completeActiveWorkImportBatch(db, input);
+      if (outcome.changed) return { changed: true, completed: true, unfinishedDraftCount: 0 };
+      return { changed: false, ...(await readActiveWorkImportBatchCompletion(db, input)) };
+    },
   };
 }

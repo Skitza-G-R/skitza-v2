@@ -558,6 +558,31 @@ export function PaymentHistoryEditor({
           ) : null}
         </div>
 
+        <div className="grid min-w-0 gap-1.5 border-b border-[rgb(var(--border-subtle))] pb-3 sm:max-w-[19rem]">
+          <Label htmlFor={`import-first-payment-due-${operationKey}`}>
+            When is the first payment due?{" "}
+            <span className="font-normal text-[rgb(var(--fg-muted))]">(optional)</span>
+          </Label>
+          <input
+            id={`import-first-payment-due-${operationKey}`}
+            type="date"
+            value={draft.agreement.firstPaymentDueAt}
+            aria-describedby={`import-first-payment-due-hint-${operationKey}`}
+            onChange={(event) => {
+              patchAgreement({ firstPaymentDueAt: event.target.value });
+            }}
+            className={FIELD_CLASS}
+          />
+          <p
+            id={`import-first-payment-due-hint-${operationKey}`}
+            className="text-[10.5px] leading-relaxed text-[rgb(var(--fg-muted))]"
+          >
+            {draft.agreement.planKind === "monthly"
+              ? "Leave it empty to use the day you add this. Every later monthly payment counts forward from this date."
+              : "Leave it empty to use the day you add this."}
+          </p>
+        </div>
+
         <div
           data-payment-summary
           className="grid min-w-0 gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 py-2.5 sm:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(5rem,0.7fr))] sm:items-center sm:gap-3 sm:px-4 sm:py-3"

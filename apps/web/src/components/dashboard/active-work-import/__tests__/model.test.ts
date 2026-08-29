@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { assessActiveWorkImportDraft } from "~/server/domain/active-work-import/service";
+
 import {
   IMPORT_NOTICE,
   applyTemplate,
@@ -225,6 +227,65 @@ describe("active-work import model", () => {
     expect(restored.agreement.masterPercentage).toBe("12.5");
   });
 
+  // SK-270: the wizard's optional "When is the first payment due?" answer has
+  // to survive being saved, closed, and reopened, and has to arrive at the
+  // server assessment as the same calendar day the producer typed.
+  it("round-trips the captured first payment due date all the way to the server", () => {
+    const draft = newImportDraft(defaults);
+    expect(draft.agreement.firstPaymentDueAt).toBe("");
+    draft.client = {
+      existingClientId: null,
+      name: "Maya",
+      email: "maya@example.com",
+      phone: "",
+    };
+    draft.project = { title: "Blue Hour", deadlineAt: "" };
+    draft.agreement.name = "EP production";
+    draft.agreement.service = "Production and mixing";
+    draft.agreement.deliverables = ["4 produced tracks"];
+    draft.agreement.rights = ["Artist owns the masters"];
+    draft.agreement.subtotal = "1200.00";
+    draft.agreement.firstPaymentDueAt = "2026-09-15";
+
+    const saved = toServerDraftPayload(draft);
+    expect((saved.agreement as Record<string, unknown>).firstPaymentDueAt).toBe("2026-09-15");
+
+    const reopened = parseStoredImportDraft(saved, defaults);
+    expect(reopened.agreement.firstPaymentDueAt).toBe("2026-09-15");
+
+    const assessment = assessActiveWorkImportDraft(toServerDraftPayload(reopened));
+    if (assessment.state !== "ready") {
+      throw new Error(`Expected a Ready assessment, got ${assessment.reasons[0]?.code ?? "none"}`);
+    }
+    expect(assessment.normalized.firstPaymentDueDate).toBe("2026-09-15");
+  });
+
+  it("round-trips an empty first payment due date as the import day", () => {
+    const draft = newImportDraft(defaults);
+    draft.client = {
+      existingClientId: null,
+      name: "Maya",
+      email: "maya@example.com",
+      phone: "",
+    };
+    draft.project = { title: "Blue Hour", deadlineAt: "" };
+    draft.agreement.name = "EP production";
+    draft.agreement.service = "Production and mixing";
+    draft.agreement.deliverables = ["4 produced tracks"];
+    draft.agreement.rights = ["Artist owns the masters"];
+    draft.agreement.subtotal = "1200.00";
+
+    const saved = toServerDraftPayload(draft);
+    expect((saved.agreement as Record<string, unknown>).firstPaymentDueAt).toBeNull();
+    expect(parseStoredImportDraft(saved, defaults).agreement.firstPaymentDueAt).toBe("");
+
+    const assessment = assessActiveWorkImportDraft(saved);
+    if (assessment.state !== "ready") {
+      throw new Error(`Expected a Ready assessment, got ${assessment.reasons[0]?.code ?? "none"}`);
+    }
+    expect(assessment.normalized.firstPaymentDueDate).toBeNull();
+  });
+
   it("round-trips an attached agreement PDF reference and drops a malformed one", () => {
     const draft = newImportDraft(defaults);
     expect(draft.agreement.agreementPdf).toBeNull();
@@ -263,6 +324,7 @@ describe("active-work import model", () => {
         clientPhone: null,
         projectTitle: "Blue Hour",
         deadlineAt: null,
+        firstPaymentDueDate: "2026-09-15",
         plan: { kind: "full" as const },
         agreementPdf: { fileName: "deal.pdf", sizeBytes: 2_048 },
         commercialSnapshot: {} as never,
