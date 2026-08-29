@@ -1,15 +1,10 @@
 import { render } from "@react-email/components";
+import type { ErrorResponse } from "resend";
 
 import { FROM_ADDRESS, getResend, SITE_URL } from "./client";
 import { EmailDeliveryError } from "./delivery-error";
-import {
-  BetaActivationHelp,
-  type BetaActivationHelpProps,
-} from "./templates/beta-activation-help";
-import {
-  BetaSignupReminder,
-  type BetaSignupReminderProps,
-} from "./templates/beta-signup-reminder";
+import { BetaActivationHelp, type BetaActivationHelpProps } from "./templates/beta-activation-help";
+import { BetaSignupReminder, type BetaSignupReminderProps } from "./templates/beta-signup-reminder";
 import {
   BookingCancelledOrRescheduled,
   type BookingCancelledOrRescheduledProps,
@@ -70,6 +65,21 @@ import {
 // `reviewUrl` defaults to the dashboard requests tab on SITE_URL when
 // the caller doesn't pass one — saves repeating that string everywhere.
 
+// SK-287 — Resend resolves with `{ data: null, error }` instead of rejecting
+// when the API refuses a send, so a discarded return value made a refused send
+// look exactly like a delivered one: the cron sweeps stamped their reminder
+// rows and reported success for mail that was never created. Every sender
+// routes its result through here so a refusal reaches the caller's existing
+// try/catch — and the sweeps' unclaim-and-retry path works again.
+function assertResendAccepted(result: { error: ErrorResponse | null }): void {
+  if (!result.error) return;
+  throw new EmailDeliveryError({
+    name: result.error.name,
+    message: result.error.message,
+    statusCode: result.error.statusCode,
+  });
+}
+
 export async function sendBookingRequestEmail(
   to: string,
   props: Omit<BookingRequestReceivedProps, "reviewUrl"> & {
@@ -78,12 +88,13 @@ export async function sendBookingRequestEmail(
 ): Promise<void> {
   const reviewUrl = props.reviewUrl ?? `${SITE_URL}/dashboard/booking?tab=upcoming`;
   const html = await render(<BookingRequestReceived {...props} reviewUrl={reviewUrl} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `New session request from ${props.artistName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendBookingConfirmedEmail(
@@ -91,12 +102,13 @@ export async function sendBookingConfirmedEmail(
   props: BookingConfirmedToArtistProps,
 ): Promise<void> {
   const html = await render(<BookingConfirmedToArtist {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Your session with ${props.producerName} is confirmed`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendSessionReminder24h(
@@ -104,12 +116,13 @@ export async function sendSessionReminder24h(
   props: SessionReminder24hProps,
 ): Promise<void> {
   const html = await render(<SessionReminder24h {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Reminder · session tomorrow with ${props.counterpartName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendSessionReminder1h(
@@ -117,12 +130,13 @@ export async function sendSessionReminder1h(
   props: SessionReminder1hProps,
 ): Promise<void> {
   const html = await render(<SessionReminder1h {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Starting soon · session with ${props.counterpartName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 // ─── 2026-04-22 — audit Task 13: the 8 additional templates ──────
@@ -139,12 +153,13 @@ export async function sendTrackVersionUploadedEmail(
   props: TrackVersionUploadedProps,
 ): Promise<void> {
   const html = await render(<TrackVersionUploaded {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `New mix from ${props.producerName} · ${props.versionLabel}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendProducerRepliedToCommentEmail(
@@ -152,12 +167,13 @@ export async function sendProducerRepliedToCommentEmail(
   props: ProducerRepliedToCommentProps,
 ): Promise<void> {
   const html = await render(<ProducerRepliedToComment {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} replied · ${props.trackTitle}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendNewCommentFromArtistEmail(
@@ -165,12 +181,13 @@ export async function sendNewCommentFromArtistEmail(
   props: NewCommentFromArtistProps,
 ): Promise<void> {
   const html = await render(<NewCommentFromArtist {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `New comment from ${props.artistName} · ${props.trackTitle}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendBookingCancelledOrRescheduledEmail(
@@ -179,12 +196,13 @@ export async function sendBookingCancelledOrRescheduledEmail(
 ): Promise<void> {
   const html = await render(<BookingCancelledOrRescheduled {...props} />);
   const verb = props.status === "cancelled" ? "cancelled" : "rescheduled";
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Session ${verb} · ${props.productName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 // Producer sends a Client an intentional Skitza invitation. The durable
@@ -275,12 +293,13 @@ export async function sendPurchaseApprovedEmail(
   props: PurchaseApprovedToArtistProps,
 ): Promise<void> {
   const html = await render(<PurchaseApprovedToArtist {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} approved your request`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendProofVerifiedEmail(
@@ -288,7 +307,7 @@ export async function sendProofVerifiedEmail(
   props: ProofVerifiedToArtistProps,
 ): Promise<void> {
   const html = await render(<ProofVerifiedToArtist {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: props.paidInFull
@@ -296,6 +315,7 @@ export async function sendProofVerifiedEmail(
       : `Payment confirmed — ${props.productName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendProofRejectedEmail(
@@ -303,12 +323,13 @@ export async function sendProofRejectedEmail(
   props: ProofRejectedToArtistProps,
 ): Promise<void> {
   const html = await render(<ProofRejectedToArtist {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Action needed on your payment — ${props.productName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendPaymentReminderEmail(
@@ -407,12 +428,13 @@ export async function sendPurchaseDeclinedEmail(
   props: PurchaseDeclinedToArtistProps,
 ): Promise<void> {
   const html = await render(<PurchaseDeclinedToArtist {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `Update on your request to ${props.producerName}`,
     html,
   });
+  assertResendAccepted(result);
 }
 
 // SK-273 — one-shot beta nudges, fired only by the beta-nudges cron. The
@@ -423,12 +445,13 @@ export async function sendBetaSignupReminderEmail(
   props: BetaSignupReminderProps,
 ): Promise<void> {
   const html = await render(<BetaSignupReminder {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: "Your Skitza beta invite is waiting",
     html,
   });
+  assertResendAccepted(result);
 }
 
 export async function sendBetaActivationHelpEmail(
@@ -437,12 +460,13 @@ export async function sendBetaActivationHelpEmail(
 ): Promise<void> {
   const dashboardUrl = props.dashboardUrl ?? `${SITE_URL}/dashboard`;
   const html = await render(<BetaActivationHelp {...props} dashboardUrl={dashboardUrl} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: "Need a hand getting set up on Skitza?",
     html,
   });
+  assertResendAccepted(result);
 }
 
 // Re-export SITE_URL for callers who build deep-link URLs themselves.
