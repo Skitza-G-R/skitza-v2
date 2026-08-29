@@ -1,0 +1,11 @@
+# regenerable build products
+caps-desktop/
+caps-mobile/
+stills-*/
+sheet*/
+sheet*.png
+click-*.png
+look-*.png
+*.mp4
+*.wav
+node_modules/

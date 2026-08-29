@@ -1,0 +1,7 @@
+{
+  "name": "skitza-marketing-teaser",
+  "private": true,
+  "type": "module",
+  "description": "Renders the Skitza product teaser from real captures of the running app",
+  "devDependencies": { "playwright": "1.55.0" }
+}
