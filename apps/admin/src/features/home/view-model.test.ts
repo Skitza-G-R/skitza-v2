@@ -56,5 +56,10 @@ describe("buildHomeView", () => {
     // pretend to link anywhere — a dead-end link is the SK-283 bug.
     expect(hrefs["failed-invitation-emails"]).toBeUndefined();
     expect(hrefs["failed-reminder-emails"]).toBeUndefined();
+
+    // A row with nowhere to go still has to say what to do instead.
+    const hints = Object.fromEntries(view.rows.map((row) => [row.id, row.hint]));
+    expect(hints["failed-invitation-emails"]).toBeTruthy();
+    expect(hints["failed-reminder-emails"]).toBeTruthy();
   });
 });

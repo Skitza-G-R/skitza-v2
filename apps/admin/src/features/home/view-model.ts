@@ -26,6 +26,8 @@ export type HomeRow = Readonly<{
    * links nowhere.
    */
   href?: string;
+  /** Where to act when the answer is not a screen in this console. */
+  hint?: string;
 }>;
 
 export type HomeView = Readonly<{ quiet: boolean; rows: readonly HomeRow[] }>;
@@ -34,12 +36,14 @@ export function buildHomeView(signals: HomeSignals): HomeView {
   const candidates: readonly HomeRow[] = [
     {
       count: signals.failedInvitationEmails,
+      hint: "The provider refused these. Check the email provider, then the producer can resend.",
       id: "failed-invitation-emails",
       label: "Invitation emails that failed to send",
       tone: "broken",
     },
     {
       count: signals.failedReminderEmails,
+      hint: "Nothing retries these. The producer has to send the reminder again.",
       id: "failed-reminder-emails",
       label: "Payment reminders that failed to send",
       tone: "broken",

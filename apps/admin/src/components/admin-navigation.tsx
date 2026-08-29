@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import type { AdminEnvironmentId } from "~/server/environment";
 
 const ITEMS = [
-  { icon: "grid", label: "Overview", section: "" },
+  { icon: "grid", label: "Home", section: "" },
   { icon: "users", label: "Users", section: "users" },
   { icon: "flag", label: "Beta", section: "beta" },
 ] as const;
