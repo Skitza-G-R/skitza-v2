@@ -61,15 +61,6 @@ export interface OverviewScreenProps {
     packageNameSnapshot: string | null;
     message: string | null;
   }>;
-  followUps: Array<{
-    id: string;
-    artistName: string;
-    projectTitle: string;
-    projectId: string;
-    bookingId: string;
-    lastSessionEndedAt: Date;
-    count?: number;
-  }>;
   todaySession: {
     id: string;
     title: string;
@@ -124,7 +115,6 @@ export function OverviewScreen({
   paymentBalances,
   purchaseRequests,
   pendingApprovals,
-  followUps,
   todaySession,
   urgentProjects,
   recentUploads,
@@ -158,7 +148,6 @@ export function OverviewScreen({
     paymentBalances,
     purchaseRequests,
     pendingApprovals,
-    followUps,
     unresolvedItems,
     urgentProjects,
     dismissals,
@@ -265,7 +254,7 @@ function NeedsYouPanel({ items, showAll }: { items: readonly NeedsYouItem[]; sho
               Nothing needs you right now.
             </p>
             <p className="mt-0.5 text-xs text-[rgb(var(--fg-onsidebar)/0.62)] lg:text-[rgb(var(--fg-muted))]">
-              New requests, payments, and follow-ups will appear here.
+              New requests, payments, and comments will appear here.
             </p>
           </div>
         </div>
@@ -353,7 +342,6 @@ function ActionIcon({ kind }: { kind: NeedsYouItem["kind"] }) {
     if (kind === "payment_proof") return <ReceiptText aria-hidden size={19} />;
     if (kind === "purchase_request") return <FileText aria-hidden size={19} />;
     if (kind === "session_approval") return <CalendarDays aria-hidden size={19} />;
-    if (kind === "follow_up") return <CheckCircle2 aria-hidden size={19} />;
     if (kind === "comment") return <MessageSquareText aria-hidden size={19} />;
     if (kind === "setup") return <Settings2 aria-hidden size={19} />;
     if (kind === "urgent_project") return <FolderClock aria-hidden size={19} />;

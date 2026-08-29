@@ -308,10 +308,11 @@ describe("SessionManagementSheet", () => {
     expect(screen.getByRole("listbox", { name: "Date" })).toBeTruthy();
   });
 
-  // SK-280: an ended confirmed session is no longer a dead end — the sheet
-  // offers the close-out transitions (completed / no-show / late cancel) so
-  // the recorded outcome matches what actually happened.
-  it("offers the close-out actions on ended confirmed sessions instead of a dead end", () => {
+  // A session that already happened is history, not a job. Every close-out
+  // outcome (completed / no-show / late cancel) consumes exactly what a plain
+  // booked session already consumed, so the buttons asked for a decision that
+  // changed nothing. An ended session is now read-only.
+  it("shows an ended session as read-only, with nothing left to record", () => {
     const endedSession: SessionListItem = {
       ...session,
       startsAt: "2020-08-11T07:00:00.000Z",
@@ -319,17 +320,15 @@ describe("SessionManagementSheet", () => {
     renderSheet(vi.fn(), "reschedule", endedSession);
 
     expect(screen.getByRole("heading", { name: "Session details" })).toBeTruthy();
-    expect(
-      screen.getByText(
-        "This session has ended. Record what happened so the artist's session count stays right.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText("This session has ended. Its details are view-only.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reschedule" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit title" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Mark completed" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark no-show" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Artist cancelled late — record it" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Mark completed" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark no-show" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Artist cancelled late — record it" })).toBeNull();
+    // The only way out is Done — no decision is being asked for.
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
     expect(mocks.getSessionRescheduleAvailability).not.toHaveBeenCalled();
   });
 

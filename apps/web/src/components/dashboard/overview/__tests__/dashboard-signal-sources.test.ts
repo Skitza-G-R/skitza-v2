@@ -15,14 +15,13 @@ const producerRouter = readFileSync(
 );
 
 describe("dashboard signal sources", () => {
-  it("groups follow-ups by project before applying a bounded cap", () => {
-    const procedure = bookingRouter.match(/needsFollowUp:[\s\S]*?\n {2}\w+:/)?.[0];
-
-    expect(procedure).toBeDefined();
-    expect(procedure).toContain("count(${bookings.id})::int");
-    expect(procedure).toContain(".groupBy(projects.id)");
-    expect(procedure).toContain(".limit(FOLLOW_UP_PROJECT_CAP)");
-    expect(procedure).not.toContain(".orderBy(desc(bookings.startsAt))");
+  it("no longer asks the producer to close out a session that already happened", () => {
+    // A finished session is history, not a job: the artist's allowance is
+    // already spent at booking time (`reserved` consumes it), so nothing about
+    // the count depends on the producer clicking anything afterwards. The row,
+    // its query, and its cap all went with it.
+    expect(bookingRouter).not.toContain("needsFollowUp");
+    expect(bookingRouter).not.toContain("FOLLOW_UP_PROJECT_CAP");
   });
 
   it("does not infer payment signals from legacy booking history", () => {
@@ -46,16 +45,6 @@ describe("dashboard signal sources", () => {
 describe("SK-283 signal sources land where the work gets finished", () => {
   const needsYou = readFileSync(join(here, "..", "needs-you.ts"), "utf8");
 
-  it("carries the newest finished booking id so the follow-up can open the calendar", () => {
-    const procedure = bookingRouter.match(/needsFollowUp:[\s\S]*?\n {2}\w+:/)?.[0];
-
-    expect(procedure).toBeDefined();
-    // A grouped row must still name one concrete booking, otherwise the card
-    // can only address the project — which is the page with no control.
-    expect(procedure).toContain("bookingId");
-    expect(procedure).toContain("bookings.startsAt");
-  });
-
   it("gives an open comment the song-version link where Resolve actually lives", () => {
     const builder = producerRouter.match(/const commentItems = [\s\S]*?\}\)\);/)?.[0];
 
@@ -67,5 +56,13 @@ describe("SK-283 signal sources land where the work gets finished", () => {
   it("no longer carries the unreachable payment_received row", () => {
     expect(needsYou).not.toContain("payment_received");
     expect(needsYou).not.toContain("PaymentSource");
+  });
+
+  it("no longer carries the finished-session row at all", () => {
+    // The word survives once, in the note explaining why the DB CHECK still
+    // lists a kind nothing can produce. The row itself is gone.
+    expect(needsYou).not.toContain('kind: "follow_up"');
+    expect(needsYou).not.toContain("FollowUpSource");
+    expect(needsYou).not.toContain("groupFollowUps");
   });
 });

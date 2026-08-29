@@ -30,7 +30,7 @@ vi.mock("~/components/ui/toast", () => ({
 
 const { NeedsYouDismissButton } = await import("../needs-you-dismiss-button");
 
-const DISMISS = { kind: "follow_up" as const, subjectId: "p-1" };
+const DISMISS = { kind: "urgent_project" as const, subjectId: "p-1" };
 
 function setup() {
   const onDismissed = vi.fn();
@@ -38,7 +38,7 @@ function setup() {
   render(
     <NeedsYouDismissButton
       dismiss={DISMISS}
-      title="2 finished sessions"
+      title="Project needs movement"
       meta="Lital · Album"
       onDismissed={onDismissed}
       onRestored={onRestored}
@@ -60,7 +60,7 @@ describe("NeedsYouDismissButton (rendered)", () => {
   it("labels itself with the row it hides", () => {
     setup();
     expect(
-      screen.getByRole("button", { name: "Hide 2 finished sessions — Lital · Album" }),
+      screen.getByRole("button", { name: "Hide Project needs movement — Lital · Album" }),
     ).toBeTruthy();
   });
 
