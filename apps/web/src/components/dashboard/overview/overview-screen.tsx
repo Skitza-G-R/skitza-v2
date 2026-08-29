@@ -24,12 +24,11 @@ import { STAGE_LABEL } from "~/lib/projects/stages";
 import {
   buildNeedsYouQueue,
   capNeedsYouQueue,
+  shortActionLabel,
   type NeedsYouItem,
   type PaymentBalanceSource,
   type PaymentProofSource,
-  type PaymentSource,
 } from "./needs-you";
-import { NeedsYouPaymentRow } from "./needs-you-payment-row";
 import { PublicLinkStrip } from "./public-link-strip";
 import { formatDashboardDate, formatDashboardTime, greetingFor } from "./overview-time";
 
@@ -65,9 +64,9 @@ export interface OverviewScreenProps {
     artistName: string;
     projectTitle: string;
     projectId: string;
+    bookingId: string;
     count?: number;
   }>;
-  payments: PaymentSource[];
   todaySession: {
     id: string;
     title: string;
@@ -81,7 +80,7 @@ export interface OverviewScreenProps {
     clientName: string;
     gradient: string;
     stage: Stage;
-    urgency: "overdue" | "deposit_due" | "stuck";
+    urgency: "stuck";
   }>;
   recentUploads: Array<{
     versionId: string;
@@ -120,7 +119,6 @@ export function OverviewScreen({
   purchaseRequests,
   pendingApprovals,
   followUps,
-  payments,
   todaySession,
   urgentProjects,
   recentUploads,
@@ -156,7 +154,6 @@ export function OverviewScreen({
     followUps,
     unresolvedItems,
     urgentProjects,
-    payments,
     showSetupNudge,
   });
 
@@ -219,11 +216,7 @@ export function OverviewScreen({
           {slug ? <PublicLinkStrip slug={slug} /> : null}
         </header>
 
-        <NeedsYouPanel
-          items={needsYouItems}
-          showAll={showAllNeedsYou}
-          currency={pulseStats.currency}
-        />
+        <NeedsYouPanel items={needsYouItems} showAll={showAllNeedsYou} />
 
         {todaySession ? <MobileTodayCard session={todaySession} timezone={timezone} /> : null}
 
@@ -243,11 +236,9 @@ export function OverviewScreen({
 function NeedsYouPanel({
   items,
   showAll,
-  currency,
 }: {
   items: readonly NeedsYouItem[];
   showAll: boolean;
-  currency: string | null;
 }) {
   const { visible, hiddenCount } = capNeedsYouQueue(items, showAll);
   return (
@@ -278,13 +269,9 @@ function NeedsYouPanel({
         </div>
       ) : (
         <ul className="border-t border-[rgb(var(--fg-onsidebar)/0.16)] lg:border-[rgb(var(--border-subtle))]">
-          {visible.map((item) =>
-            item.kind === "payment_received" && item.payment ? (
-              <NeedsYouPaymentRow key={item.id} payment={item.payment} currency={currency} />
-            ) : (
-              <NeedsYouRow key={item.id} item={item} />
-            ),
-          )}
+          {visible.map((item) => (
+            <NeedsYouRow key={item.id} item={item} />
+          ))}
         </ul>
       )}
       {hiddenCount > 0 ? (
@@ -308,7 +295,7 @@ function NeedsYouPanel({
 
 function NeedsYouRow({ item }: { item: NeedsYouItem }) {
   const primary = item.actionLabel === "Review";
-  const shortLabel = item.actionLabel === "Open project" ? "Open" : item.actionLabel;
+  const shortLabel = shortActionLabel(item.actionLabel);
   return (
     <li className="flex min-h-[72px] min-w-0 items-center gap-3 border-b border-[rgb(var(--fg-onsidebar)/0.16)] py-3 last:border-b-0 lg:min-h-[68px] lg:border-[rgb(var(--border-subtle))] lg:py-2.5">
       <ActionIcon kind={item.kind} />
@@ -428,7 +415,7 @@ function UrgentProjectsCard({ projects }: { projects: OverviewScreenProps["urgen
                     <span className="truncate text-sm font-bold text-[rgb(var(--fg-default))]">
                       {project.title}
                     </span>
-                    <UrgencyBadge urgency={project.urgency} />
+                    <UrgencyBadge />
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-[rgb(var(--fg-muted))]">
                     {project.clientName || "Client"} · {STAGE_LABEL[project.stage]}
@@ -620,12 +607,10 @@ function MobileLatestUpload({
   );
 }
 
-function UrgencyBadge({ urgency }: { urgency: "overdue" | "deposit_due" | "stuck" }) {
-  const label =
-    urgency === "overdue" ? "Overdue" : urgency === "deposit_due" ? "Deposit due" : "Stuck";
+function UrgencyBadge() {
   return (
     <span className="shrink-0 rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-1 font-mono text-[8.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-danger-text))] uppercase">
-      {label}
+      Stuck
     </span>
   );
 }

@@ -58,7 +58,6 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     pendingPaymentProofs,
     paymentReadModel,
     urgent,
-    recentPaid,
   ] = await Promise.all([
     skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null),
     caller.producer.today(),
@@ -69,7 +68,6 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     caller.producer.purchase.proofOfPayment.pending(),
     caller.purchaseLedger.overview(),
     caller.producer.overview.urgent({ limit: 50 }),
-    caller.booking.recentPaidUnacknowledged(),
   ]);
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
@@ -108,15 +106,6 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
     message: booking.notes,
   }));
 
-  const paidBookings = recentPaid.map((payment) => ({
-    id: payment.id,
-    artistName: payment.artistName,
-    packageNameSnapshot: payment.packageNameSnapshot,
-    unitPriceCents: payment.unitPriceCents,
-    songQty: payment.songQty,
-    projectId: payment.projectId,
-    projectName: payment.projectName,
-  }));
   const paymentBalances = paymentReadModel.producerBuckets.due_or_overdue.projects.flatMap(
     (project) =>
       project.purchases.map((purchase) => ({
@@ -163,9 +152,9 @@ async function DashboardHomeContent({ searchParams }: PageProps) {
             artistName: session.artistName,
             projectTitle: session.projectTitle,
             projectId: session.projectId,
+            bookingId: session.bookingId,
             count: session.count,
           }))}
-          payments={paidBookings}
           todaySession={todaySession}
           urgentProjects={urgent.items}
           recentUploads={today.recentUploads.map((upload) => ({

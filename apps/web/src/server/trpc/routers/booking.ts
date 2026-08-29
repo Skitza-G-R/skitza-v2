@@ -323,17 +323,6 @@ const producerSchedulingWarningCode = z.enum([
   "GOOGLE_BUSY",
 ]);
 
-type RecentPaymentCompatibility = {
-  id: string;
-  artistName: string;
-  packageNameSnapshot: string | null;
-  unitPriceCents: number | null;
-  songQty: number | null;
-  statusChangedAt: Date | null;
-  projectId: string;
-  projectName: string;
-};
-
 // ─── Product schemas ─────────────────────────────────────────────────
 // Phase H.3 rebuild — producers don't sell time, they sell deliverables.
 // `kind` is free-text on disk but we gate input to a friendly allow-list.
@@ -2510,6 +2499,10 @@ export const bookingRouter = router({
         artistName: projects.artistName,
         projectTitle: projects.title,
         count: sql<number>`count(${bookings.id})::int`,
+        // The grouped row still has to name one concrete booking so the
+        // dashboard card can open the calendar on it — Mark completed lives
+        // there, not on the project page. Newest finished session wins.
+        bookingId: sql<string>`(array_agg(${bookings.id} ORDER BY ${bookings.startsAt} DESC))[1]`,
       })
       .from(bookings)
       .innerJoin(projects, eq(projects.id, bookings.projectId))
@@ -2529,29 +2522,10 @@ export const bookingRouter = router({
       artistName: r.artistName,
       projectId: r.projectId,
       projectTitle: r.projectTitle,
+      bookingId: r.bookingId,
       count: r.count,
     }));
   }),
-
-  recentPaidUnacknowledged: producerProcedure.query((): RecentPaymentCompatibility[] => []),
-
-  // SK-20 — producer dismisses the payment-received banner for one
-  // booking. Scoped to the caller's own bookings via the producerId
-  // predicate so a producer can't no-op someone else's banner.
-  acknowledgePayment: producerProcedure
-    .input(z.object({ bookingId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const [owned] = await ctx.db
-        .select({ id: bookings.id })
-        .from(bookings)
-        .where(and(eq(bookings.id, input.bookingId), eq(bookings.producerId, ctx.producerId)))
-        .limit(1);
-      if (!owned) throw new TRPCError({ code: "NOT_FOUND" });
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "Payment acknowledgement belongs to purchase payment history.",
-      });
-    }),
 
   list: producerProcedure
     .input(

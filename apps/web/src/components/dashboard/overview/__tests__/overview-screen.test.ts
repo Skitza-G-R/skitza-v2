@@ -6,10 +6,6 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const OVERVIEW = readFileSync(join(here, "..", "overview-screen.tsx"), "utf8");
 const PUBLIC_LINK = readFileSync(join(here, "..", "public-link-strip.tsx"), "utf8");
-const PAYMENT_ROW = readFileSync(
-  join(here, "..", "needs-you-payment-row.tsx"),
-  "utf8",
-);
 
 describe("Calm Control overview", () => {
   it("keeps the runtime safe-view server payload stable between renders", () => {
@@ -91,19 +87,14 @@ describe("public link CTA", () => {
   });
 });
 
-describe("payment signal preservation", () => {
-  it("keeps the tenant-scoped acknowledgement action and restores the row on failure", () => {
-    expect(PAYMENT_ROW).toContain("acknowledgePaymentAction");
-    expect(PAYMENT_ROW).toContain("setHidden(false)");
-    expect(PAYMENT_ROW).toMatch(/catch \{/);
-    expect(PAYMENT_ROW).toContain('role="alert"');
+describe("needs you rows", () => {
+  it("names the action and the row it belongs to for assistive tech", () => {
+    expect(OVERVIEW).toContain("${item.actionLabel}: ${item.title}");
   });
 
-  it("formats only a known producer currency and exposes contextual control names", () => {
-    expect(PAYMENT_ROW).toContain("cents > 0 && currency");
-    expect(PAYMENT_ROW).toContain("formatMoney(cents, currency)");
-    expect(PAYMENT_ROW).toContain("Open project: ${payment.projectName}");
-    expect(PAYMENT_ROW).toContain("Dismiss payment received from ${payment.artistName}");
-    expect(OVERVIEW).toContain("${item.actionLabel}: ${item.title}");
+  it("renders every queue row through one component", () => {
+    // The payment_received branch is gone, so there is no second row shape.
+    expect(OVERVIEW).not.toContain("payment_received");
+    expect(OVERVIEW).not.toContain("NeedsYouPaymentRow");
   });
 });

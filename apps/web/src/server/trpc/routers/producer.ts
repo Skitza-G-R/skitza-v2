@@ -586,6 +586,9 @@ export const producerRouter = router({
           authorName: trackComments.authorName,
           createdAt: trackComments.createdAt,
           projectId: projects.id,
+          // Resolve lives on the song-version page, so the row needs the
+          // version it hangs off — the project page has no such control.
+          versionId: trackVersions.id,
         })
         .from(trackComments)
         .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
@@ -699,7 +702,7 @@ export const producerRouter = router({
       title: c.authorName,
       subtitle: truncate(c.body, 120),
       occurredAt: c.createdAt,
-      href: `/dashboard/clients-projects/${c.projectId}`,
+      href: `/dashboard/music/${c.versionId}`,
       unread: true,
     }));
 

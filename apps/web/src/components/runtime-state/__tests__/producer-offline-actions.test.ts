@@ -16,8 +16,6 @@ const mountedProducerActions = [
   "components/dashboard/clients/remove-client-confirm-modal.tsx",
   "components/dashboard/offers/private-offer-composer.tsx",
   "components/dashboard/offers/private-offer-manager.tsx",
-  "components/dashboard/overview/mobile-payment-row.tsx",
-  "components/dashboard/overview/needs-you-payment-row.tsx",
   "components/dashboard/projects/delete-empty-project-dialog.tsx",
   "components/dashboard/projects/edit-project-dialog.tsx",
   "components/dashboard/projects/project-lifecycle-dialog.tsx",

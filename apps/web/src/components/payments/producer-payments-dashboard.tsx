@@ -31,6 +31,7 @@ import {
   type ProducerPaymentHistoryEvent,
   type ProducerPaymentStatusFilter,
   type ProducerPaymentsData,
+  PAYMENTS_NEEDS_YOU_ANCHOR,
   type ProducerPaymentsView,
   type ProducerPaymentTimePreset,
   type ProducerPaymentTimeRange,
@@ -456,16 +457,20 @@ function ArtistAction({ artist }: { artist: ProducerPaymentArtistRow }) {
 }
 
 function GroupHeading({
+  id,
   label,
   count,
   tone,
 }: {
+  id?: string | undefined;
   label: string;
   count: number;
   tone: "danger" | "muted";
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 pt-1 pb-2">
+    // scroll-mt keeps the heading clear of the sticky chrome when a deep
+    // link from the dashboard jumps straight to this group.
+    <div id={id} className="flex min-w-0 items-center gap-3 scroll-mt-24 pt-1 pb-2">
       <h3
         className={cn(
           "font-mono text-[9px] font-bold tracking-[0.14em] whitespace-nowrap uppercase",
@@ -1309,6 +1314,7 @@ export function ProducerPaymentsDashboard({
               return (
                 <div key={group.id} className="min-w-0">
                   <GroupHeading
+                    id={group.id === "needs_you" ? PAYMENTS_NEEDS_YOU_ANCHOR : undefined}
                     label={group.label}
                     count={rows.length}
                     tone={group.id === "needs_you" ? "danger" : "muted"}

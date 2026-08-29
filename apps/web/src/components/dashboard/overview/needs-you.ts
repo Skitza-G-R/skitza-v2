@@ -1,3 +1,4 @@
+import { PAYMENTS_NEEDS_YOU_ANCHOR } from "~/components/payments/producer-payments-dashboard-model";
 import type { Stage } from "~/lib/projects/stages";
 
 export const NEEDS_YOU_VISIBLE_LIMIT = 3;
@@ -7,6 +8,8 @@ export type FollowUpSource = {
   artistName: string;
   projectTitle: string;
   projectId: string;
+  /** Newest finished booking on the project — the one the calendar opens. */
+  bookingId: string;
   count?: number;
 };
 
@@ -14,17 +17,8 @@ export type FollowUpGroup = {
   projectId: string;
   artistName: string;
   projectTitle: string;
+  bookingId: string;
   count: number;
-};
-
-export type PaymentSource = {
-  id: string;
-  artistName: string;
-  packageNameSnapshot: string | null;
-  unitPriceCents: number | null;
-  songQty: number | null;
-  projectId: string | null;
-  projectName: string;
 };
 
 export type PaymentProofSource = {
@@ -51,14 +45,12 @@ export type NeedsYouItem = {
     | "follow_up"
     | "comment"
     | "urgent_project"
-    | "payment_received"
     | "setup";
   title: string;
   meta: string;
   href: string;
-  actionLabel: "Review" | "Open" | "Open project" | "Finish setup";
+  actionLabel: "Review" | "Open" | "Open project" | "Open calendar" | "Finish setup";
   priority: number;
-  payment?: PaymentSource;
 };
 
 export type NeedsYouSources = {
@@ -87,9 +79,8 @@ export type NeedsYouSources = {
     title: string;
     clientName: string;
     stage: Stage;
-    urgency: "overdue" | "deposit_due" | "stuck";
+    urgency: "stuck";
   }[];
-  payments: readonly PaymentSource[];
   showSetupNudge: boolean;
 };
 
@@ -109,6 +100,7 @@ export function groupFollowUps(followUps: readonly FollowUpSource[]): FollowUpGr
       projectId: followUp.projectId,
       artistName: followUp.artistName,
       projectTitle: followUp.projectTitle,
+      bookingId: followUp.bookingId,
       count: followUp.count ?? 1,
     });
   }
@@ -117,8 +109,9 @@ export function groupFollowUps(followUps: readonly FollowUpSource[]): FollowUpGr
 
 /**
  * Build one deterministic unresolved-work queue. This is deliberately
- * separate from notification read/unread state: these rows stay until the
- * underlying job is resolved or, for a received payment, acknowledged.
+ * separate from notification read/unread state: a row stays until the
+ * underlying job is resolved, and every row's action link points at the
+ * screen that can actually resolve it.
  */
 export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
   const items: NeedsYouItem[] = [];
@@ -141,7 +134,7 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       kind: "payment_due",
       title: "Payment due",
       meta: `${balance.clientName} · ${balance.projectTitle} · ${balance.purchaseTitle}`,
-      href: "/dashboard/payments#payment-history-due-overdue",
+      href: `/dashboard/payments#${PAYMENTS_NEEDS_YOU_ANCHOR}`,
       actionLabel: "Open",
       priority: 8,
     });
@@ -177,8 +170,11 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       kind: "follow_up",
       title: group.count === 1 ? "Finished session" : `${String(group.count)} finished sessions`,
       meta: `${group.artistName} · ${group.projectTitle}`,
-      href: `/dashboard/clients-projects/${group.projectId}`,
-      actionLabel: "Open project",
+      // The calendar owns Mark completed / No-show, which is what actually
+      // clears this row. The project page has no such control, so pointing
+      // there left the producer with nothing to do.
+      href: `/dashboard/calendar?booking=${group.bookingId}`,
+      actionLabel: "Open calendar",
       priority: 30,
     });
   }
@@ -196,35 +192,16 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
   }
 
   for (const project of sources.urgentProjects) {
-    const href = `/dashboard/clients-projects/${project.id}`;
     items.push({
       id: `urgent:${project.id}`,
+      // `classifyUrgency` only ever returns "stuck" — the money-flavoured
+      // titles this branch used to carry were unreachable.
       kind: "urgent_project",
-      title:
-        project.urgency === "overdue"
-          ? "Overdue payment"
-          : project.urgency === "deposit_due"
-            ? "Deposit due"
-            : "Project needs movement",
+      title: "Project needs movement",
       meta: `${project.clientName || "Client"} · ${project.title}`,
-      href,
+      href: `/dashboard/clients-projects/${project.id}`,
       actionLabel: "Open project",
       priority: 50,
-    });
-  }
-
-  for (const payment of sources.payments) {
-    items.push({
-      id: `payment:${payment.id}`,
-      kind: "payment_received",
-      title: "Payment received",
-      meta: `${payment.artistName} · ${payment.projectName}`,
-      href: payment.projectId
-        ? `/dashboard/clients-projects/${payment.projectId}`
-        : "/dashboard/clients-projects",
-      actionLabel: "Open project",
-      priority: 60,
-      payment,
     });
   }
 
@@ -244,6 +221,15 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
   // with the same priority retain the newest-first order supplied by their
   // server query instead of being shuffled by UUID text.
   return items.sort((a, b) => a.priority - b.priority);
+}
+
+/**
+ * Phone label for a row's action button. The button is `min-w-[76px]` with
+ * `px-3` at 360px, so a two-word action has to collapse to fit beside the
+ * icon and the truncating title.
+ */
+export function shortActionLabel(actionLabel: NeedsYouItem["actionLabel"]): string {
+  return actionLabel.startsWith("Open ") ? "Open" : actionLabel;
 }
 
 export function capNeedsYouQueue(
