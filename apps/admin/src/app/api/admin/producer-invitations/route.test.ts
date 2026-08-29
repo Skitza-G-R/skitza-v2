@@ -57,7 +57,7 @@ const provider = {
 };
 
 function request(emailAddress: unknown = "new.producer@example.com") {
-  return new Request("https://admin.skitza.app/api/admin/producer-invitations?environment=test", {
+  return new Request("https://admin.skitza.app/api/admin/producer-invitations", {
     body: JSON.stringify({ emailAddress }),
     headers: {
       "content-type": "application/json",
@@ -73,12 +73,11 @@ describe("new Producer email invitation route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ADMIN_LIVE_DATABASE_URL = "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL = "postgresql://test.example.test/skitza";
     vi.mocked(requireActiveAdminAccess).mockResolvedValue({} as never);
     vi.mocked(isSameOriginMutation).mockReturnValue(true);
     vi.mocked(resolveAdminClerkEnvironment).mockReturnValue({
-      instanceId: "ins_test",
-      secretKey: "sk_test_hidden",
+      instanceId: "ins_live",
+      secretKey: "sk_live_hidden",
     });
     vi.mocked(resolveAdminWebAppUrl).mockReturnValue("https://skitza-test.example");
     vi.mocked(createClerkProducerInvitationProvider).mockReturnValue(provider);
@@ -98,14 +97,14 @@ describe("new Producer email invitation route", () => {
 
     expect(response.status).toBe(201);
     expect(withNeonSessionAdvisoryLock).toHaveBeenCalledWith(
-      "postgresql://test.example.test/skitza",
-      `admin:producer-invitation-email:test:${createHash("sha256")
+      "postgresql://live.example.test/skitza",
+      `admin:producer-invitation-email:live:${createHash("sha256")
         .update("new.producer@example.com")
         .digest("hex")}`,
       expect.any(Function),
     );
     expect(sendProducerInvitationToEmail).toHaveBeenCalledWith({
-      clerkInstanceId: "ins_test",
+      clerkInstanceId: "ins_live",
       emailAddress: "new.producer@example.com",
       emailSender: expect.anything() as InvitationEmailSender,
       operationKey: "producer-invite-email:request-1",

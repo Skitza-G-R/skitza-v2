@@ -38,7 +38,6 @@ const FOUNDER: FounderIdentity = {
   userId: "user-founder",
 };
 const ORIGINAL_LIVE_URL = process.env.ADMIN_LIVE_DATABASE_URL;
-const ORIGINAL_TEST_URL = process.env.ADMIN_TEST_DATABASE_URL;
 const PROBLEM_ID = "9de0f153-9400-49a5-9249-f810d0fbfd27";
 const addSupportNote = vi.fn();
 const purgeExpiredAdminHistory = vi.fn();
@@ -107,7 +106,6 @@ describe("SK-132 admin data entry-point authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ADMIN_LIVE_DATABASE_URL = "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL = "postgresql://test.example.test/skitza";
     vi.mocked(requireActiveAdminAccess).mockResolvedValue(FOUNDER);
     vi.mocked(isSameOriginMutation).mockReturnValue(true);
     vi.mocked(createAdminDataFoundationRuntime).mockReturnValue({
@@ -134,11 +132,6 @@ describe("SK-132 admin data entry-point authorization", () => {
       delete process.env.ADMIN_LIVE_DATABASE_URL;
     } else {
       process.env.ADMIN_LIVE_DATABASE_URL = ORIGINAL_LIVE_URL;
-    }
-    if (ORIGINAL_TEST_URL === undefined) {
-      delete process.env.ADMIN_TEST_DATABASE_URL;
-    } else {
-      process.env.ADMIN_TEST_DATABASE_URL = ORIGINAL_TEST_URL;
     }
   });
 
@@ -179,7 +172,9 @@ describe("SK-132 admin data entry-point authorization", () => {
   );
 
   it("takes the environment only from the explicit server-resolved selector", async () => {
-    const missing = await createSupportNote(
+    // SK-288 removed the client-facing selector. A caller that still sends
+    // one must be ignored rather than obeyed — the server decides.
+    const smuggled = await createSupportNote(
       request(
         "/api/admin/support-notes",
         {
@@ -187,11 +182,15 @@ describe("SK-132 admin data entry-point authorization", () => {
           targetId: "user-42",
           targetType: "registered_account",
         },
-        null,
+        "test",
       ),
     );
-    expect(missing.status).toBe(400);
-    expect(createAdminDataFoundationRuntime).not.toHaveBeenCalled();
+    expect(smuggled.status).toBe(201);
+    expect(createAdminDataFoundationRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({ environment: "live" }),
+    );
+    vi.mocked(createAdminDataFoundationRuntime).mockClear();
+    vi.mocked(addSupportNote).mockClear();
 
     const rejected = await createSupportNote(
       request("/api/admin/support-notes", {
@@ -213,13 +212,13 @@ describe("SK-132 admin data entry-point authorization", () => {
     );
     expect(response.status).toBe(201);
     expect(createAdminDataFoundationRuntime).toHaveBeenLastCalledWith({
-      databaseUrl: "postgresql://test.example.test/skitza",
-      environment: "test",
+      databaseUrl: "postgresql://live.example.test/skitza",
+      environment: "live",
     });
     expect(addSupportNote).toHaveBeenCalledWith({
       actorClerkUserId: "user-founder",
       body: "Private support note",
-      environment: "test",
+      environment: "live",
       operationKey: "request-1",
       targetId: "user-42",
       targetType: "registered_account",
@@ -253,7 +252,7 @@ describe("SK-132 admin data entry-point authorization", () => {
     expect(recordSensitiveReveal).toHaveBeenCalledWith({
       actorClerkUserId: "user-founder",
       contentKind: "payment_proof",
-      environment: "test",
+      environment: "live",
       operationKey: "request-1",
       reason: "safety_issue",
       targetId: "user-42",
@@ -272,7 +271,7 @@ describe("SK-132 admin data entry-point authorization", () => {
     expect(preserved.status).toBe(201);
     expect(transitionSystemProblem).toHaveBeenLastCalledWith({
       actorClerkUserId: "user-founder",
-      environment: "test",
+      environment: "live",
       operationKey: "request-1",
       problemId: PROBLEM_ID,
       state: "new",
@@ -287,7 +286,7 @@ describe("SK-132 admin data entry-point authorization", () => {
     );
     expect(transitionSystemProblem).toHaveBeenLastCalledWith({
       actorClerkUserId: "user-founder",
-      environment: "test",
+      environment: "live",
       operationKey: "request-1",
       privateNote: null,
       problemId: PROBLEM_ID,
@@ -333,6 +332,6 @@ describe("SK-132 admin data entry-point authorization", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ deleted: 2 });
-    expect(purgeExpiredAdminHistory).toHaveBeenCalledWith("test");
+    expect(purgeExpiredAdminHistory).toHaveBeenCalledWith("live");
   });
 });

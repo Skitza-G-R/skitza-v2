@@ -26,22 +26,17 @@ describe("admin API request contracts", () => {
   it("marks the context request as same-origin JSON AJAX", async () => {
     const fetcher = vi
       .fn<AdminApiFetch>()
-      .mockResolvedValue(
-        Response.json({ environment: { id: "test" } }),
-      );
+      .mockResolvedValue(Response.json({ environment: { id: "live" } }));
     const signal = new AbortController().signal;
 
-    await requestAdminContext("test", { fetcher, signal });
+    await requestAdminContext({ fetcher, signal });
 
-    expect(fetcher).toHaveBeenCalledWith(
-      "/api/admin/context?environment=test",
-      {
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: AJAX_JSON_HEADERS,
-        signal,
-      },
-    );
+    expect(fetcher).toHaveBeenCalledWith("/api/admin/context", {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: AJAX_JSON_HEADERS,
+      signal,
+    });
   });
 
   it("marks the activity request as same-origin JSON AJAX", async () => {
@@ -89,7 +84,7 @@ describe("admin context response classification", () => {
       );
 
     await expect(
-      requestAdminContext("live", { fetcher }),
+      requestAdminContext({ fetcher }),
     ).resolves.toBe("ready");
   });
 
@@ -115,7 +110,7 @@ describe("admin context response classification", () => {
       .mockResolvedValue(response);
 
     await expect(
-      requestAdminContext("live", { fetcher }),
+      requestAdminContext({ fetcher }),
     ).resolves.toBe("failed");
   });
 
@@ -147,7 +142,7 @@ describe("admin context response classification", () => {
       .mockResolvedValue(response);
 
     await expect(
-      requestAdminContext("live", { fetcher }),
+      requestAdminContext({ fetcher }),
     ).resolves.toBe("access-login-required");
   });
 });

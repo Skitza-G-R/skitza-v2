@@ -9,20 +9,27 @@ function source(path: string): string {
 
 describe("registered-users page and control safety", () => {
   it.each([
-    "src/app/(admin)/[environment]/users/page.tsx",
-    "src/app/(admin)/[environment]/users/[userId]/page.tsx",
+    "src/app/(admin)/users/page.tsx",
+    "src/app/(admin)/users/[userId]/page.tsx",
   ])("authorizes inside %s before reading route input", (path) => {
     const page = source(path);
     const authorization = page.indexOf("await requireActiveAdminPage()");
-    const routeInput = page.indexOf("await params");
+    // SK-288 removed the [environment] segment, so the directory page now
+    // reads only searchParams. Either is route input and either must wait.
+    const routeInput = Math.min(
+      ...["await params", "await searchParams"]
+        .map((token) => page.indexOf(token))
+        .filter((index) => index > -1),
+    );
 
     expect(authorization).toBeGreaterThan(-1);
+    expect(Number.isFinite(routeInput)).toBe(true);
     expect(routeInput).toBeGreaterThan(authorization);
   });
 
   it("shows malformed directory and activity cursors as safe resets", () => {
-    const directory = source("src/app/(admin)/[environment]/users/page.tsx");
-    const profile = source("src/app/(admin)/[environment]/users/[userId]/page.tsx");
+    const directory = source("src/app/(admin)/users/page.tsx");
+    const profile = source("src/app/(admin)/users/[userId]/page.tsx");
 
     expect(directory).toContain("malformedCursor && !data.cursorReset");
     expect(directory).toContain('cursorInput !== undefined && typeof cursorInput !== "string"');
@@ -33,7 +40,7 @@ describe("registered-users page and control safety", () => {
   });
 
   it("binds Summary access to the header's current tombstone state", () => {
-    const profile = source("src/app/(admin)/[environment]/users/[userId]/page.tsx");
+    const profile = source("src/app/(admin)/users/[userId]/page.tsx");
 
     expect(profile).toContain('allowDeletedSummary: header.status === "Deleted"');
   });
@@ -53,8 +60,10 @@ describe("registered-users page and control safety", () => {
     const profile = source("src/features/registered-users/profile-view.tsx");
 
     expect(controls).toContain("Invite as Producer");
-    expect(controls).toContain("Send a real {environmentLabel} invitation?");
-    expect(controls).toContain("?environment=${environment}");
+    expect(controls).toContain("Send a real invitation?");
+    // The environment is no longer anything a client can name: SK-288
+    // removed the selector, so the browser must not send one at all.
+    expect(controls).not.toContain("?environment=");
     expect(controls).toContain('body: "{}"');
     expect(controls).toContain("Invite Producer by email");
     expect(controls).toContain("Review invitation");
@@ -76,7 +85,7 @@ describe("registered-users page and control safety", () => {
   });
 
   it("uses truthful error copy without claiming the database stayed closed", () => {
-    const error = source("src/app/(admin)/[environment]/users/error.tsx");
+    const error = source("src/app/(admin)/users/error.tsx");
 
     expect(error).toContain("no account changes were made");
     expect(error).not.toContain("environment stayed closed");

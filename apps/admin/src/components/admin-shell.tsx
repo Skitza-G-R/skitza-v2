@@ -4,7 +4,6 @@ import { UserButton } from "@clerk/nextjs";
 import { AdminContextStatus } from "./admin-context-status";
 import { AdminMobileMenu } from "./admin-mobile-menu";
 import { AdminNavigation } from "./admin-navigation";
-import { EnvironmentSwitcher } from "./environment-switcher";
 import type { AdminEnvironmentPublicContext } from "~/server/environment";
 
 export function AdminShell({
@@ -21,15 +20,14 @@ export function AdminShell({
       </a>
       <div className="environment-ribbon" data-environment={environment.id} role="status">
         <span className="environment-ribbon-dot" aria-hidden="true" />
-        {/* The ribbon states which database and Clerk instance this session is
-            pointed at, and nothing more. It used to add "simulations on ·
-            external actions off", which stopped being true once the Beta and
-            Users pages began sending real Producer invitations — a founder
-            trusting that line could release a wave to real people believing it
-            was a dry run. Pages still backed by fixtures carry their own
-            "Simulated / reset on reload" badge (see shared.tsx PageHeader),
-            which is the honest place for that claim. */}
-        {environment.id === "live" ? "Live" : "Test"} environment
+        {/* The ribbon says which database this session is pointed at, and
+            nothing more. It once added "simulations on · external actions
+            off", which stopped being true when Beta and Users began sending
+            real invitations — a founder trusting that line could release a
+            wave to real people believing it was a dry run. SK-288 removed the
+            last fixture screens, so every page here now shows real data and
+            there is only one environment to be in. */}
+        {environment.label} environment
       </div>
 
       <div className="admin-shell-grid">
@@ -44,15 +42,10 @@ export function AdminShell({
             </div>
           </div>
 
-          <div className="admin-sidebar-environment">
-            <p className="admin-sidebar-label">Workspace</p>
-            <EnvironmentSwitcher environment={environment.id} />
-          </div>
-
-          <AdminNavigation environment={environment.id} />
+          <AdminNavigation />
 
           <div className="admin-sidebar-footer">
-            <AdminContextStatus environment={environment.id} />
+            <AdminContextStatus />
             <div className="admin-account">
               <UserButton />
               <div>
@@ -81,9 +74,7 @@ export function AdminShell({
                 <span aria-hidden="true" />
               </summary>
               <div className="admin-mobile-menu-panel">
-                <p className="admin-sidebar-label">Workspace</p>
-                <EnvironmentSwitcher environment={environment.id} />
-                <AdminNavigation environment={environment.id} mobile />
+                <AdminNavigation mobile />
                 <div className="admin-mobile-account">
                   <UserButton />
                   <span>Founder access</span>

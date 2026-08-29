@@ -17,7 +17,6 @@ vi.mock("~/server/auth/access", async (importOriginal) => {
 });
 
 const ORIGINAL_LIVE_URL = process.env.ADMIN_LIVE_DATABASE_URL;
-const ORIGINAL_TEST_URL = process.env.ADMIN_TEST_DATABASE_URL;
 const mockedRequireActiveAdminAccess = vi.mocked(requireActiveAdminAccess);
 const FOUNDER_IDENTITY: FounderIdentity = {
   accessEmail: "founder@example.test",
@@ -32,8 +31,6 @@ describe("protected admin context API", () => {
   beforeEach(() => {
     process.env.ADMIN_LIVE_DATABASE_URL =
       "postgresql://live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL =
-      "postgresql://test.example.test/skitza";
   });
 
   afterEach(() => {
@@ -43,11 +40,6 @@ describe("protected admin context API", () => {
     } else {
       process.env.ADMIN_LIVE_DATABASE_URL = ORIGINAL_LIVE_URL;
     }
-    if (ORIGINAL_TEST_URL === undefined) {
-      delete process.env.ADMIN_TEST_DATABASE_URL;
-    } else {
-      process.env.ADMIN_TEST_DATABASE_URL = ORIGINAL_TEST_URL;
-    }
   });
 
   it("rejects a signed-in non-founder before returning environment context", async () => {
@@ -55,11 +47,7 @@ describe("protected admin context API", () => {
       new AdminAccessError("founder-role-required"),
     );
 
-    const response = await GET(
-      new Request(
-        "https://admin.skitza.app/api/admin/context?environment=live",
-      ),
-    );
+    const response = await GET();
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "not_found" });
@@ -68,17 +56,13 @@ describe("protected admin context API", () => {
   it("returns only the sanitized server-selected environment to an authorized founder", async () => {
     mockedRequireActiveAdminAccess.mockResolvedValue(FOUNDER_IDENTITY);
 
-    const response = await GET(
-      new Request(
-        "https://admin.skitza.app/api/admin/context?environment=test",
-      ),
-    );
+    const response = await GET();
     const body: unknown = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
       authorized: true,
-      environment: { id: "test", label: "Test", tone: "info" },
+      environment: { id: "live", label: "Live", tone: "danger" },
     });
     expect(JSON.stringify(body)).not.toContain("postgresql://");
   });

@@ -63,14 +63,10 @@ const ACCESS_IDENTITY: CloudflareAccessIdentity = {
 const ORIGINAL_ENVIRONMENT = {
   adminSessionSecret: process.env.ADMIN_SESSION_SECRET,
   liveDatabaseUrl: process.env.ADMIN_LIVE_DATABASE_URL,
-  testDatabaseUrl: process.env.ADMIN_TEST_DATABASE_URL,
 };
 
 function restoreEnvironment(
-  name:
-    | "ADMIN_LIVE_DATABASE_URL"
-    | "ADMIN_SESSION_SECRET"
-    | "ADMIN_TEST_DATABASE_URL",
+  name: "ADMIN_LIVE_DATABASE_URL" | "ADMIN_SESSION_SECRET",
   value: string | undefined,
 ): void {
   switch (name) {
@@ -86,13 +82,6 @@ function restoreEnvironment(
         delete process.env.ADMIN_SESSION_SECRET;
       } else {
         process.env.ADMIN_SESSION_SECRET = value;
-      }
-      return;
-    case "ADMIN_TEST_DATABASE_URL":
-      if (value === undefined) {
-        delete process.env.ADMIN_TEST_DATABASE_URL;
-      } else {
-        process.env.ADMIN_TEST_DATABASE_URL = value;
       }
   }
 }
@@ -121,11 +110,7 @@ function setClerkUser(
 }
 
 function requestContext(): Promise<Response> {
-  return GET(
-    new Request(
-      "https://admin.skitza.app/api/admin/context?environment=test",
-    ),
-  );
+  return GET();
 }
 
 describe("admin context HTTP authorization composition", () => {
@@ -134,8 +119,6 @@ describe("admin context HTTP authorization composition", () => {
     process.env.ADMIN_SESSION_SECRET = ADMIN_SECRET;
     process.env.ADMIN_LIVE_DATABASE_URL =
       "postgresql://fake:fake@live.example.test/skitza";
-    process.env.ADMIN_TEST_DATABASE_URL =
-      "postgresql://fake:fake@test.example.test/skitza";
 
     mocks.headers.mockResolvedValue(REQUEST_HEADERS);
     mocks.verifyCloudflareAccessHeaders.mockResolvedValue(
@@ -157,10 +140,6 @@ describe("admin context HTTP authorization composition", () => {
     restoreEnvironment(
       "ADMIN_LIVE_DATABASE_URL",
       ORIGINAL_ENVIRONMENT.liveDatabaseUrl,
-    );
-    restoreEnvironment(
-      "ADMIN_TEST_DATABASE_URL",
-      ORIGINAL_ENVIRONMENT.testDatabaseUrl,
     );
   });
 
@@ -248,7 +227,7 @@ describe("admin context HTTP authorization composition", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       authorized: true,
-      environment: { id: "test", label: "Test", tone: "info" },
+      environment: { id: "live", label: "Live", tone: "danger" },
     });
     expect(JSON.stringify(body)).not.toContain("postgresql://");
     expect(JSON.stringify(body)).not.toContain(USER_ID);

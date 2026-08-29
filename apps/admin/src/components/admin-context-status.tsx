@@ -3,15 +3,10 @@
 import { useEffect, useState } from "react";
 
 import { requestAdminContext } from "~/lib/admin-api-requests";
-import type { AdminEnvironmentId } from "~/server/environment";
 
 type ApiState = "checking" | "failed" | "ready";
 
-export function AdminContextStatus({
-  environment,
-}: {
-  environment: AdminEnvironmentId;
-}) {
+export function AdminContextStatus() {
   const [state, setState] = useState<ApiState>("checking");
 
   useEffect(() => {
@@ -19,7 +14,7 @@ export function AdminContextStatus({
 
     async function checkContext() {
       try {
-        const result = await requestAdminContext(environment, {
+        const result = await requestAdminContext({
           signal: controller.signal,
         });
         if (result === "access-login-required") {
@@ -38,7 +33,7 @@ export function AdminContextStatus({
     return () => {
       controller.abort();
     };
-  }, [environment]);
+  }, []);
 
   return (
     <div className="api-status" data-state={state} aria-live="polite">

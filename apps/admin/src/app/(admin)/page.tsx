@@ -1,7 +1,22 @@
-import { EnvironmentChoice } from "~/components/environment-choice";
-import { requireActiveAdminPage } from "~/server/auth/page-access";
+import { createDb } from "@skitza/db";
 
+import { HomeView } from "~/features/home/home-view";
+import { buildHomeView } from "~/features/home/view-model";
+import { requireActiveAdminPage } from "~/server/auth/page-access";
+import { resolveAdminEnvironment } from "~/server/environment";
+import { loadHomeSignals } from "~/server/home/queries";
+import { createRegisteredUserRepository } from "~/server/registered-users/repository";
+
+// SK-288 — the founder's first screen, rendered from database truth. The
+// fixture overview it replaces invented every number on it.
 export default async function AdminHomePage() {
   await requireActiveAdminPage();
-  return <EnvironmentChoice />;
+  const resolved = resolveAdminEnvironment(process.env);
+  const db = createDb(resolved.databaseUrl);
+  const signals = await loadHomeSignals(
+    db,
+    createRegisteredUserRepository(db, resolved.publicContext.id),
+  );
+
+  return <HomeView view={buildHomeView(signals)} />;
 }

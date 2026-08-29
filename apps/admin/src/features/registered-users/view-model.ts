@@ -1,4 +1,3 @@
-import type { AdminEnvironmentId } from "~/server/environment";
 import type {
   RegisteredUserDirectoryQuery,
   RegisteredUserRoleFilter,
@@ -53,7 +52,6 @@ function setUnlessDefault(
 }
 
 export function buildUsersDirectoryHref(
-  environment: AdminEnvironmentId,
   query: RegisteredUserDirectoryQuery,
   update: DirectoryQueryUpdate = {},
 ): string {
@@ -75,11 +73,10 @@ export function buildUsersDirectoryHref(
   setUnlessDefault(params, "dir", next.direction, "desc");
   if (next.cursor) params.set("cursor", next.cursor);
   const search = params.toString();
-  return `/${environment}/users${search ? `?${search}` : ""}`;
+  return `/users${search ? `?${search}` : ""}`;
 }
 
 export function buildUserProfileHref(
-  environment: AdminEnvironmentId,
   userId: string,
   tab: "activity" | "business" | "summary" | "support",
   activityCursor?: string | null,
@@ -90,7 +87,7 @@ export function buildUserProfileHref(
     params.set("cursor", activityCursor);
   }
   const search = params.toString();
-  return `/${environment}/users/${encodeURIComponent(userId)}${search ? `?${search}` : ""}`;
+  return `/users/${encodeURIComponent(userId)}${search ? `?${search}` : ""}`;
 }
 
 export function hasDirectoryFilters(

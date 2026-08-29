@@ -1,24 +1,13 @@
-import type { AdminEnvironmentId, AdminEnvironmentMap } from "~/server/environment";
+import type { AdminEnvironmentMap } from "~/server/environment";
 
-const SECRET_NAMES = {
-  live: "ADMIN_LIVE_CLERK_SECRET_KEY",
-  test: "ADMIN_TEST_CLERK_SECRET_KEY",
-} as const;
+// SK-288 — one Clerk account, one web app. The ADMIN_TEST_* twins are gone
+// along with the Live/Test split; every check that guarded a single binding
+// stays, only the live-versus-test comparisons went with them.
 
-const INSTANCE_NAMES = {
-  live: "ADMIN_LIVE_CLERK_INSTANCE_ID",
-  test: "ADMIN_TEST_CLERK_INSTANCE_ID",
-} as const;
-
-const DASHBOARD_NAMES = {
-  live: "ADMIN_LIVE_CLERK_DASHBOARD_URL",
-  test: "ADMIN_TEST_CLERK_DASHBOARD_URL",
-} as const;
-
-const WEB_APP_NAMES = {
-  live: "ADMIN_LIVE_WEB_APP_URL",
-  test: "ADMIN_TEST_WEB_APP_URL",
-} as const;
+const SECRET_NAME = "ADMIN_LIVE_CLERK_SECRET_KEY";
+const INSTANCE_NAME = "ADMIN_LIVE_CLERK_INSTANCE_ID";
+const DASHBOARD_NAME = "ADMIN_LIVE_CLERK_DASHBOARD_URL";
+const WEB_APP_NAME = "ADMIN_LIVE_WEB_APP_URL";
 
 export class AdminClerkEnvironmentError extends Error {
   constructor() {
@@ -35,89 +24,65 @@ function required(environment: AdminEnvironmentMap, name: string): string {
 
 export function resolveAdminClerkEnvironment(
   environment: AdminEnvironmentMap,
-  selected: AdminEnvironmentId,
 ): Readonly<{ instanceId: string; secretKey: string }> {
-  const liveSecret = required(environment, SECRET_NAMES.live);
-  const testSecret = required(environment, SECRET_NAMES.test);
-  const liveInstance = required(environment, INSTANCE_NAMES.live);
-  const testInstance = required(environment, INSTANCE_NAMES.test);
+  const secretKey = required(environment, SECRET_NAME);
+  const instanceId = required(environment, INSTANCE_NAME);
 
+  if (!/^sk_live_/.test(secretKey) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(instanceId)) {
+    throw new AdminClerkEnvironmentError();
+  }
+
+  return { instanceId, secretKey };
+}
+
+export function resolveAdminClerkDashboardUrl(environment: AdminEnvironmentMap): string {
+  const raw = required(environment, DASHBOARD_NAME);
+  const instanceId = required(environment, INSTANCE_NAME);
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new AdminClerkEnvironmentError();
+  }
+
+  const pathSegments = parsed.pathname.split("/").filter(Boolean);
   if (
-    liveSecret === testSecret ||
-    liveInstance === testInstance ||
-    !/^sk_live_/.test(liveSecret) ||
-    !/^sk_test_/.test(testSecret) ||
-    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(liveInstance) ||
-    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(testInstance)
+    parsed.origin !== "https://dashboard.clerk.com" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname.length > 500 ||
+    !pathSegments.includes(instanceId)
   ) {
     throw new AdminClerkEnvironmentError();
   }
 
-  return selected === "live"
-    ? { instanceId: liveInstance, secretKey: liveSecret }
-    : { instanceId: testInstance, secretKey: testSecret };
+  return parsed.toString();
 }
 
-export function resolveAdminClerkDashboardUrl(
-  environment: AdminEnvironmentMap,
-  selected: AdminEnvironmentId,
-): string {
-  const dashboards = {} as Record<AdminEnvironmentId, string>;
-  for (const environmentId of ["live", "test"] as const) {
-    const raw = required(environment, DASHBOARD_NAMES[environmentId]);
-    const instanceId = required(environment, INSTANCE_NAMES[environmentId]);
-    let parsed: URL;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      throw new AdminClerkEnvironmentError();
-    }
-    const pathSegments = parsed.pathname.split("/").filter(Boolean);
-    if (
-      parsed.origin !== "https://dashboard.clerk.com" ||
-      parsed.username ||
-      parsed.password ||
-      parsed.search ||
-      parsed.hash ||
-      parsed.pathname.length > 500 ||
-      !pathSegments.includes(instanceId)
-    ) {
-      throw new AdminClerkEnvironmentError();
-    }
-    dashboards[environmentId] = parsed.toString();
-  }
-  if (dashboards.live === dashboards.test) {
+export function resolveAdminWebAppUrl(environment: AdminEnvironmentMap): string {
+  const raw = required(environment, WEB_APP_NAME);
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
     throw new AdminClerkEnvironmentError();
   }
-  return dashboards[selected];
-}
 
-export function resolveAdminWebAppUrl(
-  environment: AdminEnvironmentMap,
-  selected: AdminEnvironmentId,
-): string {
-  const urls = {} as Record<AdminEnvironmentId, string>;
-  for (const environmentId of ["live", "test"] as const) {
-    const raw = required(environment, WEB_APP_NAMES[environmentId]);
-    let parsed: URL;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      throw new AdminClerkEnvironmentError();
-    }
-    if (
-      parsed.protocol !== "https:" ||
-      parsed.username ||
-      parsed.password ||
-      parsed.pathname !== "/" ||
-      parsed.search ||
-      parsed.hash
-    ) {
-      throw new AdminClerkEnvironmentError();
-    }
-    urls[environmentId] = parsed.origin;
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new AdminClerkEnvironmentError();
   }
-  if (urls.live === urls.test) throw new AdminClerkEnvironmentError();
-  if (urls.live !== "https://skitza.app") throw new AdminClerkEnvironmentError();
-  return urls[selected];
+
+  if (parsed.origin !== "https://skitza.app") throw new AdminClerkEnvironmentError();
+  return parsed.origin;
 }

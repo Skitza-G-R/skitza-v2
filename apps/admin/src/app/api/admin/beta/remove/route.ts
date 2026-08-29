@@ -26,8 +26,7 @@ export async function POST(request: Request) {
     const email = normalizedBetaEmail(body.emailAddress);
     if (email === null) throw new AdminDataHttpError();
 
-    const selected = new URL(request.url).searchParams.get("environment");
-    const runtime = createBetaRuntime(selected ?? undefined);
+    const runtime = createBetaRuntime();
     const removed = await runtime.repository.removePending(email);
     if (!removed) {
       return NextResponse.json(

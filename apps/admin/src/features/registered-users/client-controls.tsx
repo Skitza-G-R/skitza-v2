@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import type { AdminEnvironmentId } from "~/server/environment";
 import styles from "./registered-users.module.css";
 
 function operationKey(prefix: string): string {
@@ -34,7 +33,7 @@ function isReconciliationPage(value: unknown): value is ReconciliationPage {
   );
 }
 
-export function ReconcileRegisteredUsers({ environment }: { environment: AdminEnvironmentId }) {
+export function ReconcileRegisteredUsers() {
   const router = useRouter();
   const [cursor, setCursor] = useState<string | null>(null);
   const [key, setKey] = useState<string | null>(null);
@@ -48,7 +47,7 @@ export function ReconcileRegisteredUsers({ environment }: { environment: AdminEn
     setKey(requestKey);
     setPending(true);
     setMessage("Checking one safe page in Clerk…");
-    const query = new URLSearchParams({ environment });
+    const query = new URLSearchParams();
     if (cursor) query.set("cursor", cursor);
 
     try {
@@ -107,7 +106,7 @@ export function ReconcileRegisteredUsers({ environment }: { environment: AdminEn
   );
 }
 
-export function NewProducerInvitationControl({ environment }: { environment: AdminEnvironmentId }) {
+export function NewProducerInvitationControl() {
   const [open, setOpen] = useState(false);
   const [emailAddress, setEmailAddress] = useState("");
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
@@ -115,7 +114,6 @@ export function NewProducerInvitationControl({ environment }: { environment: Adm
   const [inviteKey, setInviteKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const environmentLabel = environment === "live" ? "Live" : "Test";
 
   async function sendInvitation() {
     if (!confirmedEmail || pending) return;
@@ -126,7 +124,7 @@ export function NewProducerInvitationControl({ environment }: { environment: Adm
     setMessage(null);
 
     try {
-      const response = await fetch(`/api/admin/producer-invitations?environment=${environment}`, {
+      const response = await fetch("/api/admin/producer-invitations", {
         body: JSON.stringify({ emailAddress: confirmedEmail }),
         cache: "no-store",
         headers: {
@@ -154,7 +152,7 @@ export function NewProducerInvitationControl({ environment }: { environment: Adm
           ? "This marked Producer invitation was already accepted."
           : payload.reused
             ? "A marked Producer invitation is already pending for this email."
-            : `Producer invitation sent from ${environmentLabel}. It expires in 7 days.`,
+            : "Producer invitation sent. It expires in 7 days.",
       );
     } catch {
       setError("The invitation was not confirmed because the network stopped. Retry safely.");
@@ -168,7 +166,7 @@ export function NewProducerInvitationControl({ environment }: { environment: Adm
       {open ? (
         confirmedEmail ? (
           <div className={styles.producerInviteConfirmation}>
-            <strong>Send a real {environmentLabel} Producer invitation?</strong>
+            <strong>Send a real Producer invitation?</strong>
             <p>
               Clerk will email <strong>{confirmedEmail}</strong>. This server-created invitation
               includes the Skitza Producer marker and expires in 7 days.
@@ -180,7 +178,7 @@ export function NewProducerInvitationControl({ environment }: { environment: Adm
                 onClick={() => void sendInvitation()}
                 type="button"
               >
-                {pending ? "Sending…" : `Send ${environmentLabel} invitation`}
+                {pending ? "Sending…" : "Send invitation"}
               </button>
               <button
                 className={styles.quietButton}
@@ -313,11 +311,9 @@ function isProducerInvitationResult(value: unknown): value is ProducerInvitation
 
 export function ProducerInvitationControl({
   displayEmail,
-  environment,
   userId,
 }: {
   displayEmail: string | null;
-  environment: AdminEnvironmentId;
   userId: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -325,7 +321,6 @@ export function ProducerInvitationControl({
   const [inviteKey, setInviteKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const environmentLabel = environment === "live" ? "Live" : "Test";
 
   async function sendInvitation() {
     const requestKey = inviteKey ?? operationKey("producer-invitation-create");
@@ -336,7 +331,7 @@ export function ProducerInvitationControl({
 
     try {
       const response = await fetch(
-        `/api/admin/users/${encodeURIComponent(userId)}/producer-invitations?environment=${environment}`,
+        `/api/admin/users/${encodeURIComponent(userId)}/producer-invitations`,
         {
           body: "{}",
           cache: "no-store",
@@ -366,7 +361,7 @@ export function ProducerInvitationControl({
           ? "This Producer invitation was already accepted."
           : payload.reused
             ? "A marked Producer invitation is already pending for this email."
-            : `Producer invitation sent from ${environmentLabel}. It expires in 7 days.`,
+            : "Producer invitation sent. It expires in 7 days.",
       );
     } catch {
       setError("The invitation was not confirmed because the network stopped. Retry safely.");
@@ -379,7 +374,7 @@ export function ProducerInvitationControl({
     <div className={styles.producerInviteControl}>
       {open ? (
         <div className={styles.producerInviteConfirmation}>
-          <strong>Send a real {environmentLabel} invitation?</strong>
+          <strong>Send a real invitation?</strong>
           <p>
             Clerk will email this account’s current verified primary email.
             {displayEmail ? ` The admin index shows ${displayEmail}.` : ""} Their Artist access
@@ -394,7 +389,7 @@ export function ProducerInvitationControl({
               }}
               type="button"
             >
-              {pending ? "Sending…" : `Send ${environmentLabel} invitation`}
+              {pending ? "Sending…" : "Send invitation"}
             </button>
             <button
               className={styles.quietButton}
@@ -450,11 +445,9 @@ function isRevealedNote(value: unknown): value is RevealedNote {
 }
 
 export function RevealSupportNote({
-  environment,
   noteId,
   userId,
 }: {
-  environment: AdminEnvironmentId;
   noteId: string;
   userId: string;
 }) {
@@ -476,7 +469,7 @@ export function RevealSupportNote({
     setRevealKey(requestKey);
     try {
       const response = await fetch(
-        `/api/admin/users/${encodeURIComponent(userId)}/support-notes/${encodeURIComponent(noteId)}/reveal?environment=${environment}`,
+        `/api/admin/users/${encodeURIComponent(userId)}/support-notes/${encodeURIComponent(noteId)}/reveal`,
         {
           body: JSON.stringify({ reason }),
           cache: "no-store",

@@ -1,7 +1,5 @@
 import { ADMIN_INACTIVITY_TIMEOUT_MS } from "./admin-session";
 
-import type { AdminEnvironmentId } from "~/server/environment";
-
 const AJAX_JSON_HEADERS = {
   Accept: "application/json",
   "X-Requested-With": "XMLHttpRequest",
@@ -32,14 +30,11 @@ function isJsonResponse(response: Response): boolean {
   return contentType.toLowerCase().includes("application/json");
 }
 
-function isMatchingContext(
-  value: unknown,
-  environment: AdminEnvironmentId,
-): boolean {
+function isLiveContext(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const context = (value as { environment?: unknown }).environment;
   if (typeof context !== "object" || context === null) return false;
-  return (context as { id?: unknown }).id === environment;
+  return (context as { id?: unknown }).id === "live";
 }
 
 function readRetryAfterMs(value: unknown): number | null {
@@ -58,7 +53,6 @@ function readRetryAfterMs(value: unknown): number | null {
 }
 
 export async function requestAdminContext(
-  environment: AdminEnvironmentId,
   options: Readonly<{
     fetcher?: AdminApiFetch;
     signal?: AbortSignal;
@@ -67,15 +61,12 @@ export async function requestAdminContext(
   const fetcher = options.fetcher ?? fetch;
   let response: Response;
   try {
-    response = await fetcher(
-      `/api/admin/context?environment=${environment}`,
-      {
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: AJAX_JSON_HEADERS,
-        ...(options.signal ? { signal: options.signal } : {}),
-      },
-    );
+    response = await fetcher("/api/admin/context", {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: AJAX_JSON_HEADERS,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
   } catch {
     return "failed";
   }
@@ -95,7 +86,7 @@ export async function requestAdminContext(
   } catch {
     return "failed";
   }
-  return isMatchingContext(body, environment) ? "ready" : "failed";
+  return isLiveContext(body) ? "ready" : "failed";
 }
 
 export async function requestAdminActivity(

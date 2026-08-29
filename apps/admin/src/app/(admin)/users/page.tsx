@@ -4,16 +4,13 @@ import { parseRegisteredUserDirectoryQuery } from "~/server/registered-users/mod
 import { createRegisteredUserRuntime } from "~/server/registered-users/runtime";
 
 export default async function AdminUsersPage({
-  params,
   searchParams,
 }: {
-  params: Promise<{ environment: string }>;
   searchParams: Promise<
     Record<string, string | readonly string[] | undefined>
   >;
 }) {
   await requireActiveAdminPage();
-  const { environment: rawEnvironment } = await params;
   const rawSearch = await searchParams;
   const cursorInput = rawSearch.cursor;
   const rawCursor =
@@ -22,7 +19,7 @@ export default async function AdminUsersPage({
     (cursorInput !== undefined && typeof cursorInput !== "string") ||
     (rawCursor !== "" && !/^[A-Za-z0-9_-]{1,2000}$/.test(rawCursor));
   const query = parseRegisteredUserDirectoryQuery(rawSearch);
-  const runtime = createRegisteredUserRuntime(rawEnvironment);
+  const runtime = createRegisteredUserRuntime();
   const data = await runtime.repository.findDirectory(query);
 
   return (
@@ -32,7 +29,6 @@ export default async function AdminUsersPage({
           ? { ...data, cursorReset: true }
           : data
       }
-      environment={runtime.environment}
       query={query}
     />
   );

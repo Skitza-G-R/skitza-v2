@@ -26,8 +26,7 @@ export async function POST(request: Request) {
     const wave = parsedBetaWave(body.wave);
     if (email === null || wave === null) throw new AdminDataHttpError();
 
-    const selected = new URL(request.url).searchParams.get("environment");
-    const runtime = createBetaRuntime(selected ?? undefined);
+    const runtime = createBetaRuntime();
     const updated = await runtime.repository.setWave(email, wave, new Date());
     if (!updated) {
       return NextResponse.json(

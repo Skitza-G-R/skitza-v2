@@ -47,9 +47,10 @@ deleting the app cookie or posting directly to the unlock API cannot bypass
 that transition.
 
 Configure every variable listed in `.env.example` separately for the admin
-project. Live and Test database bindings must identify different Postgres
-host/database targets; different credentials or connection options do not
-make one target isolated. Phase 1 validates but does not connect to them.
+project. There is one database binding: `ADMIN_LIVE_DATABASE_URL`. SK-288
+removed the Live/Test split, so no `ADMIN_TEST_*` value is read any more —
+delete any that remain in the deployment. The binding is validated as a
+Postgres URL before it is used.
 
 A full preview requires a separate Cloudflare-protected non-production
 hostname with Preview-only values. Raw `*.vercel.app` previews are

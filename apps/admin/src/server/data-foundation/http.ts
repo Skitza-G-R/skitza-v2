@@ -57,14 +57,8 @@ export function adminDataErrorResponse(error: unknown): NextResponse {
   }
   if (error instanceof AdminEnvironmentConfigurationError) {
     return NextResponse.json(
-      {
-        error:
-          error.code === "ADMIN_ENVIRONMENT_INVALID" ? "invalid_environment" : "admin_unavailable",
-      },
-      {
-        status: error.code === "ADMIN_ENVIRONMENT_INVALID" ? 400 : 503,
-        headers: privateAdminResponseHeaders(),
-      },
+      { error: "admin_unavailable" },
+      { status: 503, headers: privateAdminResponseHeaders() },
     );
   }
   return adminApiErrorResponse(error);
@@ -120,12 +114,11 @@ export function nullableBodyString(
   return value;
 }
 
-export function runtimeForRequest(request: Request): Readonly<{
+export function runtimeForRequest(): Readonly<{
   environment: FoundationEnvironment;
   foundation: ReturnType<typeof createAdminDataFoundationRuntime>;
 }> {
-  const selectedEnvironment = new URL(request.url).searchParams.get("environment");
-  const resolved = resolveAdminEnvironment(process.env, selectedEnvironment ?? undefined);
+  const resolved = resolveAdminEnvironment(process.env);
   const environment = resolved.publicContext.id;
   return {
     environment,

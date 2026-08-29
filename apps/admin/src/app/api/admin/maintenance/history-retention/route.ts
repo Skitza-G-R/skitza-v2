@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       return forbiddenAdminMutationResponse();
     }
 
-    const { environment, foundation } = runtimeForRequest(request);
+    const { environment, foundation } = runtimeForRequest();
     const deleted = await foundation.purgeExpiredAdminHistory(environment);
     return NextResponse.json({ deleted }, { headers: privateAdminResponseHeaders() });
   } catch (error) {
