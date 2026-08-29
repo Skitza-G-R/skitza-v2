@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  CalendarClock,
   Check,
   ChevronDown,
   CircleAlert,
@@ -720,6 +721,10 @@ export function ReviewAndFinish({
     setupOptions?.installments.filter(
       (installment) => installment.remainingCents > 0 && installment.reminderEligible,
     ) ?? [];
+  // Still owed, but with no date a reminder can never send. Show it plainly
+  // rather than hiding it or showing a toggle that would do nothing.
+  const undatedUnpaidInstallments =
+    setupOptions?.installments.filter((installment) => installment.reminderWaitingForDueDate) ?? [];
   const stillSending =
     finishResult?.invitations.some((invitation) => invitation.status === "requested") ?? false;
 
@@ -1002,6 +1007,40 @@ export function ReviewAndFinish({
                   No eligible unpaid imported payments need reminders.
                 </p>
               )}
+
+              {undatedUnpaidInstallments.length > 0 ? (
+                <div className="mt-4">
+                  <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                    {undatedUnpaidInstallments.length === 1
+                      ? "One payment below has no date yet, so no reminder can be sent for it. Skitza turns its reminder on by itself once it has a date."
+                      : `${String(undatedUnpaidInstallments.length)} payments below have no date yet, so no reminders can be sent for them. Skitza turns their reminders on by itself once they have dates.`}
+                  </p>
+                  <div className="mt-2.5 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
+                    {undatedUnpaidInstallments.map((installment) => (
+                      <div key={installment.id} className="flex min-w-0 items-start gap-3 py-3.5">
+                        <CalendarClock
+                          size={16}
+                          strokeWidth={2.1}
+                          aria-hidden
+                          className="mt-0.5 shrink-0 text-[rgb(var(--fg-muted))]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12.5px] leading-relaxed font-bold [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-default))] sm:truncate">
+                            {installment.projectTitle} · payment {String(installment.position)}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-relaxed [overflow-wrap:anywhere] whitespace-normal text-[rgb(var(--fg-muted))]">
+                            {formatImportMoney(installment.remainingCents, installment.currency)}{" "}
+                            remaining · {installment.agreementName}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[10.5px] font-bold text-[rgb(var(--fg-muted))]">
+                          No date yet
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <p className="border-t border-[rgb(var(--border-subtle))] pt-4 text-center text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">

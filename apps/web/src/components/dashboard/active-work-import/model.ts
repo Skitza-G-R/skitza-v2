@@ -280,6 +280,8 @@ export type SetupInstallmentOption = Readonly<{
   status: string;
   remindersEnabled: boolean;
   reminderEligible: boolean;
+  /** Still owed, but no due date yet, so a reminder cannot be armed for it. */
+  reminderWaitingForDueDate: boolean;
 }>;
 
 export type SetupOptionsView = Readonly<{
@@ -309,6 +311,10 @@ export type FinishSetupResultView = Readonly<{
     changed: boolean;
     reason: string | null;
   }>[];
+  // Whether the import is actually closed. It can stay open even when every
+  // invitation and reminder above succeeded, because saved drafts were never
+  // created. `unfinishedDraftCount` is null when closing was not attempted.
+  batch: Readonly<{ completed: boolean; unfinishedDraftCount: number | null }>;
 }>;
 
 export const STILL_SENDING_NOTICE = "Still sending — check again in a moment" as const;

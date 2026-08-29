@@ -89,6 +89,19 @@ function importProofContentType(file: File): ImportProofContentType | null {
   return file.name.toLowerCase().endsWith(".heic") ? "image/heic" : null;
 }
 
+/** Why this import is still open after everything else succeeded. */
+function unfinishedImportMessage(unfinishedDraftCount: number | null): string {
+  const created = "Your created work, invitations and reminders are all safe.";
+  if (unfinishedDraftCount === null || unfinishedDraftCount < 1) {
+    return `This import is not finished yet, so it will still be here next time. ${created} Check the items above, then press Finish setup again.`;
+  }
+  const items =
+    unfinishedDraftCount === 1
+      ? "1 item is still saved as a draft and was never created"
+      : `${String(unfinishedDraftCount)} items are still saved as drafts and were never created`;
+  return `This import is not finished: ${items}, so it will still be here next time. ${created} Go back, finish or remove ${unfinishedDraftCount === 1 ? "that item" : "those items"}, then press Finish setup again.`;
+}
+
 function setupShowsPriorAttempt(options: SetupOptionsView | null): boolean {
   if (!options) return false;
   return (
@@ -1160,6 +1173,14 @@ export function ActiveWorkImportWorkspace({
           "Some invitations or payment reminders did not finish. Created work is safe; review the status and try again.",
         );
       }
+      return;
+    }
+    // Invitations and reminders can all succeed while the import stays open,
+    // because saved drafts were never created. Say so here instead of leaving
+    // and letting the wizard come back on the next visit with no explanation.
+    if (!result.data.batch.completed) {
+      await loadSetupOptions();
+      setReviewError(unfinishedImportMessage(result.data.batch.unfinishedDraftCount));
       return;
     }
     router.push("/dashboard/clients-projects");

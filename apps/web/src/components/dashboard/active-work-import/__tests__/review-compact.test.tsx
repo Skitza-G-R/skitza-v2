@@ -486,11 +486,12 @@ describe("compact active-work setup", () => {
           remainingCents: 400_000,
           currency: "ILS",
           dueTrigger: "artist_approval",
-          dueAtIso: null,
-          triggeredAtIso: null,
+          dueAtIso: "2026-09-01T10:00:00.000Z",
+          triggeredAtIso: "2026-09-01T10:00:00.000Z",
           status: "pending",
           remindersEnabled: false,
           reminderEligible: true,
+          reminderWaitingForDueDate: false,
         },
       ],
     };
@@ -580,11 +581,12 @@ describe("compact active-work setup", () => {
           remainingCents: 400_000,
           currency: "ILS",
           dueTrigger: "artist_approval",
-          dueAtIso: null,
-          triggeredAtIso: null,
+          dueAtIso: "2026-09-01T10:00:00.000Z",
+          triggeredAtIso: "2026-09-01T10:00:00.000Z",
           status: "pending",
           remindersEnabled: false,
           reminderEligible: true,
+          reminderWaitingForDueDate: false,
         },
         {
           id: "installment-ineligible",
@@ -603,6 +605,7 @@ describe("compact active-work setup", () => {
           status: "canceled",
           remindersEnabled: false,
           reminderEligible: false,
+          reminderWaitingForDueDate: false,
         },
       ],
     };
@@ -638,5 +641,76 @@ describe("compact active-work setup", () => {
     expect(screen.getByText((text) => text.endsWith(longAgreement)).className).toContain(
       "[overflow-wrap:anywhere]",
     );
+  });
+
+  // A payment with no date can never produce a reminder, so it must not sit in
+  // the armed list. It also must not vanish without a word.
+  it("says plainly that a payment with no date has no reminder yet", () => {
+    const created = workspaceRow({
+      operationKey: "created",
+      clientName: "Maya Levi",
+      projectTitle: "Blue Hour EP",
+      assessment: null,
+      materialized: true,
+    });
+    const installment = {
+      rowId: "created-row",
+      projectId: "project-created",
+      purchaseId: "purchase-created",
+      projectTitle: "Blue Hour EP",
+      agreementName: "Full production",
+      amountCents: 200_000,
+      remainingCents: 200_000,
+      currency: "ILS",
+      status: "not_paid",
+      remindersEnabled: false,
+      triggeredAtIso: null,
+    } as const;
+    const setupOptions: SetupOptionsView = {
+      setupDigest: `sha256:${"d".repeat(64)}`,
+      distinctClientCount: 1,
+      projectPurchaseCount: 1,
+      clients: [],
+      installments: [
+        {
+          ...installment,
+          id: "installment-dated",
+          position: 1,
+          dueTrigger: "producer_import",
+          dueAtIso: "2026-09-01T10:00:00.000Z",
+          reminderEligible: true,
+          reminderWaitingForDueDate: false,
+        },
+        {
+          ...installment,
+          id: "installment-undated",
+          position: 2,
+          dueTrigger: "monthly_anniversary",
+          dueAtIso: null,
+          reminderEligible: false,
+          reminderWaitingForDueDate: true,
+        },
+      ],
+    };
+
+    render(
+      <ReviewAndFinish
+        {...reviewProps([created])}
+        stage="setup"
+        canReturnToItems={false}
+        setupOptions={setupOptions}
+        effectiveReadyOperationKeys={new Set()}
+      />,
+    );
+
+    expect(screen.getAllByText("Will turn on")).toHaveLength(1);
+    expect(screen.getByText("Blue Hour EP · payment 1")).not.toBeNull();
+    expect(screen.getByText("Blue Hour EP · payment 2")).not.toBeNull();
+    expect(screen.getByText("No date yet")).not.toBeNull();
+    expect(
+      screen.getByText(
+        "One payment below has no date yet, so no reminder can be sent for it. Skitza turns its reminder on by itself once it has a date.",
+      ),
+    ).not.toBeNull();
   });
 });

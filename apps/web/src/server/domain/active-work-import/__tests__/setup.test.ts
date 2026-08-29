@@ -97,6 +97,7 @@ function scope(): ActiveWorkImportSetupScope {
         status: "not_paid",
         remindersEnabled: false,
         reminderEligible: true,
+        reminderWaitingForDueDate: false,
       },
       {
         id: "installment-final-before-approval",
@@ -109,12 +110,16 @@ function scope(): ActiveWorkImportSetupScope {
         amountCents: 5_000,
         remainingCents: 5_000,
         currency: "USD",
+        // Approved, so the ledger has given the final 50 its date. A payment
+        // with no date at all is not reminder-eligible and is covered by
+        // setup-scope.test.ts, which owns that rule.
         dueTrigger: "artist_approval",
-        dueAt: null,
-        triggeredAt: null,
+        dueAt: NOW,
+        triggeredAt: NOW,
         status: "not_paid",
         remindersEnabled: false,
         reminderEligible: true,
+        reminderWaitingForDueDate: false,
       },
     ],
   };
@@ -190,7 +195,7 @@ function repository(overrides: Partial<SetupRepositoryMocks> = {}) {
   const completeBatch =
     overrides.completeBatch ??
     vi.fn<ActiveWorkImportSetupRepository["completeBatch"]>(() =>
-      Promise.resolve({ changed: true }),
+      Promise.resolve({ changed: true, completed: true, unfinishedDraftCount: 0 }),
     );
   const value: ActiveWorkImportSetupRepository = {
     loadScope,
@@ -421,7 +426,7 @@ describe("active work import reviewed setup", () => {
         const changed = !completed;
         completed = true;
         completionChanges.push(changed);
-        return Promise.resolve({ changed });
+        return Promise.resolve({ changed, completed: true, unfinishedDraftCount: 0 });
       }),
     });
     const exact = input({
@@ -451,7 +456,7 @@ describe("active work import reviewed setup", () => {
     expect(completionChanges).toEqual([true, false]);
   });
 
-  it("needs no reminder selection and enables every unpaid installment, including final 50 before it is due", async () => {
+  it("needs no reminder selection and enables every unpaid installment with a due date", async () => {
     const fake = repository();
 
     const result = await runActiveWorkImportSetup(fake.value, input());
@@ -485,6 +490,7 @@ describe("active work import reviewed setup", () => {
           changed: true,
         },
       ],
+      batch: { completed: true, unfinishedDraftCount: 0 },
     });
     expect(fake.reserveInvitation).toHaveBeenCalledTimes(1);
     expect(fake.deliverInvitation).toHaveBeenCalledTimes(1);
@@ -496,10 +502,12 @@ describe("active work import reviewed setup", () => {
     });
   });
 
-  it("finishes successful effects without closing a batch that still has saved drafts", async () => {
+  // Silently returning "done" here is what bounces the producer back into the
+  // wizard on the next visit with no explanation.
+  it("finishes successful effects and says the batch is still open because drafts remain", async () => {
     const fake = repository({
       completeBatch: vi.fn<ActiveWorkImportSetupRepository["completeBatch"]>(() =>
-        Promise.resolve({ changed: false }),
+        Promise.resolve({ changed: false, completed: false, unfinishedDraftCount: 2 }),
       ),
     });
 
@@ -508,6 +516,41 @@ describe("active work import reviewed setup", () => {
     expect(result.invitations).toHaveLength(2);
     expect(result.reminders).toHaveLength(2);
     expect(fake.completeBatch).toHaveBeenCalledTimes(1);
+    expect(result.batch).toEqual({ completed: false, unfinishedDraftCount: 2 });
+  });
+
+  it("reports a closed batch when this run closed it", async () => {
+    const fake = repository();
+
+    const result = await runActiveWorkImportSetup(fake.value, input());
+
+    expect(result.batch).toEqual({ completed: true, unfinishedDraftCount: 0 });
+  });
+
+  // A replay after a lost response changes nothing, but the batch is closed.
+  it("reports a closed batch when an earlier run already closed it", async () => {
+    const fake = repository({
+      completeBatch: vi.fn<ActiveWorkImportSetupRepository["completeBatch"]>(() =>
+        Promise.resolve({ changed: false, completed: true, unfinishedDraftCount: 0 }),
+      ),
+    });
+
+    const result = await runActiveWorkImportSetup(fake.value, input());
+
+    expect(result.batch).toEqual({ completed: true, unfinishedDraftCount: 0 });
+  });
+
+  it("does not claim a closed batch while an invitation is still sending", async () => {
+    const fake = repository({
+      deliverInvitation: vi.fn<ActiveWorkImportSetupRepository["deliverInvitation"]>(() =>
+        Promise.resolve({ status: "requested" as const, providerAcceptedAt: null }),
+      ),
+    });
+
+    const result = await runActiveWorkImportSetup(fake.value, input());
+
+    expect(fake.completeBatch).not.toHaveBeenCalled();
+    expect(result.batch).toEqual({ completed: false, unfinishedDraftCount: null });
   });
 
   it("fails closed before side effects when a selected Client is not a materialized output of this batch", async () => {

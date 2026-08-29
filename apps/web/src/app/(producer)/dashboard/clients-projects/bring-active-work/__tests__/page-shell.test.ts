@@ -514,6 +514,31 @@ describe("Bring active work route shell", () => {
       "This installment is already closed.",
       null,
     ]);
+    // No batch answer at all must never read as "this import is closed", or
+    // the producer is redirected away and the wizard returns unexplained.
+    expect(result.data.batch).toEqual({ completed: false, unfinishedDraftCount: null });
+  });
+
+  it("carries the batch completion answer through", async () => {
+    const finishSetup = vi.fn().mockResolvedValue({
+      distinctClientCount: 1,
+      projectPurchaseCount: 1,
+      invitations: [],
+      reminders: [],
+      batch: { completed: false, unfinishedDraftCount: 3 },
+    });
+    mocks.createCaller.mockReturnValue({ activeWorkImport: { finishSetup } });
+
+    const result = await finishImportSetupAction({
+      batchId: "00000000-0000-4000-8000-000000000254",
+      operationKey: "finish-2",
+      expectedSetupDigest: `sha256:${"a".repeat(64)}`,
+      selectedClientContactIds: [],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.batch).toEqual({ completed: false, unfinishedDraftCount: 3 });
   });
 
   it("reports a failed first chunk with no outcomes", async () => {
