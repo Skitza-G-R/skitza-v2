@@ -13,7 +13,7 @@ import {
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useRuntimeCachedView } from "~/components/runtime-state/use-runtime-state";
@@ -25,10 +25,12 @@ import {
   buildNeedsYouQueue,
   capNeedsYouQueue,
   shortActionLabel,
+  type AttentionDismissal,
   type NeedsYouItem,
   type PaymentBalanceSource,
   type PaymentProofSource,
 } from "./needs-you";
+import { NeedsYouDismissButton } from "./needs-you-dismiss-button";
 import { PublicLinkStrip } from "./public-link-strip";
 import { formatDashboardDate, formatDashboardTime, greetingFor } from "./overview-time";
 
@@ -65,6 +67,7 @@ export interface OverviewScreenProps {
     projectTitle: string;
     projectId: string;
     bookingId: string;
+    lastSessionEndedAt: Date;
     count?: number;
   }>;
   todaySession: {
@@ -81,6 +84,7 @@ export interface OverviewScreenProps {
     gradient: string;
     stage: Stage;
     urgency: "stuck";
+    lastActivityAt: Date;
   }>;
   recentUploads: Array<{
     versionId: string;
@@ -94,6 +98,7 @@ export interface OverviewScreenProps {
   }>;
   unresolvedItems: Array<{
     id: string;
+    commentId: string;
     kind: "comment";
     title: string;
     subtitle: string;
@@ -101,6 +106,7 @@ export interface OverviewScreenProps {
     href: string;
     unread: boolean;
   }>;
+  dismissals: AttentionDismissal[];
   showSetupNudge: boolean;
   showAllNeedsYou: boolean;
   now: Date;
@@ -123,6 +129,7 @@ export function OverviewScreen({
   urgentProjects,
   recentUploads,
   unresolvedItems,
+  dismissals,
   showSetupNudge,
   showAllNeedsYou,
   now,
@@ -154,6 +161,7 @@ export function OverviewScreen({
     followUps,
     unresolvedItems,
     urgentProjects,
+    dismissals,
     showSetupNudge,
   });
 
@@ -233,13 +241,7 @@ export function OverviewScreen({
   );
 }
 
-function NeedsYouPanel({
-  items,
-  showAll,
-}: {
-  items: readonly NeedsYouItem[];
-  showAll: boolean;
-}) {
+function NeedsYouPanel({ items, showAll }: { items: readonly NeedsYouItem[]; showAll: boolean }) {
   const { visible, hiddenCount } = capNeedsYouQueue(items, showAll);
   return (
     <section
@@ -296,11 +298,15 @@ function NeedsYouPanel({
 function NeedsYouRow({ item }: { item: NeedsYouItem }) {
   const primary = item.actionLabel === "Review";
   const shortLabel = shortActionLabel(item.actionLabel);
+  // Optimistic hide lives here rather than in the button so the whole row
+  // leaves at once. The button puts it straight back if the save fails.
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
   return (
-    <li className="flex min-h-[72px] min-w-0 items-center gap-3 border-b border-[rgb(var(--fg-onsidebar)/0.16)] py-3 last:border-b-0 lg:min-h-[68px] lg:border-[rgb(var(--border-subtle))] lg:py-2.5">
+    <li className="flex min-h-[72px] min-w-0 items-center gap-2.5 border-b border-[rgb(var(--fg-onsidebar)/0.16)] py-3 last:border-b-0 lg:min-h-[68px] lg:border-[rgb(var(--border-subtle))] lg:py-2.5">
       <ActionIcon kind={item.kind} />
       <div className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-bold text-[rgb(var(--fg-onsidebar))] lg:text-[rgb(var(--fg-default))]">
+        <span className="block text-[15px] leading-tight font-bold [overflow-wrap:anywhere] text-[rgb(var(--fg-onsidebar))] lg:truncate lg:text-[rgb(var(--fg-default))]">
           {item.title}
         </span>
         <span className="mt-0.5 block truncate text-[12.5px] text-[rgb(var(--fg-onsidebar)/0.62)] lg:text-[rgb(var(--fg-muted))]">
@@ -316,7 +322,7 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
         href={item.href}
         aria-label={`${item.actionLabel}: ${item.title} — ${item.meta}`}
         className={[
-          "sk-press inline-flex h-11 min-w-[76px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:h-10 lg:min-w-[112px] lg:rounded-[var(--radius-md)]",
+          "sk-press inline-flex h-11 min-w-[64px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:h-10 lg:min-w-[112px] lg:rounded-[var(--radius-md)]",
           primary
             ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
             : "border border-[rgb(var(--fg-onsidebar)/0.34)] text-[rgb(var(--fg-onsidebar))] lg:border-[rgb(var(--border-strong))] lg:text-[rgb(var(--fg-default))]",
@@ -325,6 +331,19 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
         <span className="lg:hidden">{shortLabel}</span>
         <span className="hidden lg:inline">{item.actionLabel}</span>
       </Link>
+      {item.dismiss ? (
+        <NeedsYouDismissButton
+          dismiss={item.dismiss}
+          title={item.title}
+          meta={item.meta}
+          onDismissed={() => {
+            setHidden(true);
+          }}
+          onRestored={() => {
+            setHidden(false);
+          }}
+        />
+      ) : null}
     </li>
   );
 }

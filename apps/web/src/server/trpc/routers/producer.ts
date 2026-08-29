@@ -20,6 +20,7 @@ import {
   trackComments,
   trackVersions,
   versionApprovalEvents,
+  producerAttentionDismissals,
 } from "@skitza/db";
 import { z } from "zod";
 
@@ -28,6 +29,10 @@ import type { Stage } from "../../../lib/projects/stages";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import {
+  AttentionPolicyError,
+  assertDismissibleKind,
+} from "../../domain/attention/policy";
 import { producerPurchaseRouter } from "./purchase";
 import { stripUndefined } from "../strip-undefined";
 import { presentVersionApprovalHistory } from "~/server/domain/version-approval/service";
@@ -311,6 +316,12 @@ export interface UrgentProjectItem {
   gradient: string;
   stage: Stage;
   urgency: UrgencyKind;
+  /**
+   * Newest upload, else the project's own updatedAt — the same reference
+   * `classifyUrgency` uses. SK-284 compares a dismissal against this, so the
+   * row returns once the producer uploads again and then goes quiet again.
+   */
+  lastActivityAt: Date;
 }
 
 const URGENT_DEFAULT_LIMIT = 3;
@@ -698,6 +709,7 @@ export const producerRouter = router({
 
     const commentItems = openCommentRows.map((c) => ({
       id: `comment:${c.id}`,
+      commentId: c.id,
       kind: "comment" as const,
       title: c.authorName,
       subtitle: truncate(c.body, 120),
@@ -860,6 +872,87 @@ export const producerRouter = router({
   // signals (most-recent track upload per project, most-recent booking
   // end per project), then classify each project against the three
   // urgency rules in priority order. No new tables, no new columns.
+  // ─── Needs You dismissals (SK-284) ─────────────────────────────────
+  // "Hide until it changes." Each row stores a TIMESTAMP, so a dismissal
+  // only holds while it is newer than the subject's last real change;
+  // `isDismissed` in needs-you.ts does that comparison at render time.
+  // Nothing here has to run again to un-hide a row.
+  attention: router({
+    list: producerProcedure.query(async ({ ctx }) => {
+      const rows = await ctx.db
+        .select({
+          itemKind: producerAttentionDismissals.itemKind,
+          subjectId: producerAttentionDismissals.subjectId,
+          dismissedAt: producerAttentionDismissals.dismissedAt,
+        })
+        .from(producerAttentionDismissals)
+        .where(eq(producerAttentionDismissals.producerId, ctx.producerId));
+      return rows;
+    }),
+
+    dismiss: producerProcedure
+      .input(z.object({ kind: z.string(), subjectId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        let kind;
+        try {
+          kind = assertDismissibleKind(input.kind);
+        } catch (err) {
+          if (err instanceof AttentionPolicyError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+          }
+          throw err;
+        }
+
+        // Re-dismissing bumps the stamp rather than erroring, so a double tap
+        // (or a click that raced the row sliding up) is harmless.
+        const now = new Date();
+        await ctx.db
+          .insert(producerAttentionDismissals)
+          .values({
+            producerId: ctx.producerId,
+            itemKind: kind,
+            subjectId: input.subjectId,
+            dismissedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [
+              producerAttentionDismissals.producerId,
+              producerAttentionDismissals.itemKind,
+              producerAttentionDismissals.subjectId,
+            ],
+            set: { dismissedAt: now, updatedAt: now },
+          });
+        return { dismissedAt: now };
+      }),
+
+    // Undo. Deleting the row is the whole restore — visibility is recomputed
+    // from scratch on the next render.
+    restore: producerProcedure
+      .input(z.object({ kind: z.string(), subjectId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        let kind;
+        try {
+          kind = assertDismissibleKind(input.kind);
+        } catch (err) {
+          if (err instanceof AttentionPolicyError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+          }
+          throw err;
+        }
+
+        await ctx.db
+          .delete(producerAttentionDismissals)
+          .where(
+            and(
+              eq(producerAttentionDismissals.producerId, ctx.producerId),
+              eq(producerAttentionDismissals.itemKind, kind),
+              eq(producerAttentionDismissals.subjectId, input.subjectId),
+            ),
+          );
+        return { restored: true };
+      }),
+  }),
+
   overview: router({
     urgent: producerProcedure
       .input(z.object({ limit: z.number().int().min(1).max(50).optional() }).optional())
@@ -942,6 +1035,7 @@ export const producerRouter = router({
             gradient: producerGradient(displayClient || p.title),
             stage,
             urgency,
+            lastActivityAt: lastUploadAt.get(p.id) ?? p.updatedAt,
           });
         }
 
@@ -956,6 +1050,7 @@ export const producerRouter = router({
             gradient: c.gradient,
             stage: c.stage,
             urgency: c.urgency,
+            lastActivityAt: c.lastActivityAt,
           }));
 
         return { items };

@@ -9,7 +9,7 @@ const PUBLIC_LINK = readFileSync(join(here, "..", "public-link-strip.tsx"), "utf
 
 describe("Calm Control overview", () => {
   it("keeps the runtime safe-view server payload stable between renders", () => {
-    expect(OVERVIEW).toContain('import { useMemo } from "react"');
+    expect(OVERVIEW).toContain('import { useMemo, useState } from "react"');
     expect(OVERVIEW).toMatch(
       /const overviewServerData = useMemo\([\s\S]*serverDisplayName[\s\S]*serverPulseStats\.activeProjects/,
     );

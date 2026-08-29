@@ -2503,6 +2503,9 @@ export const bookingRouter = router({
         // dashboard card can open the calendar on it — Mark completed lives
         // there, not on the project page. Newest finished session wins.
         bookingId: sql<string>`(array_agg(${bookings.id} ORDER BY ${bookings.startsAt} DESC))[1]`,
+        // End of the newest finished session. SK-284 compares a dismissal
+        // against this, so the row returns the moment another session ends.
+        lastSessionEndedAt: sql<Date>`max(${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute')`,
       })
       .from(bookings)
       .innerJoin(projects, eq(projects.id, bookings.projectId))
@@ -2523,6 +2526,7 @@ export const bookingRouter = router({
       projectId: r.projectId,
       projectTitle: r.projectTitle,
       bookingId: r.bookingId,
+      lastSessionEndedAt: r.lastSessionEndedAt,
       count: r.count,
     }));
   }),
