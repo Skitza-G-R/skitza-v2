@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  statementNowAfter,
+  storedStamp,
+  type TimestampValue,
+} from "~/server/__tests__/default-now-timestamp-shape";
+
 // SK-284 regression — the ✕ on a "Needs you" row wrote a timestamp the
 // database refused, so no row could ever be hidden.
 //
@@ -14,12 +20,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   constraint "producer_attention_dismissals_timestamp_shape"
 // which `attention-actions.ts` then toasted at the producer verbatim.
 //
-// This suite has no disposable Postgres to write against (the real-db suites
-// are gated behind an explicitly approved target), so the fake database below
-// models the two rules that broke the write: a `DEFAULT now()` column is
-// stamped when the statement runs, and that instant is strictly later than any
-// Date the app put in the payload. Both shape tests fail against a mutation
-// that stamps the row from its own clock.
+// `default-now-timestamp-shape` stands in for the database it was rejected by:
+// a `DEFAULT now()` column is stamped when the statement runs, and that instant
+// is later than any Date the app put in the payload. Both shape tests below
+// fail against a mutation that stamps the row from its own clock.
 
 const PRODUCER_ID = "producer-uuid-attention-1";
 const SUBJECT_ID = "00000000-0000-0000-0000-0000000000c1";
@@ -147,40 +151,6 @@ vi.mock("@skitza/db", () => ({
     return marker;
   },
 }));
-
-/** Payload column values a statement sends for a `DEFAULT now()` column. */
-type TimestampValue = Date | { __sql: string } | undefined;
-
-/** Milliseconds between this process reading its clock and Neon running the statement. */
-const ROUND_TRIP_MS = 25;
-
-function isDatabaseNow(value: TimestampValue): value is { __sql: string } {
-  return typeof value === "object" && !(value instanceof Date);
-}
-
-/**
- * What Postgres stores in a `timestamptz NOT NULL DEFAULT now()` column: the
- * statement's own now() when the payload omits the column or sends `now()`,
- * and the app's Date when the payload sends one.
- */
-function storedStamp(value: TimestampValue, statementNow: Date): Date {
-  if (value === undefined) return statementNow; // DEFAULT now()
-  if (isDatabaseNow(value)) return statementNow;
-  if (value instanceof Date) return value;
-  throw new Error("unexpected timestamp value in the insert payload");
-}
-
-/**
- * The statement runs only after this process has read its own clock and sent
- * the payload, so the database's now() is later than every Date inside it.
- */
-function statementNowAfter(...payloads: Record<string, unknown>[]): Date {
-  const appReadings = payloads
-    .flatMap((payload) => Object.values(payload))
-    .filter((value): value is Date => value instanceof Date)
-    .map((date) => date.getTime());
-  return new Date(Math.max(Date.now(), ...appReadings) + ROUND_TRIP_MS);
-}
 
 const buildCaller = async () => {
   const { appRouter } = await import("../_app");
