@@ -1,0 +1,75 @@
+name: Session reminders
+
+# SK-282: sub-hourly pinger for /api/cron/session-reminders.
+#
+# Why this exists
+# ---------------
+# That route sends the 24h + 1h session reminder emails and expires held
+# booking requests. Vercel's Hobby plan allows exactly two cron jobs and both
+# slots are taken (`/api/cron/calendar-sync`, `/api/cron/beta-nudges`), so
+# SK-280 wired the sweep in as a phase of the nightly calendar-sync run.
+#
+# A nightly tick is enough for the 24h reminder (window `(now+1h, now+24h20m]`)
+# and for held-expiry, but the 1h reminder window is `[now, now+75m]` — so on a
+# daily cadence the "starting soon" mail only ever caught sessions beginning
+# between 03:00 and 04:15 UTC. Pinging every 15 minutes closes that gap.
+#
+# Safety
+# ------
+# * The route 401s without `Authorization: Bearer $CRON_SECRET`, so the URL is
+#   not a public DOS surface for the mail quota.
+# * The sweep CLAIMS each reminder row before sending and only releases the
+#   claim if the send throws, so overlapping runs cannot double-mail. Running
+#   alongside the nightly Vercel phase is therefore harmless.
+# * The repo is public, so scheduled Actions minutes are free.
+#
+# IMPORTANT: GitHub fires `schedule:` only from the repository's DEFAULT
+# branch. This file must live on the default branch to tick on its own —
+# from any other branch only the manual "Run workflow" button works.
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub delays scheduled runs under load; the route's
+    # 75-minute window absorbs that drift.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+# One ping at a time. Queue rather than cancel — a cancelled run mid-send
+# would leave that reminder claimed until the next sweep retries it.
+concurrency:
+  group: session-reminders
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: ping the sweep
+    runs-on: ubuntu-latest
+    # No checkout, no repo access needed — this only makes an outbound call.
+    permissions: {}
+
+    steps:
+      - name: Ping /api/cron/session-reminders
+        env:
+          # Read through env, not inline `${{ }}` in the script, so the value
+          # never reaches the command line or a shell-expanded template.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET repository secret is not set — the sweep cannot run (SK-282)."
+            exit 1
+          fi
+
+          # -f  -> non-2xx becomes a failed job, so a 401 or 503 shows up red.
+          # --retry 2 -> ride out a transient 5xx or cold-start timeout. Safe to
+          #              repeat: the sweep is idempotent by row claim.
+          curl -fsS \
+            --max-time 120 \
+            --retry 2 \
+            --retry-delay 5 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            https://skitza.app/api/cron/session-reminders \
+            -o response.json
+
+          echo "Sweep response:"
+          cat response.json
+          echo
