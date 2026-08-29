@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // SK-287 regression, reproducing the live 2026-08-29 failure end to end:
-// a confirmed session ~50 minutes out, a provider that REFUSES the send, and
-// a sweep that stamped `reminder_sent_1h` and reported `sent.one = 1` anyway.
-// The real `sendSessionReminder1h` runs here — only the provider is faked —
+// a confirmed session inside the 24h window, a provider that REFUSES the send,
+// and a sweep that stamped the reminder and reported it sent anyway.
+// The real `sendSessionReminder24h` runs here — only the provider is faked —
 // so this fails unless the sender actually surfaces the refusal.
+// SK-290 ported this from the deleted 1h path to the 24h one.
 const { bookingsMarker, clientContactsMarker, mocks, producersMarker, purchasesMarker } =
   vi.hoisted(() => ({
     mocks: { send: vi.fn(), emitArtistSessionNotification: vi.fn() },
@@ -51,12 +52,12 @@ const DUE_BOOKING = {
   purchaseId: "pu-1",
   artistName: "Ada",
   artistEmail: "ada@example.test",
-  startsAt: new Date(NOW.getTime() + 50 * 60 * 1000),
+  startsAt: new Date(NOW.getTime() + 20 * 60 * 60 * 1000),
   durationMin: 60,
 };
 
-// Minimal Drizzle stand-in. The three booking scans share one call shape, so
-// they are served in the order the sweep issues them: held, 24h, then 1h.
+// Minimal Drizzle stand-in. Both booking scans share one call shape, so they
+// are served in the order the sweep issues them: held, then 24h.
 function fakeDb(bookingScans: Row[][]) {
   const setCalls: Row[] = [];
   const db = {
@@ -109,7 +110,7 @@ function fakeDb(bookingScans: Row[][]) {
   return { db: db as never, setCalls };
 }
 
-describe("runSessionReminderSweep — 1h reminder the provider refuses", () => {
+describe("runSessionReminderSweep — 24h reminder the provider refuses", () => {
   beforeEach(() => {
     mocks.send.mockReset();
     mocks.emitArtistSessionNotification.mockReset().mockResolvedValue({ emailEnabled: true });
@@ -122,24 +123,24 @@ describe("runSessionReminderSweep — 1h reminder the provider refuses", () => {
       error: { name: "validation_error", message: "API key is invalid", statusCode: 401 },
       headers: null,
     });
-    const { db, setCalls } = fakeDb([[], [], [DUE_BOOKING]]);
+    const { db, setCalls } = fakeDb([[], [DUE_BOOKING]]);
 
     const result = await runSessionReminderSweep(db, NOW);
 
     // The row was claimed, then released so the next sweep retries it.
-    expect(setCalls).toContainEqual({ reminderSent1h: NOW });
-    expect(setCalls).toContainEqual({ reminderSent1h: null });
-    expect(result.sent.one).toBe(0);
+    expect(setCalls).toContainEqual({ reminderSent24h: NOW });
+    expect(setCalls).toContainEqual({ reminderSent24h: null });
+    expect(result.sent.twentyFour).toBe(0);
   });
 
   it("keeps the claim and reports the reminder as sent when the provider accepts", async () => {
     mocks.send.mockResolvedValue({ data: { id: "re_123" }, error: null, headers: null });
-    const { db, setCalls } = fakeDb([[], [], [DUE_BOOKING]]);
+    const { db, setCalls } = fakeDb([[], [DUE_BOOKING]]);
 
     const result = await runSessionReminderSweep(db, NOW);
 
-    expect(setCalls).toContainEqual({ reminderSent1h: NOW });
-    expect(setCalls).not.toContainEqual({ reminderSent1h: null });
-    expect(result.sent.one).toBe(1);
+    expect(setCalls).toContainEqual({ reminderSent24h: NOW });
+    expect(setCalls).not.toContainEqual({ reminderSent24h: null });
+    expect(result.sent.twentyFour).toBe(1);
   });
 });

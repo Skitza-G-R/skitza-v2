@@ -13,7 +13,6 @@ import {
 
 import {
   sendBookingCancelledOrRescheduledEmail,
-  sendSessionReminder1h,
   sendSessionReminder24h,
 } from "~/server/email/send";
 import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
@@ -33,19 +32,22 @@ type Db = ReturnType<typeof createDb>;
 //
 // - 24h reminders scan (now+1h, now+24h20m]: every confirmed session is picked
 //   up exactly once whatever the cadence; on a daily tick the email lands 1-25
-//   hours before start. Sessions closer than ~1h are left to the 1h reminder.
-// - 1h reminders scan [now, now+75m]: on a slower-than-hourly cadence most
-//   sessions simply never get one (correct: late "starting soon" mail is worse
-//   than none).
+//   hours before start.
+//
+// SK-290: the 1h "starting soon" reminder was removed. Its window was only 75
+// minutes wide, so on a once-a-night cadence a session had to start in a narrow
+// slice right after the tick to ever get one. The bookings.reminder_sent_1h
+// column and the session_reminder_1h notification kind stay in the schema —
+// production history already references them.
 //
 // Idempotency: a reminder row is CLAIMED (stamped) before sending so two
 // concurrent sweeps can't double-mail, and UNCLAIMED again if the artist send
 // throws so the next sweep retries — the previous version stamped first and
 // dropped the reminder forever on a transient provider failure.
 export type SessionReminderSweepResult = Readonly<{
-  scanned: Readonly<{ held: number; twentyFour: number; one: number }>;
+  scanned: Readonly<{ held: number; twentyFour: number }>;
   expiredHeld: number;
-  sent: Readonly<{ twentyFour: number; one: number }>;
+  sent: Readonly<{ twentyFour: number }>;
 }>;
 
 const MINUTE_MS = 60 * 1000;
@@ -56,14 +58,10 @@ const CATCH_UP_SLACK_MS = 20 * MINUTE_MS;
 export function reminderWindows(now: Date): Readonly<{
   window24Start: Date;
   window24End: Date;
-  window1Start: Date;
-  window1End: Date;
 }> {
   return {
     window24Start: new Date(now.getTime() + HOUR_MS),
     window24End: new Date(now.getTime() + DAY_MS + CATCH_UP_SLACK_MS),
-    window1Start: now,
-    window1End: new Date(now.getTime() + HOUR_MS + 15 * MINUTE_MS),
   };
 }
 
@@ -71,7 +69,7 @@ export async function runSessionReminderSweep(
   db: Db,
   now: Date,
 ): Promise<SessionReminderSweepResult> {
-  const { window24Start, window24End, window1Start, window1End } = reminderWindows(now);
+  const { window24Start, window24End } = reminderWindows(now);
 
   // Expire Held requests through the same serialized lifecycle service used
   // by interactive booking actions. Every worker uses the same operation key,
@@ -209,7 +207,7 @@ export async function runSessionReminderSweep(
       } catch (error) {
         // Release the claim so the next sweep retries this reminder.
         console.warn("[cron] 24h artist reminder failed for booking", b.id, error);
-        await unclaimReminder(db, b.id, "24h");
+        await unclaimReminder(db, b.id);
         continue;
       }
     }
@@ -232,108 +230,21 @@ export async function runSessionReminderSweep(
     sent24++;
   }
 
-  // ── 1h reminders ───────────────────────────────────────────────
-  const due1 = await db
-    .select({
-      id: bookings.id,
-      producerId: bookings.producerId,
-      purchaseId: bookings.purchaseId,
-      artistName: bookings.artistName,
-      artistEmail: bookings.artistEmail,
-      startsAt: bookings.startsAt,
-      durationMin: bookings.durationMin,
-    })
-    .from(bookings)
-    .where(
-      and(
-        eq(bookings.status, "confirmed"),
-        gte(bookings.startsAt, window1Start),
-        lte(bookings.startsAt, window1End),
-        isNull(bookings.reminderSent1h),
-      ),
-    );
-
-  let sent1 = 0;
-  for (const b of due1) {
-    if (b.durationMin <= 0) continue;
-    const ctx = await loadEmailContext(db, b.producerId, b.purchaseId);
-    const productName = ctx.purchaseName ?? "Session";
-    const [claimed] = await db
-      .update(bookings)
-      .set({ reminderSent1h: now })
-      .where(
-        and(
-          eq(bookings.id, b.id),
-          eq(bookings.status, "confirmed"),
-          isNull(bookings.reminderSent1h),
-        ),
-      )
-      .returning({ id: bookings.id });
-    if (!claimed) continue;
-
-    let artistEmailEnabled = true;
-    try {
-      const delivery = await emitArtistSessionNotification(db, {
-        recipientClerkUserId: ctx.artistClerkUserId,
-        producerId: b.producerId,
-        bookingId: b.id,
-        producerName: ctx.producerDisplayName,
-        sessionName: productName,
-        kind: "session_reminder_1h",
-        sourceEventId: `${b.id}:1h`,
-      });
-      artistEmailEnabled = delivery.emailEnabled;
-    } catch (error) {
-      console.warn("[artist-notify] 1h reminder event failed", b.id, error);
-    }
-    if (artistEmailEnabled) {
-      try {
-        await sendSessionReminder1h(b.artistEmail, {
-          recipientName: b.artistName,
-          recipientRole: "artist",
-          counterpartName: ctx.producerDisplayName,
-          productName,
-          startsAt: b.startsAt,
-          producerTimezone: ctx.timezone,
-        });
-      } catch (error) {
-        console.warn("[cron] 1h artist reminder failed for booking", b.id, error);
-        await unclaimReminder(db, b.id, "1h");
-        continue;
-      }
-    }
-    if (ctx.producerEmail) {
-      try {
-        await sendSessionReminder1h(ctx.producerEmail, {
-          recipientName: ctx.producerDisplayName,
-          recipientRole: "producer",
-          counterpartName: b.artistName,
-          productName,
-          startsAt: b.startsAt,
-          producerTimezone: ctx.timezone,
-        });
-      } catch (error) {
-        console.warn("[cron] 1h producer reminder failed for booking", b.id, error);
-      }
-    }
-    sent1++;
-  }
-
   return {
-    scanned: { held: overdueHeld.length, twentyFour: due24.length, one: due1.length },
+    scanned: { held: overdueHeld.length, twentyFour: due24.length },
     expiredHeld,
-    sent: { twentyFour: sent24, one: sent1 },
+    sent: { twentyFour: sent24 },
   };
 }
 
-async function unclaimReminder(db: Db, bookingId: string, kind: "24h" | "1h"): Promise<void> {
+async function unclaimReminder(db: Db, bookingId: string): Promise<void> {
   try {
     await db
       .update(bookings)
-      .set(kind === "24h" ? { reminderSent24h: null } : { reminderSent1h: null })
+      .set({ reminderSent24h: null })
       .where(eq(bookings.id, bookingId));
   } catch (error) {
-    console.warn(`[cron] ${kind} reminder unclaim failed for booking`, bookingId, error);
+    console.warn("[cron] 24h reminder unclaim failed for booking", bookingId, error);
   }
 }
 

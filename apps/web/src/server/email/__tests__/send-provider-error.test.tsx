@@ -27,7 +27,6 @@ import {
   sendProofVerifiedEmail,
   sendPurchaseApprovedEmail,
   sendPurchaseDeclinedEmail,
-  sendSessionReminder1h,
   sendSessionReminder24h,
   sendTrackVersionUploadedEmail,
 } from "../send";
@@ -74,18 +73,6 @@ const SENDERS: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [
     "sendSessionReminder24h",
     () =>
       sendSessionReminder24h(TO, {
-        recipientName: "Ada",
-        recipientRole: "artist",
-        counterpartName: "Gili Asraf",
-        productName: "Mixing session",
-        startsAt: STARTS_AT,
-        producerTimezone: "UTC",
-      }),
-  ],
-  [
-    "sendSessionReminder1h",
-    () =>
-      sendSessionReminder1h(TO, {
         recipientName: "Ada",
         recipientRole: "artist",
         counterpartName: "Gili Asraf",
@@ -217,7 +204,7 @@ describe("transactional senders surface a refused send", () => {
 
     let caught: unknown;
     try {
-      await sendSessionReminder1h(TO, {
+      await sendSessionReminder24h(TO, {
         recipientName: "Ada",
         recipientRole: "artist",
         counterpartName: "Gili Asraf",

@@ -130,8 +130,6 @@ describe("reminder sweep", () => {
     const windows = reminderWindows(now);
     expect(windows.window24Start.toISOString()).toBe("2026-08-27T11:00:00.000Z");
     expect(windows.window24End.toISOString()).toBe("2026-08-28T10:20:00.000Z");
-    expect(windows.window1Start.toISOString()).toBe("2026-08-27T10:00:00.000Z");
-    expect(windows.window1End.toISOString()).toBe("2026-08-27T11:15:00.000Z");
     // The 24h window is >23h wide: a fully skipped day of ticks cannot leave
     // a band of sessions that no later run ever scans.
     expect(windows.window24End.getTime() - windows.window24Start.getTime()).toBeGreaterThan(
@@ -145,14 +143,13 @@ describe("reminder sweep", () => {
       "await sendSessionReminder24h(b.artistEmail",
       "if (ctx.producerEmail)",
     );
-    expect(artistSend24).toContain('await unclaimReminder(db, b.id, "24h")');
+    expect(artistSend24).toContain("await unclaimReminder(db, b.id)");
     expect(artistSend24).toContain("continue;");
-    const artistSend1 = slice(
-      sweepSource,
-      "await sendSessionReminder1h(b.artistEmail",
-      "if (ctx.producerEmail)",
-    );
-    expect(artistSend1).toContain('await unclaimReminder(db, b.id, "1h")');
+  });
+
+  it("no longer ships a 1h reminder (SK-290)", () => {
+    expect(sweepSource).not.toContain("sendSessionReminder1h");
+    expect(sweepSource).not.toContain("window1Start");
   });
 
   it("runs from the registered nightly calendar-sync cron", () => {

@@ -203,9 +203,9 @@ export async function GET(req: Request) {
     // cadence-independent; see session-reminder-sweep.ts for the exact
     // semantics on a daily tick.
     const EMPTY_REMINDER_SWEEP: SessionReminderSweepResult = {
-      scanned: { held: 0, twentyFour: 0, one: 0 },
+      scanned: { held: 0, twentyFour: 0 },
       expiredHeld: 0,
-      sent: { twentyFour: 0, one: 0 },
+      sent: { twentyFour: 0 },
     };
     const sessionReminders = await runCalendarCronPhase(
       "session_reminders",

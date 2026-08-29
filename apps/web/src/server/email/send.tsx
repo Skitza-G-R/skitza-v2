@@ -50,7 +50,6 @@ import {
   PurchaseDeclinedToArtist,
   type PurchaseDeclinedToArtistProps,
 } from "./templates/purchase-declined-to-artist";
-import { SessionReminder1h, type SessionReminder1hProps } from "./templates/session-reminder-1h";
 import { SessionReminder24h, type SessionReminder24hProps } from "./templates/session-reminder-24h";
 import {
   TrackVersionUploaded,
@@ -120,20 +119,6 @@ export async function sendSessionReminder24h(
     from: FROM_ADDRESS,
     to,
     subject: `Reminder · session tomorrow with ${props.counterpartName}`,
-    html,
-  });
-  assertResendAccepted(result);
-}
-
-export async function sendSessionReminder1h(
-  to: string,
-  props: SessionReminder1hProps,
-): Promise<void> {
-  const html = await render(<SessionReminder1h {...props} />);
-  const result = await getResend().emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `Starting soon · session with ${props.counterpartName}`,
     html,
   });
   assertResendAccepted(result);
