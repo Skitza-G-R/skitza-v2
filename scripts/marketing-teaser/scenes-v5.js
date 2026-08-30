@@ -448,17 +448,22 @@ locked(root, C){
   return (lt) => {
     wm.update(lt);
     if (card){
-      card.enter(lt, 0.10);
-      card.play(lt, 0.35);              // the real drag-scrub sweeps the waveform
-      // open INSIDE the waveform, pull back to reveal the locked page
-      const pull = P(lt, 0.10, 2.0, E.io);
+      card.enter(lt, 0.08);
+      card.play(lt, 0.25);              // scrub 1.0-2.05, hover note 2.55, real Jump ~3.25
       const mover = card.el.querySelector('div');
-      mover.style.transformOrigin = '32% 48%';
-      mover.style.transform = `scale(${lerp(2.55, 1.0, pull) * lerp(1, 1.03, P(lt, 2.4, 3.0, E.io))})`;
+      if (lt < 3.15){
+        // open inside the player, snap out fast — no dwelling in soft pixels
+        mover.style.transformOrigin = '31% 45%';
+        mover.style.transform = `scale(${lerp(1.9, 1.0, P(lt, 0.08, 1.05, E.outQ))})`;
+      } else {
+        // then push into the notes rail as Jump lands: timestamps are the climax
+        mover.style.transformOrigin = '88% 52%';
+        mover.style.transform = `scale(${lerp(1.0, 1.60, P(lt, 3.15, 2.0, E.io))})`;
+      }
     }
-    head.update(lt, 1.60);
-    sub.update(lt, 2.25);
-    chip.update(lt, 2.55);
+    head.update(lt, 1.30);
+    sub.update(lt, 1.95);
+    chip.update(lt, 2.25);
   };
 },
 

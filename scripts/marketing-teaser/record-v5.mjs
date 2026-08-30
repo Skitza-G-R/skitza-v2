@@ -60,7 +60,7 @@ async function recordShot(browser, spec){
   const desktop = spec.form === 'desktop';
   const page = await browser.newPage({
     viewport: desktop ? {width:1512,height:945} : {width:390,height:844},
-    deviceScaleFactor: desktop ? 1.5 : 2, isMobile: !desktop, hasTouch: !desktop });
+    deviceScaleFactor: spec.dsf ?? (desktop ? 1.5 : 2), isMobile: !desktop, hasTouch: !desktop });
   const cdp = await page.context().newCDPSession(page);
   page.touchScroll = (x, y, dy, speed=900) => cdp.send('Input.synthesizeScrollGesture',
     { x, y, yDistance: -dy, speed, gestureSourceType: 'touch' }).catch(e=>console.log('   scroll-gesture:', e.message.split('\n')[0]));
@@ -86,16 +86,18 @@ async function recordShot(browser, spec){
       await steps[stepIdx].run(page); stepIdx++;
     }
     const f = `f${String(frames.length).padStart(4,'0')}.jpg`;
-    await page.screenshot({ path: path.join(out,f), type:'jpeg', quality:88 });
+    await page.screenshot({ path: path.join(out,f), type:'jpeg', quality:86,
+      ...(spec.clip && spec.rect ? { clip: { x: spec.rect.x, y: spec.rect.y, width: spec.rect.w, height: spec.rect.h } } : {}) });
     frames.push({ f, t: Number((((Date.now()-t0)/1000)+t)/2 - 0.02).valueOf() });
     if (t >= spec.dur && stepIdx >= steps.length) done = true;
     if (frames.length > 220) done = true;
   }
   const urlNow = page.url();
   await page.close();
+  const clipped = Boolean(spec.clip && spec.rect);
   const manifest = { name: spec.name, form: spec.form, dur: spec.dur,
-    page: desktop ? {w:1512,h:945} : {w:390,h:844},
-    rect: spec.rect || null, frames };
+    page: clipped ? { w: spec.rect.w, h: spec.rect.h } : (desktop ? {w:1512,h:945} : {w:390,h:844}),
+    rect: clipped ? { x:0, y:0, w: spec.rect.w, h: spec.rect.h } : (spec.rect || null), frames };
   writeFileSync(path.join(out,'seq.json'), JSON.stringify(manifest));
   console.log(`  ok ${spec.name}: ${frames.length} frames over ${spec.dur}s  (url drift: ${urlNow.includes(spec.path.split('?')[0]) ? 'no' : 'YES -> '+urlNow})`);
 }
@@ -125,22 +127,28 @@ const SHOTS = [
       { at:2.55, run: p => p.mouse.up() },
       { at:2.70, run: p => M(p, gate.click.x + 320, gate.click.y + 240, 8) },
     ] },
-  { name:'locked', form:'desktop', path:'/dev/sk217-guest?role=producer', dur:4.2,
+  { name:'locked', form:'desktop', path:'/dev/sk217-guest?role=producer', dur:5.0, dsf:1.9, clip:true,
     rect: sk.rect,
-    steps: (() => {                        // real drag-scrub across Waveform50
+    steps: (() => {                        // real drag-scrub, then a real Jump to the 1:05 note
       const wy = sk.rect.y + sk.rect.h * 0.44;             // waveform band
       const x0 = sk.rect.x + sk.rect.w * 0.10;
       const x1 = sk.rect.x + sk.rect.w * 0.52;
       return [
         { at:0.15, run: p => M(p, x0, wy + 160, 6) },
-        { at:0.35, run: p => M(p, x0, wy, 14) },
-        { at:0.90, run: p => p.mouse.down() },
-        { at:1.00, run: p => M(p, sk.rect.x + sk.rect.w*0.22, wy, 10) },
-        { at:1.45, run: p => M(p, sk.rect.x + sk.rect.w*0.34, wy, 10) },
-        { at:1.90, run: p => M(p, sk.rect.x + sk.rect.w*0.44, wy, 10) },
-        { at:2.35, run: p => M(p, x1, wy, 10) },
-        { at:2.55, run: p => p.mouse.up() },
-        { at:3.10, run: p => M(p, sk.rect.x + sk.rect.w*0.82, sk.rect.y + sk.rect.h*0.35, 14) }, // toward notes rail
+        { at:0.30, run: p => M(p, x0, wy, 12) },
+        { at:0.70, run: p => p.mouse.down() },
+        { at:0.80, run: p => M(p, sk.rect.x + sk.rect.w*0.24, wy, 10) },
+        { at:1.20, run: p => M(p, sk.rect.x + sk.rect.w*0.38, wy, 10) },
+        { at:1.60, run: p => M(p, x1, wy, 10) },
+        { at:1.80, run: p => p.mouse.up() },
+        { at:2.30, run: async p => {       // hover the 1:05 note row, then its real Jump control
+            const row = p.locator('text=vocal up a touch').first();
+            if (await row.count()) await row.hover({ timeout: 3000 }).catch(()=>{});
+          } },
+        { at:3.00, run: async p => {
+            const jump = p.locator('button:has-text("Jump")').nth(1);
+            if (await jump.count()) await jump.click({ timeout: 3000 }).catch(()=>{});
+          } },
       ];
     })() },
   { name:'book', form:'mobile', path:'/dev/screens/artist-book', dur:3.0,
