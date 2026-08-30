@@ -1,5 +1,10 @@
 # Marketing teaser generator
 
+**Read `RESEARCH.md` first** — it holds the conversion research this film's
+structure follows (3-second pain hook, story arc, benefit-framed beats,
+oversized silent-safe type, measured crops, CTA last) and maps each finding
+to a decision in `scenes-v3.js` + `timeline-v3.json`.
+
 Renders the Skitza product teaser as an MP4 — in 16:9 and 9:16 — from **real
 screenshots of the running app**, not mockups. Every product beat is a capture
 of a `/dev/screens/<key>` gallery route, so the film stays honest: when the UI
@@ -37,27 +42,31 @@ pip install numpy imageio-ffmpeg
 # 1. Boot the app. No secrets needed: Clerk runs keyless in dev, the dev
 #    gallery gate only needs NODE_ENV=development, and the link-only access
 #    gate is inert while ACCESS_TOKEN is unset.
-cd apps/web && npx next dev --port 3000
+cd apps/web && NODE_ENV=development npx next dev --port 3000
 
-# 2. Capture the real screens (retina), at both form factors.
-node capture.mjs --form=desktop --screens=artist-store,clients-projects,...
-node capture.mjs --form=mobile  --screens=...
-node scrollcap.mjs        # gate2-review, scrolled so Confirm is in frame
+# 2. Capture. Screens, story-world rewrites, element rects and click targets
+#    all live in capture-v3.mjs (SHOTS + REWRITES). It waits out React
+#    hydration and re-applies the rewrites until they stick, then writes
+#    v3-desktop/, v3-mobile/ and v3-rects.json.
+node capture-v3.mjs
 
-# 3. Re-measure click targets if the UI moved.
-node targets.mjs && node targets-m.mjs
+# 3. Sound: synthesized UI cues (A-minor pentatonic) on the film's cue map.
+python3 sound.py timeline-v3.json sfx-v3.wav
 
-# 4. Sound: synthesized UI cues, pitched to A-minor pentatonic.
-python3 sound.py          # -> sfx.wav
+# 4. Render. --mblur=N renders N sub-frames per output frame and averages
+#    them in ffmpeg (tmix) — that is the motion blur.
+node render2.mjs --mode=wide --html=teaser-v3.html --timeline=timeline-v3.json --mblur=3 --out=v3-wide.mp4
+node render2.mjs --mode=tall --html=teaser-v3.html --timeline=timeline-v3.json --mblur=3 --out=v3-tall.mp4
 
-# 5. Render. --mblur=N renders N sub-frames per output frame and averages
-#    them in ffmpeg (tmix), which is what gives the motion its filmic feel.
-node render2.mjs --mode=wide --mblur=3 --out=real-wide.mp4
-node render2.mjs --mode=tall --mblur=3 --out=real-tall.mp4
+# 5. Mux picture and sound.
+ffmpeg -i v3-wide.mp4 -i sfx-v3.wav -c:v copy -c:a aac -b:a 192k -shortest teaser-16x9.mp4
 
-# 6. Mux picture and sound.
-ffmpeg -i real-wide.mp4 -i sfx.wav -c:v copy -c:a aac -b:a 192k -shortest out.mp4
+# Spot-check any moment without a full render:
+node check-v3.mjs 2.62 17.30          # frames at those times (add --tall for 9:16)
 ```
+
+The film sits on a **100 BPM grid** (0.6s per beat; every cut lands on it),
+so ask for / produce the music bed at 100 BPM and it locks to the edit.
 
 `--stills` renders one frame per beat instead of the full film — the fast way
 to check composition after an edit.
@@ -78,14 +87,14 @@ ffmpeg -i real-wide.mp4 -i sfx.wav -i music.wav \
 
 | File | Purpose |
 |---|---|
-| `teaser-real.html` | Stage, Skitza tokens, deterministic render engine |
-| `scenes-real.js` | The ten beats; `productBeat()` builds all product shots |
-| `timeline-real.json` | Beat timings, captions, and sound cue positions — shared by picture and sound so they cannot drift |
-| `render2.mjs` | Playwright → ffmpeg frame pipeline, motion blur, stills mode |
-| `capture.mjs` | Screenshots dev-gallery screens; strips dev chrome, substitutes unloadable images |
-| `scrollcap.mjs` | Captures `gate2-review` scrolled so its Confirm control is in frame on mobile |
-| `targets.mjs` / `targets-m.mjs` | Measure real click targets from the live DOM |
-| `sound.py` | Synthesizes the UI sound stem |
+| `RESEARCH.md` | The conversion research and the decision each finding produced |
+| `teaser-v3.html` | Stage, Skitza tokens, deterministic render engine |
+| `scenes-v3.js` | Hook / turn / four benefit beats / payoff / CTA; measured-crop cards, kinetic headlines |
+| `timeline-v3.json` | Beat timings and sound cues on the 100 BPM grid — picture and sound share it so they cannot drift |
+| `render2.mjs` | Playwright → ffmpeg frame pipeline, motion blur, stills mode, rect injection |
+| `capture-v3.mjs` | Captures the current-component gallery screens; enforces the one-story-world rewrites (hydration-safe), records element rects + click targets |
+| `check-v3.mjs` | Renders single frames at given times for review |
+| `sound.py` | Synthesizes the UI sound stem for a given timeline |
 | `fonts/` | Syne, Outfit, JetBrains Mono, subset locally so renders need no network |
 
 ## Caveats

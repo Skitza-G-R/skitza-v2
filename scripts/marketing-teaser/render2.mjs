@@ -15,6 +15,8 @@ const MB     = Math.max(1, parseInt(arg('mblur','1'),10));   // temporal supersa
 const STILLS = process.argv.includes('--stills');
 const OUT    = arg('out', path.join(DIR, `skitza-real-${MODE}.mp4`));
 const TL     = JSON.parse(readFileSync(path.join(DIR,TLF),'utf8'));
+let RECTS = {};
+try { RECTS = JSON.parse(readFileSync(path.join(DIR,'v3-rects.json'),'utf8')); } catch {}
 const FPS    = TL.fps;
 
 const W = MODE==='wide'?1920:1080, H = MODE==='wide'?1080:1920;
@@ -29,7 +31,7 @@ page.on('console', m=>{ if(m.type()==='error') errs.push('CONSOLE: '+m.text()); 
 
 await page.goto('file://'+path.join(DIR,HTML), { waitUntil:'load' });
 await page.evaluate(()=>document.fonts.ready);
-const meta = await page.evaluate(({tl,mode})=>{ window.__TIMELINE=tl; return window.__build(mode); }, {tl:TL, mode:MODE});
+const meta = await page.evaluate(({tl,mode,rects})=>{ window.__TIMELINE=tl; window.__RECTS=rects; return window.__build(mode); }, {tl:TL, mode:MODE, rects:RECTS});
 // captures are large PNGs — make sure every one is decoded before the first frame
 const imgs = await page.evaluate(async ()=>{
   const list=[...document.images];

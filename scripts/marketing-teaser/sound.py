@@ -101,6 +101,14 @@ def s_upload():
     trem = 0.82 + 0.18 * np.sin(2 * np.pi * 15 * x)
     return sine(up, x) * env_ar(x, 0.02, 6.5) * trem * 0.26
 
+def s_buzz():
+    """short phone-vibration burr — the hook's message spam"""
+    x = t(0.09)
+    tone = np.sign(np.sin(2 * np.pi * 165 * x)) * 0.5 + np.sin(2 * np.pi * 82 * x) * 0.4
+    tone = spectral(tone, hi=900)
+    return tone * env_ar(x, 0.004, 40) * 0.34
+
+
 def s_unlock():
     """two mechanical clicks, then the latch opens on a rising fifth"""
     out = np.zeros(int(0.62 * SR))
@@ -113,7 +121,7 @@ def s_unlock():
     return out * 0.62
 
 
-CUES = { 'tick':s_tick, 'click':s_click, 'pop':s_pop, 'confirm':s_confirm,
+CUES = { 'tick':s_tick, 'click':s_click, 'pop':s_pop, 'confirm':s_confirm, 'buzz':s_buzz,
          'success':s_success, 'whoosh':s_whoosh, 'impact':s_impact,
          'riser':s_riser, 'upload':s_upload, 'unlock':s_unlock }
 

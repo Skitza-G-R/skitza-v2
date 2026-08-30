@@ -66,7 +66,7 @@ html,body{background:#000;overflow:hidden}
   transform:translate(-50%,-50%);pointer-events:none;z-index:59}
 
 /* ---------- caption ---------- */
-#capwrap{position:absolute;z-index:70;display:flex;flex-direction:column;align-items:flex-start}
+#capwrap{display:none!important;position:absolute;z-index:70;display:flex;flex-direction:column;align-items:flex-start}
 #cap{font-family:Syne;font-weight:800;letter-spacing:-.025em;color:rgb(var(--fg-default));line-height:1.08}
 #capbar{background:rgb(var(--brand-primary));border-radius:999px;height:6px;flex:none}
 
@@ -75,7 +75,7 @@ html,body{background:#000;overflow:hidden}
   background-image:var(--grain);background-size:180px 180px;mix-blend-mode:multiply}
 #vig{position:absolute;inset:0;z-index:79;pointer-events:none;
   background:radial-gradient(120% 90% at 50% 45%,transparent 55%,rgb(60 44 20/.20) 100%)}
-#wipe{position:absolute;z-index:85;background:rgb(var(--brand-primary));pointer-events:none}
+#wipe{display:none!important;position:absolute;z-index:85;background:rgb(var(--brand-primary));pointer-events:none}
 #flash{position:absolute;inset:0;z-index:86;background:#fff;pointer-events:none;opacity:0}
 </style>
 
@@ -88,7 +88,7 @@ html,body{background:#000;overflow:hidden}
   <div id="vig"></div><div id="grain"></div><div id="wipe"></div><div id="flash"></div>
 </div>
 
-<script src="scenes-real.js"></script>
+<script src="scenes-v3.js"></script>
 <script>
 /* ============ deterministic engine ============
    Nothing here uses wall-clock time or CSS animation.
