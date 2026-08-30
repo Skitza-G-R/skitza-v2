@@ -130,7 +130,9 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
               {hasDue
                 ? `${String(summary.openCount)} payment${summary.openCount === 1 ? "" : "s"} open`
                 : canRecord
-                  ? "Nothing is due yet"
+                  ? `${String(summary.milestoneCount)} payment${
+                      summary.milestoneCount === 1 ? "" : "s"
+                    } waiting on approval`
                   : "Nothing is waiting for payment"}
             </p>
             <p className="mt-0.5 text-[12px] text-[rgb(var(--fg-muted))]">
@@ -146,7 +148,12 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
                   </span>
                 </>
               ) : canRecord ? (
-                "The last payment is waiting for your client's approval. Paid outside Skitza already? You can still record it."
+                <>
+                  {summary.milestoneByCurrency
+                    .map((total) => formatMoney(total.cents, total.currency))
+                    .join(" + ")}{" "}
+                  on hold until the work is approved. Paid outside Skitza? Record it here.
+                </>
               ) : (
                 "Got paid outside Skitza? Record it here once a payment is due."
               )}
@@ -159,7 +166,12 @@ export function PaymentsTab({ projectId, payments, purchases }: PaymentsTabProps
               onClick={() => {
                 openDialog(null);
               }}
-              className="sk-press inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-bold text-[rgb(var(--fg-on-brand))] shadow-[0_8px_20px_-8px_rgb(var(--brand-primary)/0.7)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+              className={[
+                "sk-press inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-5 text-[14px] font-bold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none",
+                hasDue
+                  ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))] shadow-[0_8px_20px_-8px_rgb(var(--brand-primary)/0.7)]"
+                  : "border border-[rgb(var(--border-subtle))] bg-transparent text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]",
+              ].join(" ")}
             >
               <HandCoins size={17} strokeWidth={2.2} aria-hidden />
               Record a payment

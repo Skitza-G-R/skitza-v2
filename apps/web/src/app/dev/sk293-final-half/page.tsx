@@ -185,7 +185,7 @@ export default function Sk293FinalHalfVisualCheck() {
       <Panel
         id="sold-through-skitza"
         title="1 · Sold through Skitza, client never approved"
-        note="The reported case. Half paid, the rest waiting on an approval that will never come in the app. The producer can now record it — and the tab says the money is not due rather than counting it as owed."
+        note="The reported case. Half paid, the rest waiting on an approval that will never come in the app. The producer can now record it, and the bar names what is holding the money rather than counting it as owed — so the button stays quiet."
         purchases={SOLD_THROUGH_SKITZA}
       />
       <Panel

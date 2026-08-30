@@ -122,6 +122,7 @@ describe("listRecordablePayments", () => {
         { currency: "ILS", cents: 30_000 },
         { currency: "USD", cents: 9_900 },
       ],
+      milestoneByCurrency: [],
     });
   });
 });
@@ -173,6 +174,7 @@ describe("the final half waiting on an approval that never came", () => {
       openCount: 0,
       milestoneCount: 1,
       remainingByCurrency: [],
+      milestoneByCurrency: [{ currency: "ILS", cents: 50_000 }],
     });
   });
 });

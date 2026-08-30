@@ -451,12 +451,6 @@ export function RecordPaymentDialog({
                   </div>
                 )}
 
-                {selected?.state === "needs_milestone" ? (
-                  <p className="mt-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-warning)/0.22)] bg-[rgb(var(--fg-warning)/0.08)] px-3.5 py-3 text-[12px] leading-relaxed text-[rgb(var(--fg-warning-text))]">
-                    This one normally waits for your client to approve the final version in Skitza.
-                    Recording it marks the work finished, so the payment stops waiting.
-                  </p>
-                ) : null}
               </section>
 
               {/* 2 — amount + date */}
@@ -513,7 +507,7 @@ export function RecordPaymentDialog({
                     {amountTouched && amountError
                       ? amountError
                       : selected
-                        ? `${formatMoney(selected.remainingCents, selected.currency)} left on this payment. Partial amounts are fine.`
+                        ? `${formatMoney(selected.remainingCents, selected.currency)} left. Partial amounts are fine.`
                         : "Pick a payment above first."}
                   </p>
                 </div>
@@ -713,7 +707,9 @@ export function RecordPaymentDialog({
                 </button>
               </div>
               <p className="mt-3 text-center text-[11.5px] text-[rgb(var(--fg-muted))] sm:text-right">
-                Your client will see this as a confirmed payment.
+                {selected?.state === "needs_milestone"
+                  ? "Also marks the work finished. Your client will see this as a confirmed payment."
+                  : "Your client will see this as a confirmed payment."}
               </p>
             </div>
           </form>

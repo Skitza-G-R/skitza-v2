@@ -113,19 +113,28 @@ export interface RecordableSummary {
   milestoneCount: number;
   /** Remaining cents per currency across open installments. */
   remainingByCurrency: readonly { currency: string; cents: number }[];
+  /** The same totals for halves held back by a missing approval. */
+  milestoneByCurrency: readonly { currency: string; cents: number }[];
+}
+
+function totalsByCurrency(
+  list: readonly RecordablePayment[],
+): { currency: string; cents: number }[] {
+  const totals = new Map<string, number>();
+  for (const payment of list) {
+    totals.set(payment.currency, (totals.get(payment.currency) ?? 0) + payment.remainingCents);
+  }
+  return [...totals.entries()].map(([currency, cents]) => ({ currency, cents }));
 }
 
 export function summarizeRecordable(list: readonly RecordablePayment[]): RecordableSummary {
-  const totals = new Map<string, number>();
-  let openCount = 0;
-  for (const payment of openPayments(list)) {
-    openCount += 1;
-    totals.set(payment.currency, (totals.get(payment.currency) ?? 0) + payment.remainingCents);
-  }
+  const open = openPayments(list);
+  const milestone = list.filter((payment) => payment.state === "needs_milestone");
   return {
-    openCount,
-    milestoneCount: list.filter((payment) => payment.state === "needs_milestone").length,
-    remainingByCurrency: [...totals.entries()].map(([currency, cents]) => ({ currency, cents })),
+    openCount: open.length,
+    milestoneCount: milestone.length,
+    remainingByCurrency: totalsByCurrency(open),
+    milestoneByCurrency: totalsByCurrency(milestone),
   };
 }
 

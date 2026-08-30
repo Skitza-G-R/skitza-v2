@@ -236,8 +236,10 @@ describe("PaymentsTab", () => {
     expect(screen.getByRole("button", { name: "Record a payment" })).not.toBeNull();
     // Not due, so it must not be counted as money the client owes today.
     expect(screen.queryByText(/payments? open/)).toBeNull();
-    expect(screen.getByText("Nothing is due yet")).not.toBeNull();
-    expect(screen.getByText(/You can still record it/)).not.toBeNull();
+    const headline = screen.getByText("1 payment waiting on approval");
+    expect(headline.parentElement?.textContent).toContain(
+      "₪250 on hold until the work is approved",
+    );
     // The standalone finished-work card stays imported-work-only.
     expect(screen.queryByTestId("request-final-payment")).toBeNull();
   });

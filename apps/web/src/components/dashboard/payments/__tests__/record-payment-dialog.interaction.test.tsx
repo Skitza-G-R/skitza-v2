@@ -195,7 +195,9 @@ describe("RecordPaymentDialog", () => {
     const radio = screen.getByRole("radio", { name: /Full production/ });
     expect(radio.getAttribute("aria-disabled")).toBeNull();
     expect(radio.getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByText(/Recording it marks the work finished/)).toBeTruthy();
+    expect(radio.textContent).toContain("Waiting on approval");
+    // The consequence belongs next to the button that causes it.
+    expect(screen.getByText(/Also marks the work finished/)).toBeTruthy();
 
     submitForm(submitButton(/Record ₪500/));
 
@@ -216,6 +218,7 @@ describe("RecordPaymentDialog", () => {
       expect(record).toHaveBeenCalledTimes(1);
     });
     expect(firstCallInput(record).markFinalMilestone).toBeUndefined();
+    expect(screen.queryByText(/Also marks the work finished/)).toBeNull();
   });
 
   it("keeps blocked installments unselectable with their reason", () => {
