@@ -131,26 +131,30 @@ export function PrivateOfferShareModal({
             </p>
           ) : null}
 
-          <div
-            className="mt-4 flex items-center gap-2 rounded-[10px] border px-3 py-2 text-[12.5px]"
-            style={{
-              borderColor: "rgb(var(--border-subtle))",
-              background: "rgb(var(--bg-elevated))",
-            }}
-          >
-            <Mail
-              size={14}
-              strokeWidth={2.2}
-              className="shrink-0 text-[rgb(var(--fg-muted))]"
-              aria-hidden
-            />
-            <span className="min-w-0 truncate text-[rgb(var(--fg-default))]">
-              {offer.recipientEmail}
-            </span>
-          </div>
-          <p className="mt-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-            The offer opens only for this verified email.
-          </p>
+          {offer.recipientEmail ? (
+            <>
+              <div
+                className="mt-4 flex items-center gap-2 rounded-[10px] border px-3 py-2 text-[12.5px]"
+                style={{
+                  borderColor: "rgb(var(--border-subtle))",
+                  background: "rgb(var(--bg-elevated))",
+                }}
+              >
+                <Mail
+                  size={14}
+                  strokeWidth={2.2}
+                  className="shrink-0 text-[rgb(var(--fg-muted))]"
+                  aria-hidden
+                />
+                <span className="min-w-0 truncate text-[rgb(var(--fg-default))]">
+                  {offer.recipientEmail}
+                </span>
+              </div>
+              <p className="mt-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                The offer opens only for this verified email.
+              </p>
+            </>
+          ) : null}
 
           <div className="mt-5 flex flex-col gap-2">
             <button

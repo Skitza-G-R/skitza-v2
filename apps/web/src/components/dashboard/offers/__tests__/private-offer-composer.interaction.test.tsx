@@ -355,7 +355,10 @@ describe("product-based Private Offer composer", () => {
       recipientEmail: "maya@example.test",
       emailDelivered: true,
     });
-    expect(mocks.toast).toHaveBeenLastCalledWith(
+    // With a share surface wired via onCreated, the popup reports the
+    // outcome — the send-success toast stays suppressed.
+    expect(mocks.toast).toHaveBeenLastCalledWith("Try again.", "error");
+    expect(mocks.toast).not.toHaveBeenCalledWith(
       "Private offer sent to maya@example.test.",
       "success",
     );

@@ -237,7 +237,9 @@ export function PrivateOfferManager({
               <p className="font-display min-w-0 text-sm font-extrabold break-words text-[rgb(var(--fg-default))]">
                 {offer.commercialDraft.productOrOfferName}
               </p>
-              <span className={statusChipClass(offer.status)}>{STATUS_LABEL[offer.status]}</span>
+              {offer.status !== "sent" ? (
+                <span className={statusChipClass(offer.status)}>{STATUS_LABEL[offer.status]}</span>
+              ) : null}
             </div>
             <p className="mt-1 text-xs break-words text-[rgb(var(--fg-muted))]">
               {offer.recipientName} · {offer.recipientEmail}
@@ -299,7 +301,7 @@ export function PrivateOfferManager({
                   onClick={() => {
                     cancelOffer(offer);
                   }}
-                  className="min-h-11 rounded-[var(--radius-lg)] border px-3 text-xs font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-50"
+                  className="sk-press min-h-11 rounded-[var(--radius-lg)] border px-3 text-xs font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-50"
                   style={{ borderColor: "rgb(var(--border-subtle))" }}
                 >
                   {pending && cancelingId === offer.id ? "Canceling…" : "Cancel offer"}
@@ -359,8 +361,8 @@ export function PrivateOfferManager({
             Private offers
           </h2>
           <p className="mt-1 max-w-[62ch] text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
-            Terms stay inside the invited artist’s verified account. Share the link on WhatsApp or
-            let the email notification do it.
+            Terms stay inside the invited artist’s verified account. Share the link on WhatsApp, or
+            let the email notification reach them.
           </p>
         </div>
         <PrivateOfferComposer
@@ -398,7 +400,7 @@ export function PrivateOfferManager({
               <button
                 type="button"
                 aria-expanded={historyOpen}
-                aria-controls="private-offer-history"
+                {...(historyOpen ? { "aria-controls": "private-offer-history" } : {})}
                 onClick={() => {
                   setHistoryOpen((current) => {
                     if (current) setHistoryVisible(PRIVATE_OFFER_HISTORY_PAGE_SIZE);

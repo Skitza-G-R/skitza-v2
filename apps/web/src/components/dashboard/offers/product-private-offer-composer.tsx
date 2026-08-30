@@ -288,7 +288,9 @@ export function ProductPrivateOfferComposer({
       }
       errorRef.current?.focus();
     });
-    return () => { window.cancelAnimationFrame(frame); };
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
   }, [error, invalidField, open, step]);
 
   function patch(next: Partial<PrivateOfferComposerDraft>) {
@@ -574,7 +576,9 @@ export function ProductPrivateOfferComposer({
           initialOffer?.recipientEmail,
           recipients,
         );
-        if (actionResult.data.emailDelivered === false) {
+        if (!editing && onCreated) {
+          // The share surface reports the outcome, including a failed email.
+        } else if (actionResult.data.emailDelivered === false) {
           toast("Offer saved, but the email wasn’t delivered.", "info");
         } else if (editing) {
           toast(
@@ -590,9 +594,7 @@ export function ProductPrivateOfferComposer({
           const sentRecipient = value.recipient.recipient;
           const knownRecipient =
             sentRecipient.kind === "existing"
-              ? editorRecipients.find(
-                  (recipient) => recipient.id === sentRecipient.clientContactId,
-                )
+              ? editorRecipients.find((recipient) => recipient.id === sentRecipient.clientContactId)
               : undefined;
           onCreated?.({
             offerId: actionResult.data.id,
@@ -601,7 +603,8 @@ export function ProductPrivateOfferComposer({
               sentRecipient.kind === "new"
                 ? sentRecipient.name
                 : (knownRecipient?.name ?? "your client"),
-            recipientEmail: recipientEmail || (sentRecipient.kind === "new" ? sentRecipient.email : ""),
+            recipientEmail:
+              recipientEmail || (sentRecipient.kind === "new" ? sentRecipient.email : ""),
             emailDelivered: actionResult.data.emailDelivered,
           });
         }
@@ -624,7 +627,9 @@ export function ProductPrivateOfferComposer({
     projectsStatus,
     ...(projectsError ? { projectsError } : {}),
     onRetryProjects: retryProjects,
-    onInteraction: () => { setDirty(true); },
+    onInteraction: () => {
+      setDirty(true);
+    },
   };
 
   let body: React.ReactNode;
@@ -649,7 +654,9 @@ export function ProductPrivateOfferComposer({
         invalidField={invalidField}
         patch={patch}
         customized={customized}
-        onCustomize={() => { enterCustomize(); }}
+        onCustomize={() => {
+          enterCustomize();
+        }}
         {...(editing ? { editProject: projectProps } : {})}
       />
     );
@@ -881,7 +888,9 @@ export function ProductPrivateOfferComposer({
                 <button
                   autoFocus
                   type="button"
-                  onClick={() => { setConfirmClose(false); }}
+                  onClick={() => {
+                    setConfirmClose(false);
+                  }}
                   className="sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[13px] font-semibold"
                 >
                   Keep editing
