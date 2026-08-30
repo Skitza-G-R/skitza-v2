@@ -1520,6 +1520,75 @@ describe("ActiveWorkImportWorkspace client restore", () => {
     expect(screen.queryByRole("list", { name: "Matching clients" })).toBeNull();
   });
 
+  // Tapping "Existing client" used to attach clients[0] — an arbitrary artist —
+  // and save it straight away, silently discarding anything already typed. One
+  // stray tap bound imported work to the wrong artist with no undo.
+  it("attaches nobody until the producer taps an artist", async () => {
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("ready-v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch(), {
+      existingClients: [
+        { id: "client-a", name: "Aaa client", email: "aaa@example.com" },
+        { id: "client-b", name: "Bbb client", email: "bbb@example.com" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Existing client" }));
+
+    const options = await screen.findByRole("list", { name: "Matching clients" });
+    expect(within(options).getAllByRole("button")).toHaveLength(2);
+    expect(mocks.saveRow).not.toHaveBeenCalled();
+
+    await user.click(within(options).getByRole("button", { name: /Bbb client/ }));
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalled();
+    });
+    expect(mocks.saveRow.mock.calls.at(-1)?.[0]).toMatchObject({
+      draftPayload: {
+        client: {
+          existingClientId: "client-b",
+          name: "Bbb client",
+          email: "bbb@example.com",
+        },
+      },
+    });
+  });
+
+  it("keeps typed new-client details when the producer looks at the artist list", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch(), {
+      existingClients: [{ id: "client-a", name: "Aaa client", email: "aaa@example.com" }],
+    });
+
+    expect(screen.getByLabelText<HTMLInputElement>("Client name").value).toBe("Maya");
+
+    await user.click(screen.getByRole("button", { name: "Existing client" }));
+    await user.click(screen.getByRole("button", { name: "New client" }));
+
+    expect(screen.getByLabelText<HTMLInputElement>("Client name").value).toBe("Maya");
+    expect(screen.getByLabelText<HTMLInputElement>("Email").value).toBe("maya@example.com");
+    expect(mocks.saveRow).not.toHaveBeenCalled();
+  });
+
+  it("closes the phone editor on Escape", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch());
+
+    const queue = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(queue).getAllByRole("button")[0] as HTMLElement);
+    const dialog = await screen.findByRole("dialog", { name: "Edit item 1" });
+
+    await user.type(dialog, "{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit item 1" })).toBeNull();
+    });
+  });
+
   it("requires an explicit restore for an archived email and then saves the existing client id", async () => {
     const draft = newImportDraft({
       defaultCurrency: "USD",
