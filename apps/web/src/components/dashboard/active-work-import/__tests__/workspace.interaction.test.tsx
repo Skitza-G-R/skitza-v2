@@ -245,6 +245,30 @@ function initialBatch(
   };
 }
 
+function existingClientBatch(): InitialImportBatch {
+  const batch = initialBatch();
+  const first = batch.rows[0];
+  if (!first) throw new Error("Test batch needs one row");
+  const draft = newImportDraft({
+    defaultCurrency: "USD",
+    defaultTaxMode: "tax_free",
+    defaultTaxRatePct: 0,
+  });
+  draft.client = {
+    existingClientId: "client-retry",
+    name: "Retry client",
+    email: "retry@example.com",
+    phone: "",
+  };
+  draft.project.title = "Blue Hour";
+  draft.agreement.service = "Production";
+  draft.agreement.subtotal = "1000";
+  return {
+    ...batch,
+    rows: [{ ...first, row: { ...first.row, draftPayload: toServerDraftPayload(draft) } }],
+  };
+}
+
 function detailedBatch(): InitialImportBatch {
   const batch = initialBatch(detailedAssessment());
   const first = batch.rows[0];
@@ -1436,6 +1460,66 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
 });
 
 describe("ActiveWorkImportWorkspace client restore", () => {
+  // The picker used to be a <datalist> combobox whose input reverted on blur.
+  // iOS Safari implements no datalist at all, so on a phone the producer could
+  // neither see the options nor keep anything they typed: the selected client,
+  // and the name shown for the item, were effectively frozen.
+  it("lets the producer switch to a different client from a tappable list", async () => {
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("ready-v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(existingClientBatch(), {
+      existingClients: [
+        { id: "client-retry", name: "Retry client", email: "retry@example.com" },
+        { id: "client-sent", name: "Sent client", email: "sent@example.com" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Change client" }));
+    await user.type(screen.getByRole("searchbox", { name: "Find client" }), "Sent");
+
+    const options = screen.getByRole("list", { name: "Matching clients" });
+    expect(within(options).getAllByRole("button")).toHaveLength(1);
+    await user.click(within(options).getByRole("button", { name: /Sent client/ }));
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalled();
+    });
+    expect(mocks.saveRow.mock.calls.at(-1)?.[0]).toMatchObject({
+      draftPayload: {
+        client: {
+          existingClientId: "client-sent",
+          name: "Sent client",
+          email: "sent@example.com",
+        },
+      },
+    });
+    expect(screen.queryByRole("list", { name: "Matching clients" })).toBeNull();
+    expect(screen.getByText("sent@example.com", { exact: false })).not.toBeNull();
+  });
+
+  it("keeps what the producer typed and says so when no client matches", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(existingClientBatch(), {
+      existingClients: [
+        { id: "client-retry", name: "Retry client", email: "retry@example.com" },
+        { id: "client-sent", name: "Sent client", email: "sent@example.com" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Change client" }));
+    const search = screen.getByRole("searchbox", { name: "Find client" });
+    await user.type(search, "Nobody");
+    // The old input wiped itself on blur, so a partial search never survived
+    // long enough to act on. Keep the text and explain the empty result.
+    fireEvent.blur(search);
+
+    expect((search as HTMLInputElement).value).toBe("Nobody");
+    expect(screen.getByText("No client matches Nobody.")).not.toBeNull();
+    expect(screen.queryByRole("list", { name: "Matching clients" })).toBeNull();
+  });
+
   it("requires an explicit restore for an archived email and then saves the existing client id", async () => {
     const draft = newImportDraft({
       defaultCurrency: "USD",

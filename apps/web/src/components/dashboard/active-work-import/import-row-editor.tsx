@@ -236,8 +236,17 @@ export function ImportRowEditor({
   const [paymentEditing, setPaymentEditing] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(() => draft.client.phone.trim().length > 0);
   const [existingClientSearch, setExistingClientSearch] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const editorRef = useRef<HTMLElement>(null);
   const selectedClient = clients.find((client) => client.id === draft.client.existingClientId);
+  const clientQuery = existingClientSearch.trim().toLowerCase();
+  const clientMatches = clientQuery
+    ? clients.filter(
+        (client) =>
+          client.name.toLowerCase().includes(clientQuery) ||
+          client.email.toLowerCase().includes(clientQuery),
+      )
+    : clients;
   const archivedSelected = archivedClients.find(
     (client) => client.id === draft.client.existingClientId,
   );
@@ -506,6 +515,7 @@ export function ImportRowEditor({
                     onClick={() => {
                       patchClient({ existingClientId: null, name: "", email: "", phone: "" });
                       setExistingClientSearch("");
+                      setClientPickerOpen(false);
                       setPhoneOpen(false);
                     }}
                     className={`sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[13px] font-bold ${
@@ -519,61 +529,116 @@ export function ImportRowEditor({
                 </div>
 
                 {draft.client.existingClientId && selectedClient ? (
+                  /* A native datalist combobox used to stand here. iOS Safari
+                     implements no such element, and the input reverted on blur,
+                     so on a phone the producer could neither see the options nor
+                     keep what they typed — the chosen client was stuck. Search
+                     plus a plain tappable list works on every browser. */
                   <div className="space-y-2">
-                    <FieldLabel htmlFor={`import-client-${row.operationKey}`}>
-                      Find client
-                    </FieldLabel>
-                    <div className="relative">
-                      <Search
-                        size={15}
-                        strokeWidth={2}
-                        aria-hidden
-                        className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[rgb(var(--fg-faint))]"
-                      />
-                      <input
-                        id={`import-client-${row.operationKey}`}
-                        type="search"
-                        list={`import-client-options-${row.operationKey}`}
-                        value={
-                          existingClientSearch || `${selectedClient.name} — ${selectedClient.email}`
-                        }
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setExistingClientSearch(value);
-                          const normalized = value.trim().toLowerCase();
-                          const client = clients.find(
-                            (option) =>
-                              `${option.name} — ${option.email}`.toLowerCase() === normalized ||
-                              option.email.toLowerCase() === normalized,
-                          );
-                          if (client) {
-                            patchClient({
-                              existingClientId: client.id,
-                              name: client.name,
-                              email: client.email,
-                              phone: "",
-                            });
-                            setExistingClientSearch("");
-                          }
-                        }}
-                        onBlur={() => {
+                    <p className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                      Client
+                    </p>
+                    <div className="flex min-w-0 items-center justify-between gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] py-2 pr-2 pl-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                          {selectedClient.name}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                          {selectedClient.email}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-expanded={clientPickerOpen}
+                        onClick={() => {
                           setExistingClientSearch("");
+                          setClientPickerOpen((open) => !open);
                         }}
-                        {...issueAttributes(
-                          visibleReasons,
-                          ["client.existingClientId", "client.email"],
-                          issueId("client-selection"),
-                        )}
-                        className={`${FIELD_CLASS} pl-9`}
-                      />
+                        className="sk-press min-h-11 shrink-0 rounded-[var(--radius-lg)] px-3 text-[12px] font-bold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))]"
+                      >
+                        {clientPickerOpen ? "Keep this client" : "Change client"}
+                      </button>
                     </div>
-                    <datalist id={`import-client-options-${row.operationKey}`}>
-                      {clients.map((client) => (
-                        <option key={client.id} value={`${client.name} — ${client.email}`} />
-                      ))}
-                    </datalist>
+
+                    {clientPickerOpen ? (
+                      <div className="space-y-2">
+                        <FieldLabel htmlFor={`import-client-${row.operationKey}`}>
+                          Find client
+                        </FieldLabel>
+                        <div className="relative">
+                          <Search
+                            size={15}
+                            strokeWidth={2}
+                            aria-hidden
+                            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[rgb(var(--fg-faint))]"
+                          />
+                          <input
+                            id={`import-client-${row.operationKey}`}
+                            type="search"
+                            autoComplete="off"
+                            value={existingClientSearch}
+                            onChange={(event) => {
+                              setExistingClientSearch(event.target.value);
+                            }}
+                            placeholder="Search by name or email"
+                            {...issueAttributes(
+                              visibleReasons,
+                              ["client.existingClientId", "client.email"],
+                              issueId("client-selection"),
+                            )}
+                            className={`${FIELD_CLASS} pl-9`}
+                          />
+                        </div>
+                        {clientMatches.length > 0 ? (
+                          <ul
+                            aria-label="Matching clients"
+                            className="max-h-56 min-w-0 divide-y divide-[rgb(var(--border-subtle))] overflow-x-hidden overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))]"
+                          >
+                            {clientMatches.map((client) => (
+                              <li key={client.id}>
+                                <button
+                                  type="button"
+                                  aria-current={
+                                    client.id === draft.client.existingClientId ? true : undefined
+                                  }
+                                  onClick={() => {
+                                    patchClient({
+                                      existingClientId: client.id,
+                                      name: client.name,
+                                      email: client.email,
+                                      phone: "",
+                                    });
+                                    setExistingClientSearch("");
+                                    setClientPickerOpen(false);
+                                  }}
+                                  className={`sk-press flex min-h-11 w-full min-w-0 flex-col items-start justify-center px-3 py-2 text-left hover:bg-[rgb(var(--bg-overlay))] ${
+                                    client.id === draft.client.existingClientId
+                                      ? "bg-[rgb(var(--brand-primary)/0.09)]"
+                                      : ""
+                                  }`}
+                                >
+                                  <span className="w-full truncate text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                                    {client.name}
+                                  </span>
+                                  <span className="w-full truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                                    {client.email}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                            {clientQuery
+                              ? `No client matches ${existingClientSearch.trim()}.`
+                              : "No clients to choose from yet."}
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+
                     <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                      {selectedClient.email} · Saved details and access stay unchanged.
+                      Saved details and access stay unchanged.
                     </p>
                     <FieldIssues
                       id={issueId("client-selection")}
