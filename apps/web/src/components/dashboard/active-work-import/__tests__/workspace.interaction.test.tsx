@@ -1573,6 +1573,33 @@ describe("ActiveWorkImportWorkspace client restore", () => {
     expect(mocks.saveRow).not.toHaveBeenCalled();
   });
 
+  it("keeps focus in the phone editor after picking an artist, so Escape still works", async () => {
+    installMatchMedia(true);
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("ready-v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch(), {
+      existingClients: [{ id: "client-a", name: "Aaa client", email: "aaa@example.com" }],
+    });
+
+    const queue = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(queue).getAllByRole("button")[0] as HTMLElement);
+    const dialog = await screen.findByRole("dialog", { name: "Edit item 1" });
+
+    await user.click(within(dialog).getByRole("button", { name: "Existing client" }));
+    const options = within(dialog).getByRole("list", { name: "Matching clients" });
+    // Picking removes the focused option button with the list. Focus must
+    // come back into the dialog, or its Escape and Tab handling goes dead.
+    await user.click(within(options).getByRole("button", { name: /Aaa client/ }));
+
+    expect(document.activeElement).toBe(dialog);
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit item 1" })).toBeNull();
+    });
+  });
+
   it("closes the phone editor on Escape", async () => {
     installMatchMedia(true);
     const user = userEvent.setup();

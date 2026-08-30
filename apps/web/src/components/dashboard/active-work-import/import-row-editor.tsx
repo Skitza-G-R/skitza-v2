@@ -631,6 +631,11 @@ export function ImportRowEditor({
                                     });
                                     setExistingClientSearch("");
                                     setClientPickerOpen(false);
+                                    // Picking unmounts this button with the
+                                    // list; without a new home, focus falls to
+                                    // <body> and the dialog's Escape and Tab
+                                    // handling goes dead.
+                                    editorRef.current?.focus();
                                   }}
                                   className={`sk-press flex min-h-11 w-full min-w-0 flex-col items-start justify-center px-3 py-2 text-left hover:bg-[rgb(var(--bg-overlay))] ${
                                     client.id === draft.client.existingClientId
