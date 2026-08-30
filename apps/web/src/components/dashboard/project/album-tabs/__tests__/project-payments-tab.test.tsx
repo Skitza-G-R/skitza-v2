@@ -193,6 +193,57 @@ describe("PaymentsTab", () => {
     expect(screen.getByText("Nothing is waiting for payment")).not.toBeNull();
   });
 
+  // SK-293 — the dead end: every payment settled except the 50/50 final half,
+  // which waits on an approval the client will never give. The tab used to say
+  // "Record it here once a payment is due" and offer no button at all.
+  it("still offers Record a payment when only the unapproved final half is left", () => {
+    render(
+      <PaymentsTab
+        projectId="project-1"
+        payments={paymentData()}
+        purchases={[
+          openPurchase({
+            installments: [
+              {
+                id: "i1",
+                position: 1,
+                amountCents: 25_000,
+                currency: "ILS",
+                dueAtIso: "2026-08-01T09:00:00.000Z",
+                status: "confirmed",
+                remainingCents: 0,
+                hasPendingProof: false,
+                payableNow: false,
+              },
+              {
+                id: "i2",
+                position: 2,
+                amountCents: 25_000,
+                currency: "ILS",
+                dueAtIso: null,
+                status: "not_paid",
+                remainingCents: 25_000,
+                hasPendingProof: false,
+                payableNow: false,
+                finalMilestonePending: true,
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Record a payment" })).not.toBeNull();
+    // Not due, so it must not be counted as money the client owes today.
+    expect(screen.queryByText(/payments? open/)).toBeNull();
+    const headline = screen.getByText("1 payment waiting on approval");
+    expect(headline.parentElement?.textContent).toContain(
+      "₪250 on hold until the work is approved",
+    );
+    // The standalone finished-work card stays imported-work-only.
+    expect(screen.queryByTestId("request-final-payment")).toBeNull();
+  });
+
   it("opens the form with a dropped receipt attached and rejects other files", () => {
     render(
       <PaymentsTab projectId="project-1" payments={paymentData()} purchases={[openPurchase()]} />,

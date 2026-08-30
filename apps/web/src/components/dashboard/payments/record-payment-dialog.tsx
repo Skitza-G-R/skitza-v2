@@ -85,8 +85,16 @@ function formatDueDate(value: string | null): string {
   return `Due ${new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(date)}`;
 }
 
-function blockedLabel(state: RecordablePaymentState): string | null {
-  return state === "open" ? null : BLOCKED_STATE_LABELS[state];
+function optionSubLabel(payment: RecordablePayment): string {
+  if (payment.state === "open") return formatDueDate(payment.dueAtIso);
+  // SK-293 — selectable, so it names what it is waiting for rather than
+  // reading as a refusal like the blocked states below.
+  if (payment.state === "needs_milestone") return "Waiting on approval";
+  return BLOCKED_STATE_LABELS[payment.state];
+}
+
+function isSelectable(state: RecordablePaymentState): boolean {
+  return state === "open" || state === "needs_milestone";
 }
 
 function draftFromFile(file: File): ReceiptDraft | { error: string } {
@@ -194,7 +202,7 @@ export function RecordPaymentDialog({
   const canSubmit = !busy && selected !== null && amountError === null && dateError === null;
 
   const selectPayment = (payment: RecordablePayment) => {
-    if (payment.state !== "open") return;
+    if (!isSelectable(payment.state)) return;
     setSelectedId(payment.id);
     if (!amountTouched) setAmount(centsToInput(payment.remainingCents));
     touchKey();
@@ -239,6 +247,7 @@ export function RecordPaymentDialog({
           fileName: receipt.file.name,
           contentType: receipt.contentType,
           sizeBytes: receipt.file.size,
+          ...(selected.state === "needs_milestone" ? { markFinalMilestone: true } : {}),
         });
         if (!presigned.ok) {
           toast(presigned.error, "error");
@@ -279,6 +288,7 @@ export function RecordPaymentDialog({
         paidAtIso,
         ...(noteValue ? { note: noteValue } : {}),
         ...(uploadToken ? { uploadToken } : {}),
+        ...(selected.state === "needs_milestone" ? { markFinalMilestone: true } : {}),
       });
       if (!result.ok) {
         toast(result.error, "error");
@@ -386,7 +396,7 @@ export function RecordPaymentDialog({
                   >
                     {payments.map((payment) => {
                       const isSelected = payment.id === selectedId;
-                      const blocked = payment.state !== "open";
+                      const blocked = !isSelectable(payment.state);
                       return (
                         <button
                           key={payment.id}
@@ -424,7 +434,7 @@ export function RecordPaymentDialog({
                             <span className="mt-0.5 block text-[11.5px] text-[rgb(var(--fg-muted))]">
                               Payment {payment.position} of {payment.installmentCount}
                               {" · "}
-                              {blockedLabel(payment.state) ?? formatDueDate(payment.dueAtIso)}
+                              {optionSubLabel(payment)}
                             </span>
                           </span>
                           <span className="text-right">
@@ -440,6 +450,7 @@ export function RecordPaymentDialog({
                     })}
                   </div>
                 )}
+
               </section>
 
               {/* 2 — amount + date */}
@@ -496,7 +507,7 @@ export function RecordPaymentDialog({
                     {amountTouched && amountError
                       ? amountError
                       : selected
-                        ? `${formatMoney(selected.remainingCents, selected.currency)} left on this payment. Partial amounts are fine.`
+                        ? `${formatMoney(selected.remainingCents, selected.currency)} left. Partial amounts are fine.`
                         : "Pick a payment above first."}
                   </p>
                 </div>
@@ -696,7 +707,9 @@ export function RecordPaymentDialog({
                 </button>
               </div>
               <p className="mt-3 text-center text-[11.5px] text-[rgb(var(--fg-muted))] sm:text-right">
-                Your client will see this as a confirmed payment.
+                {selected?.state === "needs_milestone"
+                  ? "Also marks the work finished. Your client will see this as a confirmed payment."
+                  : "Your client will see this as a confirmed payment."}
               </p>
             </div>
           </form>

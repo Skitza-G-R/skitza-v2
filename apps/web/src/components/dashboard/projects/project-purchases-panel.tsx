@@ -49,6 +49,12 @@ export interface ProjectPurchaseInstallment {
   hasPendingProof: boolean;
   /** True when the ledger lets money land on this installment right now. */
   payableNow: boolean;
+  /**
+   * SK-293 — the 50/50 final half is blocked only because its artist approval
+   * never happened in Skitza. The producer may still settle it, declaring the
+   * milestone as part of recording the money.
+   */
+  finalMilestonePending?: boolean | undefined;
 }
 
 export interface ProjectPurchaseSummary {

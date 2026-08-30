@@ -893,7 +893,10 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     await waitFor(() => {
       expect(mocks.saveRow).toHaveBeenCalledTimes(1);
     });
-    await user.click(screen.getByRole("button", { name: "Continue to payments" }));
+    // The footer button reads "Saving…" until the save's promise resolves and
+    // the row re-renders; on a slow runner that outlives the waitFor above, so
+    // wait for the label to come back rather than querying it synchronously.
+    await user.click(await screen.findByRole("button", { name: "Continue to payments" }));
     expect(await screen.findByRole("heading", { name: "Payments" })).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "02 Agreement" }));
