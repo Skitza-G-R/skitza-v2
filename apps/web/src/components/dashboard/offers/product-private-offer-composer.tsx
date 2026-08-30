@@ -56,6 +56,7 @@ import type { PrivateOfferTemplateProduct } from "./private-offer-template-types
 import type {
   PrivateOfferComposerInitialOffer,
   PrivateOfferComposerRecipient,
+  PrivateOfferSentSummary,
 } from "./private-offer-composer";
 
 type QuickStep = "recipient" | "price" | "review";
@@ -128,7 +129,7 @@ export function ProductPrivateOfferComposer({
   initialOffer?: PrivateOfferComposerInitialOffer;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  onCreated?: (offerId: string) => void;
+  onCreated?: (sent: PrivateOfferSentSummary) => void;
   trigger?: ReactElement | null;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
@@ -585,7 +586,25 @@ export function ProductPrivateOfferComposer({
         } else {
           toast(`Private offer sent to ${recipientEmail}.`, "success");
         }
-        if (!editing) onCreated?.(actionResult.data.id);
+        if (!editing) {
+          const sentRecipient = value.recipient.recipient;
+          const knownRecipient =
+            sentRecipient.kind === "existing"
+              ? editorRecipients.find(
+                  (recipient) => recipient.id === sentRecipient.clientContactId,
+                )
+              : undefined;
+          onCreated?.({
+            offerId: actionResult.data.id,
+            offerName: value.terms.name,
+            recipientName:
+              sentRecipient.kind === "new"
+                ? sentRecipient.name
+                : (knownRecipient?.name ?? "your client"),
+            recipientEmail: recipientEmail || (sentRecipient.kind === "new" ? sentRecipient.email : ""),
+            emailDelivered: actionResult.data.emailDelivered,
+          });
+        }
         finishAndClose();
         if (editing || !onCreated) router.refresh();
       } catch {

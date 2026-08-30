@@ -75,6 +75,15 @@ export type PrivateOfferComposerTargetPayload =
   | { kind: "new" }
   | { kind: "existing"; projectId: string };
 
+/** Everything the post-send share surface needs about a just-sent offer. */
+export type PrivateOfferSentSummary = Readonly<{
+  offerId: string;
+  offerName: string;
+  recipientName: string;
+  recipientEmail: string;
+  emailDelivered: boolean | null;
+}>;
+
 export interface PrivateOfferComposerInitialOffer {
   id: string;
   clientContactId: string;
@@ -119,7 +128,7 @@ interface PrivateOfferComposerCommonProps {
   defaultCurrency: PrivateOfferCurrency;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  onCreated?: (offerId: string) => void;
+  onCreated?: (sent: PrivateOfferSentSummary) => void;
   trigger?: ReactElement | null;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
@@ -819,7 +828,28 @@ function LegacyPrivateOfferComposer(props: PrivateOfferComposerProps) {
         } else {
           toast(editing ? "Private offer updated." : "Private offer sent.", "success");
         }
-        if (!editing) onCreated?.(actionResult.data.id);
+        if (!editing) {
+          const sentRecipient = value.recipient.recipient;
+          const knownRecipient =
+            sentRecipient.kind === "existing"
+              ? editorRecipients.find(
+                  (recipient) => recipient.id === sentRecipient.clientContactId,
+                )
+              : undefined;
+          onCreated?.({
+            offerId: actionResult.data.id,
+            offerName: value.terms.name,
+            recipientName:
+              sentRecipient.kind === "new"
+                ? sentRecipient.name
+                : (knownRecipient?.name ?? "your client"),
+            recipientEmail:
+              sentRecipient.kind === "new"
+                ? sentRecipient.email
+                : (knownRecipient?.email ?? ""),
+            emailDelivered: actionResult.data.emailDelivered,
+          });
+        }
         clearLogicalDraftAndClose();
         if (editing || !onCreated) router.refresh();
       } catch {

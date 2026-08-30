@@ -52,6 +52,7 @@ import {
   PrivateOfferComposer,
   type PrivateOfferComposerInitialOffer,
   type PrivateOfferComposerRecipient,
+  type PrivateOfferSentSummary,
   type PrivateOfferTemplateProduct,
 } from "../private-offer-composer";
 
@@ -137,7 +138,7 @@ function ControlledTemplateComposer({
   onOpenChange = vi.fn(),
 }: {
   templateProduct?: PrivateOfferTemplateProduct;
-  onCreated?: (offerId: string) => void;
+  onCreated?: (sent: PrivateOfferSentSummary) => void;
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -347,7 +348,13 @@ describe("product-based Private Offer composer", () => {
     });
     expect(mocks.sendOffer.mock.calls[0]?.[0].offerId).toBe(OFFER_ID);
     expect(mocks.sendOffer.mock.calls[1]?.[0].offerId).toBe(OFFER_ID);
-    expect(onCreated).toHaveBeenCalledWith(OFFER_ID);
+    expect(onCreated).toHaveBeenCalledWith({
+      offerId: OFFER_ID,
+      offerName: "Single production",
+      recipientName: "Maya Stone",
+      recipientEmail: "maya@example.test",
+      emailDelivered: true,
+    });
     expect(mocks.toast).toHaveBeenLastCalledWith(
       "Private offer sent to maya@example.test.",
       "success",
