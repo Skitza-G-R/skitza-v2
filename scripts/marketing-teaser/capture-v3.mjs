@@ -22,6 +22,9 @@ const REWRITES = [
   ['Noya[\\s\\u00A0]+Halevi', 'Maya Cohen'],
   ['Single[\\s\\u00A0]*[\\u2014\\u2013-][\\s\\u00A0]*start[\\s\\u00A0]+to[\\s\\u00A0]+finish', 'Premium single production'],
   ['development-ga[a-z]*', 'SK-7F3QK2'],
+  ['Totalit', 'Midnight Drive'],
+  ['Gili[\\s\\u00A0]+Asraf', 'Maya Cohen'],
+  ['האיש שהיה', 'Full production'],
 ];
 
 const RECEIPT = 'data:image/svg+xml;base64,' + Buffer.from(`
@@ -47,7 +50,7 @@ const SHOTS = {
   desktop: [
     { key:'artist-store',  anchors:['Northline Studio','Premium single production','View service'], click:'View service', pad:26 },
     { key:'clients-projects', anchors:['Projects','Maya Cohen'], pad:30 },
-    { key:'project-space', anchors:['Midnight Drive','Workflow'], pad:30 },
+    { key:'sk217-guest', path:'/dev/sk217-guest', anchors:['Midnight Drive','V2'], pad:30, padBottom:392 },
     { key:'gate2-review',  anchors:['Maya Cohen','Reject proof'], click:'Confirm ₪', pad:28, padBottom:240 },
     { key:'s9-partial',    anchors:['Remaining','Payment history'], pad:28 },
     { key:'s9-paid',       anchors:['Remaining','Payment history'], pad:28 },
@@ -71,8 +74,9 @@ for (const [form, shots] of Object.entries(SHOTS)){
 
   for (const shot of shots){
     let r = null;
+    const url = `http://localhost:3000${shot.path || `/dev/screens/${shot.key}`}`;
     for (let attempt = 1; attempt <= 3; attempt++){
-      try { r = await page.goto(`http://localhost:3000/dev/screens/${shot.key}`, { waitUntil:'networkidle', timeout:240000 }); break; }
+      try { r = await page.goto(url, { waitUntil:'networkidle', timeout:240000 }); break; }
       catch (e){ console.log(`  ~ ${form}/${shot.key} attempt ${attempt}: ${String(e.message).split('\n')[0].slice(0,70)}`);
                  await page.waitForTimeout(2500); }
     }

@@ -290,14 +290,14 @@ work(root, C){
     x: wide ? 150 : 90, y: wide ? 108 : 190, w: W - 240,
     size: wide ? 72 : 78, lines: wide ? ['Every version. Every session.', 'One place.'] : ['Every version.', 'Every session.', 'One place.'] });
 
-  const card = cropCard(root, C, { file:'v3-desktop/project-space.png', rectKey:'desktop/project-space',
-    box: wide ? { x:180, y:352, w:1560, h:660 } : { x:60, y:660, w:960, h:1020 }, radius:22 });
+  const card = cropCard(root, C, { file:'v3-desktop/sk217-guest.png', rectKey:'desktop/sk217-guest',
+    box: wide ? { x:280, y:340, w:1360, h:680 } : { x:60, y:640, w:960, h:1060 }, radius:22 });
 
   return (lt) => {
     head.update(lt, 0.15);
     if (card){
       card.enter(lt, 0.42, C);
-      card.dolly(lt - .42, 3.4, 1.07, '50%', '82%', C);
+      card.dolly(lt - .42, 3.4, 1.065, '50%', '64%', C);
     }
   };
 },
