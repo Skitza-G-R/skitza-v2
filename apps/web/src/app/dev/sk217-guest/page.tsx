@@ -20,11 +20,15 @@ function peaks(offset: number): number[] {
 export default async function Sk217GuestVisualCheck({
   searchParams,
 }: {
-  searchParams: Promise<{ download?: string }>;
+  searchParams: Promise<{ download?: string; role?: string }>;
 }) {
   if (!isDevGalleryAvailable()) notFound();
 
   const query = await searchParams;
+  // Optional role override so the same fixture can be checked as the
+  // producer or artist view (notes panel, actions). Default stays guest.
+  const role: "producer" | "artist" | "guest" =
+    query.role === "producer" ? "producer" : query.role === "artist" ? "artist" : "guest";
   const data: SongPageData = {
     track: {
       id: "33333333-3333-4333-8333-333333333333",
@@ -57,10 +61,10 @@ export default async function Sk217GuestVisualCheck({
           purchaseId: "55555555-5555-4555-8555-555555555555",
           permission: query.download === "1" ? "version_override" : "payment_required",
           fullyPaid: false,
-          remainingCents: 1_000,
+          remainingCents: 120_000,
           currency: "ILS",
           overdue: false,
-          totalCents: 1_000,
+          totalCents: 240_000,
         },
       },
       {
@@ -79,14 +83,45 @@ export default async function Sk217GuestVisualCheck({
           purchaseId: "55555555-5555-4555-8555-555555555555",
           permission: "payment_required",
           fullyPaid: false,
-          remainingCents: 1_000,
+          remainingCents: 120_000,
           currency: "ILS",
           overdue: false,
-          totalCents: 1_000,
+          totalCents: 240_000,
         },
       },
     ],
-    comments: [],
+    comments: [
+      {
+        id: "66666666-6666-4666-8666-000000000001",
+        versionId: VERSION_ONE,
+        timeMs: 32_000,
+        body: "love the new intro — this drop hits",
+        fromProducer: false,
+        authorName: "Maya Cohen",
+        createdAtIso: "2026-08-09T14:05:00.000Z",
+        resolvedAtIso: null,
+      },
+      {
+        id: "66666666-6666-4666-8666-000000000002",
+        versionId: VERSION_ONE,
+        timeMs: 65_000,
+        body: "vocal up a touch right here?",
+        fromProducer: false,
+        authorName: "Maya Cohen",
+        createdAtIso: "2026-08-09T14:06:30.000Z",
+        resolvedAtIso: null,
+      },
+      {
+        id: "66666666-6666-4666-8666-000000000003",
+        versionId: VERSION_ONE,
+        timeMs: 108_000,
+        body: "raised it +1dB — tell me if this is the one",
+        fromProducer: true,
+        authorName: "Northline Studio",
+        createdAtIso: "2026-08-09T16:40:00.000Z",
+        resolvedAtIso: null,
+      },
+    ],
     selectedVersionId: VERSION_ONE,
   };
 
@@ -113,7 +148,7 @@ export default async function Sk217GuestVisualCheck({
           </div>
         </header>
         <div id="main-content">
-          <SongPage data={data} role="guest" actions={{}} />
+          <SongPage data={data} role={role} actions={{}} />
         </div>
       </div>
     </RuntimeStatePreviewProvider>
