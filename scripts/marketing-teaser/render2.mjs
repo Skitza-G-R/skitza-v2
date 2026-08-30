@@ -30,7 +30,14 @@ page.on('pageerror', e=>errs.push('PAGEERROR: '+e.message));
 page.on('console', m=>{ if(m.type()==='error') errs.push('CONSOLE: '+m.text()); });
 
 await page.goto('file://'+path.join(DIR,HTML), { waitUntil:'load' });
-await page.evaluate(()=>document.fonts.ready);
+await page.evaluate(async () => {
+  await Promise.all([
+    document.fonts.load('800 64px Syne'), document.fonts.load('700 64px Syne'),
+    document.fonts.load('500 32px Outfit'), document.fonts.load('600 32px Outfit'),
+    document.fonts.load('500 30px JBMono'), document.fonts.load('700 30px JBMono'),
+  ]);
+  await document.fonts.ready;
+});
 const meta = await page.evaluate(({tl,mode,rects})=>{ window.__TIMELINE=tl; window.__RECTS=rects; return window.__build(mode); }, {tl:TL, mode:MODE, rects:RECTS});
 // captures are large PNGs — make sure every one is decoded before the first frame
 const imgs = await page.evaluate(async ()=>{

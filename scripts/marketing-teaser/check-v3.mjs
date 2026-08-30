@@ -11,7 +11,14 @@ const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium-1194
 const p = await b.newPage({ viewport:{width:W,height:H}, deviceScaleFactor:1 });
 const errs=[]; p.on('pageerror',e=>errs.push(e.message));
 await p.goto('file://'+path.join(DIR,'teaser-v3.html'),{waitUntil:'load'});
-await p.evaluate(()=>document.fonts.ready);
+await p.evaluate(async () => {
+  await Promise.all([
+    document.fonts.load('800 64px Syne'), document.fonts.load('700 64px Syne'),
+    document.fonts.load('500 32px Outfit'), document.fonts.load('600 32px Outfit'),
+    document.fonts.load('500 30px JBMono'), document.fonts.load('700 30px JBMono'),
+  ]);
+  await document.fonts.ready;
+});
 await p.evaluate(({tl,mode,rects})=>{window.__TIMELINE=tl;window.__RECTS=rects;window.__build(mode);},{tl:TL,mode:MODE,rects:RECTS});
 await p.evaluate(async()=>{await Promise.all([...document.images].map(i=>i.decode().catch(()=>{})));});
 const times = process.argv.filter(a=>/^[0-9.]+$/.test(a)).map(Number);

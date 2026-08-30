@@ -23,6 +23,7 @@ const REWRITES = [
   ['Single[\\s\\u00A0]*[\\u2014\\u2013-][\\s\\u00A0]*start[\\s\\u00A0]+to[\\s\\u00A0]+finish', 'Premium single production'],
   ['development-ga[a-z]*', 'SK-7F3QK2'],
   ['Totalit', 'Midnight Drive'],
+  ['Three-song[\\s\\u00A0]+production', 'Premium single production'],
   ['Gili[\\s\\u00A0]+Asraf', 'Maya Cohen'],
   ['האיש שהיה', 'Full production'],
 ];
@@ -50,7 +51,7 @@ const SHOTS = {
   desktop: [
     { key:'artist-store',  anchors:['Northline Studio','Premium single production','View service'], click:'View service', pad:26 },
     { key:'clients-projects', anchors:['Projects','Maya Cohen'], pad:30 },
-    { key:'sk217-guest', path:'/dev/sk217-guest', anchors:['Midnight Drive','V2'], pad:30, padBottom:392 },
+    { key:'sk217-guest', path:'/dev/sk217-guest?role=producer', anchors:['Midnight Drive','V2','Notes','vocal up'], pad:30, padBottom:60 },
     { key:'gate2-review',  anchors:['Maya Cohen','Reject proof'], click:'Confirm ₪', pad:28, padBottom:240 },
     { key:'s9-partial',    anchors:['Remaining','Payment history'], pad:28 },
     { key:'s9-paid',       anchors:['Remaining','Payment history'], pad:28 },
@@ -58,6 +59,8 @@ const SHOTS = {
   mobile: [
     { key:'s4', click:'Accept exact agreement' },
     { key:'artist-store', click:'View service' },
+    { key:'artist-book' },
+    { key:'s9-partial', click:'Pay & upload proof' },
   ],
 };
 
