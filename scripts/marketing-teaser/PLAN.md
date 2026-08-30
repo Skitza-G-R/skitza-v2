@@ -1,5 +1,12 @@
 # v5 — "The Money Cut" production plan
 
+> **Status: implemented.** `record-v5.mjs` + `scenes-v5.js` + `teaser-v5.html` +
+> `timeline-v5.json` / `timeline-v5-30.json`. Defaults taken on the owner items:
+> no b-roll (slots collapsed), no proof beat, 100 BPM. One correction from the
+> plan: the cutdown's originally listed beat sum was wrong; the shipped cutdown
+> is hook 3.6 + turn 4.2 + book 2.4 + agree 2.4 + verify 5.4 + payoff 6.0 +
+> CTA 6.0 = exactly 30.0s, and the master lands at 40.8s.
+
 Everything from the critique (see the end of RESEARCH.md history / session notes),
 turned into one build. Thesis: the film currently explains seven things politely;
 v5 makes **one promise — "you get paid"** — and uses everything else as evidence.

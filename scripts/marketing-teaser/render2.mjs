@@ -17,6 +17,14 @@ const OUT    = arg('out', path.join(DIR, `skitza-real-${MODE}.mp4`));
 const TL     = JSON.parse(readFileSync(path.join(DIR,TLF),'utf8'));
 let RECTS = {};
 try { RECTS = JSON.parse(readFileSync(path.join(DIR,'v3-rects.json'),'utf8')); } catch {}
+let SEQS = {};
+try {
+  const { readdirSync } = await import('node:fs');
+  for (const d of readdirSync(path.join(DIR,'seq'), { withFileTypes:true })){
+    if (!d.isDirectory()) continue;
+    try { SEQS[d.name] = JSON.parse(readFileSync(path.join(DIR,'seq',d.name,'seq.json'),'utf8')); } catch {}
+  }
+} catch {}
 const FPS    = TL.fps;
 
 const W = MODE==='wide'?1920:1080, H = MODE==='wide'?1080:1920;
@@ -38,7 +46,20 @@ await page.evaluate(async () => {
   ]);
   await document.fonts.ready;
 });
-const meta = await page.evaluate(({tl,mode,rects})=>{ window.__TIMELINE=tl; window.__RECTS=rects; return window.__build(mode); }, {tl:TL, mode:MODE, rects:RECTS});
+const meta = await page.evaluate(({tl,mode,rects,seqs})=>{ window.__TIMELINE=tl; window.__RECTS=rects; window.__SEQS=seqs; return window.__build(mode); }, {tl:TL, mode:MODE, rects:RECTS, seqs:SEQS});
+// decode every sequence frame up front so src swaps never flash
+await page.evaluate(async () => {
+  const seqs = window.__SEQS || {};
+  const jobs = [];
+  for (const [name, m] of Object.entries(seqs)){
+    for (const fr of m.frames){
+      const im = new Image();
+      im.src = `seq/${name}/${fr.f}`;
+      jobs.push(im.decode().catch(()=>{}));
+    }
+  }
+  await Promise.all(jobs);
+});
 // captures are large PNGs — make sure every one is decoded before the first frame
 const imgs = await page.evaluate(async ()=>{
   const list=[...document.images];

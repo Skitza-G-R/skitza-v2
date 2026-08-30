@@ -9,3 +9,4 @@ look-*.png
 *.mp4
 *.wav
 node_modules/
+seq/
