@@ -236,8 +236,20 @@ export function ImportRowEditor({
   const [paymentEditing, setPaymentEditing] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(() => draft.client.phone.trim().length > 0);
   const [existingClientSearch, setExistingClientSearch] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const editorRef = useRef<HTMLElement>(null);
   const selectedClient = clients.find((client) => client.id === draft.client.existingClientId);
+  // "Existing client" is a mode, not an assignment: entering it opens the
+  // picker and attaches nobody until the producer taps a name.
+  const existingMode = draft.client.existingClientId !== null || clientPickerOpen;
+  const clientQuery = existingClientSearch.trim().toLowerCase();
+  const clientMatches = clientQuery
+    ? clients.filter(
+        (client) =>
+          client.name.toLowerCase().includes(clientQuery) ||
+          client.email.toLowerCase().includes(clientQuery),
+      )
+    : clients;
   const archivedSelected = archivedClients.find(
     (client) => client.id === draft.client.existingClientId,
   );
@@ -323,8 +335,15 @@ export function ImportRowEditor({
     revealStep(firstProblemStep);
   }
 
-  function trapMobileTab(event: React.KeyboardEvent<HTMLElement>) {
-    if (!mobile || event.key !== "Tab") return;
+  function handleMobileKeys(event: React.KeyboardEvent<HTMLElement>) {
+    if (!mobile) return;
+    // The phone editor is an aria-modal dialog, so Escape has to dismiss it.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onBack();
+      return;
+    }
+    if (event.key !== "Tab") return;
     const focusable = keyboardFocusableElements(event.currentTarget);
     const first = focusable[0];
     const last = focusable.at(-1);
@@ -355,7 +374,7 @@ export function ImportRowEditor({
       aria-modal={mobile ? true : undefined}
       aria-label={`Edit item ${String(index + 1)}`}
       tabIndex={mobile ? -1 : undefined}
-      onKeyDownCapture={trapMobileTab}
+      onKeyDownCapture={handleMobileKeys}
     >
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-4 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -479,21 +498,17 @@ export function ImportRowEditor({
                 >
                   <button
                     type="button"
-                    aria-pressed={draft.client.existingClientId !== null}
+                    aria-pressed={existingMode}
                     onClick={() => {
-                      const first = selectedClient ?? clients[0];
-                      if (first) {
-                        patchClient({
-                          existingClientId: first.id,
-                          name: first.name,
-                          email: first.email,
-                          phone: "",
-                        });
-                      }
+                      // Never attach clients[0] on the producer's behalf: an
+                      // arbitrary artist saved by one stray tap is worse than
+                      // an unfinished step.
+                      setExistingClientSearch("");
+                      setClientPickerOpen(true);
                     }}
                     disabled={clients.length === 0}
                     className={`sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[13px] font-bold ${
-                      draft.client.existingClientId
+                      existingMode
                         ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
                         : "text-[rgb(var(--fg-muted))]"
                     }`}
@@ -502,14 +517,19 @@ export function ImportRowEditor({
                   </button>
                   <button
                     type="button"
-                    aria-pressed={draft.client.existingClientId === null}
+                    aria-pressed={!existingMode}
                     onClick={() => {
-                      patchClient({ existingClientId: null, name: "", email: "", phone: "" });
                       setExistingClientSearch("");
-                      setPhoneOpen(false);
+                      setClientPickerOpen(false);
+                      // Only a real selection needs clearing. Details the
+                      // producer typed survive a look at the artist list.
+                      if (draft.client.existingClientId !== null) {
+                        patchClient({ existingClientId: null, name: "", email: "", phone: "" });
+                        setPhoneOpen(false);
+                      }
                     }}
                     className={`sk-press min-h-11 rounded-[var(--radius-lg)] px-3 text-[13px] font-bold ${
-                      draft.client.existingClientId === null
+                      !existingMode
                         ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
                         : "text-[rgb(var(--fg-muted))]"
                     }`}
@@ -518,70 +538,7 @@ export function ImportRowEditor({
                   </button>
                 </div>
 
-                {draft.client.existingClientId && selectedClient ? (
-                  <div className="space-y-2">
-                    <FieldLabel htmlFor={`import-client-${row.operationKey}`}>
-                      Find client
-                    </FieldLabel>
-                    <div className="relative">
-                      <Search
-                        size={15}
-                        strokeWidth={2}
-                        aria-hidden
-                        className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[rgb(var(--fg-faint))]"
-                      />
-                      <input
-                        id={`import-client-${row.operationKey}`}
-                        type="search"
-                        list={`import-client-options-${row.operationKey}`}
-                        value={
-                          existingClientSearch || `${selectedClient.name} — ${selectedClient.email}`
-                        }
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setExistingClientSearch(value);
-                          const normalized = value.trim().toLowerCase();
-                          const client = clients.find(
-                            (option) =>
-                              `${option.name} — ${option.email}`.toLowerCase() === normalized ||
-                              option.email.toLowerCase() === normalized,
-                          );
-                          if (client) {
-                            patchClient({
-                              existingClientId: client.id,
-                              name: client.name,
-                              email: client.email,
-                              phone: "",
-                            });
-                            setExistingClientSearch("");
-                          }
-                        }}
-                        onBlur={() => {
-                          setExistingClientSearch("");
-                        }}
-                        {...issueAttributes(
-                          visibleReasons,
-                          ["client.existingClientId", "client.email"],
-                          issueId("client-selection"),
-                        )}
-                        className={`${FIELD_CLASS} pl-9`}
-                      />
-                    </div>
-                    <datalist id={`import-client-options-${row.operationKey}`}>
-                      {clients.map((client) => (
-                        <option key={client.id} value={`${client.name} — ${client.email}`} />
-                      ))}
-                    </datalist>
-                    <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                      {selectedClient.email} · Saved details and access stay unchanged.
-                    </p>
-                    <FieldIssues
-                      id={issueId("client-selection")}
-                      reasons={visibleReasons}
-                      fields={["client.existingClientId", "client.email"]}
-                    />
-                  </div>
-                ) : archivedSelected ? (
+                {archivedSelected ? (
                   <div className="border-l-2 border-[rgb(var(--fg-warning))] pl-3">
                     <p className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
                       {archivedSelected.name}
@@ -589,6 +546,133 @@ export function ImportRowEditor({
                     <p className="mt-0.5 text-[12px] text-[rgb(var(--fg-muted))]">
                       {archivedSelected.email}
                     </p>
+                  </div>
+                ) : existingMode ? (
+                  /* A native datalist combobox used to stand here. iOS Safari
+                     implements no such element, and the input reverted on blur,
+                     so on a phone the producer could neither see the options nor
+                     keep what they typed — the chosen client was stuck. Search
+                     plus a plain tappable list works on every browser. */
+                  <div className="space-y-2">
+                    <p className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                      Client
+                    </p>
+                    {selectedClient ? (
+                      <div className="flex min-w-0 items-center justify-between gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] py-2 pr-2 pl-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                            {selectedClient.name}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                            {selectedClient.email}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-expanded={clientPickerOpen}
+                          onClick={() => {
+                            setExistingClientSearch("");
+                            setClientPickerOpen((open) => !open);
+                          }}
+                          className="sk-press min-h-11 shrink-0 rounded-[var(--radius-lg)] px-3 text-[12px] font-bold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))]"
+                        >
+                          {clientPickerOpen ? "Keep this client" : "Change client"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {clientPickerOpen || !selectedClient ? (
+                      <div className="space-y-2">
+                        <FieldLabel htmlFor={`import-client-${row.operationKey}`}>
+                          Find client
+                        </FieldLabel>
+                        <div className="relative">
+                          <Search
+                            size={15}
+                            strokeWidth={2}
+                            aria-hidden
+                            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[rgb(var(--fg-faint))]"
+                          />
+                          <input
+                            id={`import-client-${row.operationKey}`}
+                            type="search"
+                            autoComplete="off"
+                            value={existingClientSearch}
+                            onChange={(event) => {
+                              setExistingClientSearch(event.target.value);
+                            }}
+                            placeholder="Search by name or email"
+                            {...issueAttributes(
+                              visibleReasons,
+                              ["client.existingClientId", "client.email"],
+                              issueId("client-selection"),
+                            )}
+                            className={`${FIELD_CLASS} pl-9`}
+                          />
+                        </div>
+                        {clientMatches.length > 0 ? (
+                          <ul
+                            aria-label="Matching clients"
+                            className="max-h-56 min-w-0 divide-y divide-[rgb(var(--border-subtle))] overflow-x-hidden overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))]"
+                          >
+                            {clientMatches.map((client) => (
+                              <li key={client.id}>
+                                <button
+                                  type="button"
+                                  aria-current={
+                                    client.id === draft.client.existingClientId ? true : undefined
+                                  }
+                                  onClick={() => {
+                                    patchClient({
+                                      existingClientId: client.id,
+                                      name: client.name,
+                                      email: client.email,
+                                      phone: "",
+                                    });
+                                    setExistingClientSearch("");
+                                    setClientPickerOpen(false);
+                                    // Picking unmounts this button with the
+                                    // list; without a new home, focus falls to
+                                    // <body> and the dialog's Escape and Tab
+                                    // handling goes dead.
+                                    editorRef.current?.focus();
+                                  }}
+                                  className={`sk-press flex min-h-11 w-full min-w-0 flex-col items-start justify-center px-3 py-2 text-left hover:bg-[rgb(var(--bg-overlay))] ${
+                                    client.id === draft.client.existingClientId
+                                      ? "bg-[rgb(var(--brand-primary)/0.09)]"
+                                      : ""
+                                  }`}
+                                >
+                                  <span className="w-full truncate text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                                    {client.name}
+                                  </span>
+                                  <span className="w-full truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                                    {client.email}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                            {clientQuery
+                              ? `No client matches ${existingClientSearch.trim()}.`
+                              : "No clients to choose from yet."}
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+
+                    <p className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                      {selectedClient
+                        ? "Saved details and access stay unchanged."
+                        : "Tap an artist to attach them. Nothing is attached until you choose."}
+                    </p>
+                    <FieldIssues
+                      id={issueId("client-selection")}
+                      reasons={visibleReasons}
+                      fields={["client.existingClientId", "client.email"]}
+                    />
                   </div>
                 ) : (
                   <div className="grid min-w-0 gap-4 sm:grid-cols-2">

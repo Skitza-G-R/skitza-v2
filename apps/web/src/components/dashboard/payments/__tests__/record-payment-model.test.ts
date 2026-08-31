@@ -6,6 +6,7 @@ import type {
 } from "~/components/dashboard/projects/project-purchases-panel";
 
 import {
+  amountHint,
   composePaymentNote,
   defaultPaymentSelection,
   listRecordablePayments,
@@ -195,6 +196,28 @@ describe("amount handling", () => {
     expect(validateAmount(50_001, 50_000, "ILS")).toMatch(/more than what is left/i);
     expect(validateAmount(50_000, 50_000, "ILS")).toBeNull();
     expect(validateAmount(1, 50_000, "ILS")).toBeNull();
+  });
+
+  // SK-296 — the producer types a number; the line under the field answers
+  // "what is left?" instead of repeating the balance they started from.
+  it("subtracts the typed amount and says what is left after it", () => {
+    expect(amountHint(47_200, 472_000, "ILS")).toEqual({
+      tone: "remainder",
+      text: "₪4,248 left after this.",
+    });
+    expect(amountHint(472_000, 472_000, "ILS")).toEqual({
+      tone: "settled",
+      text: "Nothing left after this.",
+    });
+  });
+
+  it("keeps the orienting balance while there is no usable amount to subtract", () => {
+    const prompt = { tone: "prompt", text: "₪4,720 left. Partial amounts are fine." };
+    // Untouched field, empty field, or something that is not an amount yet.
+    expect(amountHint(null, 472_000, "ILS")).toEqual(prompt);
+    expect(amountHint(0, 472_000, "ILS")).toEqual(prompt);
+    // validateAmount owns the over-payment message, so the hint stays quiet.
+    expect(amountHint(472_001, 472_000, "ILS")).toEqual(prompt);
   });
 });
 

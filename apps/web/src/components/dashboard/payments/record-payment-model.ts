@@ -151,6 +151,37 @@ export function centsToInput(cents: number): string {
   return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 }
 
+export type AmountHintTone = "prompt" | "remainder" | "settled";
+
+export interface AmountHint {
+  tone: AmountHintTone;
+  text: string;
+}
+
+/**
+ * The line under the amount field. Until a usable amount is typed it orients
+ * the producer with the balance they are recording against; from the first
+ * digit on it answers the question they actually have — what this payment
+ * leaves behind. `cents` is null while the field is untouched, empty, or not
+ * yet a plain amount, and an over-payment falls back to the prompt because
+ * `validateAmount` already owns that message.
+ */
+export function amountHint(
+  cents: number | null,
+  remainingCents: number,
+  currency: string,
+): AmountHint {
+  if (cents === null || cents <= 0 || cents > remainingCents) {
+    return {
+      tone: "prompt",
+      text: `${formatMoney(remainingCents, currency)} left. Partial amounts are fine.`,
+    };
+  }
+  const afterCents = remainingCents - cents;
+  if (afterCents === 0) return { tone: "settled", text: "Nothing left after this." };
+  return { tone: "remainder", text: `${formatMoney(afterCents, currency)} left after this.` };
+}
+
 export function validateAmount(
   cents: number | null,
   remainingCents: number,

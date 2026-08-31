@@ -2084,13 +2084,16 @@
 }
 
 @media (max-width: 1023px) {
-  /* Focused Artist flows own a fixed inner screen. During ordinary iOS
-   * rubber-band gestures, visualViewport.offsetTop is transient and must not
-   * move that screen with the finger. Keyboard-open flows keep the measured
-   * offset so focused fields remain inside the visual viewport. */
-  body:not([data-sk-keyboard="open"])
-    main#main-content[data-artist-shell-mode="focused"]
-    .sk-native-screen {
+  /* Every fixed inner screen pins itself to --sk-viewport-offset-top so the
+   * keyboard cannot push it out of the visual viewport. During ordinary iOS
+   * rubber-band gestures visualViewport.offsetTop is transient, and a screen
+   * that follows it slides with the finger — scrolling down makes the surface
+   * jump back up. Anchor the offset while the keyboard is closed. This covers
+   * every .sk-native-screen rather than only the focused Artist shell, so the
+   * producer active-work import editor and any later full-screen surface
+   * inherit the fix instead of rediscovering the bug. Keyboard-open flows keep
+   * the measured offset so focused fields stay inside the visual viewport. */
+  body:not([data-sk-keyboard="open"]) .sk-native-screen {
     top: 0;
   }
 

@@ -10,6 +10,10 @@ const agreementSource = readFileSync(join(here, "..", "agreement-editor.tsx"), "
 const paymentSource = readFileSync(join(here, "..", "payment-history-editor.tsx"), "utf8");
 const reviewSource = readFileSync(join(here, "..", "review-and-finish.tsx"), "utf8");
 const workspaceSource = readFileSync(join(here, "..", "active-work-import-workspace.tsx"), "utf8");
+const globalsCss = readFileSync(
+  join(here, "..", "..", "..", "..", "app", "globals.css"),
+  "utf8",
+);
 
 describe.each([360, 390])("active-work import at %ipx", (width) => {
   it("keeps the mobile editor above the producer bottom navigation", () => {
@@ -23,6 +27,33 @@ describe.each([360, 390])("active-work import at %ipx", (width) => {
     expect(workspaceSource).toContain("mobilePortalTarget");
     expect(workspaceSource).toContain("document.body");
     expect(editorSource).not.toContain("fixed inset-0 z-30");
+  });
+
+  // SK: the mobile editor and Review panel are pinned to
+  // `--sk-viewport-offset-top` so the keyboard cannot push them out of the
+  // visual viewport. iOS also reports a transient non-zero `offsetTop` during
+  // an ordinary rubber-band overscroll, which slid the whole screen with the
+  // finger — scrolling down made the editor jump back up. globals.css anchors
+  // every `.sk-native-screen` while the keyboard is closed; these producer
+  // screens must be covered by that rule, not only the Artist shell.
+  it("anchors the full-screen editor during rubber-band overscroll", () => {
+    expect(globalsCss).toMatch(
+      /body:not\(\[data-sk-keyboard="open"\]\)\s+\.sk-native-screen\s*\{\s*top:\s*0;\s*\}/,
+    );
+    expect(globalsCss).not.toMatch(
+      /main#main-content\[data-artist-shell-mode="focused"\]\s*\.sk-native-screen/,
+    );
+    expect(editorSource).toContain("sk-native-screen");
+    expect(reviewSource).toContain("sk-native-screen");
+  });
+
+  // iOS Safari implements no <datalist>, so a combobox built on one offers a
+  // phone nothing at all. The client picker must stay a plain search + list.
+  it("picks a client from real controls rather than a datalist", () => {
+    expect(editorSource).not.toContain("<datalist");
+    expect(editorSource).not.toMatch(/\blist=\{`import-client-options/);
+    expect(editorSource).toContain('aria-label="Matching clients"');
+    expect(editorSource).toContain("Change client");
   });
 
   it("keeps content shrinkable with no fixed phone-width surface", () => {
