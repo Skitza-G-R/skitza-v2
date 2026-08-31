@@ -330,6 +330,30 @@ describe("RecordPaymentDialog", () => {
     expect(submitButton(/Record ₪500/).disabled).toBe(false);
   });
 
+  // SK-296 — the producer types a number and the line under the field
+  // recalculates, instead of repeating the balance they started from.
+  it("recalculates what is left as the amount is typed", () => {
+    render(<RecordPaymentDialog open onClose={vi.fn()} projectId="project-1" purchases={SINGLE} />);
+
+    // Untouched: the prefilled full amount still reads as the opening balance.
+    expect(screen.getByText("₪500 left. Partial amounts are fine.")).toBeTruthy();
+
+    const amount = screen.getByLabelText("Amount received");
+    fireEvent.change(amount, { target: { value: "120" } });
+    expect(screen.getByText("₪380 left after this.")).toBeTruthy();
+
+    fireEvent.change(amount, { target: { value: "120.50" } });
+    expect(screen.getByText("₪379.50 left after this.")).toBeTruthy();
+
+    fireEvent.change(amount, { target: { value: "500" } });
+    expect(screen.getByText("Nothing left after this.")).toBeTruthy();
+
+    // An over-payment keeps the single message that tells them what is wrong.
+    fireEvent.change(amount, { target: { value: "600" } });
+    expect(screen.getByText(/more than what is left/)).toBeTruthy();
+    expect(screen.queryByText(/left after this/)).toBeNull();
+  });
+
   it("rejects an unsupported receipt file without losing the form", () => {
     render(
       <RecordPaymentDialog

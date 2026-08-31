@@ -28,6 +28,7 @@ import { useOnlineStatus } from "~/components/runtime-state/online-required-link
 import { useToast } from "~/components/ui/toast";
 
 import {
+  amountHint,
   BLOCKED_STATE_LABELS,
   centsToInput,
   composePaymentNote,
@@ -43,6 +44,7 @@ import {
   todayIsoDate,
   validateAmount,
   validateReceiptFile,
+  type AmountHint,
   type PaymentMethod,
   type RecordablePayment,
   type RecordablePaymentState,
@@ -196,6 +198,18 @@ export function RecordPaymentDialog({
   const amountError = selected
     ? validateAmount(amountCents, selected.remainingCents, selected.currency)
     : "Pick which payment this is for.";
+  // An untouched field is still showing the prefilled full amount, so it keeps
+  // the orienting balance; from the first keystroke the line recalculates and
+  // shows what this payment leaves behind.
+  const hint: AmountHint | null = selected
+    ? amountHint(amountTouched ? amountCents : null, selected.remainingCents, selected.currency)
+    : null;
+  const hintClassName =
+    amountTouched && amountError
+      ? "text-[rgb(var(--fg-danger-text))]"
+      : hint && hint.tone !== "prompt"
+        ? "font-semibold text-[rgb(var(--fg-default))]"
+        : "text-[rgb(var(--fg-muted))]";
   const paidAtIso = paidAtIsoFromDate(date);
   const dateError = paidAtIso ? null : "Pick a date that is not in the future.";
   const busy = phase !== "idle";
@@ -339,7 +353,7 @@ export function RecordPaymentDialog({
           onEscapeKeyDown={(event) => {
             if (busy) event.preventDefault();
           }}
-          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[560px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] sm:p-6"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[560px] -translate-x-1/2 -translate-y-1/2 overflow-x-hidden overflow-y-auto rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] sm:p-6"
         >
           <div className="flex items-start gap-3">
             <span
@@ -455,7 +469,7 @@ export function RecordPaymentDialog({
 
               {/* 2 — amount + date */}
               <div className="grid gap-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor={`${baseId}-amount`}
                     className="text-[12px] font-semibold text-[rgb(var(--fg-default))]"
@@ -497,22 +511,15 @@ export function RecordPaymentDialog({
                   </div>
                   <p
                     id={`${baseId}-amount-hint`}
-                    className={[
-                      "mt-1 text-[11.5px]",
-                      amountTouched && amountError
-                        ? "text-[rgb(var(--fg-danger-text))]"
-                        : "text-[rgb(var(--fg-muted))]",
-                    ].join(" ")}
+                    className={["mt-1 text-[11.5px]", hintClassName].join(" ")}
                   >
                     {amountTouched && amountError
                       ? amountError
-                      : selected
-                        ? `${formatMoney(selected.remainingCents, selected.currency)} left. Partial amounts are fine.`
-                        : "Pick a payment above first."}
+                      : (hint?.text ?? "Pick a payment above first.")}
                   </p>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor={`${baseId}-date`}
                     className="text-[12px] font-semibold text-[rgb(var(--fg-default))]"
@@ -529,7 +536,7 @@ export function RecordPaymentDialog({
                       setDate(event.target.value);
                       touchKey();
                     }}
-                    className="mt-1.5 min-h-12 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:text-[14px]"
+                    className="mt-1.5 min-h-12 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:text-[14px]"
                   />
                   {dateError ? (
                     <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-danger-text))]">
