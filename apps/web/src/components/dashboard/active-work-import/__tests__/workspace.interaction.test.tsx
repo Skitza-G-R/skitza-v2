@@ -245,6 +245,30 @@ function initialBatch(
   };
 }
 
+function existingClientBatch(): InitialImportBatch {
+  const batch = initialBatch();
+  const first = batch.rows[0];
+  if (!first) throw new Error("Test batch needs one row");
+  const draft = newImportDraft({
+    defaultCurrency: "USD",
+    defaultTaxMode: "tax_free",
+    defaultTaxRatePct: 0,
+  });
+  draft.client = {
+    existingClientId: "client-retry",
+    name: "Retry client",
+    email: "retry@example.com",
+    phone: "",
+  };
+  draft.project.title = "Blue Hour";
+  draft.agreement.service = "Production";
+  draft.agreement.subtotal = "1000";
+  return {
+    ...batch,
+    rows: [{ ...first, row: { ...first.row, draftPayload: toServerDraftPayload(draft) } }],
+  };
+}
+
 function detailedBatch(): InitialImportBatch {
   const batch = initialBatch(detailedAssessment());
   const first = batch.rows[0];
@@ -1436,6 +1460,162 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
 });
 
 describe("ActiveWorkImportWorkspace client restore", () => {
+  // The picker used to be a <datalist> combobox whose input reverted on blur.
+  // iOS Safari implements no datalist at all, so on a phone the producer could
+  // neither see the options nor keep anything they typed: the selected client,
+  // and the name shown for the item, were effectively frozen.
+  it("lets the producer switch to a different client from a tappable list", async () => {
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("ready-v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(existingClientBatch(), {
+      existingClients: [
+        { id: "client-retry", name: "Retry client", email: "retry@example.com" },
+        { id: "client-sent", name: "Sent client", email: "sent@example.com" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Change client" }));
+    await user.type(screen.getByRole("searchbox", { name: "Find client" }), "Sent");
+
+    const options = screen.getByRole("list", { name: "Matching clients" });
+    expect(within(options).getAllByRole("button")).toHaveLength(1);
+    await user.click(within(options).getByRole("button", { name: /Sent client/ }));
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalled();
+    });
+    expect(mocks.saveRow.mock.calls.at(-1)?.[0]).toMatchObject({
+      draftPayload: {
+        client: {
+          existingClientId: "client-sent",
+          name: "Sent client",
+          email: "sent@example.com",
+        },
+      },
+    });
+    expect(screen.queryByRole("list", { name: "Matching clients" })).toBeNull();
+    expect(screen.getByText("sent@example.com", { exact: false })).not.toBeNull();
+  });
+
+  it("keeps what the producer typed and says so when no client matches", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(existingClientBatch(), {
+      existingClients: [
+        { id: "client-retry", name: "Retry client", email: "retry@example.com" },
+        { id: "client-sent", name: "Sent client", email: "sent@example.com" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Change client" }));
+    const search = screen.getByRole("searchbox", { name: "Find client" });
+    await user.type(search, "Nobody");
+    // The old input wiped itself on blur, so a partial search never survived
+    // long enough to act on. Keep the text and explain the empty result.
+    fireEvent.blur(search);
+
+    expect((search as HTMLInputElement).value).toBe("Nobody");
+    expect(screen.getByText("No client matches Nobody.")).not.toBeNull();
+    expect(screen.queryByRole("list", { name: "Matching clients" })).toBeNull();
+  });
+
+  // Tapping "Existing client" used to attach clients[0] — an arbitrary artist —
+  // and save it straight away, silently discarding anything already typed. One
+  // stray tap bound imported work to the wrong artist with no undo.
+  it("attaches nobody until the producer taps an artist", async () => {
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("ready-v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch(), {
+      existingClients: [
+        { id: "client-a", name: "Aaa client", email: "aaa@example.com" },
+        { id: "client-b", name: "Bbb client", email: "bbb@example.com" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Existing client" }));
+
+    const options = await screen.findByRole("list", { name: "Matching clients" });
+    expect(within(options).getAllByRole("button")).toHaveLength(2);
+    expect(mocks.saveRow).not.toHaveBeenCalled();
+
+    await user.click(within(options).getByRole("button", { name: /Bbb client/ }));
+
+    await waitFor(() => {
+      expect(mocks.saveRow).toHaveBeenCalled();
+    });
+    expect(mocks.saveRow.mock.calls.at(-1)?.[0]).toMatchObject({
+      draftPayload: {
+        client: {
+          existingClientId: "client-b",
+          name: "Bbb client",
+          email: "bbb@example.com",
+        },
+      },
+    });
+  });
+
+  it("keeps typed new-client details when the producer looks at the artist list", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch(), {
+      existingClients: [{ id: "client-a", name: "Aaa client", email: "aaa@example.com" }],
+    });
+
+    expect(screen.getByLabelText<HTMLInputElement>("Client name").value).toBe("Maya");
+
+    await user.click(screen.getByRole("button", { name: "Existing client" }));
+    await user.click(screen.getByRole("button", { name: "New client" }));
+
+    expect(screen.getByLabelText<HTMLInputElement>("Client name").value).toBe("Maya");
+    expect(screen.getByLabelText<HTMLInputElement>("Email").value).toBe("maya@example.com");
+    expect(mocks.saveRow).not.toHaveBeenCalled();
+  });
+
+  it("keeps focus in the phone editor after picking an artist, so Escape still works", async () => {
+    installMatchMedia(true);
+    mocks.saveRow.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve(savedResult(input, { revision: 2, assessment: readyAssessment("ready-v2") })),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch(), {
+      existingClients: [{ id: "client-a", name: "Aaa client", email: "aaa@example.com" }],
+    });
+
+    const queue = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(queue).getAllByRole("button")[0] as HTMLElement);
+    const dialog = await screen.findByRole("dialog", { name: "Edit item 1" });
+
+    await user.click(within(dialog).getByRole("button", { name: "Existing client" }));
+    const options = within(dialog).getByRole("list", { name: "Matching clients" });
+    // Picking removes the focused option button with the list. Focus must
+    // come back into the dialog, or its Escape and Tab handling goes dead.
+    await user.click(within(options).getByRole("button", { name: /Aaa client/ }));
+
+    expect(document.activeElement).toBe(dialog);
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit item 1" })).toBeNull();
+    });
+  });
+
+  it("closes the phone editor on Escape", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch());
+
+    const queue = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(queue).getAllByRole("button")[0] as HTMLElement);
+    const dialog = await screen.findByRole("dialog", { name: "Edit item 1" });
+
+    await user.type(dialog, "{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit item 1" })).toBeNull();
+    });
+  });
+
   it("requires an explicit restore for an archived email and then saves the existing client id", async () => {
     const draft = newImportDraft({
       defaultCurrency: "USD",

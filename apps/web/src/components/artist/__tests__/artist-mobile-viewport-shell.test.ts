@@ -55,9 +55,15 @@ describe("artist mobile viewport shell", () => {
   });
 
   it("anchors focused screens during ordinary overscroll while preserving keyboard offsets", () => {
+    // Focused Artist flows render their screens with `.sk-native-screen`, so
+    // the anchor now covers them through that class instead of a shell-scoped
+    // selector. Scoping it to the Artist shell left every other full-screen
+    // surface — the producer active-work import editor among them — sliding
+    // with the finger during an ordinary rubber-band overscroll.
     expect(globalsCss).toMatch(
-      /body:not\(\[data-sk-keyboard="open"\]\)[\s\S]*main#main-content\[data-artist-shell-mode="focused"\][\s\S]*\.sk-native-screen[\s\S]*top:\s*0/,
+      /body:not\(\[data-sk-keyboard="open"\]\)\s+\.sk-native-screen\s*\{\s*top:\s*0;\s*\}/,
     );
+    expect(cancelSessionSource).toContain("sk-native-screen");
     expect(cancelSessionSource).toContain("top-[var(--sk-viewport-offset-top,0px)]");
   });
 
