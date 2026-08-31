@@ -24,8 +24,10 @@ import { copyPublicLink } from "~/components/dashboard/overview/public-link-stri
 import {
   PrivateOfferComposer,
   type PrivateOfferComposerRecipient,
+  type PrivateOfferSentSummary,
   type PrivateOfferTemplateProduct,
 } from "~/components/dashboard/offers/private-offer-composer";
+import { PrivateOfferShareModal } from "~/components/dashboard/offers/private-offer-share";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useProducerStoreProductDraft } from "~/components/runtime-state/use-runtime-state";
 import { useToast } from "~/components/ui/toast";
@@ -134,6 +136,9 @@ export function StoreScreen({
   const [editing, setEditing] = useState<StoreProduct | null>(null);
   const [removing, setRemoving] = useState<StoreProduct | null>(null);
   const [offerTemplateProduct, setOfferTemplateProduct] = useState<StoreProduct | null>(null);
+  // SK-294 — a just-sent private offer opens the share surface (WhatsApp /
+  // copy link) once the composer closes.
+  const [sentOffer, setSentOffer] = useState<PrivateOfferSentSummary | null>(null);
   const storeDraft = useProducerStoreProductDraft();
   const restoredStoreDraftRef = useRef(false);
   // Phase 3 P3-11 — flags the most-recently-created product id so its
@@ -627,7 +632,8 @@ export function StoreScreen({
         onOpenChange={(nextOpen) => {
           if (!nextOpen) setOfferTemplateProduct(null);
         }}
-        onCreated={() => {
+        onCreated={(sent) => {
+          setSentOffer(sent);
           router.refresh();
         }}
         trigger={null}
@@ -635,6 +641,17 @@ export function StoreScreen({
         {...(offerTemplateProduct?.privateOfferTemplate
           ? { templateProduct: offerTemplateProduct.privateOfferTemplate }
           : {})}
+      />
+
+      <PrivateOfferShareModal
+        open={sentOffer !== null}
+        onClose={() => {
+          setSentOffer(null);
+        }}
+        offer={sentOffer}
+        producerSlug={producerSlug}
+        occasion="sent"
+        returnFocusRef={offerReturnFocusRef}
       />
 
       {/* Create modal */}

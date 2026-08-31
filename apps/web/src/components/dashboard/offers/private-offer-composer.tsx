@@ -75,6 +75,15 @@ export type PrivateOfferComposerTargetPayload =
   | { kind: "new" }
   | { kind: "existing"; projectId: string };
 
+/** Everything the post-send share surface needs about a just-sent offer. */
+export type PrivateOfferSentSummary = Readonly<{
+  offerId: string;
+  offerName: string;
+  recipientName: string;
+  recipientEmail: string;
+  emailDelivered: boolean | null;
+}>;
+
 export interface PrivateOfferComposerInitialOffer {
   id: string;
   clientContactId: string;
@@ -119,7 +128,7 @@ interface PrivateOfferComposerCommonProps {
   defaultCurrency: PrivateOfferCurrency;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  onCreated?: (offerId: string) => void;
+  onCreated?: (sent: PrivateOfferSentSummary) => void;
   trigger?: ReactElement | null;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
@@ -807,6 +816,8 @@ function LegacyPrivateOfferComposer(props: PrivateOfferComposerProps) {
           actionResult.data.emailDelivered === null
         ) {
           toast("Offer was already saved. No duplicate or second email was sent.", "info");
+        } else if (!editing && onCreated) {
+          // The share surface reports the outcome, including a failed email.
         } else if (
           !editing &&
           "emailDelivered" in actionResult.data &&
@@ -819,7 +830,24 @@ function LegacyPrivateOfferComposer(props: PrivateOfferComposerProps) {
         } else {
           toast(editing ? "Private offer updated." : "Private offer sent.", "success");
         }
-        if (!editing) onCreated?.(actionResult.data.id);
+        if (!editing) {
+          const sentRecipient = value.recipient.recipient;
+          const knownRecipient =
+            sentRecipient.kind === "existing"
+              ? editorRecipients.find((recipient) => recipient.id === sentRecipient.clientContactId)
+              : undefined;
+          onCreated?.({
+            offerId: actionResult.data.id,
+            offerName: value.terms.name,
+            recipientName:
+              sentRecipient.kind === "new"
+                ? sentRecipient.name
+                : (knownRecipient?.name ?? "your client"),
+            recipientEmail:
+              sentRecipient.kind === "new" ? sentRecipient.email : (knownRecipient?.email ?? ""),
+            emailDelivered: actionResult.data.emailDelivered,
+          });
+        }
         clearLogicalDraftAndClose();
         if (editing || !onCreated) router.refresh();
       } catch {
@@ -1097,7 +1125,9 @@ function LegacyPrivateOfferComposer(props: PrivateOfferComposerProps) {
                 <button
                   autoFocus
                   type="button"
-                  onClick={() => { setConfirmClose(false); }}
+                  onClick={() => {
+                    setConfirmClose(false);
+                  }}
                   className="sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[13px] font-semibold"
                 >
                   Keep editing

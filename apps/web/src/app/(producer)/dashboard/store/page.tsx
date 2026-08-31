@@ -96,6 +96,7 @@ export default async function StorePage() {
             defaultCurrency={defaultCurrency}
             taxMode={taxMode}
             taxRatePct={taxRatePct}
+            producerSlug={profile.slug}
           />
         }
       />

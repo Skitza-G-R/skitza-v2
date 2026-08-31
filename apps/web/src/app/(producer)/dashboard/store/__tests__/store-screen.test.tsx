@@ -25,7 +25,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 interface ComposerMockProps {
-  onCreated?: () => void;
+  onCreated?: (sent: {
+    offerId: string;
+    offerName: string;
+    recipientName: string;
+    recipientEmail: string;
+    emailDelivered: boolean | null;
+  }) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   returnFocusRef?: { current: HTMLElement | null };
@@ -63,7 +69,13 @@ vi.mock("~/components/dashboard/offers/private-offer-composer", () => ({
         <button
           type="button"
           onClick={() => {
-            props.onCreated?.();
+            props.onCreated?.({
+              offerId: "44444444-4444-4444-8444-444444444444",
+              offerName: props.templateProduct?.source.productName ?? "Private offer",
+              recipientName: "Maya Stone",
+              recipientEmail: "maya@example.test",
+              emailDelivered: true,
+            });
             closeAndRestoreFocus();
           }}
         >
@@ -464,6 +476,11 @@ describe("StoreScreen private-offer shortcut interaction", () => {
     fireEvent.click(screen.getByRole("button", { name: "Complete private offer" }));
 
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    const shareDialog = screen.getByRole("dialog", { name: "Offer sent to Maya Stone" });
+    expect(within(shareDialog).getByRole("button", { name: "Share on WhatsApp" })).toBeTruthy();
+    expect(within(shareDialog).getByRole("button", { name: "Copy link" })).toBeTruthy();
+    fireEvent.click(within(shareDialog).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("tab", { name: /Products/ }).getAttribute("aria-selected")).toBe(
       "true",
     );
