@@ -9,7 +9,7 @@ Use `packages/db/apply-migrations.mjs`. Never use `drizzle-kit migrate` or `pnpm
 
 1. Inspect the migration files and the current diff. List the SQL files relevant to the requested change.
 2. Identify the target as local, test, preview, or production without printing any credential or connection string.
-3. If the target is unclear, stop and ask Gili. If it is production, state that production is Neon project `skitza` (`quiet-sun-92221754`) and get Gili's explicit approval for this exact run.
+3. If the target is unclear, stop and ask Gili. Before every production run, confirm against `docs/runbooks/canonical-database-gate.md` that the target is the canonical live Neon project, `skitza-v3`, and get Gili's explicit approval for that exact run. The project labeled `OLD — DO NOT USE.` is frozen and must never be targeted.
 4. Confirm that one supported environment variable is available: `DATABASE_URL`, `DATABASE_URL_NEON`, `POSTGRES_URL_NON_POOLING`, or `POSTGRES_URL`. Check only whether it is set; never print its value.
 5. From `packages/db/`, run `node apply-migrations.mjs` with the approved environment already configured.
 6. Report each migration file the runner processed. Treat any nonzero exit as a failure and show the relevant error without leaking secrets.
