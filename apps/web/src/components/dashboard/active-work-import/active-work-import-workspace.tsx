@@ -45,6 +45,7 @@ import {
 } from "./model";
 import type { ProofUploadView } from "./payment-history-editor";
 import { agreementPdfFileError } from "~/lib/agreement-pdf";
+import { useBodyScrollLock } from "~/components/native/use-body-scroll-lock";
 import { ReviewAndFinish } from "./review-and-finish";
 
 type RowUpdater = (rows: WorkspaceImportRow[]) => WorkspaceImportRow[];
@@ -1217,6 +1218,12 @@ export function ActiveWorkImportWorkspace({
   const selectedRow = rows.find((row) => row.operationKey === selectedOperationKey) ?? null;
   const selectedIndex = selectedRow ? rows.indexOf(selectedRow) : -1;
   const mobileEditorVisible = isMobile && mobileEditorOpen && selectedRow !== null;
+  // Both phone surfaces are hand-rolled `aria-modal` overlays portalled onto
+  // document.body rather than Radix dialogs, so nothing else holds the page
+  // behind them still. Without the lock iOS scrolls that page to reveal a
+  // focused field when the keyboard opens, and the fixed overlay travels with
+  // it — the editor slides off the top and the workspace shows through below.
+  useBodyScrollLock(mobileEditorVisible || (isMobile && reviewOpen));
   const reviewActionLabel = openingReview
     ? "Preparing review…"
     : reviewableCount > 0
