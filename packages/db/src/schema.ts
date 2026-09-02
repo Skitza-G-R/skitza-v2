@@ -1190,10 +1190,18 @@ export const calendarSyncJobs = pgTable(
                 AND ${t.payloadSnapshot}->>'action' = 'upsert'
                 AND (${t.payloadSnapshot} - ARRAY[
                   'schemaVersion', 'action', 'eventKind', 'notificationMode', 'sequence',
-                  'startsAtUtc', 'endsAtUtc', 'summary', 'artistSafeUrl',
+                  'startsAtUtc', 'endsAtUtc', 'timeZone', 'summary', 'artistSafeUrl',
                   'attendee', 'privateProperties'
                 ]::text[]) = '{}'::jsonb
                 AND ${t.payloadSnapshot}->>'eventKind' IN ('opaque_hold', 'confirmed')
+                AND (
+                  jsonb_typeof(${t.payloadSnapshot}->'timeZone') IS NULL
+                  OR (
+                    jsonb_typeof(${t.payloadSnapshot}->'timeZone') = 'string'
+                    AND NULLIF(btrim(${t.payloadSnapshot}->>'timeZone'), '') IS NOT NULL
+                    AND char_length(${t.payloadSnapshot}->>'timeZone') <= 255
+                  )
+                )
                 AND ${t.payloadSnapshot}->>'notificationMode' IN ('none', 'all')
                 AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
                 AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
