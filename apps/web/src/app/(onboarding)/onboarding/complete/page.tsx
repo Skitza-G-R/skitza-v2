@@ -2,12 +2,14 @@ import { auth } from "~/server/auth/clerk-identity";
 import { createDb, eq, producers } from "@skitza/db";
 import { redirect } from "next/navigation";
 
+import { PREVIEW_SIMULATION_INPUT } from "~/components/onboarding/first-artist-simulation/simulation-model";
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import { fetchUserRole } from "~/server/auth/role";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { decideOnboardingRedirect } from "../decide-redirect";
 import { CompleteScreenClient } from "./complete-screen-client";
+import { toSimulationInput, type CompletionPaymentInstructions } from "./simulation-input";
 
 export default async function CompleteScreenPage({
   searchParams,
@@ -18,7 +20,13 @@ export default async function CompleteScreenPage({
   const isPreview = isDevPreviewBypass(params);
 
   if (isPreview) {
-    return <CompleteScreenClient slug="preview-studio" previewMode />;
+    return (
+      <CompleteScreenClient
+        slug="preview-studio"
+        previewMode
+        simulation={PREVIEW_SIMULATION_INPUT}
+      />
+    );
   }
 
   const { userId } = await auth();
@@ -34,9 +42,22 @@ export default async function CompleteScreenPage({
   }
 
   const caller = appRouter.createCaller({ userId });
-  const packages = await caller.booking.packages.list();
+  const [packages, profile] = await Promise.all([
+    caller.booking.packages.list(),
+    caller.producer.me(),
+  ]);
   if (!packages.some((product) => product.active)) {
     redirect("/onboarding");
+  }
+  const liveProduct = packages.find((product) => product.active) ?? null;
+
+  // The producer's own bank/Bit details make the simulation's payment frame
+  // real; a producer who skipped that optional step sees a labelled example.
+  let paymentInstructions: CompletionPaymentInstructions | null = null;
+  try {
+    paymentInstructions = await caller.producer.purchase.paymentInstructions.get();
+  } catch {
+    paymentInstructions = null;
   }
 
   const db = createDb(dbUrl);
@@ -47,5 +68,18 @@ export default async function CompleteScreenPage({
     .limit(1);
 
   const slug = row?.slug ?? role.producer.slug;
-  return <CompleteScreenClient slug={slug} />;
+  const simulation = liveProduct
+    ? toSimulationInput({
+        product: liveProduct,
+        profile: {
+          displayName: profile.displayName,
+          taxMode: profile.taxMode,
+          taxRatePct: profile.taxRatePct,
+          logoUrl: profile.brand.logoUrl ?? null,
+        },
+        paymentInstructions,
+      })
+    : null;
+
+  return <CompleteScreenClient slug={slug} simulation={simulation} />;
 }
