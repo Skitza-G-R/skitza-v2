@@ -146,6 +146,73 @@ describe("shared slot classification", () => {
     ).toBe(false);
   });
 
+  it("does not let the booking being rescheduled block itself through its synced Google event", () => {
+    // Session at 17:00–19:00 Asia/Jerusalem (14:00–16:00 UTC). Its synced
+    // Google event comes back from freeBusy as an opaque busy interval.
+    const sessionStart = new Date("2026-09-14T14:00:00.000Z");
+    const base = {
+      durationMin: 120,
+      bufferMinutes: 0,
+      producerTimeZone: "Asia/Jerusalem",
+      availabilityBlocks: [{ weekday: 1, startMin: 10 * 60, endMin: 20 * 60 }],
+      blackouts: [],
+      existingBookings: [
+        { id: "moving", startsAt: sessionStart, durationMin: 120, bufferMinutes: 0 },
+      ],
+      googleBusyIntervals: [
+        { startsAt: sessionStart, endsAt: new Date("2026-09-14T16:00:00.000Z") },
+      ],
+      actor: "producer_google_hard",
+    } as const;
+    const codes = (issues: readonly { code: string }[]) => issues.map((issue) => issue.code);
+
+    // Without the ignore hint the session is a genuine blocker.
+    expect(
+      codes(classifySessionSlot({ ...base, startsAt: new Date("2026-09-14T13:00:00.000Z") })),
+    ).toEqual(["BOOKING_CONFLICT", "GOOGLE_BUSY"]);
+    // Moving the session onto or across its own slot is clean.
+    expect(
+      classifySessionSlot({
+        ...base,
+        ignoreBookingId: "moving",
+        startsAt: new Date("2026-09-14T13:00:00.000Z"),
+      }),
+    ).toEqual([]);
+    expect(
+      classifySessionSlot({ ...base, ignoreBookingId: "moving", startsAt: sessionStart }),
+    ).toEqual([]);
+    // A different Google event overlapping the same window still blocks.
+    expect(
+      codes(
+        classifySessionSlot({
+          ...base,
+          ignoreBookingId: "moving",
+          startsAt: new Date("2026-09-14T13:00:00.000Z"),
+          googleBusyIntervals: [
+            { startsAt: sessionStart, endsAt: new Date("2026-09-14T16:00:00.000Z") },
+            {
+              startsAt: new Date("2026-09-14T12:30:00.000Z"),
+              endsAt: new Date("2026-09-14T13:30:00.000Z"),
+            },
+          ],
+        }),
+      ),
+    ).toEqual(["GOOGLE_BUSY"]);
+    // Busy time that spills past the session's own window is not ours either.
+    expect(
+      codes(
+        classifySessionSlot({
+          ...base,
+          ignoreBookingId: "moving",
+          startsAt: new Date("2026-09-14T15:00:00.000Z"),
+          googleBusyIntervals: [
+            { startsAt: sessionStart, endsAt: new Date("2026-09-14T16:30:00.000Z") },
+          ],
+        }),
+      ),
+    ).toEqual(["GOOGLE_BUSY"]);
+  });
+
   it("hardens only Google for strict producer commands and remains fail-open without busy data", () => {
     const issues = classifySessionSlot({
       startsAt: new Date("2026-07-20T20:00:00.000Z"),
@@ -193,6 +260,38 @@ describe("producer exact-slot generation", () => {
         .find((day) => day.date === "2026-07-20")
         ?.slots.map((slot) => slot.startsAt.toISOString()),
     ).toEqual(["2026-07-20T10:30:00.000Z"]);
+  });
+
+  it("offers the moved session's own Google-synced slot when rescheduling", () => {
+    const sessionStart = new Date("2026-09-14T14:00:00.000Z"); // 17:00 Asia/Jerusalem
+    const base = {
+      now: new Date("2026-09-02T12:00:00.000Z"),
+      canBook: true,
+      producerTimeZone: "Asia/Jerusalem",
+      durationMin: 120,
+      bufferMinutes: 0,
+      minLeadHours: 0,
+      availabilityBlocks: [{ weekday: 1, startMin: 10 * 60 + 30, endMin: 19 * 60 }],
+      blackouts: [],
+      existingBookings: [
+        { id: "moving", startsAt: sessionStart, durationMin: 120, bufferMinutes: 0 },
+      ],
+      googleBusyIntervals: [
+        { startsAt: sessionStart, endsAt: new Date("2026-09-14T16:00:00.000Z") },
+      ],
+    } as const;
+    const startsOn = (input: Parameters<typeof generateProducerExactSessionSlots>[0]) =>
+      generateProducerExactSessionSlots(input)
+        .days.find((day) => day.date === "2026-09-14")
+        ?.slots.map((slot) => slot.studioStartMin / 60) ?? [];
+
+    expect(startsOn(base)).toEqual([
+      10.5, 10.75, 11, 11.25, 11.5, 11.75, 12, 12.25, 12.5, 12.75, 13, 13.25, 13.5, 13.75, 14,
+      14.25, 14.5, 14.75, 15,
+    ]);
+    expect(startsOn({ ...base, ignoreBookingId: "moving" })).toContain(14);
+    expect(startsOn({ ...base, ignoreBookingId: "moving" })).toContain(17);
+    expect(startsOn({ ...base, ignoreBookingId: "moving" }).at(-1)).toBe(17);
   });
 
   it("keeps exact UTC identity for both repeated producer-local DST starts", () => {

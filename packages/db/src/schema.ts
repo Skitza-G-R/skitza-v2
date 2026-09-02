@@ -602,6 +602,9 @@ export type GoogleCalendarSyncJobPayloadSnapshot =
       sequence: number;
       startsAtUtc: string;
       endsAtUtc: string;
+      // IANA studio zone the event is labelled with in Google. Optional so
+      // jobs queued before it existed still deliver (they fall back to UTC).
+      timeZone?: string;
       summary: string;
       artistSafeUrl: string | null;
       attendee: Readonly<{ name: string; email: string }> | null;
