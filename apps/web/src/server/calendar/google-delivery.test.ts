@@ -29,6 +29,7 @@ function confirmedPayload(revision = 2) {
     sequence: revision,
     startsAtUtc: "2026-08-10T09:00:00.000Z",
     endsAtUtc: "2026-08-10T10:30:00.000Z",
+    timeZone: "Asia/Jerusalem",
     summary: "Mix review",
     artistSafeUrl: "https://skitza.app/artist/sessions/session_123",
     attendee: { name: "Artist", email: "artist@example.com" },
@@ -217,6 +218,7 @@ describe("Google Calendar outbox delivery", () => {
           body: {
             attendees?: readonly Readonly<{ email: string; displayName?: string }>[];
             description?: string;
+            start: { dateTime: string; timeZone: string };
           };
         };
         sendUpdates: string;
@@ -236,6 +238,10 @@ describe("Google Calendar outbox delivery", () => {
       { email: "producer-calendar@example.com", displayName: "Producer" },
       { email: "artist@example.com", displayName: "Artist" },
     ]);
+    expect(insertInput.event.body.start).toEqual({
+      dateTime: "2026-08-10T09:00:00.000Z",
+      timeZone: "Asia/Jerusalem",
+    });
     expect(insertInput.event.body.description).toBe(
       "Skitza studio session: Mix review\n\nBooking details: https://skitza.app/artist/sessions/session_123",
     );

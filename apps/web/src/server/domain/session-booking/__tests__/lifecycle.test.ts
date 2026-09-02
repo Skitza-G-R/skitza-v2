@@ -1466,6 +1466,7 @@ describe("session booking lifecycle commands", () => {
       sequence: 1,
       startsAtUtc: "2026-07-20T10:00:00.000Z",
       endsAtUtc: "2026-07-20T11:30:00.000Z",
+      timeZone: "UTC",
       summary: "Reserved",
       artistSafeUrl: null,
       attendee: null,
@@ -1502,6 +1503,7 @@ describe("session booking lifecycle commands", () => {
       sequence: 2,
       startsAtUtc: "2026-07-20T10:00:00.000Z",
       endsAtUtc: "2026-07-20T11:30:00.000Z",
+      timeZone: "UTC",
       summary: "Private vocal session",
       artistSafeUrl: `https://skitza.app/artist/sessions/${created.booking.id}`,
       attendee: {
@@ -2929,24 +2931,32 @@ describe("session booking lifecycle commands", () => {
       now: baseNow,
     });
     const skitzaOnly = generateProducerSessionRescheduleAvailability(snapshot);
-    const googleFiltered = generateProducerSessionRescheduleAvailability(snapshot, [
+    // The source booking's own synced Google event reports its slot as busy;
+    // that must not hide the slot from the booking being moved.
+    const googleOwnEvent = generateProducerSessionRescheduleAvailability(snapshot, [
       {
         startsAt: created.booking.startsAt,
         endsAt: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1000),
       },
     ]);
+    const googleOtherEvent = generateProducerSessionRescheduleAvailability(snapshot, [
+      {
+        startsAt: new Date(created.booking.startsAt.getTime() - 30 * 60 * 1000),
+        endsAt: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1000),
+      },
+    ]);
+    const offersStart = (availability: typeof skitzaOnly, startsAt: Date) =>
+      availability.days
+        .flatMap((day) => day.slots)
+        .some((slot) => slot.startsAt.getTime() === startsAt.getTime());
+    const halfHourEarlier = new Date(created.booking.startsAt.getTime() - 30 * 60 * 1000);
 
     expect(snapshot.durationMin).toBe(60);
-    expect(
-      skitzaOnly.days
-        .flatMap((day) => day.slots)
-        .some((slot) => slot.startsAt.getTime() === created.booking.startsAt.getTime()),
-    ).toBe(true);
-    expect(
-      googleFiltered.days
-        .flatMap((day) => day.slots)
-        .some((slot) => slot.startsAt.getTime() === created.booking.startsAt.getTime()),
-    ).toBe(false);
+    expect(offersStart(skitzaOnly, created.booking.startsAt)).toBe(true);
+    expect(offersStart(googleOwnEvent, created.booking.startsAt)).toBe(true);
+    expect(offersStart(googleOwnEvent, halfHourEarlier)).toBe(true);
+    // Busy time outside the source booking's own window is still Google's.
+    expect(offersStart(googleOtherEvent, halfHourEarlier)).toBe(false);
   });
 
   it("makes fresh Google busy a hard conflict during a direct producer reschedule", async () => {

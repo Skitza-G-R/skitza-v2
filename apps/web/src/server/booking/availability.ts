@@ -68,6 +68,23 @@ function slotIssue(
   };
 }
 
+function ignoredBookingCoreWindow(
+  input: Pick<ClassifySessionSlotInput, "existingBookings" | "ignoreBookingId">,
+): Readonly<{ start: number; end: number }> | null {
+  if (!input.ignoreBookingId) return null;
+  const ignored = input.existingBookings.find((entry) => entry.id === input.ignoreBookingId);
+  if (!ignored) return null;
+  const start = ignored.startsAt.getTime();
+  if (
+    Number.isNaN(start) ||
+    !Number.isSafeInteger(ignored.durationMin) ||
+    ignored.durationMin <= 0
+  ) {
+    return null;
+  }
+  return { start, end: start + ignored.durationMin * 60 * 1000 };
+}
+
 export function classifySessionSlot(input: ClassifySessionSlotInput): readonly SessionSlotIssue[] {
   if (
     Number.isNaN(input.startsAt.getTime()) ||
@@ -169,6 +186,12 @@ export function classifySessionSlot(input: ClassifySessionSlotInput): readonly S
       slotIssue(input.actor, "BOOKING_CONFLICT", "The session overlaps another Skitza session"),
     );
   }
+  // The booking being rescheduled is synced into the producer's Google
+  // calendar, and freeBusy hands its slot back as an opaque busy interval.
+  // Carve that booking's own core window out before checking Google, the
+  // same way the Skitza schedule loop skips it above — otherwise a session
+  // blocks itself and the producer cannot move it near its current time.
+  const ignoredWindow = ignoredBookingCoreWindow(input);
   const googleBusyConflict = (input.googleBusyIntervals ?? []).some((busy) => {
     if (
       Number.isNaN(busy.startsAt.getTime()) ||
@@ -177,9 +200,11 @@ export function classifySessionSlot(input: ClassifySessionSlotInput): readonly S
     ) {
       throw new SessionBookingDomainError("INVALID_SLOT", "A Google busy interval is invalid");
     }
-    return (
-      input.startsAt.getTime() < busy.endsAt.getTime() && busy.startsAt.getTime() < requestedEnd
-    );
+    const overlapStart = Math.max(input.startsAt.getTime(), busy.startsAt.getTime());
+    const overlapEnd = Math.min(requestedEnd, busy.endsAt.getTime());
+    if (overlapStart >= overlapEnd) return false;
+    if (!ignoredWindow) return true;
+    return overlapStart < ignoredWindow.start || overlapEnd > ignoredWindow.end;
   });
   if (googleBusyConflict) {
     issues.push(

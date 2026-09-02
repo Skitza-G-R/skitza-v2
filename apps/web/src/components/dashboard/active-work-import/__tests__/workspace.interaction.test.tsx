@@ -1600,6 +1600,34 @@ describe("ActiveWorkImportWorkspace client restore", () => {
     });
   });
 
+  // SK: the phone editor is a hand-rolled aria-modal overlay portalled onto
+  // document.body, so nothing else holds the workspace behind it still. While
+  // that page keeps a scrollable range, iOS scrolls the *document* to reveal a
+  // focused field when the keyboard opens and the fixed overlay travels with
+  // it: the editor slides off the top and the workspace shows through below.
+  // visualViewport.offsetTop never reports document scroll, so the
+  // --sk-viewport-offset-top anchor cannot compensate for it.
+  it("holds the page behind the phone editor still so the keyboard cannot scroll it away", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    renderWorkspace(initialBatch());
+
+    const queue = screen.getByRole("list", { name: "Active work items" });
+    await user.click(within(queue).getAllByRole("button")[0] as HTMLElement);
+    await screen.findByRole("dialog", { name: "Edit item 1" });
+
+    expect(document.body.style.position).toBe("fixed");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit item 1" })).toBeNull();
+    });
+
+    expect(document.body.style.position).toBe("");
+    expect(document.body.style.overflow).toBe("");
+  });
+
   it("closes the phone editor on Escape", async () => {
     installMatchMedia(true);
     const user = userEvent.setup();

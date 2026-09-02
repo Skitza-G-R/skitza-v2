@@ -42,6 +42,33 @@ describe("Google Calendar approved event mapping", () => {
     expect(EVENT_ID).not.toContain("booking-calendar-link-id");
   });
 
+  it("labels the event with the studio time zone and keeps the instants in UTC", () => {
+    const event = buildGoogleCalendarEventWrite({
+      ...BASE,
+      kind: "hold",
+      timeZone: "Asia/Jerusalem",
+    });
+
+    expect(event.body.start).toEqual({
+      dateTime: "2026-08-10T09:00:00.000Z",
+      timeZone: "Asia/Jerusalem",
+    });
+    expect(event.body.end).toEqual({
+      dateTime: "2026-08-10T10:30:00.000Z",
+      timeZone: "Asia/Jerusalem",
+    });
+  });
+
+  it("falls back to UTC for a missing or unknown studio time zone", () => {
+    expect(buildGoogleCalendarEventWrite({ ...BASE, kind: "hold" }).body.start.timeZone).toBe(
+      "UTC",
+    );
+    expect(
+      buildGoogleCalendarEventWrite({ ...BASE, kind: "hold", timeZone: "Mars/Olympus_Mons" }).body
+        .start.timeZone,
+    ).toBe("UTC");
+  });
+
   it("builds a private opaque hold with no attendee or private booking details", () => {
     const event = buildGoogleCalendarEventWrite({ ...BASE, kind: "hold" });
 
