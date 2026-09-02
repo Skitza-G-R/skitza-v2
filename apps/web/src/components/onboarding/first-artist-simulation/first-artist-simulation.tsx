@@ -1,7 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowLeft, ArrowRight, BellRing, Check, Copy, FolderInput, Lock, X } from "lucide-react";
+import { ArrowRight, BellRing, Check, ChevronLeft, Lock, X } from "lucide-react";
 import Link from "next/link";
 import {
   useEffect,
@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 
@@ -51,8 +52,11 @@ import {
 // only feed the preview callbacks the screens already expose for the
 // development gallery.
 //
-// Chrome follows the focused-process convention: one slim row (close,
-// progress, step counter), one caption, the device, one primary action.
+// Presentation borrows from stories and first-run tours: the screen is the
+// content and fills the phone edge to edge; a hairline progress strip and an
+// identity row are the only chrome on top; one sentence and one action sit at
+// the bottom; tapping the right side advances, the left side goes back. On
+// desktop the narration sits beside a real device frame.
 
 export interface SimulationLinks {
   bringActiveWork: string;
@@ -69,8 +73,8 @@ interface FirstArtistSimulationProps {
 }
 
 // The reused funnel screens position themselves `fixed` against the viewport.
-// A transformed, isolated container turns that into "fixed inside the device",
-// and the viewport-height token makes their 100dvh fill that area instead.
+// A transformed, isolated container turns that into "fixed inside the screen
+// area", and the viewport-height token makes their 100dvh fill that area.
 const SCREEN_AREA_STYLE = {
   "--sk-viewport-height": "100%",
   "--sk-viewport-offset-top": "0px",
@@ -84,7 +88,7 @@ const INERT_HREF = "#simulation";
 
 // The standing artist screens (Store, product detail) sit above the artist
 // app's bottom tabs on phones; their sticky call to action already leaves room
-// for that bar, so the device renders the real tab surface in the same place.
+// for that bar, so the screen renders the real tab surface in the same place.
 const ARTIST_TABS: readonly LiquidGlassBottomNavTab<
   "home" | "music" | "sessions" | "payments" | "store"
 >[] = [
@@ -109,74 +113,117 @@ const ARTIST_TABS: readonly LiquidGlassBottomNavTab<
   { id: "store", label: "Store", href: INERT_HREF, icon: "store", active: true, prefetch: false },
 ];
 
-const DEVICE_WIDTH = "sm:w-[420px]";
-const PANEL_WIDTH = "sm:max-w-[920px]";
-
 function money(cents: number, currency: string): string {
   return formatMoney(cents, currency, { withCents: cents % 100 !== 0 });
 }
 
-function StatusStrip({ side }: { side: string }) {
+// Beat before a scripted scroll, so the viewer reads the top of the screen
+// first, the way a screen recording pauses before it moves.
+const REVEAL_DELAY_MS = 900;
+
+function ScreenArea({
+  children,
+  standing = false,
+  revealEnd = false,
+}: {
+  children: ReactNode;
+  /** Store-side screens scroll inside the area and show the artist tabs on phones. */
+  standing?: boolean;
+  /** Scroll the standing screen to its end after a beat, to reveal a call to action below the fold. */
+  revealEnd?: boolean;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!revealEnd) return;
+    const timer = setTimeout(() => {
+      const node = scrollRef.current;
+      if (!node) return;
+      const top = node.scrollHeight - node.clientHeight;
+      if (top <= 0) return;
+      const reduceMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (typeof node.scrollTo === "function") {
+        node.scrollTo({ top, behavior: reduceMotion ? "auto" : "smooth" });
+      } else {
+        node.scrollTop = top;
+      }
+    }, REVEAL_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [revealEnd]);
+
   return (
-    <div className="flex h-7 shrink-0 items-center justify-between gap-3 bg-[rgb(var(--bg-sidebar))] px-3.5 font-mono text-[9.5px] font-bold tracking-[0.14em] text-white/55 uppercase">
-      <span className="hidden truncate min-[380px]:inline">{side}</span>
-      <span className="inline-flex shrink-0 items-center gap-1.5 text-[rgb(var(--brand-primary))]">
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
-        {SIMULATION_LABEL}
-      </span>
+    <div
+      className="relative h-full min-h-0 w-full overflow-hidden bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
+      style={SCREEN_AREA_STYLE}
+    >
+      {standing ? (
+        <>
+          <div ref={scrollRef} className="h-full overflow-y-auto">
+            {children}
+            {/* In-flow spacer, not padding: the detail screen's sticky call to
+                action measures its 4.75rem offset from the scrollport's content
+                edge, so padding here would push it above the tabs. */}
+            <div aria-hidden className="h-[4.75rem] lg:h-5" />
+          </div>
+          <div className="lg:hidden">
+            <LiquidGlassBottomNav ariaLabel="Artist app tabs" tabs={ARTIST_TABS} position="fixed" />
+          </div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }
 
+/** Noya's phone: edge to edge on phones, a device frame on desktop. */
 function ArtistDevice({
   children,
   standing = false,
+  revealEnd = false,
 }: {
   children: ReactNode;
-  /** Store-side screens scroll inside the device and show the artist tabs on phones. */
   standing?: boolean;
+  revealEnd?: boolean;
 }) {
   return (
     <div
       inert
       aria-hidden
       data-testid="simulation-artist-frame"
-      className={`relative mx-auto flex h-full w-full max-w-[430px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_24px_60px_rgb(0_0_0/0.45)] sm:h-[min(76vh,760px)] ${DEVICE_WIDTH}`}
+      className="h-full w-full lg:mx-auto lg:h-[min(80vh,780px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
-      <StatusStrip side={`${SIMULATED_ARTIST.firstName}'s phone`} />
-      <div className="relative min-h-0 flex-1 overflow-hidden" style={SCREEN_AREA_STYLE}>
-        {standing ? (
-          <>
-            <div className="h-full overflow-y-auto">
-              {children}
-              {/* In-flow spacer, not padding: the detail screen's sticky call to
-                  action measures its 4.75rem offset from the scrollport's content
-                  edge, so padding here would push it above the tabs. */}
-              <div aria-hidden className="h-[4.75rem] lg:h-5" />
-            </div>
-            <div className="lg:hidden">
-              <LiquidGlassBottomNav
-                ariaLabel="Artist app tabs"
-                tabs={ARTIST_TABS}
-                position="fixed"
-              />
-            </div>
-          </>
-        ) : (
-          children
-        )}
+      <div className="h-full w-full overflow-hidden lg:rounded-[37px]">
+        <ScreenArea standing={standing} revealEnd={revealEnd}>
+          {children}
+        </ScreenArea>
       </div>
     </div>
   );
 }
 
-function ProducerPanel({ children }: { children: ReactNode }) {
+/** The producer's own screen: edge to edge on phones, a browser window on desktop. */
+function ProducerWindow({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="simulation-producer-panel"
-      className={`mx-auto flex h-auto max-h-full w-full flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_24px_60px_rgb(0_0_0/0.45)] sm:h-[min(76vh,760px)] ${PANEL_WIDTH}`}
+      className="flex h-full w-full flex-col bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] lg:mx-auto lg:h-[min(80vh,780px)] lg:w-full lg:max-w-[880px] lg:overflow-hidden lg:rounded-[14px] lg:border lg:border-white/10 lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
-      <StatusStrip side="Your dashboard" />
+      <div
+        aria-hidden
+        className="hidden h-9 shrink-0 items-center gap-2 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 lg:flex"
+      >
+        <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--border-subtle))]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--border-subtle))]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--border-subtle))]" />
+        <span className="mx-auto rounded-[var(--radius-sm)] bg-[rgb(var(--bg-background))] px-3 py-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
+          skitza.app/dashboard
+        </span>
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">{children}</div>
     </div>
   );
@@ -193,9 +240,7 @@ function NeedsYouFrame({ model, onReview }: { model: SimulationModel; onReview: 
           <BellRing size={15} aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="font-mono text-[10px] font-bold tracking-[0.14em] whitespace-nowrap text-[rgb(var(--fg-muted))] uppercase">
-            Skitza · now
-          </p>
+          <p className="text-[11px] font-semibold text-[rgb(var(--fg-muted))]">Skitza · now</p>
           <p className="mt-0.5 text-[13px] leading-snug text-[rgb(var(--fg-default))]">
             {SIMULATED_ARTIST.name} sent a payment proof for {SIMULATED_ARTIST.projectTitle}.
           </p>
@@ -335,44 +380,76 @@ function ClosingCard({
   onCopy: () => void;
 }) {
   return (
-    <div className="mx-auto flex h-full w-full max-w-[520px] flex-col items-center justify-center px-2 text-center">
-      <span className="inline-flex min-h-7 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.4)] px-2.5 font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary))] uppercase">
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
-        {SIMULATION_LABEL}
-      </span>
-      <h3 className="font-display mt-6 text-[34px] leading-[1.02] font-extrabold tracking-[-0.035em] text-balance text-white sm:text-[44px]">
+    <div className="mx-auto flex h-full w-full max-w-[520px] flex-col items-center justify-center px-6 text-center">
+      <h3 className="font-display text-[36px] leading-[1.02] font-extrabold tracking-[-0.035em] text-balance text-white sm:text-[46px]">
         {frame.caption.replace(/\.$/, "")}
         <span className="text-[rgb(var(--brand-primary))]">.</span>
       </h3>
-      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-white/70">{frame.detail}</p>
-      <div className="mt-8 flex w-full flex-col gap-2.5">
-        <Link
-          href={links.bringActiveWork}
-          className="ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-        >
-          <FolderInput size={16} aria-hidden />
-          Bring in your active work
-        </Link>
+      <p className="mt-4 max-w-[36ch] text-[16px] leading-relaxed text-white/70">{frame.detail}</p>
+      <Link
+        href={links.bringActiveWork}
+        className="ob-press mt-9 inline-flex min-h-[52px] w-full items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[15px] font-bold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none sm:w-auto sm:min-w-[280px]"
+      >
+        Bring in your active work
+      </Link>
+      <div className="mt-5 flex items-center gap-6 text-[14px] font-semibold text-white/70">
         <button
           type="button"
           onClick={onCopy}
-          className="ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-white/12 bg-white/[0.06] px-5 text-[14px] font-bold text-white transition-colors hover:bg-white/[0.1] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center gap-1.5 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
-          {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
+          {copied ? <Check size={15} aria-hidden /> : null}
           {copied ? "Link copied" : "Copy my link"}
         </button>
         <Link
           href={links.dashboard}
-          className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-white/65 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           Open dashboard
-          <ArrowRight size={14} aria-hidden />
         </Link>
       </div>
-      <p className="mt-5 text-[12px] text-white/45">
-        Nothing was sent or saved during this simulation.
+      <p className="mt-10 text-[12px] text-white/40">
+        {SIMULATION_LABEL}. Nothing was sent or saved.
       </p>
     </div>
+  );
+}
+
+function Progress({
+  frames,
+  current,
+}: {
+  frames: readonly SimulationFrame[];
+  current: SimulationFrame;
+}) {
+  const done = current.side === "closing";
+  return (
+    <ol aria-hidden className="flex w-full items-center gap-[3px]">
+      {frames.map((candidate) => (
+        <li
+          key={candidate.id}
+          className={`h-[3px] flex-1 rounded-full transition-colors ${
+            candidate.id === current.id
+              ? "bg-white"
+              : done || (candidate.step ?? 0) < (current.step ?? 0)
+                ? "bg-white/75"
+                : "bg-white/25"
+          }`}
+        />
+      ))}
+    </ol>
+  );
+}
+
+function Avatar({ initial, logoUrl }: { initial: string; logoUrl: string | null }) {
+  if (logoUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={logoUrl} alt="" className="h-7 w-7 rounded-full object-cover" />;
+  }
+  return (
+    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-[12px] font-bold text-white">
+      {initial}
+    </span>
   );
 }
 
@@ -425,7 +502,7 @@ export function FirstArtistSimulation({
   const frame: SimulationFrame = activeFrame;
   const lastIndex = model.frames.length - 1;
   const isClosing = frame.side === "closing";
-  const contentWidth = frame.side === "artist" ? DEVICE_WIDTH : PANEL_WIDTH;
+  const isArtist = frame.side === "artist";
 
   function goTo(nextIndex: number) {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
@@ -475,6 +552,17 @@ export function FirstArtistSimulation({
     }
   }
 
+  // Stories gesture on the inert artist frames: right side advances, left side
+  // goes back. Producer frames carry real controls, so they keep their clicks.
+  function handleStoryTap(event: MouseEvent<HTMLDivElement>) {
+    if (!isArtist) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width === 0) return;
+    const ratio = (event.clientX - bounds.left) / bounds.width;
+    if (ratio < 0.3) goBack();
+    else goNext();
+  }
+
   async function copyLink() {
     try {
       await navigator.clipboard.writeText(links.publicUrl);
@@ -519,7 +607,9 @@ export function FirstArtistSimulation({
         );
       case "detail":
         return (
-          <ArtistDevice standing>
+          // The live detail page keeps "Request to book" at the end of the
+          // page, so the phone scrolls down to it after a beat.
+          <ArtistDevice standing revealEnd>
             <ProfessionalProductDetail
               product={product}
               studioId={SIMULATION_IDS.studio}
@@ -608,29 +698,29 @@ export function FirstArtistSimulation({
         );
       case "needs-you":
         return (
-          <ProducerPanel>
+          <ProducerWindow>
             <NeedsYouFrame
               model={model}
               onReview={() => {
                 goTo(index + 1);
               }}
             />
-          </ProducerPanel>
+          </ProducerWindow>
         );
       case "verify":
         return (
-          <ProducerPanel>
+          <ProducerWindow>
             <PaymentProofReview
               review={model.proofReview}
               onPreviewDecision={handleProofDecision}
             />
-          </ProducerPanel>
+          </ProducerWindow>
         );
       case "outcome":
         return (
-          <ProducerPanel>
+          <ProducerWindow>
             <OutcomeFrame model={model} />
-          </ProducerPanel>
+          </ProducerWindow>
         );
       case "closing":
         return (
@@ -648,105 +738,123 @@ export function FirstArtistSimulation({
     }
   }
 
+  const identity = isArtist
+    ? {
+        initial: SIMULATED_ARTIST.firstName.charAt(0),
+        name: SIMULATED_ARTIST.firstName,
+        logoUrl: null,
+      }
+    : { initial: model.producer.initials.charAt(0), name: "You", logoUrl: model.producerLogoUrl };
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-[rgb(17_16_9/0.72)] backdrop-blur-[4px]" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-[rgb(17_16_9/0.72)]" />
         <DialogPrimitive.Content
           aria-describedby="first-artist-simulation-description"
           onKeyDown={handleKeyDown}
           className="fixed inset-0 z-[65] flex h-[100dvh] flex-col bg-[rgb(var(--bg-sidebar))] text-white outline-none"
         >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_46%_at_50%_42%,rgb(var(--brand-primary)/0.12),transparent_72%)]"
-          />
           <DialogPrimitive.Title className="sr-only">Watch your first artist</DialogPrimitive.Title>
           <DialogPrimitive.Description id="first-artist-simulation-description" className="sr-only">
             A simulation with a fictional artist using your real product. {SIMULATION_LABEL}.
             Nothing is sent or saved.
           </DialogPrimitive.Description>
 
-          <div className="relative flex h-14 shrink-0 items-center gap-4 px-3 sm:px-6">
-            <DialogPrimitive.Close asChild>
-              <button
-                type="button"
-                aria-label="Close simulation"
-                className="ob-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-white hover:bg-white/[0.12] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-              >
-                <X size={16} strokeWidth={2.2} aria-hidden />
-              </button>
-            </DialogPrimitive.Close>
-            <ol aria-hidden className="flex min-w-0 flex-1 items-center gap-1">
-              {numbered.map((candidate) => (
-                <li
-                  key={candidate.id}
-                  className={`h-1 flex-1 rounded-full transition-colors ${
-                    candidate.id === frame.id
-                      ? "bg-[rgb(var(--brand-primary))]"
-                      : isClosing || (candidate.step ?? 0) < (frame.step ?? 0)
-                        ? "bg-white/60"
-                        : "bg-white/18"
-                  }`}
-                />
-              ))}
-            </ol>
-            <span
-              data-testid="simulation-step"
-              className="w-14 shrink-0 text-right font-mono text-[11px] font-semibold tracking-[0.08em] whitespace-nowrap text-white/55"
-            >
-              {frame.step !== null ? `${String(frame.step)} / ${String(stepCount)}` : ""}
-            </span>
-          </div>
-
-          {isClosing ? null : (
-            <div className="relative shrink-0 px-5 pt-1 pb-3 sm:px-6 sm:pb-4 sm:text-center">
-              <div className="mx-auto max-w-[44ch]">
-                <p
-                  key={frame.id}
-                  data-testid="simulation-caption"
-                  aria-live="polite"
-                  className="sk-step-enter text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance text-white sm:text-[19px]"
-                >
-                  {frame.caption}
-                </p>
-                <p className="mt-1 text-[13px] leading-snug text-white/60 [@media(max-height:680px)]:hidden">
-                  {frame.detail}
-                </p>
-              </div>
+          {/* Top: hairline progress, identity row, close. */}
+          <div className="shrink-0 px-3 pt-[max(env(safe-area-inset-top),10px)] lg:px-8 lg:pt-5">
+            <div className="lg:hidden">
+              <Progress frames={numbered} current={frame} />
             </div>
-          )}
-
-          <div className="relative min-h-0 flex-1 px-3 sm:px-6">
-            <div key={frame.id} className="sk-step-enter h-full">
-              {renderFrame(frame)}
+            <div className="flex h-12 items-center justify-between gap-3">
+              {isClosing ? (
+                <span />
+              ) : (
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <Avatar initial={identity.initial} logoUrl={identity.logoUrl} />
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="text-[14px] font-semibold text-white">{identity.name}</span>
+                    <span className="truncate text-[12px] text-white/50">{SIMULATION_LABEL}</span>
+                  </div>
+                </div>
+              )}
+              <DialogPrimitive.Close asChild>
+                <button
+                  type="button"
+                  aria-label="Close simulation"
+                  className="ob-press inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+                >
+                  <X size={20} strokeWidth={2} aria-hidden />
+                </button>
+              </DialogPrimitive.Close>
             </div>
           </div>
 
           {isClosing ? (
-            <div className="h-[max(env(safe-area-inset-bottom),16px)] shrink-0" />
+            <div className="min-h-0 flex-1">{renderFrame(frame)}</div>
           ) : (
-            <div className="relative shrink-0 px-3 pt-3 pb-[max(env(safe-area-inset-bottom),14px)] sm:px-6 sm:pb-6">
+            <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-center lg:gap-14 lg:px-12 lg:pb-8">
+              {/* Narration: bottom bar on phones, left column on desktop. The
+                  desktop block has a fixed height so the progress strip and
+                  the buttons stay put while captions change length. */}
+              <div className="order-2 shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),14px)] lg:order-1 lg:w-[400px] lg:px-0 lg:pt-0 lg:pb-0">
+                <div className="lg:flex lg:h-[400px] lg:flex-col">
+                  <div className="hidden lg:block">
+                    <Progress frames={numbered} current={frame} />
+                    <p
+                      data-testid="simulation-step"
+                      className="mt-3 text-[12px] font-medium text-white/50"
+                    >
+                      {frame.step !== null ? `${String(frame.step)} / ${String(stepCount)}` : ""}
+                    </p>
+                  </div>
+                  <p
+                    key={frame.id}
+                    data-testid="simulation-caption"
+                    aria-live="polite"
+                    className="sk-step-enter font-display text-[19px] leading-[1.2] font-bold tracking-[-0.02em] text-balance text-white lg:mt-3 lg:text-[32px] lg:leading-[1.1] lg:tracking-[-0.03em]"
+                  >
+                    {frame.caption}
+                  </p>
+                  <p className="mt-1 text-[13px] leading-snug text-white/55 lg:mt-3 lg:text-[15px] lg:leading-relaxed lg:text-white/60">
+                    {frame.detail}
+                  </p>
+                  <div className="mt-3 flex items-center gap-2 lg:mt-auto">
+                    <button
+                      type="button"
+                      onClick={goBack}
+                      aria-label="Back"
+                      className={`ob-press inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none ${
+                        index === 0 ? "invisible" : ""
+                      }`}
+                    >
+                      <ChevronLeft size={20} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      className="ob-press inline-flex min-h-12 flex-1 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[15px] font-bold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:min-w-[180px] lg:flex-none"
+                    >
+                      {index === lastIndex - 1 ? "Finish" : "Next"}
+                    </button>
+                  </div>
+                  <p className="mt-4 hidden text-[12px] text-white/35 lg:block">
+                    Use the arrow keys, or tap the phone.
+                  </p>
+                </div>
+              </div>
+
+              {/* The screen. */}
               <div
-                className={`mx-auto flex w-full max-w-[430px] items-center justify-between gap-3 ${contentWidth}`}
+                role="presentation"
+                onClick={handleStoryTap}
+                className={`order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center ${
+                  isArtist ? "cursor-pointer" : ""
+                }`}
               >
-                <button
-                  type="button"
-                  onClick={goBack}
-                  disabled={index === 0}
-                  className="ob-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-[13px] font-semibold text-white/70 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <ArrowLeft size={15} aria-hidden />
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={goNext}
-                  className="ob-press inline-flex min-h-12 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[14px] font-bold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-                >
-                  {index === lastIndex - 1 ? "Finish" : "Next"}
-                  <ArrowRight size={15} aria-hidden />
-                </button>
+                <div key={frame.id} className="sk-step-enter h-full w-full">
+                  {renderFrame(frame)}
+                </div>
               </div>
             </div>
           )}

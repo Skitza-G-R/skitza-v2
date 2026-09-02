@@ -52,7 +52,7 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
   it("labels every frame as a simulation and honours reduced motion through existing primitives", () => {
     expect(OVERLAY).toContain("SIMULATION_LABEL");
     expect(OVERLAY).toMatch(/nothing is sent or saved/i);
-    expect(OVERLAY).toContain("Nothing was sent or saved during this simulation.");
+    expect(OVERLAY).toContain("Nothing was sent or saved.");
     expect(OVERLAY).toContain("sk-step-enter");
     expect(OVERLAY).not.toMatch(/framer-motion|@keyframes/);
   });

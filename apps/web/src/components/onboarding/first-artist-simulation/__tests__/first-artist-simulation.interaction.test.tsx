@@ -105,7 +105,8 @@ function caption() {
 }
 
 function stepCounter() {
-  return within(dialog()).getByTestId("simulation-step").textContent;
+  // The counter lives in the narration column, which the closing card replaces.
+  return within(dialog()).queryByTestId("simulation-step")?.textContent ?? "";
 }
 
 function expectLabelledFrame() {
