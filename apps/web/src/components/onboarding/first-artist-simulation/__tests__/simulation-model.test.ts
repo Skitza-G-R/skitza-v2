@@ -78,11 +78,11 @@ describe("buildSimulation", () => {
     expect(model.storyPlans).toEqual([{ kind: "split_50_50" }, { kind: "full" }]);
 
     const numbered = model.frames.filter((frame) => frame.step !== null);
-    expect(numbered).toHaveLength(10);
-    expect(numbered.map((frame) => frame.step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(numbered).toHaveLength(11);
+    expect(numbered.map((frame) => frame.step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(model.frames.at(-1)?.side).toBe("closing");
-    expect(model.frames.slice(0, 7).every((frame) => frame.side === "artist")).toBe(true);
-    expect(model.frames.slice(7, 10).every((frame) => frame.side === "producer")).toBe(true);
+    expect(model.frames.slice(0, 8).every((frame) => frame.side === "artist")).toBe(true);
+    expect(model.frames.slice(8, 11).every((frame) => frame.side === "producer")).toBe(true);
     expect(model.frames.every((frame) => frame.caption.length > 0 && frame.detail.length > 0)).toBe(
       true,
     );

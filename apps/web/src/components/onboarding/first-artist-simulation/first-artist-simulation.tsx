@@ -1,17 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import {
-  ArrowLeft,
-  ArrowRight,
-  BellRing,
-  Check,
-  Copy,
-  FolderInput,
-  Lock,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, BellRing, Check, Copy, FolderInput, Lock, X } from "lucide-react";
 import Link from "next/link";
 import {
   useEffect,
@@ -25,8 +15,9 @@ import {
 
 import { ChoosePlanScreen } from "~/components/artist/purchase/choose-plan-screen";
 import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
-import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
+import { ProfessionalProductDetail } from "~/components/artist/purchase/professional-product-detail";
 import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
+import { PurchaseRequestScreen } from "~/components/artist/purchase/purchase-request-screen";
 import { RequestSentScreen } from "~/components/artist/purchase/request-sent-screen";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
@@ -56,9 +47,12 @@ import {
 // "Watch your first artist" (SK-298): a render-only walkthrough that plays the
 // producer's REAL first product through the live artist screens with one
 // fictional artist, then flips to the producer side. It never calls a
-// mutation: the artist frames are inert storyboards and the two producer
-// frames only feed the preview callbacks the screens already expose for the
+// mutation: the artist frames are inert storyboards and the producer frames
+// only feed the preview callbacks the screens already expose for the
 // development gallery.
+//
+// Chrome follows the focused-process convention: one slim row (close,
+// progress, step counter), one caption, the device, one primary action.
 
 export interface SimulationLinks {
   bringActiveWork: string;
@@ -75,9 +69,9 @@ interface FirstArtistSimulationProps {
 }
 
 // The reused funnel screens position themselves `fixed` against the viewport.
-// A transformed, isolated container turns that into "fixed inside the phone",
-// and the viewport-height token makes their 100dvh fill the frame instead.
-const ARTIST_FRAME_STYLE = {
+// A transformed, isolated container turns that into "fixed inside the device",
+// and the viewport-height token makes their 100dvh fill that area instead.
+const SCREEN_AREA_STYLE = {
   "--sk-viewport-height": "100%",
   "--sk-viewport-offset-top": "0px",
   transform: "translateZ(0)",
@@ -90,7 +84,7 @@ const INERT_HREF = "#simulation";
 
 // The standing artist screens (Store, product detail) sit above the artist
 // app's bottom tabs on phones; their sticky call to action already leaves room
-// for that bar, so the frame renders the real tab surface in the same place.
+// for that bar, so the device renders the real tab surface in the same place.
 const ARTIST_TABS: readonly LiquidGlassBottomNavTab<
   "home" | "music" | "sessions" | "payments" | "store"
 >[] = [
@@ -115,25 +109,31 @@ const ARTIST_TABS: readonly LiquidGlassBottomNavTab<
   { id: "store", label: "Store", href: INERT_HREF, icon: "store", active: true, prefetch: false },
 ];
 
+const DEVICE_WIDTH = "sm:w-[420px]";
+const PANEL_WIDTH = "sm:max-w-[920px]";
+
 function money(cents: number, currency: string): string {
   return formatMoney(cents, currency, { withCents: cents % 100 !== 0 });
 }
 
-function SimulationChip() {
+function StatusStrip({ side }: { side: string }) {
   return (
-    <span className="inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary)/0.12)] px-2.5 font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary))] uppercase">
-      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
-      {SIMULATION_LABEL}
-    </span>
+    <div className="flex h-7 shrink-0 items-center justify-between gap-3 bg-[rgb(var(--bg-sidebar))] px-3.5 font-mono text-[9.5px] font-bold tracking-[0.14em] text-white/55 uppercase">
+      <span className="hidden truncate min-[380px]:inline">{side}</span>
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-[rgb(var(--brand-primary))]">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
+        {SIMULATION_LABEL}
+      </span>
+    </div>
   );
 }
 
-function ArtistFrame({
+function ArtistDevice({
   children,
   standing = false,
 }: {
   children: ReactNode;
-  /** Store-side screens scroll inside the frame and show the artist tabs on phones. */
+  /** Store-side screens scroll inside the device and show the artist tabs on phones. */
   standing?: boolean;
 }) {
   return (
@@ -141,25 +141,31 @@ function ArtistFrame({
       inert
       aria-hidden
       data-testid="simulation-artist-frame"
-      className="relative mx-auto h-full w-full overflow-hidden bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] sm:h-[min(78vh,760px)] sm:w-[430px] sm:rounded-[32px] sm:border-[6px] sm:border-white/10 sm:shadow-[0_30px_80px_rgb(0_0_0/0.5)]"
-      style={ARTIST_FRAME_STYLE}
+      className={`relative mx-auto flex h-full w-full max-w-[430px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_24px_60px_rgb(0_0_0/0.45)] sm:h-[min(76vh,760px)] ${DEVICE_WIDTH}`}
     >
-      {standing ? (
-        <>
-          <div className="h-full overflow-y-auto px-4 pt-5">
-            {children}
-            {/* In-flow spacer, not padding: the detail screen's sticky call to
-                action measures its 4.75rem offset from the scrollport's content
-                edge, so padding here would push it above the tabs. */}
-            <div aria-hidden className="h-[4.75rem] lg:h-5" />
-          </div>
-          <div className="lg:hidden">
-            <LiquidGlassBottomNav ariaLabel="Artist app tabs" tabs={ARTIST_TABS} position="fixed" />
-          </div>
-        </>
-      ) : (
-        children
-      )}
+      <StatusStrip side={`${SIMULATED_ARTIST.firstName}'s phone`} />
+      <div className="relative min-h-0 flex-1 overflow-hidden" style={SCREEN_AREA_STYLE}>
+        {standing ? (
+          <>
+            <div className="h-full overflow-y-auto">
+              {children}
+              {/* In-flow spacer, not padding: the detail screen's sticky call to
+                  action measures its 4.75rem offset from the scrollport's content
+                  edge, so padding here would push it above the tabs. */}
+              <div aria-hidden className="h-[4.75rem] lg:h-5" />
+            </div>
+            <div className="lg:hidden">
+              <LiquidGlassBottomNav
+                ariaLabel="Artist app tabs"
+                tabs={ARTIST_TABS}
+                position="fixed"
+              />
+            </div>
+          </>
+        ) : (
+          children
+        )}
+      </div>
     </div>
   );
 }
@@ -168,28 +174,29 @@ function ProducerPanel({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="simulation-producer-panel"
-      className="mx-auto h-full w-full max-w-[960px] overflow-y-auto bg-[rgb(var(--bg-background))] px-4 py-5 text-[rgb(var(--fg-default))] sm:h-[min(78vh,760px)] sm:rounded-[var(--radius-xl)] sm:border sm:border-white/10 sm:px-6 sm:py-6"
+      className={`mx-auto flex h-auto max-h-full w-full flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_24px_60px_rgb(0_0_0/0.45)] sm:h-[min(76vh,760px)] ${PANEL_WIDTH}`}
     >
-      {children}
+      <StatusStrip side="Your dashboard" />
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">{children}</div>
     </div>
   );
 }
 
 function NeedsYouFrame({ model, onReview }: { model: SimulationModel; onReview: () => void }) {
   return (
-    <div className="mx-auto max-w-[640px] space-y-4">
+    <div className="mx-auto max-w-[620px] space-y-3">
       <div
         role="status"
-        className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[var(--shadow-sm)]"
+        className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3"
       >
-        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
-          <BellRing size={16} aria-hidden />
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
+          <BellRing size={15} aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
-            Push · Skitza · now
+          <p className="font-mono text-[10px] font-bold tracking-[0.14em] whitespace-nowrap text-[rgb(var(--fg-muted))] uppercase">
+            Skitza · now
           </p>
-          <p className="mt-0.5 text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+          <p className="mt-0.5 text-[13px] leading-snug text-[rgb(var(--fg-default))]">
             {SIMULATED_ARTIST.name} sent a payment proof for {SIMULATED_ARTIST.projectTitle}.
           </p>
         </div>
@@ -208,16 +215,16 @@ function NeedsYouFrame({ model, onReview }: { model: SimulationModel; onReview: 
         >
           1 thing needs you<span className="text-[rgb(var(--brand-primary))]">.</span>
         </h3>
-        <div className="mt-4 flex items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.06)] px-3.5 py-3">
-          <span
-            aria-hidden
-            className="ob-alive-dot h-2.5 w-2.5 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
-          />
+        <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.06)] px-3.5 py-3 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[14px] font-bold text-[rgb(var(--fg-default))]">
+            <p className="flex items-center gap-2 text-[14px] font-bold text-[rgb(var(--fg-default))]">
+              <span
+                aria-hidden
+                className="ob-alive-dot h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
+              />
               {SIMULATED_ARTIST.name} sent a payment proof
             </p>
-            <p className="mt-0.5 truncate text-[12px] text-[rgb(var(--fg-muted))]">
+            <p className="mt-0.5 pl-4 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
               {SIMULATED_ARTIST.projectTitle} · {model.product.name} ·{" "}
               {money(model.dueNowCents, model.currency)} of{" "}
               {money(model.totalCents, model.currency)}
@@ -226,7 +233,7 @@ function NeedsYouFrame({ model, onReview }: { model: SimulationModel; onReview: 
           <button
             type="button"
             onClick={onReview}
-            className="ob-press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-3.5 text-[12.5px] font-bold text-[rgb(var(--bg-background))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            className="ob-press inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] font-bold text-[rgb(var(--bg-background))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
           >
             Review
             <ArrowRight size={14} aria-hidden />
@@ -281,19 +288,16 @@ function OutcomeFrame({ model }: { model: SimulationModel }) {
   );
 
   return (
-    <div className="mx-auto max-w-[640px]">
+    <div className="mx-auto max-w-[620px]">
       <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
         Project · {SIMULATED_ARTIST.projectTitle}
       </p>
       <h3 className="font-display mt-1 text-[24px] leading-tight font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] sm:text-[28px]">
         One place. No chasing<span className="text-[rgb(var(--brand-primary))]">.</span>
       </h3>
-      <ul className="mt-5 space-y-2.5">
+      <ul className="mt-5 divide-y divide-[rgb(var(--border-subtle))] rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
         {rows.map(({ icon: Icon, tone, title, detail }) => (
-          <li
-            key={title}
-            className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5"
-          >
+          <li key={title} className="flex items-start gap-3 px-4 py-3.5">
             <span
               className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
                 tone === "good"
@@ -313,13 +317,13 @@ function OutcomeFrame({ model }: { model: SimulationModel }) {
         ))}
       </ul>
       <p className="mt-4 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-        You get a push for every one of these moments, on your phone and on the desktop app.
+        You get a push for every one of these moments, on your phone and in the desktop app.
       </p>
     </div>
   );
 }
 
-function ClosingFrame({
+function ClosingCard({
   frame,
   links,
   copied,
@@ -331,17 +335,20 @@ function ClosingFrame({
   onCopy: () => void;
 }) {
   return (
-    <div className="mx-auto flex h-full w-full max-w-[560px] flex-col items-center justify-center px-4 text-center">
-      <SimulationChip />
-      <h3 className="font-display mt-5 text-[34px] leading-[1.02] font-extrabold tracking-[-0.035em] text-balance text-white sm:text-[44px]">
+    <div className="mx-auto flex h-full w-full max-w-[520px] flex-col items-center justify-center px-2 text-center">
+      <span className="inline-flex min-h-7 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.4)] px-2.5 font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary))] uppercase">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
+        {SIMULATION_LABEL}
+      </span>
+      <h3 className="font-display mt-6 text-[34px] leading-[1.02] font-extrabold tracking-[-0.035em] text-balance text-white sm:text-[44px]">
         {frame.caption.replace(/\.$/, "")}
         <span className="text-[rgb(var(--brand-primary))]">.</span>
       </h3>
-      <p className="mt-4 max-w-[40ch] text-[15px] leading-relaxed text-white/70">{frame.detail}</p>
+      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-white/70">{frame.detail}</p>
       <div className="mt-8 flex w-full flex-col gap-2.5">
         <Link
           href={links.bringActiveWork}
-          className="ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
+          className="ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
         >
           <FolderInput size={16} aria-hidden />
           Bring in your active work
@@ -349,20 +356,20 @@ function ClosingFrame({
         <button
           type="button"
           onClick={onCopy}
-          className="ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-white/15 bg-white/[0.07] px-5 text-[14px] font-bold text-white transition-colors hover:bg-white/[0.12] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-white/12 bg-white/[0.06] px-5 text-[14px] font-bold text-white transition-colors hover:bg-white/[0.1] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
           {copied ? "Link copied" : "Copy my link"}
         </button>
         <Link
           href={links.dashboard}
-          className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-white/70 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-white/65 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           Open dashboard
           <ArrowRight size={14} aria-hidden />
         </Link>
       </div>
-      <p className="mt-5 text-[12px] text-white/50">
+      <p className="mt-5 text-[12px] text-white/45">
         Nothing was sent or saved during this simulation.
       </p>
     </div>
@@ -376,10 +383,11 @@ export function FirstArtistSimulation({
   links,
 }: FirstArtistSimulationProps) {
   const model = useMemo(() => buildSimulation(input, new Date()), [input]);
-  const stepCount = useMemo(
-    () => model.frames.filter((candidate) => candidate.step !== null).length,
+  const numbered = useMemo(
+    () => model.frames.filter((candidate) => candidate.step !== null),
     [model],
   );
+  const stepCount = numbered.length;
   const [index, setIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -417,6 +425,7 @@ export function FirstArtistSimulation({
   const frame: SimulationFrame = activeFrame;
   const lastIndex = model.frames.length - 1;
   const isClosing = frame.side === "closing";
+  const contentWidth = frame.side === "artist" ? DEVICE_WIDTH : PANEL_WIDTH;
 
   function goTo(nextIndex: number) {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
@@ -480,20 +489,13 @@ export function FirstArtistSimulation({
     }, 2200);
   }
 
-  const sideLabel =
-    frame.side === "artist"
-      ? `${SIMULATED_ARTIST.firstName}'s phone`
-      : frame.side === "producer"
-        ? "Your dashboard"
-        : "Simulation over";
-
   function renderFrame(current: SimulationFrame): ReactNode {
     const { product, producer } = model;
     switch (current.id) {
       case "store":
         return (
-          <ArtistFrame standing>
-            <div className="space-y-5">
+          <ArtistDevice standing>
+            <div className="space-y-4 px-4 pt-4">
               <ProducerHero producerName={producer.name} producerLogoUrl={model.producerLogoUrl} />
               <FocalProductCard
                 product={{
@@ -513,31 +515,44 @@ export function FirstArtistSimulation({
                 onPreviewDetails={() => undefined}
               />
             </div>
-          </ArtistFrame>
+          </ArtistDevice>
         );
       case "detail":
         return (
-          <ArtistFrame standing>
-            <ProductDetailScreen
+          <ArtistDevice standing>
+            <ProfessionalProductDetail
               product={product}
-              producer={producer}
-              productId={product.id}
-              taxMode={model.taxMode}
-              taxRatePct={model.taxRatePct}
-              previewAgreeHref={INERT_HREF}
-              onPreviewBack={() => undefined}
+              studioId={SIMULATION_IDS.studio}
+              activePurchase={null}
+              requestHrefOverride={INERT_HREF}
             />
-          </ArtistFrame>
+          </ArtistDevice>
+        );
+      case "request":
+        return (
+          <ArtistDevice>
+            <PurchaseRequestScreen
+              productId={product.id}
+              productName={product.name}
+              producerName={producer.name}
+              studioId={SIMULATION_IDS.studio}
+              amountCents={model.totalCents}
+              currency={model.currency}
+              targetProjects={[]}
+              previewSentHref={INERT_HREF}
+              backHrefOverride={INERT_HREF}
+            />
+          </ArtistDevice>
         );
       case "request-sent":
         return (
-          <ArtistFrame>
+          <ArtistDevice>
             <RequestSentScreen producer={producer} requestRef={SIMULATION_IDS.requestRef} />
-          </ArtistFrame>
+          </ArtistDevice>
         );
       case "choose-plan":
         return (
-          <ArtistFrame>
+          <ArtistDevice>
             <ChoosePlanScreen
               productId={product.id}
               productName={product.name}
@@ -547,11 +562,11 @@ export function FirstArtistSimulation({
               currency={model.currency}
               previewNextHref={INERT_HREF}
             />
-          </ArtistFrame>
+          </ArtistDevice>
         );
       case "agreement":
         return (
-          <ArtistFrame>
+          <ArtistDevice>
             <ReviewAgreeScreen
               product={{ ...product, paymentPlans: model.storyPlans }}
               producer={producer}
@@ -560,11 +575,11 @@ export function FirstArtistSimulation({
               previewReference={SIMULATION_IDS.requestRef}
               previewTax={{ mode: model.taxMode, ratePct: model.taxRatePct }}
             />
-          </ArtistFrame>
+          </ArtistDevice>
         );
       case "pay":
         return (
-          <ArtistFrame>
+          <ArtistDevice>
             <PaymentInstructionsScreen
               producerName={producer.name}
               amountDueNowCents={model.dueNowCents}
@@ -574,11 +589,11 @@ export function FirstArtistSimulation({
               planLabel={model.planLabel}
               previewProofHref={INERT_HREF}
             />
-          </ArtistFrame>
+          </ArtistDevice>
         );
       case "proof":
         return (
-          <ArtistFrame>
+          <ArtistDevice>
             <UploadProofScreen
               productName={product.name}
               producerName={producer.name}
@@ -589,7 +604,7 @@ export function FirstArtistSimulation({
               totalCents={model.totalCents}
               thisProofCents={model.dueNowCents}
             />
-          </ArtistFrame>
+          </ArtistDevice>
         );
       case "needs-you":
         return (
@@ -619,7 +634,7 @@ export function FirstArtistSimulation({
         );
       case "closing":
         return (
-          <ClosingFrame
+          <ClosingCard
             frame={current}
             links={links}
             copied={copied}
@@ -642,109 +657,99 @@ export function FirstArtistSimulation({
           onKeyDown={handleKeyDown}
           className="fixed inset-0 z-[65] flex h-[100dvh] flex-col bg-[rgb(var(--bg-sidebar))] text-white outline-none"
         >
-          <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 sm:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <span
-                aria-hidden
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.18)] text-[rgb(var(--brand-primary))]"
-              >
-                <Sparkles size={16} strokeWidth={2.2} />
-              </span>
-              <div className="min-w-0">
-                <DialogPrimitive.Title className="font-display truncate text-[15px] font-extrabold tracking-[-0.015em] text-white">
-                  Watch your first artist
-                </DialogPrimitive.Title>
-                <DialogPrimitive.Description
-                  id="first-artist-simulation-description"
-                  className="truncate text-[11.5px] text-white/60"
-                >
-                  {SIMULATION_LABEL} · nothing is sent or saved
-                </DialogPrimitive.Description>
-              </div>
-            </div>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_46%_at_50%_42%,rgb(var(--brand-primary)/0.12),transparent_72%)]"
+          />
+          <DialogPrimitive.Title className="sr-only">Watch your first artist</DialogPrimitive.Title>
+          <DialogPrimitive.Description id="first-artist-simulation-description" className="sr-only">
+            A simulation with a fictional artist using your real product. {SIMULATION_LABEL}.
+            Nothing is sent or saved.
+          </DialogPrimitive.Description>
+
+          <div className="relative flex h-14 shrink-0 items-center gap-4 px-3 sm:px-6">
             <DialogPrimitive.Close asChild>
               <button
                 type="button"
                 aria-label="Close simulation"
-                className="ob-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-white/15 bg-white/[0.06] px-3 text-[12.5px] font-semibold text-white hover:bg-white/[0.12] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+                className="ob-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-white hover:bg-white/[0.12] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
               >
-                <X size={15} strokeWidth={2.2} aria-hidden />
-                <span className="hidden sm:inline">Close</span>
+                <X size={16} strokeWidth={2.2} aria-hidden />
               </button>
             </DialogPrimitive.Close>
-          </header>
-
-          <div className="shrink-0 px-4 pt-3.5 pb-3 sm:px-6">
-            <div className="mx-auto flex max-w-[960px] flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-              <div className="min-w-0">
-                <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary))] uppercase">
-                  {sideLabel}
-                  {frame.step !== null
-                    ? ` · Step ${String(frame.step)} of ${String(stepCount)}`
-                    : ""}
-                </p>
-                {isClosing ? null : (
-                  <>
-                    <p
-                      key={frame.id}
-                      aria-live="polite"
-                      className="sk-step-enter font-display mt-1 text-[17px] leading-tight font-extrabold tracking-[-0.02em] text-balance text-white sm:text-[21px]"
-                    >
-                      {frame.caption}
-                    </p>
-                    <p className="mt-1 text-[12.5px] leading-snug text-white/65 sm:text-[13px]">
-                      {frame.detail}
-                    </p>
-                  </>
-                )}
-              </div>
-              {isClosing ? null : <SimulationChip />}
-            </div>
+            <ol aria-hidden className="flex min-w-0 flex-1 items-center gap-1">
+              {numbered.map((candidate) => (
+                <li
+                  key={candidate.id}
+                  className={`h-1 flex-1 rounded-full transition-colors ${
+                    candidate.id === frame.id
+                      ? "bg-[rgb(var(--brand-primary))]"
+                      : isClosing || (candidate.step ?? 0) < (frame.step ?? 0)
+                        ? "bg-white/60"
+                        : "bg-white/18"
+                  }`}
+                />
+              ))}
+            </ol>
+            <span
+              data-testid="simulation-step"
+              className="w-14 shrink-0 text-right font-mono text-[11px] font-semibold tracking-[0.08em] whitespace-nowrap text-white/55"
+            >
+              {frame.step !== null ? `${String(frame.step)} / ${String(stepCount)}` : ""}
+            </span>
           </div>
 
-          <div className="min-h-0 flex-1 sm:px-6 sm:pb-2">
+          {isClosing ? null : (
+            <div className="relative shrink-0 px-5 pt-1 pb-3 sm:px-6 sm:pb-4 sm:text-center">
+              <div className="mx-auto max-w-[44ch]">
+                <p
+                  key={frame.id}
+                  data-testid="simulation-caption"
+                  aria-live="polite"
+                  className="sk-step-enter text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance text-white sm:text-[19px]"
+                >
+                  {frame.caption}
+                </p>
+                <p className="mt-1 text-[13px] leading-snug text-white/60 [@media(max-height:680px)]:hidden">
+                  {frame.detail}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="relative min-h-0 flex-1 px-3 sm:px-6">
             <div key={frame.id} className="sk-step-enter h-full">
               {renderFrame(frame)}
             </div>
           </div>
 
-          <footer className="shrink-0 border-t border-white/10 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),12px)] sm:px-6">
-            <div className="mx-auto flex max-w-[960px] items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={goBack}
-                disabled={index === 0}
-                className="ob-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] border border-white/15 bg-white/[0.06] px-3.5 text-[12.5px] font-semibold text-white hover:bg-white/[0.12] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-35"
+          {isClosing ? (
+            <div className="h-[max(env(safe-area-inset-bottom),16px)] shrink-0" />
+          ) : (
+            <div className="relative shrink-0 px-3 pt-3 pb-[max(env(safe-area-inset-bottom),14px)] sm:px-6 sm:pb-6">
+              <div
+                className={`mx-auto flex w-full max-w-[430px] items-center justify-between gap-3 ${contentWidth}`}
               >
-                <ArrowLeft size={14} aria-hidden />
-                Back
-              </button>
-              <ol aria-hidden className="hidden items-center gap-1.5 sm:flex">
-                {model.frames
-                  .filter((candidate) => candidate.step !== null)
-                  .map((candidate) => (
-                    <li
-                      key={candidate.id}
-                      className={`h-1.5 rounded-full transition-[width,background-color] ${
-                        candidate.id === frame.id
-                          ? "w-6 bg-[rgb(var(--brand-primary))]"
-                          : (candidate.step ?? 0) < (frame.step ?? stepCount + 1)
-                            ? "w-1.5 bg-white/70"
-                            : "w-1.5 bg-white/25"
-                      }`}
-                    />
-                  ))}
-              </ol>
-              <button
-                type="button"
-                onClick={goNext}
-                className="ob-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[12.5px] font-extrabold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-              >
-                {isClosing ? "Close" : index === lastIndex - 1 ? "Finish" : "Next"}
-                {isClosing ? null : <ArrowRight size={14} aria-hidden />}
-              </button>
+                <button
+                  type="button"
+                  onClick={goBack}
+                  disabled={index === 0}
+                  className="ob-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-[13px] font-semibold text-white/70 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <ArrowLeft size={15} aria-hidden />
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="ob-press inline-flex min-h-12 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[14px] font-bold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
+                >
+                  {index === lastIndex - 1 ? "Finish" : "Next"}
+                  <ArrowRight size={15} aria-hidden />
+                </button>
+              </div>
             </div>
-          </footer>
+          )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

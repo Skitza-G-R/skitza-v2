@@ -24,7 +24,7 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
   it("keeps the artist storyboard inert and the producer screens on their preview callbacks", () => {
     expect(OVERLAY).toMatch(/<div\s+inert\s+aria-hidden/);
     expect(OVERLAY).toContain("previewOnly");
-    expect(OVERLAY).toContain("previewAgreeHref={INERT_HREF}");
+    expect(OVERLAY).toContain("requestHrefOverride={INERT_HREF}");
     expect(OVERLAY).toContain("previewNextHref={INERT_HREF}");
     expect(OVERLAY).toContain("previewSentHref={INERT_HREF}");
     expect(OVERLAY).toContain("previewReference={SIMULATION_IDS.requestRef}");
@@ -36,7 +36,8 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
     for (const component of [
       "ProducerHero",
       "FocalProductCard",
-      "ProductDetailScreen",
+      "ProfessionalProductDetail",
+      "PurchaseRequestScreen",
       "RequestSentScreen",
       "ChoosePlanScreen",
       "ReviewAgreeScreen",
@@ -50,7 +51,7 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
 
   it("labels every frame as a simulation and honours reduced motion through existing primitives", () => {
     expect(OVERLAY).toContain("SIMULATION_LABEL");
-    expect(OVERLAY).toContain("nothing is sent or saved");
+    expect(OVERLAY).toMatch(/nothing is sent or saved/i);
     expect(OVERLAY).toContain("Nothing was sent or saved during this simulation.");
     expect(OVERLAY).toContain("sk-step-enter");
     expect(OVERLAY).not.toMatch(/framer-motion|@keyframes/);

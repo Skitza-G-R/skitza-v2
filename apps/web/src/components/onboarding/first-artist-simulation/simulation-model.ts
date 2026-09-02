@@ -40,6 +40,7 @@ export const SIMULATION_IDS = {
   installment: "00000000-0000-4000-8000-00000000s300",
   proof: "00000000-0000-4000-8000-00000000s301",
   project: "00000000-0000-4000-8000-00000000s302",
+  studio: "simulation-studio",
   requestRef: "SK-SIM298",
 } as const;
 
@@ -74,6 +75,7 @@ export interface SimulationInput {
 export type SimulationFrameId =
   | "store"
   | "detail"
+  | "request"
   | "request-sent"
   | "choose-plan"
   | "agreement"
@@ -254,14 +256,22 @@ function buildFrames(input: {
       id: "detail",
       side: "artist",
       step: 2,
-      caption: `She reads what's included and taps Request.`,
+      caption: `She reads what's included and taps Request to book.`,
       detail: "Price, sessions, revisions and rights come straight from your product.",
+      interactive: false,
+    },
+    {
+      id: "request",
+      side: "artist",
+      step: 3,
+      caption: "She sends her request with a short brief.",
+      detail: "Nothing is paid or promised yet. You decide.",
       interactive: false,
     },
     {
       id: "request-sent",
       side: "artist",
-      step: 3,
+      step: 4,
       caption: "Her request lands in your Needs you.",
       detail: `You approve it with one tap. ${firstName} is told what happens next.`,
       interactive: false,
@@ -269,7 +279,7 @@ function buildFrames(input: {
     {
       id: "choose-plan",
       side: "artist",
-      step: 4,
+      step: 5,
       caption: "After your approval she picks a payment plan you offer.",
       detail: `The story continues with ${planLabel}.`,
       interactive: false,
@@ -277,7 +287,7 @@ function buildFrames(input: {
     {
       id: "agreement",
       side: "artist",
-      step: 5,
+      step: 6,
       caption: "She accepts the exact agreement.",
       detail: `${totalLabel} and your terms freeze. Nothing can change quietly later.`,
       interactive: false,
@@ -285,7 +295,7 @@ function buildFrames(input: {
     {
       id: "pay",
       side: "artist",
-      step: 6,
+      step: 7,
       caption: `She pays ${dueNowLabel} straight to you by Bit or bank transfer.`,
       detail: "Skitza never touches the money.",
       interactive: false,
@@ -293,7 +303,7 @@ function buildFrames(input: {
     {
       id: "proof",
       side: "artist",
-      step: 7,
+      step: 8,
       caption: "She uploads the transfer screenshot.",
       detail: "That is her whole job. The rest is yours, and it takes one tap.",
       interactive: false,
@@ -301,7 +311,7 @@ function buildFrames(input: {
     {
       id: "needs-you",
       side: "producer",
-      step: 8,
+      step: 9,
       caption: "Back on your side. This is what lands in Needs you.",
       detail: "You get a push the moment it happens. Tap Review to open it.",
       interactive: true,
@@ -309,7 +319,7 @@ function buildFrames(input: {
     {
       id: "verify",
       side: "producer",
-      step: 9,
+      step: 10,
       caption: "Your turn: check the receipt and tap Confirm payment.",
       detail: `Confirm exactly what ${firstName} stated, or reject it with a note.`,
       interactive: true,
@@ -317,7 +327,7 @@ function buildFrames(input: {
     {
       id: "outcome",
       side: "producer",
-      step: 10,
+      step: 11,
       caption: `${SIMULATED_ARTIST.projectTitle} is active. The headache is gone.`,
       detail: `Every payment, version and approval for ${firstName} now lives in one place, with ${producerName} in control.`,
       interactive: false,

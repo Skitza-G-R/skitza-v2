@@ -101,7 +101,11 @@ function dialog() {
 }
 
 function caption() {
-  return within(dialog()).getByText(/·\s*Step \d+ of 10|Simulation over/).nextElementSibling;
+  return within(dialog()).queryByTestId("simulation-caption");
+}
+
+function stepCounter() {
+  return within(dialog()).getByTestId("simulation-step").textContent;
 }
 
 function expectLabelledFrame() {
@@ -133,6 +137,7 @@ describe("FirstArtistSimulation", () => {
 
     // Step 1 — the Store as Noya sees it, with the producer's real product.
     expect(caption()?.textContent).toBe("Noya opens your link and sees your Store.");
+    expect(stepCounter()).toBe("1 / 11");
     expectLabelledFrame();
     expect(artistFrame().hasAttribute("inert")).toBe(true);
     expect(within(artistFrame()).getAllByText("Signature production").length).toBeGreaterThan(0);
@@ -141,7 +146,8 @@ describe("FirstArtistSimulation", () => {
     const next = () => user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
 
     const artistCaptions = [
-      "She reads what's included and taps Request.",
+      "She reads what's included and taps Request to book.",
+      "She sends her request with a short brief.",
       "Her request lands in your Needs you.",
       "After your approval she picks a payment plan you offer.",
       "She accepts the exact agreement.",
@@ -162,9 +168,10 @@ describe("FirstArtistSimulation", () => {
     // The payment frame shows the labelled example because no details were saved.
     expect(within(dialog()).queryByTestId("simulation-producer-panel")).toBeNull();
 
-    // Step 8 — flip to the producer: the Needs-you row is a real control.
+    // Step 9 — flip to the producer: the Needs-you row is a real control.
     await next();
     expect(caption()?.textContent).toBe("Back on your side. This is what lands in Needs you.");
+    expect(stepCounter()).toBe("9 / 11");
     expectLabelledFrame();
     const panel = within(dialog()).getByTestId("simulation-producer-panel");
     expect(panel.hasAttribute("inert")).toBe(false);
@@ -194,8 +201,10 @@ describe("FirstArtistSimulation", () => {
     expect(within(outcome).getByText("₪900 still to come")).toBeTruthy();
     expect(within(outcome).getByText("Downloads stay locked")).toBeTruthy();
 
-    // Closing card — the real next steps.
+    // Closing card — the real next steps; the caption gives way to the card.
     await user.click(within(dialog()).getByRole("button", { name: /^Finish/ }));
+    expect(caption()).toBeNull();
+    expect(stepCounter()).toBe("");
     expect(
       within(dialog()).getByText(
         "Noya Levi is not real. Who are you actually working with this week?",
@@ -227,7 +236,7 @@ describe("FirstArtistSimulation", () => {
     // Telemetry tells the story in order.
     const names = mocks.capture.mock.calls.map(([name]) => name);
     expect(names[0]).toBe("simulation_started");
-    expect(names.filter((name) => name === "simulation_step")).toHaveLength(10);
+    expect(names.filter((name) => name === "simulation_step")).toHaveLength(11);
     expect(names.at(-1)).toBe("simulation_completed");
     expect(names).not.toContain("simulation_exited_early");
     fetchSpy.mockRestore();
@@ -240,7 +249,7 @@ describe("FirstArtistSimulation", () => {
       paymentDetails: { bitPhone: "052-123-4567", note: "Write Blue Hour in the note." },
     });
 
-    for (let step = 1; step < 6; step += 1) {
+    for (let step = 1; step < 7; step += 1) {
       await user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
     }
     expect(caption()?.textContent).toBe("She pays ₪900 straight to you by Bit or bank transfer.");
@@ -254,9 +263,9 @@ describe("FirstArtistSimulation", () => {
 
     await user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
     fireEvent.keyDown(dialog(), { key: "ArrowRight" });
-    expect(caption()?.textContent).toBe("Her request lands in your Needs you.");
+    expect(caption()?.textContent).toBe("She sends her request with a short brief.");
     fireEvent.keyDown(dialog(), { key: "ArrowLeft" });
-    expect(caption()?.textContent).toBe("She reads what's included and taps Request.");
+    expect(caption()?.textContent).toBe("She reads what's included and taps Request to book.");
 
     await user.click(within(dialog()).getByRole("button", { name: "Close simulation" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
