@@ -1466,6 +1466,7 @@ describe("session booking lifecycle commands", () => {
       sequence: 1,
       startsAtUtc: "2026-07-20T10:00:00.000Z",
       endsAtUtc: "2026-07-20T11:30:00.000Z",
+      timeZone: "UTC",
       summary: "Reserved",
       artistSafeUrl: null,
       attendee: null,
@@ -1502,6 +1503,7 @@ describe("session booking lifecycle commands", () => {
       sequence: 2,
       startsAtUtc: "2026-07-20T10:00:00.000Z",
       endsAtUtc: "2026-07-20T11:30:00.000Z",
+      timeZone: "UTC",
       summary: "Private vocal session",
       artistSafeUrl: `https://skitza.app/artist/sessions/${created.booking.id}`,
       attendee: {

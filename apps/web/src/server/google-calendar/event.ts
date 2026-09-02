@@ -25,6 +25,9 @@ export type GoogleCalendarApprovedEventInput = Readonly<{
   eventId: string;
   startsAt: Date;
   endsAt: Date;
+  // IANA studio zone. The instants stay UTC; this only labels the event so
+  // Google shows it as a studio-local event rather than a "UTC" one.
+  timeZone?: string;
   revision: number;
   opaqueLink: string;
 }> &
@@ -47,8 +50,8 @@ export type GoogleCalendarApprovedEventInput = Readonly<{
 export type GoogleCalendarEventBody = Readonly<{
   summary: string;
   description?: string;
-  start: Readonly<{ dateTime: string; timeZone: "UTC" }>;
-  end: Readonly<{ dateTime: string; timeZone: "UTC" }>;
+  start: Readonly<{ dateTime: string; timeZone: string }>;
+  end: Readonly<{ dateTime: string; timeZone: string }>;
   visibility: "private";
   transparency: "opaque";
   attendees?: readonly GoogleCalendarParticipant[];
@@ -157,6 +160,24 @@ export function isValidGoogleCalendarEventId(value: string): boolean {
   return GOOGLE_EVENT_ID_PATTERN.test(value);
 }
 
+export function isValidGoogleCalendarTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An unknown zone must not stop the session from reaching Google at all, so
+ * it degrades to UTC (the instants are UTC either way) instead of failing.
+ */
+export function normalizedGoogleCalendarEventTimeZone(value: unknown): string {
+  return isValidGoogleCalendarTimeZone(value) ? value : "UTC";
+}
+
 /**
  * Google accepts client-supplied base32hex event IDs. The digest is opaque,
  * stable across retries for one link, and changes when an account switch
@@ -191,9 +212,10 @@ export function buildGoogleCalendarEventWrite(
   const endsAt = input.endsAt.getTime();
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || startsAt >= endsAt) return fail();
 
+  const timeZone = normalizedGoogleCalendarEventTimeZone(input.timeZone);
   const common = {
-    start: { dateTime: input.startsAt.toISOString(), timeZone: "UTC" as const },
-    end: { dateTime: input.endsAt.toISOString(), timeZone: "UTC" as const },
+    start: { dateTime: input.startsAt.toISOString(), timeZone },
+    end: { dateTime: input.endsAt.toISOString(), timeZone },
     visibility: "private" as const,
     transparency: "opaque" as const,
     extendedProperties: {

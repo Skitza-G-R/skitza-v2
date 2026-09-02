@@ -9,6 +9,7 @@ import {
   artistSafeUrlFromGoogleEventDescription,
   buildGoogleCalendarEventWrite,
   isValidGoogleCalendarEventId,
+  isValidGoogleCalendarTimeZone,
   type GoogleCalendarAttendeeResponseStatus,
   type GoogleCalendarParticipant,
   type GoogleCalendarEventWrite,
@@ -582,8 +583,8 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
     if (
       !hasLiteralValue(event.body.visibility, "private") ||
       !hasLiteralValue(event.body.transparency, "opaque") ||
-      !hasLiteralValue(event.body.start.timeZone, "UTC") ||
-      !hasLiteralValue(event.body.end.timeZone, "UTC") ||
+      !isValidGoogleCalendarTimeZone(event.body.start.timeZone) ||
+      event.body.end.timeZone !== event.body.start.timeZone ||
       !event.body.start.dateTime.endsWith("Z") ||
       !event.body.end.dateTime.endsWith("Z") ||
       !hasLiteralValue(event.body.guestsCanInviteOthers, false) ||
@@ -610,6 +611,7 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
         eventId: event.eventId,
         startsAt: new Date(event.body.start.dateTime),
         endsAt: new Date(event.body.end.dateTime),
+        timeZone: event.body.start.timeZone,
         revision,
         opaqueLink: privateProperties.skitzaLink,
         kind: "hold",
@@ -630,6 +632,7 @@ function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEve
       eventId: event.eventId,
       startsAt: new Date(event.body.start.dateTime),
       endsAt: new Date(event.body.end.dateTime),
+      timeZone: event.body.start.timeZone,
       revision,
       opaqueLink: privateProperties.skitzaLink,
       kind: "confirmed",

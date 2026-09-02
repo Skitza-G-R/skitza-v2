@@ -19,6 +19,7 @@ export {
   buildGoogleCalendarEventWrite,
   deriveGoogleCalendarEventId,
   isValidGoogleCalendarEventId,
+  isValidGoogleCalendarTimeZone,
   type GoogleCalendarApprovedEventInput,
   type GoogleCalendarEventBody,
   type GoogleCalendarEventWrite,

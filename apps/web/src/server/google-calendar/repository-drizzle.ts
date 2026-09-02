@@ -1301,6 +1301,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             bookingTitle: bookings.title,
             projectTitle: projects.title,
             producerName: producers.displayName,
+            producerTimeZone: producers.timezone,
             artistName: bookings.artistName,
             artistEmail: bookings.artistEmail,
             calendarRevision: bookings.calendarRevision,
@@ -1559,6 +1560,7 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
             endsAtUtc: new Date(
               candidate.startsAt.getTime() + candidate.durationMin * 60 * 1_000,
             ).toISOString(),
+            timeZone: candidate.producerTimeZone,
             summary,
             artistSafeUrl: `https://skitza.app/artist/sessions/${candidate.bookingId}`,
             attendee: { name: candidate.artistName, email: candidate.artistEmail },

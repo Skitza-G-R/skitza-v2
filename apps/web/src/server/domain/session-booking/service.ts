@@ -664,6 +664,7 @@ function googleCalendarSyncPayload(input: {
     endsAtUtc: new Date(
       input.booking.startsAt.getTime() + input.booking.durationMin * 60 * 1000,
     ).toISOString(),
+    timeZone: input.context.producer.timeZone,
     summary: confirmed ? confirmedGoogleCalendarSummary(input.context, input.booking) : "Reserved",
     artistSafeUrl: confirmed ? `https://skitza.app/artist/sessions/${input.booking.id}` : null,
     attendee: confirmed
