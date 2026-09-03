@@ -30,7 +30,7 @@ import {
 } from "~/components/dashboard/payments/payment-proof-review";
 import { PurchaseRequestCommercialDetails } from "~/components/dashboard/requests/purchase-request-commercial-details";
 import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
-import { SongPage, type L3Actions } from "~/components/music/song-page";
+import { SongPage } from "~/components/music/song-page";
 import {
   LiquidGlassBottomNav,
   type LiquidGlassBottomNavTab,
@@ -162,12 +162,6 @@ const SIMULATION_PRODUCER_IDENTITY: RuntimeIdentity = {
   contextId: SIMULATION_IDS.studio,
 };
 
-// The song page takes its writes as props. Approval is the only control the
-// story shows, and it resolves without leaving the browser.
-const SIMULATION_SONG_ACTIONS: L3Actions = {
-  approveVersion: () => Promise.resolve({ ok: true }),
-};
-
 // A beat before the artist acts, so the viewer reads the screen first and then
 // watches it change, the way a screen recording pauses before it moves.
 const ACT_DELAY_MS = 1100;
@@ -175,13 +169,24 @@ const ACT_DELAY_MS = 1100;
 // Room kept above a revealed element so its own heading stays in shot.
 const REVEAL_HEADROOM_PX = 64;
 
+// Booking is the one beat worth waiting on: the screen is usable, so the story
+// gives the viewer time to pick a day before it books one itself.
+const BOOKING_ACT_DELAY_MS = 3600;
+
 /**
  * An artist frame that plays one action. It renders the screen as she found
  * it, waits a beat, then renders it as she left it: the plan accepted, the
  * version approved, the session booked. Reduced motion goes straight to the
  * result. The frame is keyed by its id, so stepping back replays the beat.
  */
-function ActedFrame({ children }: { children: (acted: boolean) => ReactNode }) {
+function ActedFrame({
+  children,
+  delayMs = ACT_DELAY_MS,
+}: {
+  /** `actNow` lets the screen itself finish the beat when the viewer acts. */
+  children: (acted: boolean, actNow: () => void) => ReactNode;
+  delayMs?: number;
+}) {
   const [acted, setActed] = useState(false);
 
   useEffect(() => {
@@ -194,18 +199,32 @@ function ActedFrame({ children }: { children: (acted: boolean) => ReactNode }) {
     }
     const timer = setTimeout(() => {
       setActed(true);
-    }, ACT_DELAY_MS);
+    }, delayMs);
     return () => {
       clearTimeout(timer);
     };
-  }, []);
+  }, [delayMs]);
 
-  return <>{children(acted)}</>;
+  const actNow = () => {
+    setActed(true);
+  };
+
+  return <>{children(acted, actNow)}</>;
 }
 
 // The beat before a scripted scroll, so the viewer reads the top of the screen
 // before it moves, the way a screen recording pauses before it scrolls.
 const REVEAL_DELAY_MS = 1800;
+
+/**
+ * The reused screens need an href for links the story has no route for. They
+ * all point at INERT_HREF, so a click on one is swallowed here rather than
+ * pushing a hash onto the producer's address bar.
+ */
+function swallowInertLink(event: MouseEvent<HTMLElement>) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest(`a[href="${INERT_HREF}"]`)) event.preventDefault();
+}
 
 /** The closest ancestor that actually scrolls, which the live screens own. */
 function scrollableAncestor(node: Element): Element | null {
@@ -253,7 +272,15 @@ function ScreenArea({ children, tab }: { children: ReactNode; tab?: ArtistTabId 
   );
 }
 
-/** Noya's phone: edge to edge on phones, a device frame on desktop. */
+/**
+ * Noya's phone: edge to edge on phones, a device frame on desktop.
+ *
+ * The screen inside is live — it scrolls and its controls work — because a
+ * producer judging "what does my artist get" should be able to press things.
+ * What keeps it safe is the seams: every control that would reach the server
+ * or leave the page is handed a preview callback instead, and the guard below
+ * swallows the inert links the story hands to the reused screens.
+ */
 function ArtistDevice({
   children,
   tab,
@@ -299,9 +326,8 @@ function ArtistDevice({
   return (
     <div
       ref={rootRef}
-      inert
-      aria-hidden
       data-testid="simulation-artist-frame"
+      onClickCapture={swallowInertLink}
       className="h-full w-full lg:mx-auto lg:h-[min(80vh,780px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
       <div className="h-full w-full overflow-hidden lg:rounded-[37px]">
@@ -568,17 +594,6 @@ export function FirstArtistSimulation({
     }
   }
 
-  // Stories gesture on the inert artist frames: right side advances, left side
-  // goes back. Producer frames carry real controls, so they keep their clicks.
-  function handleStoryTap(event: MouseEvent<HTMLDivElement>) {
-    if (!isArtist) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    if (bounds.width === 0) return;
-    const ratio = (event.clientX - bounds.left) / bounds.width;
-    if (ratio < 0.3) goBack();
-    else goNext();
-  }
-
   async function copyLink() {
     try {
       await navigator.clipboard.writeText(links.publicUrl);
@@ -659,6 +674,7 @@ export function FirstArtistSimulation({
                   previewReference={SIMULATION_IDS.requestRef}
                   previewTax={{ mode: model.taxMode, ratePct: model.taxRatePct }}
                   defaultAccepted={acted}
+                  onPreviewAccept={goNext}
                 />
               </ArtistDevice>
             )}
@@ -675,6 +691,7 @@ export function FirstArtistSimulation({
               productName={product.name}
               planLabel={model.planLabel}
               previewProofHref={INERT_HREF}
+              onPreviewProof={goNext}
             />
           </ArtistDevice>
         );
@@ -692,7 +709,7 @@ export function FirstArtistSimulation({
       case "music":
         return (
           <ActedFrame>
-            {(acted) => (
+            {(acted, actNow) => (
               <ArtistDevice tab="music" revealSelector={SIMULATION_NOTE_SELECTOR}>
                 <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
                   <SongPage
@@ -700,7 +717,12 @@ export function FirstArtistSimulation({
                     role="artist"
                     embedded
                     data={acted ? model.song.approved : model.song.data}
-                    actions={SIMULATION_SONG_ACTIONS}
+                    actions={{
+                      approveVersion: () => {
+                        actNow();
+                        return Promise.resolve({ ok: true });
+                      },
+                    }}
                   />
                 </RuntimeStatePreviewProvider>
               </ArtistDevice>
@@ -709,8 +731,8 @@ export function FirstArtistSimulation({
         );
       case "sessions":
         return (
-          <ActedFrame>
-            {(acted) => (
+          <ActedFrame delayMs={BOOKING_ACT_DELAY_MS}>
+            {(acted, actNow) => (
               <ArtistDevice tab="sessions">
                 <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
                   {acted ? (
@@ -733,6 +755,7 @@ export function FirstArtistSimulation({
                       activePackages={model.booking.activePackages}
                       initialSessionAllowanceId={model.booking.allowanceId}
                       rescheduleSessionId={null}
+                      onPreviewSubmit={actNow}
                     />
                   )}
                 </RuntimeStatePreviewProvider>
@@ -897,19 +920,13 @@ export function FirstArtistSimulation({
                     </button>
                   </div>
                   <p className="mt-4 hidden text-[12px] text-white/35 lg:block">
-                    Use the arrow keys, or tap the phone.
+                    Use the arrow keys, or press the screen itself.
                   </p>
                 </div>
               </div>
 
               {/* The screen. */}
-              <div
-                role="presentation"
-                onClick={handleStoryTap}
-                className={`order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center ${
-                  isArtist ? "cursor-pointer" : ""
-                }`}
-              >
+              <div className="order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center">
                 <div key={frame.id} className="sk-step-enter h-full w-full">
                   {renderFrame(frame)}
                 </div>

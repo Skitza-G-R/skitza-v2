@@ -39,6 +39,7 @@ type ExactReviewProps = {
   previewReference?: never;
   previewTax?: never;
   defaultAccepted?: never;
+  onPreviewAccept?: never;
 };
 
 type GalleryReviewProps = {
@@ -56,6 +57,11 @@ type GalleryReviewProps = {
    * checkbox. Never available on the live acceptance route.
    */
   defaultAccepted?: boolean | undefined;
+  /**
+   * Gallery/simulation only: takes the acceptance instead of navigating to
+   * `previewSentHref`, so the screen can be pressed for real inside a frame.
+   */
+  onPreviewAccept?: (() => void) | undefined;
   studioId?: never;
   preview?: never;
   purchaseRequestId?: never;
@@ -204,7 +210,8 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
   async function acceptExactAgreement() {
     if (!accepted || sending) return;
     if (!isExactReview(props)) {
-      router.push(props.previewSentHref);
+      if (props.onPreviewAccept) props.onPreviewAccept();
+      else router.push(props.previewSentHref);
       return;
     }
     if (!online) {
