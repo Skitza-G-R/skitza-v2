@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useMemo } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
-import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
+import {
+  playerPlay,
+  playerSetShuffle,
+  playerToggle,
+  useNowPlaying,
+} from "~/components/audio/persistent-player";
 
 import { ProjectCover } from "~/components/music/project-cover";
 import {
@@ -213,6 +218,18 @@ export function ProjectPage({
     };
   }
 
+  /**
+   * Every playable song in this project, in list order — the dock uses
+   * it so next / previous walk the project instead of dead-ending on
+   * the song the producer happened to click.
+   */
+  function projectPlayQueue() {
+    return playableTracks.flatMap((t) => {
+      const playerTrack = toPlayerTrack(t);
+      return playerTrack && t.audioUrl ? [playerTrack] : [];
+    });
+  }
+
   function handlePlayTrack(t: ProjectPageTrack) {
     const playerTrack = toPlayerTrack(t);
     if (!isProjectPageTrackPlayable(t) || !t.audioUrl || !playerTrack) return;
@@ -220,7 +237,7 @@ export function ProjectPage({
       playerToggle();
       return;
     }
-    playerPlay(playerTrack);
+    playerPlay(playerTrack, { queue: projectPlayQueue() });
   }
 
   function handlePlayProject() {
@@ -239,6 +256,10 @@ export function ProjectPage({
 
   function handleShuffle() {
     if (playableTracks.length === 0) return;
+    // Turn the player's own shuffle on before loading, so the rest of
+    // the project keeps playing in shuffled order instead of shuffling
+    // exactly once and then running back down the list.
+    playerSetShuffle(true);
     const target = playableTracks[Math.floor(Math.random() * playableTracks.length)];
     if (target) handlePlayTrack(target);
   }

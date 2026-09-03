@@ -34,6 +34,7 @@ import {
   MobileFullPlayer,
   shouldCollapsePlayerDrag,
   type PlayerTrack,
+  type PlayerTransport,
 } from "./persistent-player";
 
 const track: PlayerTrack = {
@@ -43,6 +44,26 @@ const track: PlayerTrack = {
   subtitle: "Lital Ohayon · V1",
   durationMs: 90_000,
 };
+
+// Every surface takes the same transport bag; these tests only exercise
+// gesture behaviour, so the handlers are stubs unless a case overrides one.
+function transportStubs(overrides: Partial<PlayerTransport> = {}): PlayerTransport {
+  return {
+    loop: "off",
+    shuffle: false,
+    hasNext: true,
+    onTogglePlay: vi.fn(),
+    onScrub: vi.fn(),
+    onSkip: vi.fn(),
+    onNext: vi.fn(),
+    onPrevious: vi.fn(),
+    onCycleLoop: vi.fn(),
+    onToggleShuffle: vi.fn(),
+    onShare: vi.fn(),
+    sharing: false,
+    ...overrides,
+  };
+}
 
 function dispatchPointer(
   target: Element,
@@ -89,9 +110,7 @@ function renderFullPlayer({
       currentMs={9_000}
       durationMs={90_000}
       progressPct={10}
-      onTogglePlay={vi.fn()}
-      onScrub={onScrub}
-      onSkip={vi.fn()}
+      {...transportStubs({ onScrub })}
       expanded
       onCollapse={onCollapse}
       collapseBtnRef={collapseBtnRef}
@@ -120,9 +139,7 @@ describe("full player direct manipulation", () => {
         currentMs={9_000}
         durationMs={90_000}
         progressPct={10}
-        onTogglePlay={vi.fn()}
-        onScrub={vi.fn()}
-        onSkip={vi.fn()}
+        {...transportStubs()}
         expanded={false}
         onCollapse={vi.fn()}
         collapseBtnRef={collapseBtnRef}
@@ -318,9 +335,7 @@ describe("full player route lifecycle", () => {
           currentMs={9_000}
           durationMs={90_000}
           progressPct={10}
-          onTogglePlay={vi.fn()}
-          onScrub={vi.fn()}
-          onSkip={vi.fn()}
+          {...transportStubs()}
           hidden={hidden}
           pathname="/dashboard/music"
         />
@@ -385,7 +400,7 @@ describe("full player waveform scrubbing", () => {
 
   it("keeps tap and keyboard seeking accessible", () => {
     const onScrub = vi.fn();
-    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    render(<MiniWaveform track={track} progressPct={20} onScrub={onScrub} tall />);
     const waveform = screen.getByRole("slider", { name: "Seek" });
     Object.defineProperty(waveform, "getBoundingClientRect", {
       configurable: true,
@@ -412,7 +427,7 @@ describe("full player waveform scrubbing", () => {
 
   it("ignores descendant capture loss and completes waveform scrubbing on its owning slider", () => {
     const onScrub = vi.fn();
-    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    render(<MiniWaveform track={track} progressPct={20} onScrub={onScrub} tall />);
     const waveform = screen.getByRole("slider", { name: "Seek" });
     const bar = waveform.querySelector("span");
     expect(bar).not.toBeNull();
@@ -444,7 +459,7 @@ describe("full player waveform scrubbing", () => {
 
   it("cancels waveform scrubbing when its owning slider actually loses capture", () => {
     const onScrub = vi.fn();
-    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    render(<MiniWaveform track={track} progressPct={20} onScrub={onScrub} tall />);
     const waveform = screen.getByRole("slider", { name: "Seek" });
     const bar = waveform.querySelector("span");
     expect(bar).not.toBeNull();
@@ -508,5 +523,128 @@ describe("persistent mini-player entrance motion", () => {
     expect(globalCss).toMatch(
       /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.mobile-full-player-sheet[\s\S]*?transition:\s*none/,
     );
+  });
+});
+
+// ─── Transport wiring (SK player controls) ───────────────────────────
+// The founder's report: "the next song button is not next song, it is
+// next 15 seconds". Song skips and fine seeking are now separate
+// controls, so each one has to reach a different handler.
+
+describe("full player transport controls", () => {
+  function button(name: string): HTMLButtonElement {
+    return screen.getByRole<HTMLButtonElement>("button", { name });
+  }
+
+  function renderTransport(overrides: Partial<PlayerTransport> = {}) {
+    const collapseBtnRef = createRef<HTMLButtonElement>();
+    const transport = transportStubs(overrides);
+    render(
+      <MobileFullPlayer
+        track={track}
+        playing
+        currentMs={9_000}
+        durationMs={90_000}
+        progressPct={10}
+        {...transport}
+        expanded
+        onCollapse={vi.fn()}
+        collapseBtnRef={collapseBtnRef}
+        pathname="/dashboard/music"
+      />,
+    );
+    return transport;
+  }
+
+  it("moves to the next and previous SONG, never a seek", () => {
+    const transport = renderTransport();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next song" }));
+    fireEvent.click(screen.getByRole("button", { name: "Previous song" }));
+
+    expect(transport.onNext).toHaveBeenCalledTimes(1);
+    expect(transport.onPrevious).toHaveBeenCalledTimes(1);
+    expect(transport.onSkip).not.toHaveBeenCalled();
+  });
+
+  it("nudges playback by exactly ten seconds in both directions", () => {
+    const transport = renderTransport();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back 10 seconds" }));
+    fireEvent.click(screen.getByRole("button", { name: "Forward 10 seconds" }));
+
+    expect(transport.onSkip).toHaveBeenNthCalledWith(1, -10_000);
+    expect(transport.onSkip).toHaveBeenNthCalledWith(2, 10_000);
+    expect(transport.onNext).not.toHaveBeenCalled();
+  });
+
+  it("disables next only at the end of the queue", () => {
+    renderTransport({ hasNext: false });
+    expect(button("Next song").disabled).toBe(true);
+    // Previous always stays live: at the top of a queue it restarts the
+    // song, which is what every music player does.
+    expect(button("Previous song").disabled).toBe(false);
+  });
+
+  it("exposes shuffle and repeat state, not just a color change", () => {
+    cleanup();
+    const off = renderTransport();
+    expect(button("Shuffle").getAttribute("aria-pressed")).toBe("false");
+    expect(button("Repeat off").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button("Shuffle"));
+    fireEvent.click(button("Repeat off"));
+    expect(off.onToggleShuffle).toHaveBeenCalledTimes(1);
+    expect(off.onCycleLoop).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    renderTransport({ shuffle: true, loop: "one" });
+    expect(button("Shuffle").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Repeat this song").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("offers a share control that reports progress while the sheet is open", () => {
+    const transport = renderTransport();
+    fireEvent.click(screen.getByRole("button", { name: "Share song" }));
+    expect(transport.onShare).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    renderTransport({ sharing: true });
+    expect(button("Share song").disabled).toBe(true);
+  });
+});
+
+// ─── Real waveform ───────────────────────────────────────────────────
+
+describe("dock waveform draws the real envelope", () => {
+  function bars(): HTMLElement[] {
+    const slider = screen.getByRole("slider", { name: "Seek" });
+    return Array.from(slider.querySelectorAll<HTMLElement>("span"));
+  }
+
+  it("renders pre-computed peaks instead of the seeded placeholder", () => {
+    // 64 values map 1:1 onto the full-screen player's bar count, so the
+    // rendered heights are the supplied envelope with no resampling.
+    const peaks = Array.from({ length: 64 }, (_, i) => (i === 0 ? 1 : 0.5));
+    render(
+      <MiniWaveform track={{ ...track, peaks }} progressPct={0} onScrub={vi.fn()} tall />,
+    );
+
+    const rendered = bars();
+    expect(rendered).toHaveLength(64);
+    expect(rendered[0]?.style.height).toBe("100%");
+    expect(rendered[1]?.style.height).toBe("50%");
+  });
+
+  it("never fetches cross-origin audio to decode (no CORS grant for our origins)", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    // The fixture's audio lives on another origin, like a public R2 URL.
+    render(<MiniWaveform track={track} progressPct={0} onScrub={vi.fn()} tall />);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Still drawn: the seeded envelope holds the strip until real peaks
+    // arrive, so the dock never shows an empty rail.
+    expect(bars()).toHaveLength(64);
+    vi.unstubAllGlobals();
   });
 });

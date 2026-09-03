@@ -435,6 +435,10 @@ export function activeVersionToPlayerTrack(
     title: track.title,
     subtitle: `${label} · ${version.label}`,
     durationMs: version.durationMs,
+    // Real envelope for the floating player: the same pre-computed
+    // peaks the L3 hero renders, so the dock strip never has to decode
+    // audio the page already has the shape of.
+    ...(version.peaks && version.peaks.length > 0 ? { peaks: version.peaks } : {}),
     ...(track.artworkUrl
       ? {
           artwork: [
