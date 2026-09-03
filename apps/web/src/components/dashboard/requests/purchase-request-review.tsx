@@ -46,6 +46,7 @@ export function PurchaseRequestReview({
   submittedAt,
   reference,
   brief,
+  onPreviewDecision,
   children,
 }: {
   id: string;
@@ -61,6 +62,12 @@ export function PurchaseRequestReview({
   submittedAt: string;
   reference: string;
   brief: string | null;
+  /**
+   * Development gallery and the onboarding simulation only: takes the decision
+   * instead of the server action, so the screen shows its own decided state
+   * without creating or changing anything. Mirrors `PaymentProofReview`.
+   */
+  onPreviewDecision?: ((decision: "approve" | "decline") => void) | undefined;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -119,6 +126,12 @@ export function PurchaseRequestReview({
       showActionError("Reconnect to approve this request.");
       return;
     }
+    if (onPreviewDecision) {
+      setStatus("approved");
+      setConfirmation(null);
+      onPreviewDecision("approve");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await approvePurchaseRequest({ id });
@@ -145,6 +158,12 @@ export function PurchaseRequestReview({
     setError(null);
     if (!online) {
       showActionError("Reconnect to decline this request.");
+      return;
+    }
+    if (onPreviewDecision) {
+      setStatus("declined");
+      setConfirmation(null);
+      onPreviewDecision("decline");
       return;
     }
     startTransition(async () => {

@@ -38,6 +38,7 @@ type ExactReviewProps = {
   previewSentHref?: never;
   previewReference?: never;
   previewTax?: never;
+  defaultAccepted?: never;
 };
 
 type GalleryReviewProps = {
@@ -49,6 +50,12 @@ type GalleryReviewProps = {
   previewReference?: string | undefined;
   /** Gallery/simulation tax treatment; defaults to tax free. */
   previewTax?: { mode: TaxMode; ratePct: number } | undefined;
+  /**
+   * Gallery/simulation only: start with the agreement already accepted, so a
+   * storyboard can show the enabled call to action instead of the empty
+   * checkbox. Never available on the live acceptance route.
+   */
+  defaultAccepted?: boolean | undefined;
   studioId?: never;
   preview?: never;
   purchaseRequestId?: never;
@@ -186,7 +193,7 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
     ? props.preview
     : galleryPreview(props);
   const { snapshot } = preview;
-  const [accepted, setAccepted] = useState(false);
+  const [accepted, setAccepted] = useState(!isExactReview(props) && props.defaultAccepted === true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operationKeyRef = useRef<string | null>(null);
