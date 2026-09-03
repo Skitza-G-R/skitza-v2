@@ -228,9 +228,9 @@ describe("buildSimulation", () => {
       activeProjects: 1,
     });
     expect(dashboard.todaySession?.occurredAt.toISOString()).toBe("2026-09-03T11:00:00.000Z");
-    expect(dashboard.now.getTime()).toBeLessThan(
-      dashboard.todaySession?.occurredAt.getTime() ?? 0,
-    );
+    // The frame sits on the morning of her session, so the live "Today" card
+    // on the dashboard is accurate rather than three days early.
+    expect(dashboard.now.toISOString()).toBe("2026-09-03T05:00:00.000Z");
     expect(dashboard.recentUploads[0]?.versionLabel).toBe("v2");
     expect(dashboard.recentUploads[0]?.projectClientName).toBe(SIMULATED_ARTIST.name);
     expect(dashboard.paymentBalances[0]?.clientName).toBe(SIMULATED_ARTIST.name);

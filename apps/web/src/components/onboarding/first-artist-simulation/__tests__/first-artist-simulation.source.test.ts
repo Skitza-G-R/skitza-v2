@@ -12,6 +12,7 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
   it("is a render-only overlay with no server, mutation, or dev-gallery dependency", () => {
     expect(OVERLAY).not.toMatch(/from "~\/server\//);
     expect(OVERLAY).not.toMatch(/proof-actions|requestToBookAction|acceptPurchaseAction/);
+    expect(OVERLAY).not.toMatch(/approvePurchaseRequest|declinePurchaseRequest/);
     expect(OVERLAY).not.toMatch(/useMutation|createCaller|fetch\(/);
     expect(OVERLAY).not.toMatch(/dev-gallery-access|isDevGalleryAvailable|isDevPreviewBypass/);
     expect(OVERLAY).not.toMatch(/router\.(?:push|replace)/);
@@ -21,29 +22,34 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
     expect(serverImports.every((line) => line.startsWith("import type"))).toBe(true);
   });
 
-  it("keeps the artist storyboard inert and the producer screens on their preview callbacks", () => {
+  it("keeps the artist storyboard inert and the producer screens on their preview seams", () => {
     expect(OVERLAY).toMatch(/<div\s+inert\s+aria-hidden/);
     expect(OVERLAY).toContain("previewOnly");
-    expect(OVERLAY).toContain("requestHrefOverride={INERT_HREF}");
-    expect(OVERLAY).toContain("previewNextHref={INERT_HREF}");
     expect(OVERLAY).toContain("previewSentHref={INERT_HREF}");
-    expect(OVERLAY).toContain("previewReference={SIMULATION_IDS.requestRef}");
     expect(OVERLAY).toContain("previewProofHref={INERT_HREF}");
+    expect(OVERLAY).toContain("previewReference={SIMULATION_IDS.requestRef}");
     expect(OVERLAY).toContain("onPreviewDecision={handleProofDecision}");
+    expect(OVERLAY).toContain("onPreviewDecision={handleRequestDecision}");
+    // The artist frames show what she did, not the screen before she did it.
+    expect(OVERLAY).toContain("defaultAccepted={acted}");
+    expect(OVERLAY).toContain("model.song.approved");
   });
 
   it("composes the live artist and producer screens instead of mock-ups", () => {
     for (const component of [
       "ProducerHero",
       "FocalProductCard",
-      "ProfessionalProductDetail",
-      "PurchaseRequestScreen",
-      "RequestSentScreen",
-      "ChoosePlanScreen",
+      "PurchaseRequestReview",
+      "PurchaseRequestCommercialDetails",
       "ReviewAgreeScreen",
       "PaymentInstructionsScreen",
-      "UploadProofScreen",
       "PaymentProofReview",
+      "SongPage",
+      "BookingClient",
+      "ConfirmationHero",
+      "MySessionsScreen",
+      "OverviewScreen",
+      "RuntimeStatePreviewProvider",
     ]) {
       expect(OVERLAY).toContain(`<${component}`);
     }
@@ -54,12 +60,19 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
     expect(OVERLAY).toMatch(/nothing is sent or saved/i);
     expect(OVERLAY).toContain("Nothing was sent or saved.");
     expect(OVERLAY).toContain("sk-step-enter");
+    expect(OVERLAY).toContain("prefers-reduced-motion: reduce");
     expect(OVERLAY).not.toMatch(/framer-motion|@keyframes/);
   });
 
-  it("uses the existing viewport tokens so fixed funnel screens stay inside the phone frame", () => {
+  it("uses the existing viewport tokens so fixed funnel screens stay inside their frame", () => {
     expect(OVERLAY).toContain('"--sk-viewport-height": "100%"');
     expect(OVERLAY).toContain('"--sk-viewport-offset-top": "0px"');
     expect(OVERLAY).toContain('transform: "translateZ(0)"');
+  });
+
+  it("draws the song's waveform from stored peaks, never from audio", () => {
+    expect(MODEL).toContain("previewPeaks");
+    expect(MODEL).toContain("data:audio/wav;base64,");
+    expect(MODEL).not.toMatch(/peaksUrl/);
   });
 });

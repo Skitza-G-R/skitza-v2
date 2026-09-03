@@ -997,8 +997,14 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     hour12: false,
   }).format(sessionStartsAt);
 
+  // The dashboard frame is the studio on the morning of her session, so the
+  // live "Today" card is telling the truth. Without studio time there is no
+  // session to jump to, and the frame stays on the story's own clock.
+  const dashboardNow = includesStudioTime
+    ? new Date(sessionStartsAt.getTime() - 6 * HOUR_MS)
+    : now;
   const dashboard: SimulationDashboard = {
-    now,
+    now: dashboardNow,
     pulseStats: {
       commercialAvailable: true,
       thisMonthCents: dueNowCents,

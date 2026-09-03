@@ -66,9 +66,10 @@ function renderReview(onPreviewDecision?: (decision: "approve" | "decline") => v
 
 /** The screen renders a desktop aside and a mobile action bar; either is fine. */
 async function decide(user: ReturnType<typeof userEvent.setup>, label: "Approve" | "Decline") {
-  const trigger = screen.getAllByRole("button", { name: label })[0];
-  expect(trigger).toBeTruthy();
-  await user.click(trigger!);
+  // The screen renders the decision twice: a desktop aside and a mobile bar.
+  const [trigger] = screen.getAllByRole("button", { name: label });
+  if (!trigger) throw new Error(`no ${label} button`);
+  await user.click(trigger);
   const dialog = screen.getByRole("dialog");
   await user.click(within(dialog).getByRole("button", { name: `${label} request` }));
 }

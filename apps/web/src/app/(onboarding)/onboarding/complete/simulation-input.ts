@@ -29,7 +29,12 @@ export interface CompletionProfile {
   taxMode: unknown;
   taxRatePct: number | null;
   logoUrl: string | null;
+  /** The studio's IANA time zone; the simulated session is booked in it. */
+  timezone: string | null;
 }
+
+/** Producers always carry a zone, but the column is nullable in older rows. */
+const DEFAULT_TIMEZONE = "Asia/Jerusalem";
 
 export interface CompletionPaymentInstructions {
   bankTransfer?: string | undefined;
@@ -59,6 +64,7 @@ export function toSimulationInput(input: {
   return {
     producerName: profile.displayName ?? "Your studio",
     producerLogoUrl: profile.logoUrl,
+    timezone: profile.timezone?.trim() ? profile.timezone : DEFAULT_TIMEZONE,
     product: {
       id: product.id,
       name: product.name,

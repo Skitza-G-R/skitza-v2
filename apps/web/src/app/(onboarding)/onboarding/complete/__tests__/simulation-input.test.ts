@@ -34,12 +34,14 @@ describe("toSimulationInput", () => {
         taxMode: "tax_added",
         taxRatePct: 17.4,
         logoUrl: "https://example.invalid/logo.png",
+        timezone: "Europe/Berlin",
       },
       paymentInstructions: { bitPhone: "052-123-4567" },
     });
 
     expect(result.producerName).toBe("North Room");
     expect(result.producerLogoUrl).toBe("https://example.invalid/logo.png");
+    expect(result.timezone).toBe("Europe/Berlin");
     expect(result.product.tagline).toBe("Idea to master.");
     expect(result.product.agreementText).toBe("Producer credit in metadata.");
     expect(result.product.revisions).toBe(3);
@@ -64,11 +66,19 @@ describe("toSimulationInput", () => {
         agreementText: "Column agreement wins.",
         deliverables: null,
       },
-      profile: { displayName: null, taxMode: "nonsense", taxRatePct: null, logoUrl: null },
+      profile: {
+        displayName: null,
+        taxMode: "nonsense",
+        taxRatePct: null,
+        logoUrl: null,
+        timezone: "  ",
+      },
       paymentInstructions: { bankTransfer: "   ", bitPhone: "" },
     });
 
     expect(result.producerName).toBe("Your studio");
+    // A blank or missing zone still has to book a session somewhere.
+    expect(result.timezone).toBe("Asia/Jerusalem");
     expect(result.product.pricingModel).toBe("per_song");
     expect(result.product.volumeTiers).toEqual([{ minQty: 1, pricePerUnitCents: 90000 }]);
     expect(result.product.agreementText).toBe("Column agreement wins.");

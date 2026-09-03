@@ -76,6 +76,7 @@ export default async function CompleteScreenPage({
           taxMode: profile.taxMode,
           taxRatePct: profile.taxRatePct,
           logoUrl: profile.brand.logoUrl ?? null,
+          timezone: profile.timezone,
         },
         paymentInstructions,
       })

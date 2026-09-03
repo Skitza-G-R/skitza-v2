@@ -1,9 +1,10 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowRight, BellRing, Check, ChevronLeft, Lock, X } from "lucide-react";
+import { BellRing, Check, ChevronLeft, X } from "lucide-react";
 import Link from "next/link";
 import {
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -14,25 +15,30 @@ import {
   type ReactNode,
 } from "react";
 
-import { ChoosePlanScreen } from "~/components/artist/purchase/choose-plan-screen";
+import { BookingClient } from "~/app/(artist)/artist/book/booking-client";
 import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
-import { ProfessionalProductDetail } from "~/components/artist/purchase/professional-product-detail";
 import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
-import { PurchaseRequestScreen } from "~/components/artist/purchase/purchase-request-screen";
-import { RequestSentScreen } from "~/components/artist/purchase/request-sent-screen";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
-import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
+import { ConfirmationHero } from "~/components/artist/sessions/confirmation-hero";
+import { MySessionsScreen } from "~/components/artist/sessions/my-sessions-screen";
 import { FocalProductCard } from "~/components/artist/store/focal-product-card";
 import { ProducerHero } from "~/components/artist/store/producer-hero";
+import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import {
   PaymentProofReview,
   type PreviewPaymentProofDecision,
 } from "~/components/dashboard/payments/payment-proof-review";
+import { PurchaseRequestCommercialDetails } from "~/components/dashboard/requests/purchase-request-commercial-details";
+import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
+import { SongPage, type L3Actions } from "~/components/music/song-page";
 import {
   LiquidGlassBottomNav,
   type LiquidGlassBottomNavTab,
 } from "~/components/nav/liquid-glass-bottom-nav";
-import { formatMoney } from "~/lib/format/money";
+import {
+  RuntimeStatePreviewProvider,
+  type RuntimeIdentity,
+} from "~/components/runtime-state/runtime-state-provider";
 import { captureProductEvent } from "~/lib/observability/product-events";
 
 import {
@@ -42,7 +48,6 @@ import {
   SIMULATION_LABEL,
   type SimulationFrame,
   type SimulationInput,
-  type SimulationModel,
 } from "./simulation-model";
 
 // "Watch your first artist" (SK-298): a render-only walkthrough that plays the
@@ -86,60 +91,147 @@ const SCREEN_AREA_STYLE = {
 // frames are inert, so nothing can follow them; they only satisfy the props.
 const INERT_HREF = "#simulation";
 
-// The standing artist screens (Store, product detail) sit above the artist
-// app's bottom tabs on phones; their sticky call to action already leaves room
-// for that bar, so the screen renders the real tab surface in the same place.
-const ARTIST_TABS: readonly LiquidGlassBottomNavTab<
-  "home" | "music" | "sessions" | "payments" | "store"
->[] = [
-  { id: "home", label: "Home", href: INERT_HREF, icon: "home", active: false, prefetch: false },
-  { id: "music", label: "Music", href: INERT_HREF, icon: "music", active: false, prefetch: false },
-  {
-    id: "sessions",
-    label: "Sessions",
-    href: INERT_HREF,
-    icon: "calendar",
-    active: false,
-    prefetch: false,
-  },
-  {
-    id: "payments",
-    label: "Payments",
-    href: INERT_HREF,
-    icon: "payments",
-    active: false,
-    prefetch: false,
-  },
-  { id: "store", label: "Store", href: INERT_HREF, icon: "store", active: true, prefetch: false },
-];
+// The song page keeps its notes thread under the player, so the music frame
+// scrolls to the first timestamped note the caption is talking about.
+const SIMULATION_NOTE_SELECTOR = '[data-test="comment-timestamp"]';
 
-function money(cents: number, currency: string): string {
-  return formatMoney(cents, currency, { withCents: cents % 100 !== 0 });
+// The standing artist screens (Store, Music, Sessions) sit above the artist
+// app's bottom tabs on phones; their sticky call to action already leaves room
+// for that bar, so the frame renders the real tab surface in the same place.
+type ArtistTabId = "home" | "music" | "sessions" | "payments" | "store";
+
+function artistTabs(active: ArtistTabId): LiquidGlassBottomNavTab<ArtistTabId>[] {
+  return [
+    {
+      id: "home",
+      label: "Home",
+      href: INERT_HREF,
+      icon: "home",
+      active: active === "home",
+      prefetch: false,
+    },
+    {
+      id: "music",
+      label: "Music",
+      href: INERT_HREF,
+      icon: "music",
+      active: active === "music",
+      prefetch: false,
+    },
+    {
+      id: "sessions",
+      label: "Sessions",
+      href: INERT_HREF,
+      icon: "calendar",
+      active: active === "sessions",
+      prefetch: false,
+    },
+    {
+      id: "payments",
+      label: "Payments",
+      href: INERT_HREF,
+      icon: "payments",
+      active: active === "payments",
+      prefetch: false,
+    },
+    {
+      id: "store",
+      label: "Store",
+      href: INERT_HREF,
+      icon: "store",
+      active: active === "store",
+      prefetch: false,
+    },
+  ];
 }
 
-// Beat before a scripted scroll, so the viewer reads the top of the screen
-// first, the way a screen recording pauses before it moves.
-const REVEAL_DELAY_MS = 900;
+// Runtime state is per-account private storage. The simulation borrows the
+// preview provider so the live screens can read a draft slot without ever
+// touching the producer's own runtime state.
+const SIMULATION_ARTIST_IDENTITY: RuntimeIdentity = {
+  userId: "simulation-artist",
+  role: "artist",
+  contextId: SIMULATION_IDS.project,
+};
+const SIMULATION_PRODUCER_IDENTITY: RuntimeIdentity = {
+  userId: "simulation-producer",
+  role: "producer",
+  contextId: SIMULATION_IDS.studio,
+};
+
+// The song page takes its writes as props. Approval is the only control the
+// story shows, and it resolves without leaving the browser.
+const SIMULATION_SONG_ACTIONS: L3Actions = {
+  approveVersion: () => Promise.resolve({ ok: true }),
+};
+
+// A beat before the artist acts, so the viewer reads the screen first and then
+// watches it change, the way a screen recording pauses before it moves.
+const ACT_DELAY_MS = 1100;
+
+// Room kept above a revealed element so its own heading stays in shot.
+const REVEAL_HEADROOM_PX = 64;
+
+/**
+ * An artist frame that plays one action. It renders the screen as she found
+ * it, waits a beat, then renders it as she left it: the plan accepted, the
+ * version approved, the session booked. Reduced motion goes straight to the
+ * result. The frame is keyed by its id, so stepping back replays the beat.
+ */
+function ActedFrame({ children }: { children: (acted: boolean) => ReactNode }) {
+  const [acted, setActed] = useState(false);
+
+  useEffect(() => {
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      setActed(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setActed(true);
+    }, ACT_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
+
+  return <>{children(acted)}</>;
+}
+
+// The beat before a scripted scroll, so the viewer reads the top of the screen
+// before it moves, the way a screen recording pauses before it scrolls.
+const REVEAL_DELAY_MS = 1800;
 
 function ScreenArea({
   children,
-  standing = false,
-  revealEnd = false,
+  tab,
+  revealSelector,
 }: {
   children: ReactNode;
-  /** Store-side screens scroll inside the area and show the artist tabs on phones. */
-  standing?: boolean;
-  /** Scroll the standing screen to its end after a beat, to reveal a call to action below the fold. */
-  revealEnd?: boolean;
+  /** Standing artist screens scroll inside the area and show the app's tabs. */
+  tab?: ArtistTabId;
+  /**
+   * Scroll this element into view after a beat. Long live screens keep the
+   * part the caption is about below the fold, and the frame is inert, so the
+   * story scrolls there itself.
+   */
+  revealSelector?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!revealEnd) return;
+    if (!revealSelector) return;
     const timer = setTimeout(() => {
       const node = scrollRef.current;
-      if (!node) return;
-      const top = node.scrollHeight - node.clientHeight;
+      const target = node?.querySelector(revealSelector);
+      if (!node || !target) return;
+      const top =
+        target.getBoundingClientRect().top -
+        node.getBoundingClientRect().top +
+        node.scrollTop -
+        REVEAL_HEADROOM_PX;
       if (top <= 0) return;
       const reduceMotion =
         typeof window.matchMedia === "function" &&
@@ -153,24 +245,28 @@ function ScreenArea({
     return () => {
       clearTimeout(timer);
     };
-  }, [revealEnd]);
+  }, [revealSelector]);
 
   return (
     <div
       className="relative h-full min-h-0 w-full overflow-hidden bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
       style={SCREEN_AREA_STYLE}
     >
-      {standing ? (
+      {tab ? (
         <>
           <div ref={scrollRef} className="h-full overflow-y-auto">
             {children}
-            {/* In-flow spacer, not padding: the detail screen's sticky call to
-                action measures its 4.75rem offset from the scrollport's content
-                edge, so padding here would push it above the tabs. */}
+            {/* In-flow spacer, not padding: sticky calls to action measure
+                their 4.75rem offset from the scrollport's content edge, so
+                padding here would push them above the tabs. */}
             <div aria-hidden className="h-[4.75rem] lg:h-5" />
           </div>
           <div className="lg:hidden">
-            <LiquidGlassBottomNav ariaLabel="Artist app tabs" tabs={ARTIST_TABS} position="fixed" />
+            <LiquidGlassBottomNav
+              ariaLabel="Artist app tabs"
+              tabs={artistTabs(tab)}
+              position="fixed"
+            />
           </div>
         </>
       ) : (
@@ -183,12 +279,12 @@ function ScreenArea({
 /** Noya's phone: edge to edge on phones, a device frame on desktop. */
 function ArtistDevice({
   children,
-  standing = false,
-  revealEnd = false,
+  tab,
+  revealSelector,
 }: {
   children: ReactNode;
-  standing?: boolean;
-  revealEnd?: boolean;
+  tab?: ArtistTabId;
+  revealSelector?: string;
 }) {
   return (
     <div
@@ -198,7 +294,10 @@ function ArtistDevice({
       className="h-full w-full lg:mx-auto lg:h-[min(80vh,780px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
       <div className="h-full w-full overflow-hidden lg:rounded-[37px]">
-        <ScreenArea standing={standing} revealEnd={revealEnd}>
+        <ScreenArea
+          {...(tab ? { tab } : {})}
+          {...(revealSelector ? { revealSelector } : {})}
+        >
           {children}
         </ScreenArea>
       </div>
@@ -206,11 +305,42 @@ function ArtistDevice({
   );
 }
 
+/** The phone push that opens every producer frame, exactly as Skitza sends it. */
+function PushToast({ text }: { text: string }) {
+  return (
+    <div
+      role="status"
+      className="sk-step-enter flex items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3"
+    >
+      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
+        <BellRing size={15} aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold text-[rgb(var(--fg-muted))]">Skitza · now</p>
+        <p className="mt-0.5 text-[13px] leading-snug text-[rgb(var(--fg-default))]">{text}</p>
+      </div>
+    </div>
+  );
+}
+
 /** The producer's own screen: edge to edge on phones, a browser window on desktop. */
-function ProducerWindow({ children }: { children: ReactNode }) {
+function ProducerWindow({
+  children,
+  push,
+  flush = false,
+}: {
+  children: ReactNode;
+  /** The notification that woke this screen. */
+  push?: string;
+  /** The screen brings its own page padding. */
+  flush?: boolean;
+}) {
   return (
     <div
       data-testid="simulation-producer-panel"
+      // Transformed and isolated, so the live screens' fixed action bars pin to
+      // this window instead of escaping to the real viewport.
+      style={SCREEN_AREA_STYLE}
       className="flex h-full w-full flex-col bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] lg:mx-auto lg:h-[min(80vh,780px)] lg:w-full lg:max-w-[880px] lg:overflow-hidden lg:rounded-[14px] lg:border lg:border-white/10 lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
       <div
@@ -224,146 +354,18 @@ function ProducerWindow({ children }: { children: ReactNode }) {
           skitza.app/dashboard
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">{children}</div>
-    </div>
-  );
-}
-
-function NeedsYouFrame({ model, onReview }: { model: SimulationModel; onReview: () => void }) {
-  return (
-    <div className="mx-auto max-w-[620px] space-y-3">
-      <div
-        role="status"
-        className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3"
-      >
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
-          <BellRing size={15} aria-hidden />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-[rgb(var(--fg-muted))]">Skitza · now</p>
-          <p className="mt-0.5 text-[13px] leading-snug text-[rgb(var(--fg-default))]">
-            {SIMULATED_ARTIST.name} sent a payment proof for {SIMULATED_ARTIST.projectTitle}.
-          </p>
-        </div>
-      </div>
-
-      <section
-        aria-labelledby="simulation-needs-you-heading"
-        className="rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5"
-      >
-        <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
-          Needs you
-        </p>
-        <h3
-          id="simulation-needs-you-heading"
-          className="font-display mt-1 text-[22px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
-        >
-          1 thing needs you<span className="text-[rgb(var(--brand-primary))]">.</span>
-        </h3>
-        <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.06)] px-3.5 py-3 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 text-[14px] font-bold text-[rgb(var(--fg-default))]">
-              <span
-                aria-hidden
-                className="ob-alive-dot h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
-              />
-              {SIMULATED_ARTIST.name} sent a payment proof
-            </p>
-            <p className="mt-0.5 pl-4 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-              {SIMULATED_ARTIST.projectTitle} · {model.product.name} ·{" "}
-              {money(model.dueNowCents, model.currency)} of{" "}
-              {money(model.totalCents, model.currency)}
-            </p>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {push ? (
+          <div className="px-4 pt-4 sm:px-6">
+            <PushToast text={push} />
           </div>
-          <button
-            type="button"
-            onClick={onReview}
-            className="ob-press inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] font-bold text-[rgb(var(--bg-background))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-          >
-            Review
-            <ArrowRight size={14} aria-hidden />
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function OutcomeFrame({ model }: { model: SimulationModel }) {
-  const fullyPaid = model.remainingCents === 0;
-  const rows: { icon: typeof Check; tone: "good" | "wait"; title: string; detail: string }[] = [
-    {
-      icon: Check,
-      tone: "good",
-      title: `${SIMULATED_ARTIST.projectTitle} is active`,
-      detail: `Songs, versions, comments and sessions for ${SIMULATED_ARTIST.firstName} live here from now on.`,
-    },
-    {
-      icon: Check,
-      tone: "good",
-      title: `${money(model.dueNowCents, model.currency)} recorded`,
-      detail: "Confirmed by you, once. It shows on her side too.",
-    },
-  ];
-  if (!fullyPaid) {
-    rows.push({
-      icon: Lock,
-      tone: "wait",
-      title: `${money(model.remainingCents, model.currency)} still to come`,
-      detail:
-        model.finalPaymentTrigger === "artist_approval"
-          ? "Due only when she approves the final version. Skitza reminds her, not you."
-          : "Due monthly from her first payment. Skitza sends the reminders.",
-    });
-  }
-  rows.push(
-    fullyPaid
-      ? {
-          icon: Check,
-          tone: "good",
-          title: "Downloads unlocked",
-          detail: "Fully paid, so her final files are hers to download.",
-        }
-      : {
-          icon: Lock,
-          tone: "wait",
-          title: "Downloads stay locked",
-          detail: "They unlock the moment the last payment is confirmed.",
-        },
-  );
-
-  return (
-    <div className="mx-auto max-w-[620px]">
-      <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
-        Project · {SIMULATED_ARTIST.projectTitle}
-      </p>
-      <h3 className="font-display mt-1 text-[24px] leading-tight font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] sm:text-[28px]">
-        One place. No chasing<span className="text-[rgb(var(--brand-primary))]">.</span>
-      </h3>
-      <ul className="mt-5 divide-y divide-[rgb(var(--border-subtle))] rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-        {rows.map(({ icon: Icon, tone, title, detail }) => (
-          <li key={title} className="flex items-start gap-3 px-4 py-3.5">
-            <span
-              className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                tone === "good"
-                  ? "bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success-text))]"
-                  : "bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]"
-              }`}
-            >
-              <Icon size={15} strokeWidth={2.4} aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[14px] font-bold text-[rgb(var(--fg-default))]">{title}</p>
-              <p className="mt-0.5 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                {detail}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-4 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-        You get a push for every one of these moments, on your phone and in the desktop app.
-      </p>
+        ) : null}
+        {flush ? (
+          children
+        ) : (
+          <div className={`px-4 pb-6 sm:px-6 ${push ? "pt-3" : "pt-5"}`}>{children}</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -528,15 +530,23 @@ export function FirstArtistSimulation({
     onOpenChange(nextOpen);
   }
 
+  // Both producer frames advance on the producer's own decision, after a beat
+  // that lets the live screen show its own decided state first.
+  function advanceAfterDecision() {
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = setTimeout(() => {
+      setIndex((current) => Math.min(lastIndex, current + 1));
+    }, 700);
+  }
+
+  function handleRequestDecision(decision: "approve" | "decline") {
+    if (decision !== "approve") return;
+    advanceAfterDecision();
+  }
+
   function handleProofDecision(decision: PreviewPaymentProofDecision) {
     if (decision.kind !== "confirm") return;
-    const outcomeIndex = model.frames.findIndex((candidate) => candidate.id === "outcome");
-    if (outcomeIndex < 0) return;
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    // Let the review screen show its own "confirmed" state for a beat first.
-    advanceTimer.current = setTimeout(() => {
-      setIndex(outcomeIndex);
-    }, 700);
+    advanceAfterDecision();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -582,7 +592,7 @@ export function FirstArtistSimulation({
     switch (current.id) {
       case "store":
         return (
-          <ArtistDevice standing>
+          <ArtistDevice tab="store">
             <div className="space-y-4 px-4 pt-4">
               <ProducerHero producerName={producer.name} producerLogoUrl={model.producerLogoUrl} />
               <FocalProductCard
@@ -605,67 +615,48 @@ export function FirstArtistSimulation({
             </div>
           </ArtistDevice>
         );
-      case "detail":
+      case "approve":
         return (
-          // The live detail page keeps "Request to book" at the end of the
-          // page, so the phone scrolls down to it after a beat.
-          <ArtistDevice standing revealEnd>
-            <ProfessionalProductDetail
-              product={product}
-              studioId={SIMULATION_IDS.studio}
-              activePurchase={null}
-              requestHrefOverride={INERT_HREF}
-            />
-          </ArtistDevice>
-        );
-      case "request":
-        return (
-          <ArtistDevice>
-            <PurchaseRequestScreen
-              productId={product.id}
-              productName={product.name}
-              producerName={producer.name}
-              studioId={SIMULATION_IDS.studio}
-              amountCents={model.totalCents}
-              currency={model.currency}
+          <ProducerWindow push={`${SIMULATED_ARTIST.name} asked to book ${product.name}.`}>
+            <PurchaseRequestReview
+              id={SIMULATION_IDS.purchaseRequest}
+              initialStatus="pending"
+              initialProjectId={null}
               targetProjects={[]}
-              previewSentHref={INERT_HREF}
-              backHrefOverride={INERT_HREF}
-            />
-          </ArtistDevice>
-        );
-      case "request-sent":
-        return (
-          <ArtistDevice>
-            <RequestSentScreen producer={producer} requestRef={SIMULATION_IDS.requestRef} />
-          </ArtistDevice>
-        );
-      case "choose-plan":
-        return (
-          <ArtistDevice>
-            <ChoosePlanScreen
-              productId={product.id}
+              artistName={SIMULATED_ARTIST.name}
+              artistEmail={model.request.artistEmail}
               productName={product.name}
-              producerName={producer.name}
-              purchaseRequestId={SIMULATION_IDS.purchaseRequest}
-              options={model.planOptions}
-              currency={model.currency}
-              previewNextHref={INERT_HREF}
-            />
-          </ArtistDevice>
+              total={model.request.totalLabel}
+              totalCaption="Proposal total"
+              submittedAt={model.request.submittedAtLabel}
+              reference={SIMULATION_IDS.requestRef}
+              brief={model.request.brief}
+              onPreviewDecision={handleRequestDecision}
+            >
+              <PurchaseRequestCommercialDetails
+                commercialTerms={{ kind: "proposal", snapshot: model.request.snapshot }}
+              />
+            </PurchaseRequestReview>
+          </ProducerWindow>
         );
       case "agreement":
         return (
-          <ArtistDevice>
-            <ReviewAgreeScreen
-              product={{ ...product, paymentPlans: model.storyPlans }}
-              producer={producer}
-              terms={buildAgreementTerms(producer.name, product.includes)}
-              previewSentHref={INERT_HREF}
-              previewReference={SIMULATION_IDS.requestRef}
-              previewTax={{ mode: model.taxMode, ratePct: model.taxRatePct }}
-            />
-          </ArtistDevice>
+          <ActedFrame>
+            {(acted) => (
+              <ArtistDevice>
+                <ReviewAgreeScreen
+                  key={acted ? "accepted" : "reading"}
+                  product={{ ...product, paymentPlans: model.storyPlans }}
+                  producer={producer}
+                  terms={buildAgreementTerms(producer.name, product.includes)}
+                  previewSentHref={INERT_HREF}
+                  previewReference={SIMULATION_IDS.requestRef}
+                  previewTax={{ mode: model.taxMode, ratePct: model.taxRatePct }}
+                  defaultAccepted={acted}
+                />
+              </ArtistDevice>
+            )}
+          </ActedFrame>
         );
       case "pay":
         return (
@@ -681,45 +672,94 @@ export function FirstArtistSimulation({
             />
           </ArtistDevice>
         );
-      case "proof":
-        return (
-          <ArtistDevice>
-            <UploadProofScreen
-              productName={product.name}
-              producerName={producer.name}
-              previewOnly
-              currency={model.currency}
-              installmentPosition={1}
-              paidCents={0}
-              totalCents={model.totalCents}
-              thisProofCents={model.dueNowCents}
-            />
-          </ArtistDevice>
-        );
-      case "needs-you":
-        return (
-          <ProducerWindow>
-            <NeedsYouFrame
-              model={model}
-              onReview={() => {
-                goTo(index + 1);
-              }}
-            />
-          </ProducerWindow>
-        );
       case "verify":
         return (
-          <ProducerWindow>
+          <ProducerWindow
+            push={`${SIMULATED_ARTIST.name} sent a payment proof for ${SIMULATED_ARTIST.projectTitle}.`}
+          >
             <PaymentProofReview
               review={model.proofReview}
               onPreviewDecision={handleProofDecision}
             />
           </ProducerWindow>
         );
-      case "outcome":
+      case "music":
         return (
-          <ProducerWindow>
-            <OutcomeFrame model={model} />
+          <ActedFrame>
+            {(acted) => (
+              <ArtistDevice tab="music" revealSelector={SIMULATION_NOTE_SELECTOR}>
+                <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
+                  <SongPage
+                    key={acted ? "approved" : "reviewing"}
+                    role="artist"
+                    narrowLayout
+                    data={acted ? model.song.approved : model.song.data}
+                    actions={SIMULATION_SONG_ACTIONS}
+                  />
+                </RuntimeStatePreviewProvider>
+              </ArtistDevice>
+            )}
+          </ActedFrame>
+        );
+      case "sessions":
+        return (
+          <ActedFrame>
+            {(acted) => (
+              <ArtistDevice tab="sessions">
+                <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
+                  {acted ? (
+                    <div className="space-y-4 px-4 pt-4">
+                      <ConfirmationHero session={model.session.item} />
+                      <Suspense fallback={null}>
+                        <MySessionsScreen
+                          sessions={[model.session.item]}
+                          allowances={[model.session.allowance]}
+                          nowISO={model.session.nowISO}
+                          previewOnly
+                        />
+                      </Suspense>
+                    </div>
+                  ) : (
+                    <BookingClient
+                      activeStudioId={SIMULATION_IDS.studio}
+                      availability={model.booking.availability}
+                      studios={model.booking.studios}
+                      activePackages={model.booking.activePackages}
+                      initialSessionAllowanceId={model.booking.allowanceId}
+                      rescheduleSessionId={null}
+                    />
+                  )}
+                </RuntimeStatePreviewProvider>
+              </ArtistDevice>
+            )}
+          </ActedFrame>
+        );
+      case "dashboard":
+        return (
+          <ProducerWindow
+            flush
+            push={`${SIMULATED_ARTIST.name} approved ${SIMULATED_ARTIST.projectTitle} v2.`}
+          >
+            <RuntimeStatePreviewProvider identity={SIMULATION_PRODUCER_IDENTITY}>
+              <OverviewScreen
+                displayName={producer.name}
+                slug={null}
+                timezone={input.timezone}
+                pulseStats={model.dashboard.pulseStats}
+                paymentProofs={[]}
+                paymentBalances={model.dashboard.paymentBalances}
+                purchaseRequests={[]}
+                pendingApprovals={[]}
+                todaySession={model.dashboard.todaySession}
+                urgentProjects={[]}
+                recentUploads={model.dashboard.recentUploads}
+                unresolvedItems={[]}
+                dismissals={[]}
+                showSetupNudge={false}
+                showAllNeedsYou
+                now={model.dashboard.now}
+              />
+            </RuntimeStatePreviewProvider>
           </ProducerWindow>
         );
       case "closing":

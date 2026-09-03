@@ -40,7 +40,8 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("~/components/runtime-state/online-required-link", () => ({
+vi.mock("~/components/runtime-state/online-required-link", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useOnlineStatus: () => true,
 }));
 
@@ -52,23 +53,37 @@ vi.mock("~/lib/observability/product-events", () => ({
   captureProductEvent: mocks.capture,
 }));
 
-// The reused screens import their live server actions at module level. None
-// may run during the simulation; the spies prove it.
+// Every live screen in the story imports its own server actions at module
+// level. None may run during the simulation; these spies are the proof.
 const actionSpies = vi.hoisted(() => ({
   confirmPaymentProofAction: vi.fn(),
   rejectPaymentProofAction: vi.fn(),
-  requestToBookAction: vi.fn(),
+  approvePurchaseRequest: vi.fn(),
+  declinePurchaseRequest: vi.fn(),
+  correctPurchaseTarget: vi.fn(),
   acceptPurchaseAction: vi.fn(),
+  requestToBookAction: vi.fn(),
   cancelPaymentProofUploadAction: vi.fn(),
   presignProofUploadAction: vi.fn(),
   submitPaymentProofAction: vi.fn(),
-  startManagedPaymentProofUpload: vi.fn(),
-  uploadPaymentProofBytes: vi.fn(),
+  confirmBookingAction: vi.fn(),
+  rescheduleBookingAction: vi.fn(),
 }));
 
 vi.mock("~/app/(producer)/dashboard/payments/proof-actions", () => ({
   confirmPaymentProofAction: actionSpies.confirmPaymentProofAction,
   rejectPaymentProofAction: actionSpies.rejectPaymentProofAction,
+}));
+
+vi.mock("~/app/(producer)/dashboard/requests/actions", () => ({
+  approvePurchaseRequest: actionSpies.approvePurchaseRequest,
+  declinePurchaseRequest: actionSpies.declinePurchaseRequest,
+  correctPurchaseTarget: actionSpies.correctPurchaseTarget,
+}));
+
+vi.mock("~/app/(artist)/artist/book/actions", () => ({
+  confirmBookingAction: actionSpies.confirmBookingAction,
+  rescheduleBookingAction: actionSpies.rescheduleBookingAction,
 }));
 
 vi.mock("~/components/artist/purchase/actions", () => ({
@@ -79,16 +94,13 @@ vi.mock("~/components/artist/purchase/actions", () => ({
   submitPaymentProofAction: actionSpies.submitPaymentProofAction,
 }));
 
-vi.mock("~/components/artist/purchase/proof-upload-lifecycle", () => ({
-  startManagedPaymentProofUpload: actionSpies.startManagedPaymentProofUpload,
-  uploadPaymentProofBytes: actionSpies.uploadPaymentProofBytes,
-}));
-
 const LINKS = {
   bringActiveWork: "/dashboard/clients-projects/bring-active-work",
   dashboard: "/dashboard?storeTip=1",
   publicUrl: "https://skitza.app/join/maya-stone",
 };
+
+const WAIT = { timeout: 4000 } as const;
 
 function renderSimulation(input = PREVIEW_SIMULATION_INPUT) {
   const onOpenChange = vi.fn();
@@ -117,8 +129,36 @@ function artistFrame() {
   return within(dialog()).getByTestId("simulation-artist-frame");
 }
 
+function producerPanel() {
+  return within(dialog()).getByTestId("simulation-producer-panel");
+}
+
+// jsdom has no matchMedia, and the live song page asks for it on mount.
+// `matches: false` keeps reduced motion off, so the acted beat plays on its
+// timer exactly as it does in a browser.
+function installMatchMedia() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(
+      (media: string) =>
+        ({
+          matches: false,
+          media,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+        }) as MediaQueryList,
+    ),
+  );
+}
+
 beforeEach(() => {
+  installMatchMedia();
   mocks.push.mockReset();
+  mocks.replace.mockReset();
   mocks.capture.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
   Object.values(actionSpies).forEach((spy) => {
@@ -131,76 +171,105 @@ afterEach(() => {
 });
 
 describe("FirstArtistSimulation", () => {
-  it("plays the artist journey with the real product, then hands the producer the review", async () => {
+  it("plays the whole story through the live screens and never writes anything", async () => {
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderSimulation();
+    const next = () => user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
 
-    // Step 1 — the Store as Noya sees it, with the producer's real product.
+    // 1 — the Store as Noya sees it, with the producer's real product.
     expect(caption()?.textContent).toBe("Noya opens your link and sees your Store.");
-    expect(stepCounter()).toBe("1 / 11");
+    expect(stepCounter()).toBe("1 / 8");
     expectLabelledFrame();
     expect(artistFrame().hasAttribute("inert")).toBe(true);
     expect(within(artistFrame()).getAllByText("Signature production").length).toBeGreaterThan(0);
     expect(within(artistFrame()).getAllByText(/Maya Stone/).length).toBeGreaterThan(0);
 
-    const next = () => user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
+    // 2 — her request lands with the producer, on the live review screen.
+    await next();
+    expect(caption()?.textContent).toBe("She asks to book. It lands with you.");
+    expect(stepCounter()).toBe("2 / 8");
+    expectLabelledFrame();
+    const approvePanel = producerPanel();
+    expect(approvePanel.hasAttribute("inert")).toBe(false);
+    expect(within(approvePanel).getByText(/asked to book/)).toBeTruthy();
+    expect(within(approvePanel).getAllByText("Noya Levi").length).toBeGreaterThan(0);
+    expect(within(approvePanel).getAllByText("₪1,800").length).toBeGreaterThan(0);
+    const [approveButton] = within(approvePanel).getAllByRole("button", { name: "Approve" });
+    if (!approveButton) throw new Error("no Approve button");
+    await user.click(approveButton);
+    await user.click(screen.getByRole("button", { name: "Approve request" }));
 
-    const artistCaptions = [
-      "She reads what's included and taps Request to book.",
-      "She sends her request with a short brief.",
-      "Her request lands in your Needs you.",
-      "After your approval she picks a payment plan you offer.",
-      "She accepts the exact agreement.",
-      "She pays ₪900 straight to you by Bit or bank transfer.",
-      "She uploads the transfer screenshot.",
-    ];
-    for (const expected of artistCaptions) {
-      await next();
-      expect(caption()?.textContent).toBe(expected);
-      expectLabelledFrame();
-      expect(artistFrame().hasAttribute("inert")).toBe(true);
-      if (expected === "She accepts the exact agreement.") {
-        expect(within(artistFrame()).getAllByText(/SK-SIM298/).length).toBeGreaterThan(0);
-        expect(within(artistFrame()).queryByText(/development-gallery/)).toBeNull();
-      }
-    }
+    // 3 — she accepts the exact agreement; the frame plays the acceptance.
+    await waitFor(() => {
+      expect(caption()?.textContent).toBe("She accepts your exact agreement.");
+    }, WAIT);
+    expect(within(artistFrame()).getAllByText(/SK-SIM298/).length).toBeGreaterThan(0);
+    expect(within(artistFrame()).queryByText(/development-gallery/)).toBeNull();
+    // The frame plays the acceptance: the call to action only carries this
+    // line once the agreement is accepted. Role queries cannot reach inside an
+    // aria-hidden storyboard, so the assertions here read its text.
+    await waitFor(() => {
+      expect(
+        within(artistFrame()).getByText("Creates the purchase with these frozen terms"),
+      ).toBeTruthy();
+    }, WAIT);
 
-    // The payment frame shows the labelled example because no details were saved.
+    // 4 — she pays, with the producer's own details or a labelled example.
+    await next();
+    expect(caption()?.textContent).toBe(
+      "She pays ₪900 straight to you and sends the receipt.",
+    );
     expect(within(dialog()).queryByTestId("simulation-producer-panel")).toBeNull();
 
-    // Step 9 — flip to the producer: the Needs-you row is a real control.
+    // 5 — the producer verifies the receipt on the live review screen.
     await next();
-    expect(caption()?.textContent).toBe("Back on your side. This is what lands in Needs you.");
-    expect(stepCounter()).toBe("9 / 11");
-    expectLabelledFrame();
-    const panel = within(dialog()).getByTestId("simulation-producer-panel");
-    expect(panel.hasAttribute("inert")).toBe(false);
-    expect(within(panel).getByText("Noya Levi sent a payment proof")).toBeTruthy();
-    expect(within(panel).getByText(/₪900 of ₪1,800/)).toBeTruthy();
-    await user.click(within(panel).getByRole("button", { name: /Review/ }));
-
-    // Step 9 — the live producer review screen on its preview callback.
-    expect(caption()?.textContent).toBe("Your turn: check the receipt and tap Confirm payment.");
-    const review = within(dialog()).getByTestId("simulation-producer-panel");
+    expect(caption()?.textContent).toBe("You check the receipt and confirm.");
+    const review = producerPanel();
     expect(within(review).getByRole("heading", { name: "Noya Levi" })).toBeTruthy();
     expect(within(review).getByText(/Blue Hour · Signature production/)).toBeTruthy();
     await user.click(within(review).getByRole("button", { name: "Confirm ₪900" }));
     await user.click(within(review).getByRole("button", { name: "Confirm payment" }));
-    expect(within(review).getByText("Payment confirmed and recorded once.")).toBeTruthy();
 
-    // Step 10 — the outcome, reached after the review shows its confirmed state.
-    await waitFor(
-      () => {
-        expect(caption()?.textContent).toBe("Blue Hour is active. The headache is gone.");
-      },
-      { timeout: 3000 },
-    );
-    const outcome = within(dialog()).getByTestId("simulation-producer-panel");
-    expect(within(outcome).getByText("Blue Hour is active")).toBeTruthy();
-    expect(within(outcome).getByText("₪900 recorded")).toBeTruthy();
-    expect(within(outcome).getByText("₪900 still to come")).toBeTruthy();
-    expect(within(outcome).getByText("Downloads stay locked")).toBeTruthy();
+    // 6 — her song, her note at 0:42, then she approves the exact version.
+    await waitFor(() => {
+      expect(caption()?.textContent).toBe(
+        "Her song lives here, and she comments on the exact second.",
+      );
+    }, WAIT);
+    expect(within(artistFrame()).getAllByText("Blue Hour").length).toBeGreaterThan(0);
+    // Her note and the producer's reply, timestamped on the exact second.
+    expect(artistFrame().querySelectorAll('[data-test="comment-timestamp"]')).toHaveLength(2);
+    expect(
+      Array.from(artistFrame().querySelectorAll('[data-test="comment-timestamp"]')).map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["0:42", "0:42"]);
+    expect(
+      within(artistFrame()).getByText("This is the take. Keep the vocal exactly like this."),
+    ).toBeTruthy();
+    expect(artistFrame().querySelector('[data-test="approve-final-version"]')).toBeTruthy();
+    await waitFor(() => {
+      expect(artistFrame().querySelector('[data-test="artist-approved-status"]')).toBeTruthy();
+    }, WAIT);
+
+    // 7 — she books her own studio time out of the producer's hours.
+    await next();
+    expect(caption()?.textContent).toBe("She books her own studio time.");
+    await waitFor(() => {
+      expect(within(artistFrame()).getByText("You're booked")).toBeTruthy();
+    }, WAIT);
+    expect(within(artistFrame()).getAllByText(/Sessions/).length).toBeGreaterThan(0);
+
+    // 8 — the producer's own dashboard, awake.
+    await next();
+    expect(caption()?.textContent).toBe("And this is your studio now.");
+    expect(stepCounter()).toBe("8 / 8");
+    const overview = producerPanel();
+    expect(within(overview).getByText(/approved Blue Hour v2/)).toBeTruthy();
+    expect(within(overview).getAllByText(/Active projects/).length).toBeGreaterThan(0);
+    expect(within(overview).getByText("Payment due")).toBeTruthy();
+    expect(within(overview).queryByText(/Nothing needs you right now/)).toBeNull();
 
     // Closing card — the real next steps; the caption gives way to the card.
     await user.click(within(dialog()).getByRole("button", { name: /^Finish/ }));
@@ -237,10 +306,27 @@ describe("FirstArtistSimulation", () => {
     // Telemetry tells the story in order.
     const names = mocks.capture.mock.calls.map(([name]) => name);
     expect(names[0]).toBe("simulation_started");
-    expect(names.filter((name) => name === "simulation_step")).toHaveLength(11);
+    expect(names.filter((name) => name === "simulation_step")).toHaveLength(8);
     expect(names.at(-1)).toBe("simulation_completed");
     expect(names).not.toContain("simulation_exited_early");
     fetchSpy.mockRestore();
+    // The walk plays three acted beats and two decision beats on real timers.
+  }, 30_000);
+
+  it("drops the booking frame when the product includes no studio time", async () => {
+    const user = userEvent.setup();
+    renderSimulation({
+      ...PREVIEW_SIMULATION_INPUT,
+      product: { ...PREVIEW_SIMULATION_INPUT.product, durationMin: 0, sessionCount: 0 },
+    });
+
+    expect(stepCounter()).toBe("1 / 7");
+    for (let step = 0; step < 4; step += 1) {
+      await user.click(within(dialog()).getByRole("button", { name: /^Next|^Finish/ }));
+    }
+    // Store, approve, agreement, pay, verify — the story skips straight from
+    // her song to the dashboard.
+    expect(caption()?.textContent).toBe("You check the receipt and confirm.");
   });
 
   it("shows the producer's own Bit details on the payment frame when they exist", async () => {
@@ -250,10 +336,12 @@ describe("FirstArtistSimulation", () => {
       paymentDetails: { bitPhone: "052-123-4567", note: "Write Blue Hour in the note." },
     });
 
-    for (let step = 1; step < 7; step += 1) {
+    for (let step = 0; step < 3; step += 1) {
       await user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
     }
-    expect(caption()?.textContent).toBe("She pays ₪900 straight to you by Bit or bank transfer.");
+    expect(caption()?.textContent).toBe(
+      "She pays ₪900 straight to you and sends the receipt.",
+    );
     expect(within(artistFrame()).getAllByText(/052-123-4567/).length).toBeGreaterThan(0);
     expect(within(artistFrame()).queryByText(/Example only/)).toBeNull();
   });
@@ -264,15 +352,15 @@ describe("FirstArtistSimulation", () => {
 
     await user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
     fireEvent.keyDown(dialog(), { key: "ArrowRight" });
-    expect(caption()?.textContent).toBe("She sends her request with a short brief.");
+    expect(caption()?.textContent).toBe("She accepts your exact agreement.");
     fireEvent.keyDown(dialog(), { key: "ArrowLeft" });
-    expect(caption()?.textContent).toBe("She reads what's included and taps Request to book.");
+    expect(caption()?.textContent).toBe("She asks to book. It lands with you.");
 
     await user.click(within(dialog()).getByRole("button", { name: "Close simulation" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mocks.capture).toHaveBeenCalledWith("simulation_exited_early", {
       step: 2,
-      frame: "detail",
+      frame: "approve",
     });
   });
 });
