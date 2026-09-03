@@ -23,7 +23,7 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
   });
 
   it("keeps the artist storyboard inert and the producer screens on their preview seams", () => {
-    expect(OVERLAY).toMatch(/<div\s+inert\s+aria-hidden/);
+    expect(OVERLAY).toMatch(/inert\s+aria-hidden/);
     expect(OVERLAY).toContain("previewOnly");
     expect(OVERLAY).toContain("previewSentHref={INERT_HREF}");
     expect(OVERLAY).toContain("previewProofHref={INERT_HREF}");
@@ -33,6 +33,22 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
     // The artist frames show what she did, not the screen before she did it.
     expect(OVERLAY).toContain("defaultAccepted={acted}");
     expect(OVERLAY).toContain("model.song.approved");
+    // The song page knows it is inside a frame, so it keeps the phone layout
+    // and never rewrites the browser address out from under the overlay.
+    expect(OVERLAY).toContain("embedded");
+    expect(MODEL).not.toMatch(/history\.|location\./);
+  });
+
+  it("scrolls to what each caption is about, since the live screens run past a phone", () => {
+    expect(OVERLAY).toContain('revealSelector={SIMULATION_AGREE_SELECTOR}');
+    expect(OVERLAY).toContain('revealSelector={SIMULATION_NOTE_SELECTOR}');
+    expect(OVERLAY).toContain("scrollableAncestor");
+  });
+
+  it("gives phones an arrow and desktop a labelled button, with one accessible name", () => {
+    expect(OVERLAY).toContain("aria-label={nextLabel}");
+    expect(OVERLAY).toMatch(/<ChevronRight className="lg:hidden"/);
+    expect(OVERLAY).toMatch(/hidden text-\[15px\] font-bold lg:inline/);
   });
 
   it("composes the live artist and producer screens instead of mock-ups", () => {
