@@ -198,7 +198,9 @@ describe("FirstArtistSimulation", () => {
     const [approveButton] = within(approvePanel).getAllByRole("button", { name: "Approve" });
     if (!approveButton) throw new Error("no Approve button");
     await user.click(approveButton);
-    await user.click(screen.getByRole("button", { name: "Approve request" }));
+    // One tap decides. A nested dialog would open beneath this overlay and be
+    // unreachable, which is exactly what the browser walk caught.
+    expect(screen.queryByRole("dialog", { name: /Approve this request/ })).toBeNull();
 
     // 3 — she accepts the exact agreement; the frame plays the acceptance.
     await waitFor(() => {

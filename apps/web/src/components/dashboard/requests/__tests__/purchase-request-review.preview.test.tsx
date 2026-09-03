@@ -65,11 +65,15 @@ function renderReview(onPreviewDecision?: (decision: "approve" | "decline") => v
 }
 
 /** The screen renders a desktop aside and a mobile action bar; either is fine. */
-async function decide(user: ReturnType<typeof userEvent.setup>, label: "Approve" | "Decline") {
-  // The screen renders the decision twice: a desktop aside and a mobile bar.
+async function tap(user: ReturnType<typeof userEvent.setup>, label: "Approve" | "Decline") {
   const [trigger] = screen.getAllByRole("button", { name: label });
   if (!trigger) throw new Error(`no ${label} button`);
   await user.click(trigger);
+}
+
+/** The live screen asks twice: the button, then a confirmation dialog. */
+async function decide(user: ReturnType<typeof userEvent.setup>, label: "Approve" | "Decline") {
+  await tap(user, label);
   const dialog = screen.getByRole("dialog");
   await user.click(within(dialog).getByRole("button", { name: `${label} request` }));
 }
@@ -90,8 +94,11 @@ describe("PurchaseRequestReview preview seam (SK-298)", () => {
     const onPreviewDecision = vi.fn();
     renderReview(onPreviewDecision);
 
-    await decide(user, "Approve");
+    await tap(user, "Approve");
 
+    // One tap, and no nested dialog: inside the simulation overlay a dialog
+    // would render beneath it and could never be reached.
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(onPreviewDecision).toHaveBeenCalledExactlyOnceWith("approve");
     expect(screen.getByText("Request approved")).toBeTruthy();
     expect(mocks.approvePurchaseRequest).not.toHaveBeenCalled();
@@ -105,8 +112,9 @@ describe("PurchaseRequestReview preview seam (SK-298)", () => {
     const onPreviewDecision = vi.fn();
     renderReview(onPreviewDecision);
 
-    await decide(user, "Decline");
+    await tap(user, "Decline");
 
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(onPreviewDecision).toHaveBeenCalledExactlyOnceWith("decline");
     expect(screen.getByText("Request declined")).toBeTruthy();
     expect(mocks.declinePurchaseRequest).not.toHaveBeenCalled();
