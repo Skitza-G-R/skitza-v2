@@ -75,6 +75,12 @@ export interface MusicLibraryTrackRow extends MusicLibraryItemBase {
   uploadedAtIso: string | null;
   audioUrl: string | null;
   durationMs: number | null;
+  /**
+   * Pre-computed waveform peaks for the latest version (200 normalized RMS
+   * floats 0..1), so a Library play paints the real envelope on the first
+   * frame instead of fetching and decoding the audio to find it.
+   */
+  peaks?: number[] | null;
   unreadComments: number;
   plays: number;
   /** A real upload/add-version destination for a zero-audio song. */
@@ -228,6 +234,7 @@ export function libraryRowToPlayerTrack(
     title: row.trackTitle,
     subtitle: `${row.trackArtist ?? row.clientName ?? row.projectTitle} · ${row.label ?? "No version"}`,
     durationMs: row.durationMs,
+    ...(row.peaks && row.peaks.length > 0 ? { peaks: row.peaks } : {}),
     ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
   };
 }
