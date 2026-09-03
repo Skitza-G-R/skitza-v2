@@ -523,6 +523,15 @@ function SongDeletionRedirect({ href }: { href: string }) {
 export type SongPageProps = {
   data: SongPageData;
   role?: SongPageRole;
+  /**
+   * Gallery and onboarding-simulation only: keep the phone layout at every
+   * viewport width. The page normally decides its layout from a viewport
+   * media query, which is wrong inside a fixed-width device frame — the
+   * two-column desktop layout would burst out of a 392px phone frame while
+   * the notes thread stayed hidden behind a sheet on real phones. With this
+   * on, the page is always one column and the notes thread renders inline.
+   */
+  narrowLayout?: boolean | undefined;
   artistStudioId?: string | undefined;
   producerProjectHref?: string | undefined;
   versionUpload?: ProducerVersionUpload | undefined;
@@ -546,6 +555,7 @@ export function SongPage(props: SongPageProps) {
 function SongPageContent({
   data,
   role = "producer",
+  narrowLayout = false,
   artistStudioId,
   producerProjectHref,
   versionUpload,
@@ -737,7 +747,10 @@ function SongPageContent({
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [isDesktopMoreActions, setIsDesktopMoreActions] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  // A frame that pins the page to phone width must also get the phone layout,
+  // whatever the viewport around it says.
+  const isDesktopMoreActions = narrowLayout ? false : isDesktopViewport;
   const moreActionsPanelId = useId();
   const versionPanelId = useId();
   const overflowRef = useRef<HTMLDivElement | null>(null);
@@ -755,7 +768,7 @@ function SongPageContent({
   useEffect(() => {
     const media = window.matchMedia(DESKTOP_MORE_ACTIONS_MEDIA_QUERY);
     const update = () => {
-      setIsDesktopMoreActions(media.matches);
+      setIsDesktopViewport(media.matches);
     };
     update();
     media.addEventListener("change", update);
@@ -2547,7 +2560,7 @@ function SongPageContent({
           <div
             className={[
               "grid gap-4",
-              role === "guest"
+              role === "guest" || narrowLayout
                 ? ""
                 : "lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch",
             ].join(" ")}
@@ -2673,7 +2686,13 @@ function SongPageContent({
                 </div>
               </div>
 
-              {role !== "guest" ? (
+              {role !== "guest" && narrowLayout ? (
+                <div className="flex min-h-[320px] flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))]">
+                  {renderNotesPanel("desktop")}
+                </div>
+              ) : null}
+
+              {role !== "guest" && !narrowLayout ? (
                 <div className="lg:hidden">
                   <button
                     type="button"
@@ -2720,7 +2739,7 @@ function SongPageContent({
 
         {role !== "guest" ? (
           <Sheet
-            open={notesOpen && !isDesktopMoreActions}
+            open={notesOpen && !isDesktopMoreActions && !narrowLayout}
             onOpenChange={(open) => {
               if (!open) closeNotes();
             }}
