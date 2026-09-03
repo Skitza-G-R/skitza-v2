@@ -235,3 +235,149 @@ Currently: 7908 passing, 98 skipped, 0 failing. Lint and typecheck clean.
 Screenshots at 390 and 360 (LTR and Hebrew RTL), plus desktop; a plain list of anything
 that looks wrong; and the two open questions — the Linear issue, and whether Library
 rows should ship peaks so the dock never has to decode.
+
+---
+
+## 8. VERIFICATION RESULTS — section 6 done, 2026-09-03
+
+Driven in a real browser (Chromium, sound actually playing) at 390×844, 360×780, 360×640,
+1024×800 and 1440×900, in LTR and in RTL with a Hebrew title.
+
+**Harness:** `apps/web/src/app/dev/player-transport/` + `apps/web/public/dev-audio/`
+(four generated WAVs with deliberately different envelopes — ramp / diamond / pulses / decay —
+two shipping `peaks`, two forcing the client decode). Worktree `.worktrees/player-waveform`,
+`DATABASE_URL` pointed at `127.0.0.1:1`, signed out. **Both are throwaway — delete before merging.**
+
+Run it with:
+`pnpm -C .worktrees/player-waveform -F web dev --port 3002` → `/dev/player-transport`
+
+### 8.1 Confirmed working (14)
+
+Next/previous move songs (not ±15s); previous restarts after 3s; ±10s moves exactly 10s and
+clamps at both ends; Next disables at the end of the queue (white/0.2 vs white/0.55,
+`cursor:not-allowed`); repeat cycles off→all→one with a "1" badge; repeat-all wraps;
+repeat-one restarts a finished song; shuffle walks all 4 songs once then disables Next;
+auto-advance on `ended`; share copies `https://skitza.app/dashboard/music/<versionId>` and
+toasts "Song link copied"; Media Session registers `nexttrack`/`previoustrack` and metadata
+follows the track; played bars fill correctly (50% → 32/64) and drag-scrub previews then commits
+(50%→80% landed at 17.6s of 22s); the 5 main controls fit one row at 360px (296px inside 312px);
+active shuffle/repeat render `rgb(229 163 36)` = `rgb(var(--brand-primary))`.
+
+**The waveform is genuinely real, on both paths.** Coarse 10-bucket silhouettes matched each
+source envelope, and the dock strip is the hero at lower resolution:
+
+| track | path | silhouette (10 buckets) |
+| --- | --- | --- |
+| night-drive | client decode | 0.12 → 0.91 monotonic rise (ramp) |
+| hebrew-stars | payload peaks | 0.14 · 0.51 · **0.99** · 0.42 · 0.22 (diamond) |
+| basement | client decode | jagged comb (pulses) |
+| golden-hour | payload peaks | 0.72 → 0.11 decay |
+
+Dock strip vs L3 hero, same song: `0.12→0.91` (64 bars) vs `0.13→0.96` (201 bars).
+
+### 8.2 Problems found (3)
+
+1. **RTL: the transport row mirrors, icons do not.** Measured x at 390px —
+   shuffle 47↔299, previous 103↔239, next 239↔103, repeat 299↔47, back/forward-10 swapped.
+   Exactly the §6.3 risk. Product decision (Spotify/Apple/YouTube all keep transport LTR).
+
+2. **RTL: waveform scrubbing is inverted.** `percentAt()` uses
+   `(clientX - rect.left) / rect.width`, which is LTR-only, while the bar strip mirrors under
+   `dir="rtl"`. Tapping 20% in from the left edge — visually near the *end* of the song —
+   seeks to 3.6s of 18s. The picture and the touch target disagree. **This one is a real
+   functional break for Hebrew users**, not a preference.
+
+3. **Short viewports: artwork overlaps the title. NEW on this branch.** At 360×640 the artwork
+   ends at 323px while the title starts at 302px — 21px overlap, artwork painted on top
+   (`elementFromPoint` returns the artwork), share/expand clipped. A/B against
+   `origin/v3-clean` on the same screen: **overlap 0px**. The added shuffle/repeat and ±10s rows
+   are the cause. Breaks at roughly **≤650px of viewport height**; 655px and up is clear.
+
+Minor: at 1024px the desktop transport sits 34px left of the dock's centre (0px at 1280/1440).
+
+### 8.3 Not verified here
+
+- **Repeat/shuffle surviving a reload.** `localStorage` is written correctly
+  (`{"loop":"one","shuffle":false}`) and `restorePlaybackForAccount` applies `readPlaybackMode()`,
+  but the restore only runs for a signed-in account and this harness is signed out on purpose.
+  `PersistentPlayer` mounts only in `app-shell` / `artist-app-shell`, so the signed-out gap is
+  unreachable in the product — but **no test covers restore applying the stored mode**.
+- Native share sheet on a real phone (`navigator.share` is absent in this browser; the clipboard
+  fallback was verified).
+- The real Library / project page (needs auth). Wiring read in source and correct:
+  `playerPlay(track, { queue: libraryPlayQueue(...) })` at library-screen.tsx:1267 and :1605,
+  `projectPlayQueue()` at project-page.tsx:240, `playerSetShuffle(true)` at :262.
+
+### 8.4 §6.6 regression check — clean
+
+`waveform-50.tsx` is a pure extraction: `resampleWaveformHeights` moved to `~/lib/audio/rms-peaks`
+byte-identical apart from the constant's name, and `WAVEFORM_MIN/MAX_BAR_COUNT` are still 24/320.
+The L3 hero rendered the correct real envelope live. No visual change.
+
+### 8.5 Gate
+
+`pnpm typecheck` · `pnpm lint` · `pnpm test` (**7908 passed, 98 skipped, 0 failing**) ·
+`packages/db pnpm typecheck` — all green, harness included.
+
+---
+
+## 9. GILI'S CALLS + FIXES APPLIED — 2026-09-03
+
+**Decisions.** Hebrew is not approved and probably will not be, so the two RTL findings
+(§8.2 items 1 and 2) are **left unfixed on purpose** — they are unreachable today because
+`LanguageSwitcher` is deliberately not mounted (`producer-sidebar.tsx`: "intentionally NOT
+imported in the rail"). Verified: a **Hebrew song title with the app in English keeps the correct
+button order** (shuffle 47, previous 103, play 163, next 239, repeat 299 at 390px) — only the app
+language mirrors the row. If Hebrew is ever approved, both belong to that project.
+
+On Library peaks, Gili chose **speed**.
+
+### 9.1 Fixed — artwork no longer covers the song title
+
+`persistent-player.tsx`, `MobileFullPlayer` artwork: `maxHeight` `min(360px, 46vh)` →
+**`min(360px, 100%)`**. A viewport fraction knows nothing about the chrome stacked below it, so
+once the transport grew a shuffle/repeat row and a ±10s row the cover overflowed its
+`min-h-0 flex-1` slot and painted over the title. 100% of the slot always fits.
+
+Measured after (`--sk-layout-viewport-height` swept, 360px wide):
+
+| viewport height | artwork | gap to title | square? |
+| --- | --- | --- | --- |
+| 640 | 312 × 228 | **+12px** (was −21px) | letterboxed |
+| 667 | 312 × 255 | +12px | letterboxed |
+| 700 | 312 × 288 | +12px | letterboxed |
+| 780 | 312 × 312 | +40px | yes |
+| 844 | 312 × 312 | +72px | yes |
+
+Normal phones are byte-for-byte unchanged. Short phones letterbox the block, which is fine —
+it is an `aria-hidden` decorative gradient, not a real cover image. `elementFromPoint` over the
+title now returns the title, not the artwork.
+
+Regression test: `persistent-player.interaction.test.tsx` →
+"caps the artwork against its own slot, never a slice of the viewport".
+
+### 9.2 Done — Library rows now ship their peaks
+
+Closes the §5 known limit. Playing from the Library no longer costs a fetch + Web Audio decode
+before the strip shows the real envelope.
+
+- `music-read-model.ts` — `peaks` added to `MusicLatestVersion`, selected from
+  `trackVersions.peaks`, mapped as `version.peaks ?? null`.
+- `library-screen.tsx` — `peaks?: number[] | null` on `MusicLibraryTrackRow`;
+  `libraryRowToPlayerTrack` spreads it only when non-empty (`exactOptionalPropertyTypes`).
+- `(producer)/dashboard/music/page.tsx` and `(artist)/artist/music/page.tsx` pass it through.
+
+Cost: peaks persist rounded to **4 decimals** (`roundPeaks`, default 4), so ≈**1.3 KB raw per
+song** — ~65 KB raw on a 50-song Music page, appreciably less over the wire once compressed.
+
+Regression tests: `library-play-queue.test.ts` (5) — peaks reach the player, are omitted when
+null or empty, work for artist rows, and survive onto every queue entry rather than only the
+clicked row.
+
+### 9.3 Still open
+
+- **No Linear issue** for this branch (unchanged).
+- Nothing committed or pushed.
+- Harness `apps/web/src/app/dev/player-transport/` + `apps/web/public/dev-audio/` (3.7 MB of
+  WAVs) are still present and untracked. **Delete both before merging** — and never `git add -A`
+  here.
