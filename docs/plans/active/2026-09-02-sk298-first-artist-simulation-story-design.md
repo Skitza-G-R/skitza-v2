@@ -84,7 +84,17 @@ without the agreement and pay screens (removes the core promise).
 - Source contract: updated component list and seam literals.
 - Seam tests on the two live components: the preview decision never reaches the server action.
 
+## Also fixed, found by looking at the real screens
+
+- **Funnel titles no longer truncate on phones.** `FunnelTopBar` forced a single nowrap line
+  into roughly 250px, so real artists saw "Review exact agree…" and "Payment instructio…". The
+  title now wraps to a second line and shrinks a little further before it has to. This is a
+  live artist bug, not only a simulation one.
+- **The approve frame decides in one tap.** Recording the walk in a browser caught a nested
+  confirmation dialog opening at `z-50` beneath the simulation's own `z-60` overlay: visible,
+  dimmed, unreachable. With the preview seam the first tap decides; the live screen keeps its
+  confirmation step.
+
 ## Out of scope
 
-Header truncation inside the live artist screens on phones ("Review exact agree…"), the empty
-space of a one-product Store, Hebrew copy.
+The empty space of a one-product Store, and Hebrew copy.
