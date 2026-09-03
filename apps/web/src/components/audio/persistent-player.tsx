@@ -1034,14 +1034,20 @@ export function MobileFullPlayer({
         {/* Artwork — square, screen-width minus gutters, capped so it
             never starves the transport on short phones. Soft radial
             highlight over the identity gradient (Samply's airbrushed
-            cover feel) instead of a flat color slab. */}
+            cover feel) instead of a flat color slab.
+
+            The cap is 100% of this flex slot, not a slice of the viewport:
+            a viewport fraction knows nothing about the chrome stacked below,
+            so on a short phone the cover overflowed the slot and painted over
+            the song title. Letting it letterbox is fine — the block is a
+            decorative gradient, not a real cover image. */}
         <div className="flex min-h-0 flex-1 items-center justify-center py-3">
           <div
             aria-hidden
             className="relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
             style={{
               background: tint,
-              maxHeight: "min(360px, 46vh)",
+              maxHeight: "min(360px, 100%)",
             }}
           >
             <span

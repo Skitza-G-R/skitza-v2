@@ -156,6 +156,27 @@ describe("full player direct manipulation", () => {
     expect(dialog.style.height).toBe("var(--sk-layout-viewport-height, 100dvh)");
   });
 
+  // Regression: the artwork used to cap its height at a slice of the viewport
+  // (min(360px, 46vh)). That figure took no account of the chrome stacked below
+  // it, so once the transport grew a shuffle/repeat row and a ±10s row, a short
+  // phone (360x640) had the cover overflowing its flex slot and painting on top
+  // of the song title. The cap has to follow the space the artwork is actually
+  // given, which is what 100% of its flex parent means.
+  it("caps the artwork against its own slot, never a slice of the viewport", () => {
+    const { container } = renderFullPlayer();
+
+    const artwork = container.querySelector<HTMLElement>(".aspect-square");
+    expect(artwork).not.toBeNull();
+    expect(artwork?.style.maxHeight).toBe("min(360px, 100%)");
+    expect(artwork?.style.maxHeight).not.toContain("vh");
+
+    // The slot itself must still be allowed to shrink below the artwork's
+    // natural size, or the cap has nothing smaller to resolve against.
+    const slot = artwork?.parentElement;
+    expect(slot?.className).toContain("min-h-0");
+    expect(slot?.className).toContain("flex-1");
+  });
+
   it("follows a downward finger, reverses upward, and settles open without firing the tap action", () => {
     const onCollapse = vi.fn();
     renderFullPlayer({ onCollapse });
