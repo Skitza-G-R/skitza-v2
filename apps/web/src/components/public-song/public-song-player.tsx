@@ -93,6 +93,10 @@ export function PublicSongPlayer({
       title: songTitle,
       subtitle: `${version.label} · ${artist ?? producerName}`,
       durationMs: version.durationMs,
+      // Public audio is served cross-origin, so the mini player can
+      // never decode it — the pre-computed peaks are the only way its
+      // strip shows the real waveform.
+      ...(version.peaks && version.peaks.length > 0 ? { peaks: version.peaks } : {}),
     });
   }
 

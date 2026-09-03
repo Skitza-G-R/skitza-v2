@@ -68,6 +68,7 @@ export default async function MusicPage({ searchParams }: MusicPageProps) {
           )?.toISOString() ?? null,
         audioUrl: song.latestVersion?.audioUrl ?? null,
         durationMs: song.latestVersion?.durationMs ?? null,
+        peaks: song.latestVersion?.peaks ?? null,
         unreadComments: song.unreadComments,
         plays: song.plays,
       }),

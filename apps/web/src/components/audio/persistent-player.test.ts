@@ -5,11 +5,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   PLAYER_EVENTS,
+  SEEK_STEP_MS,
   clampSeekMs,
   expandHrefForTrack,
   fmtTime,
   isSharedSongPagePathname,
+  loopButtonLabel,
   pickDurationMs,
+  sameOriginPeaksUrl,
+  shareUrlForTrack,
 } from "./persistent-player";
 
 // Source-grep helper — reads persistent-player.tsx so we can pin the
@@ -147,11 +151,67 @@ describe("isSharedSongPagePathname — hide the dock only on shared SongPage rou
   });
 });
 
-describe("clampSeekMs — fixed 15 second transport", () => {
+describe("clampSeekMs — fixed 10 second transport", () => {
   it("clamps fixed millisecond jumps to the track boundaries", () => {
-    expect(clampSeekMs(8_000, -15_000, 180_000)).toBe(0);
-    expect(clampSeekMs(60_000, 15_000, 180_000)).toBe(75_000);
-    expect(clampSeekMs(175_000, 15_000, 180_000)).toBe(180_000);
+    expect(clampSeekMs(8_000, -SEEK_STEP_MS, 180_000)).toBe(0);
+    expect(clampSeekMs(60_000, SEEK_STEP_MS, 180_000)).toBe(70_000);
+    expect(clampSeekMs(175_000, SEEK_STEP_MS, 180_000)).toBe(180_000);
+  });
+});
+
+// ─── Share ───────────────────────────────────────────────────────────
+// The dock's share button hands out the same brand-canonical Song page
+// address the Song page's own share control does, so a link copied from
+// the player never points at a preview deployment.
+
+describe("shareUrlForTrack", () => {
+  it("builds a skitza.app producer address on dashboard routes", () => {
+    expect(shareUrlForTrack(baseTrack, "/dashboard/music")).toBe(
+      "https://skitza.app/dashboard/music/v-42",
+    );
+  });
+
+  it("builds a skitza.app artist address on artist routes", () => {
+    expect(shareUrlForTrack(baseTrack, "/artist/music")).toBe(
+      "https://skitza.app/artist/music/song/v-42",
+    );
+  });
+});
+
+describe("loopButtonLabel", () => {
+  it("names the current repeat state for assistive tech", () => {
+    expect(loopButtonLabel("off")).toBe("Repeat off");
+    expect(loopButtonLabel("all")).toBe("Repeat all");
+    expect(loopButtonLabel("one")).toBe("Repeat this song");
+  });
+});
+
+// ─── Real waveform source ────────────────────────────────────────────
+// The dock decodes audio for its envelope only when the browser can
+// actually fetch the bytes. Cross-origin object URLs have no CORS grant
+// for our origins, so decoding them would fail on every track.
+
+describe("sameOriginPeaksUrl", () => {
+  const origin = "https://app.skitza.test";
+
+  it("accepts the same-origin stream route and returns it unchanged", () => {
+    // Unchanged matters: the string is the decode cache key shared with
+    // the Song page hero, which passes this exact relative URL.
+    expect(sameOriginPeaksUrl("/api/audio/stream/v-42", origin)).toBe("/api/audio/stream/v-42");
+    expect(sameOriginPeaksUrl(`${origin}/api/audio/stream/v-42`, origin)).toBe(
+      `${origin}/api/audio/stream/v-42`,
+    );
+  });
+
+  it("rejects cross-origin audio (public R2 URLs have no CORS grant)", () => {
+    expect(sameOriginPeaksUrl("https://r2.example/audio.mp3", origin)).toBeNull();
+  });
+
+  it("rejects blob, data and missing sources", () => {
+    expect(sameOriginPeaksUrl("blob:https://app.skitza.test/abc", origin)).toBeNull();
+    expect(sameOriginPeaksUrl("data:audio/mp3;base64,AAAA", origin)).toBeNull();
+    expect(sameOriginPeaksUrl(null, origin)).toBeNull();
+    expect(sameOriginPeaksUrl("/api/audio/stream/v-42", null)).toBeNull();
   });
 });
 
@@ -245,11 +305,37 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     expect(playerSrc.match(/prefetch=\{false\}/g)).toHaveLength(4);
   });
 
-  it("renders fixed 15-second back / forward controls with aria-labels", () => {
-    expect(playerSrc).toContain('aria-label="Back 15 seconds"');
-    expect(playerSrc).toContain('aria-label="Forward 15 seconds"');
-    expect(playerSrc).toContain("onSkip(-15_000)");
-    expect(playerSrc).toContain("onSkip(15_000)");
+  // The founder reported the arrow next to play jumping 15 seconds
+  // instead of moving to the next song. Track skips now own the
+  // triangle-and-bar arrows; fine seeking moved to its own ±10 second
+  // pair with the step drawn inside the icon.
+  it("renders song skips, not a seek, on the triangle-and-bar arrows", () => {
+    expect(playerSrc).toContain('aria-label="Previous song"');
+    expect(playerSrc).toContain('aria-label="Next song"');
+    expect(playerSrc).toContain("onNext");
+    expect(playerSrc).toContain("onPrevious");
+    // No surface may label a fixed seek as a track skip again.
+    expect(playerSrc).not.toMatch(/aria-label="(?:Back|Forward) 15 seconds"/);
+    expect(playerSrc).not.toContain("onSkip(15_000)");
+    expect(playerSrc).not.toContain("onSkip(-15_000)");
+  });
+
+  it("renders fixed 10-second back / forward seek controls with aria-labels", () => {
+    expect(playerSrc).toContain('aria-label="Back 10 seconds"');
+    expect(playerSrc).toContain('aria-label="Forward 10 seconds"');
+    expect(playerSrc).toContain("onSkip(-SEEK_STEP_MS)");
+    expect(playerSrc).toContain("onSkip(SEEK_STEP_MS)");
+    expect(SEEK_STEP_MS).toBe(10_000);
+  });
+
+  it("renders shuffle, repeat and share controls on the dock", () => {
+    expect(playerSrc).toContain('aria-label="Shuffle"');
+    expect(playerSrc).toContain("loopButtonLabel(loop)");
+    expect(playerSrc).toContain('aria-label="Share song"');
+    // Repeat is tri-state and shuffle is a toggle — both must report
+    // their state to assistive tech, not just recolor.
+    expect(playerSrc).toContain("aria-pressed={shuffle}");
+    expect(playerSrc).toContain('aria-pressed={loop !== "off"}');
   });
 
   it("keeps every compact dock transport target at least 44px", () => {
@@ -259,12 +345,28 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     );
 
     expect(compactDockSrc).not.toMatch(/\bh-[89]\s+w-[89]\b/);
-    expect(compactDockSrc).toMatch(
-      /aria-label="Back 15 seconds"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
-    );
-    expect(compactDockSrc).toMatch(
-      /aria-label="Forward 15 seconds"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
-    );
+    // Read each control's own <button> block so a neighbour's sizing
+    // can never stand in for a control that lost its 44px target.
+    function transportButton(label: string): string {
+      const blocks = compactDockSrc
+        .split("<button")
+        .filter((block) => block.includes(`aria-label="${label}"`));
+      expect(blocks).toHaveLength(1);
+      const block = blocks[0] ?? "";
+      return block.slice(0, block.indexOf("</button>"));
+    }
+
+    for (const label of [
+      "Previous song",
+      "Next song",
+      "Back 10 seconds",
+      "Forward 10 seconds",
+      "Shuffle",
+    ]) {
+      expect(transportButton(label)).toContain("min-h-11");
+      expect(transportButton(label)).toContain("min-w-11");
+    }
+    expect(transportButton("Share song")).toMatch(/h-11[^"]*w-11/);
     expect(
       compactDockSrc.match(/aria-label="Close player"[\s\S]{0,240}className="[^"]*h-11[^"]*w-11/g),
     ).toHaveLength(2);
@@ -339,10 +441,21 @@ describe("PersistentPlayer source — dock progress visual is a mini waveform, n
     expect(playerSrc).toMatch(/MiniWaveform[\s\S]*?\.map\(/);
   });
 
-  it("mini waveform is seeded by the track id so each track has a stable visual fingerprint", () => {
-    // Same convention as Waveform50.seed — deterministic heights from
-    // the track id. Two different tracks → distinguishable docks.
+  it("draws the REAL envelope: payload peaks first, then a shared decode", () => {
+    // The founder asked for a real waveform. Pre-computed peaks ride
+    // down with the track and win outright; otherwise the dock decodes
+    // the same-origin audio through the cache the L3 hero already
+    // fills, so a track drawn once is never decoded twice.
+    expect(playerSrc).toContain("track.peaks");
+    expect(playerSrc).toContain("useAudioPeaks(decodeUrl, barCount, supplied ?? fallback)");
+    expect(playerSrc).toContain("sameOriginPeaksUrl(track.audioUrl, origin)");
+  });
+
+  it("keeps the seeded pattern only as the pre-decode fallback", () => {
+    // Deterministic heights from the track id, so the strip never
+    // renders empty while the real envelope is still decoding.
     expect(playerSrc).toMatch(/seededBars\(|seededHeights\(/);
+    expect(playerSrc).toContain("seededBars(seed, barCount)");
   });
 
   it("mini waveform stays clickable for scrub (founder still needs to seek from the dock)", () => {
