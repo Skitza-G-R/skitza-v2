@@ -844,8 +844,12 @@ export function FirstArtistSimulation({
               {/* Narration: bottom bar on phones, left column on desktop. The
                   desktop block has a fixed height so the progress strip and
                   the buttons stay put while captions change length. */}
-              <div className="order-2 shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),14px)] lg:order-1 lg:w-[400px] lg:px-0 lg:pt-0 lg:pb-0">
-                <div className="lg:flex lg:h-[400px] lg:flex-col">
+              <div className="order-2 shrink-0 px-3 pt-2.5 pb-[max(env(safe-area-inset-bottom),10px)] lg:order-1 lg:w-[400px] lg:px-0 lg:pt-0 lg:pb-0">
+                {/* On a phone this is one row: the arrows sit at the edges and
+                    the words sit between them, so the bar costs the height of
+                    the text and nothing more. On desktop it goes back to a
+                    column, with the controls resting at the bottom. */}
+                <div className="relative lg:flex lg:h-[400px] lg:flex-col">
                   <div className="hidden lg:block">
                     <Progress frames={numbered} current={frame} />
                     <p
@@ -855,23 +859,25 @@ export function FirstArtistSimulation({
                       {frame.step !== null ? `${String(frame.step)} / ${String(stepCount)}` : ""}
                     </p>
                   </div>
-                  <p
-                    key={frame.id}
-                    data-testid="simulation-caption"
-                    aria-live="polite"
-                    className="sk-step-enter font-display text-[19px] leading-[1.2] font-bold tracking-[-0.02em] text-balance text-white lg:mt-3 lg:text-[32px] lg:leading-[1.1] lg:tracking-[-0.03em]"
-                  >
-                    {frame.caption}
-                  </p>
-                  <p className="mt-1 text-[13px] leading-snug text-white/55 lg:mt-3 lg:text-[15px] lg:leading-relaxed lg:text-white/60">
-                    {frame.detail}
-                  </p>
-                  <div className="mt-3 flex items-center justify-between gap-2 lg:mt-auto lg:justify-start">
+                  <div className="px-[46px] text-center lg:px-0 lg:text-left">
+                    <p
+                      key={frame.id}
+                      data-testid="simulation-caption"
+                      aria-live="polite"
+                      className="sk-step-enter font-display text-[15.5px] leading-[1.22] font-bold tracking-[-0.02em] text-balance text-white lg:mt-3 lg:text-[32px] lg:leading-[1.1] lg:tracking-[-0.03em]"
+                    >
+                      {frame.caption}
+                    </p>
+                    <p className="mt-0.5 text-[12px] leading-[1.32] text-balance text-white/55 lg:mt-3 lg:text-[15px] lg:leading-relaxed lg:text-white/60">
+                      {frame.detail}
+                    </p>
+                  </div>
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-between lg:pointer-events-auto lg:static lg:mt-auto lg:justify-start lg:gap-2">
                     <button
                       type="button"
                       onClick={goBack}
                       aria-label="Back"
-                      className={`ob-press inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none ${
+                      className={`ob-press pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none lg:h-12 lg:w-12 ${
                         index === 0 ? "invisible" : ""
                       }`}
                     >
@@ -884,7 +890,7 @@ export function FirstArtistSimulation({
                       type="button"
                       onClick={goNext}
                       aria-label={nextLabel}
-                      className="ob-press inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:h-auto lg:min-h-12 lg:w-auto lg:min-w-[180px] lg:rounded-[var(--radius-lg)] lg:px-6"
+                      className="ob-press pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:h-auto lg:min-h-12 lg:w-auto lg:min-w-[180px] lg:rounded-[var(--radius-lg)] lg:px-6"
                     >
                       <span className="hidden text-[15px] font-bold lg:inline">{nextLabel}</span>
                       <ChevronRight className="lg:hidden" size={20} aria-hidden />
