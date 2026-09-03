@@ -179,34 +179,41 @@ export function CompleteScreenClient({
           </div>
         </section>
 
+        {simulation ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setSimulationOpen(true);
+              }}
+              className="ob-press mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <span
+                aria-hidden
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--bg-sidebar)/0.16)]"
+              >
+                <Play size={12} strokeWidth={3} fill="currentColor" />
+              </span>
+              Watch your first artist
+              <span className="font-mono text-[11px] font-semibold tracking-[0.08em] opacity-70">
+                60 s
+              </span>
+            </button>
+            <p className="mt-2 text-center text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]">
+              Recommended — see exactly what your artists get.
+            </p>
+          </>
+        ) : null}
+
         <Link
           href={COMPLETE_DASHBOARD_HREF}
-          className="ob-press mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+          className={`ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 text-[14px] font-extrabold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none ${
+            simulation ? "mt-3" : "mt-5"
+          }`}
         >
           Open dashboard
           <ArrowRight aria-hidden size={17} />
         </Link>
-
-        {simulation ? (
-          <button
-            type="button"
-            onClick={() => {
-              setSimulationOpen(true);
-            }}
-            className="ob-press mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2.5 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--bg-elevated))] px-4 text-[14px] font-extrabold text-[rgb(var(--fg-default))] shadow-[0_10px_28px_rgb(var(--brand-primary)/0.14)] transition-colors hover:bg-[rgb(var(--brand-primary)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
-          >
-            <span
-              aria-hidden
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
-            >
-              <Play size={12} strokeWidth={3} fill="currentColor" />
-            </span>
-            Watch your first artist
-            <span className="font-mono text-[11px] font-semibold tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-              60 s
-            </span>
-          </button>
-        ) : null}
 
         <PushMomentBanner message="Get an alert when clients book, pay, or comment." />
 

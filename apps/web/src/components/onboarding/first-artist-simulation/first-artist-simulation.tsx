@@ -1,7 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { BellRing, Check, ChevronLeft, X } from "lucide-react";
+import { BellRing, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import Link from "next/link";
 import {
   Suspense,
@@ -94,6 +94,9 @@ const INERT_HREF = "#simulation";
 // The song page keeps its notes thread under the player, so the music frame
 // scrolls to the first timestamped note the caption is talking about.
 const SIMULATION_NOTE_SELECTOR = '[data-test="comment-timestamp"]';
+// The agreement runs past a phone screen, so the frame scrolls to the line she
+// actually accepts rather than leaving the viewer on the header.
+const SIMULATION_AGREE_SELECTOR = '[role="checkbox"]';
 
 // The standing artist screens (Store, Music, Sessions) sit above the artist
 // app's bottom tabs on phones; their sticky call to action already leaves room
@@ -204,49 +207,23 @@ function ActedFrame({ children }: { children: (acted: boolean) => ReactNode }) {
 // before it moves, the way a screen recording pauses before it scrolls.
 const REVEAL_DELAY_MS = 1800;
 
-function ScreenArea({
-  children,
-  tab,
-  revealSelector,
-}: {
-  children: ReactNode;
-  /** Standing artist screens scroll inside the area and show the app's tabs. */
-  tab?: ArtistTabId;
-  /**
-   * Scroll this element into view after a beat. Long live screens keep the
-   * part the caption is about below the fold, and the frame is inert, so the
-   * story scrolls there itself.
-   */
-  revealSelector?: string;
-}) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+/** The closest ancestor that actually scrolls, which the live screens own. */
+function scrollableAncestor(node: Element): Element | null {
+  let current = node.parentElement;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      current.scrollHeight > current.clientHeight + 4
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
 
-  useEffect(() => {
-    if (!revealSelector) return;
-    const timer = setTimeout(() => {
-      const node = scrollRef.current;
-      const target = node?.querySelector(revealSelector);
-      if (!node || !target) return;
-      const top =
-        target.getBoundingClientRect().top -
-        node.getBoundingClientRect().top +
-        node.scrollTop -
-        REVEAL_HEADROOM_PX;
-      if (top <= 0) return;
-      const reduceMotion =
-        typeof window.matchMedia === "function" &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (typeof node.scrollTo === "function") {
-        node.scrollTo({ top, behavior: reduceMotion ? "auto" : "smooth" });
-      } else {
-        node.scrollTop = top;
-      }
-    }, REVEAL_DELAY_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [revealSelector]);
-
+function ScreenArea({ children, tab }: { children: ReactNode; tab?: ArtistTabId }) {
   return (
     <div
       className="relative h-full min-h-0 w-full overflow-hidden bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
@@ -254,7 +231,7 @@ function ScreenArea({
     >
       {tab ? (
         <>
-          <div ref={scrollRef} className="h-full overflow-y-auto">
+          <div className="h-full overflow-y-auto">
             {children}
             {/* In-flow spacer, not padding: sticky calls to action measure
                 their 4.75rem offset from the scrollport's content edge, so
@@ -284,22 +261,51 @@ function ArtistDevice({
 }: {
   children: ReactNode;
   tab?: ArtistTabId;
+  /**
+   * Scroll this element into view after a beat. The live screens are taller
+   * than a phone, so the part the caption is about starts below the fold, and
+   * the frame is inert, so the story has to scroll there itself.
+   */
   revealSelector?: string;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!revealSelector) return;
+    const timer = setTimeout(() => {
+      const target = rootRef.current?.querySelector(revealSelector);
+      const scroller = target ? scrollableAncestor(target) : null;
+      if (!target || !scroller) return;
+      const top =
+        target.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop -
+        REVEAL_HEADROOM_PX;
+      if (top <= 0) return;
+      const reduceMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (typeof scroller.scrollTo === "function") {
+        scroller.scrollTo({ top, behavior: reduceMotion ? "auto" : "smooth" });
+      } else {
+        scroller.scrollTop = top;
+      }
+    }, REVEAL_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [revealSelector]);
+
   return (
     <div
+      ref={rootRef}
       inert
       aria-hidden
       data-testid="simulation-artist-frame"
       className="h-full w-full lg:mx-auto lg:h-[min(80vh,780px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
       <div className="h-full w-full overflow-hidden lg:rounded-[37px]">
-        <ScreenArea
-          {...(tab ? { tab } : {})}
-          {...(revealSelector ? { revealSelector } : {})}
-        >
-          {children}
-        </ScreenArea>
+        <ScreenArea {...(tab ? { tab } : {})}>{children}</ScreenArea>
       </div>
     </div>
   );
@@ -643,7 +649,7 @@ export function FirstArtistSimulation({
         return (
           <ActedFrame>
             {(acted) => (
-              <ArtistDevice>
+              <ArtistDevice revealSelector={SIMULATION_AGREE_SELECTOR}>
                 <ReviewAgreeScreen
                   key={acted ? "accepted" : "reading"}
                   product={{ ...product, paymentPlans: model.storyPlans }}
@@ -692,7 +698,7 @@ export function FirstArtistSimulation({
                   <SongPage
                     key={acted ? "approved" : "reviewing"}
                     role="artist"
-                    narrowLayout
+                    embedded
                     data={acted ? model.song.approved : model.song.data}
                     actions={SIMULATION_SONG_ACTIONS}
                   />
@@ -778,6 +784,7 @@ export function FirstArtistSimulation({
     }
   }
 
+  const nextLabel = index === lastIndex - 1 ? "Finish" : "Next";
   const identity = isArtist
     ? {
         initial: SIMULATED_ARTIST.firstName.charAt(0),
@@ -859,7 +866,7 @@ export function FirstArtistSimulation({
                   <p className="mt-1 text-[13px] leading-snug text-white/55 lg:mt-3 lg:text-[15px] lg:leading-relaxed lg:text-white/60">
                     {frame.detail}
                   </p>
-                  <div className="mt-3 flex items-center gap-2 lg:mt-auto">
+                  <div className="mt-3 flex items-center justify-between gap-2 lg:mt-auto lg:justify-start">
                     <button
                       type="button"
                       onClick={goBack}
@@ -870,12 +877,17 @@ export function FirstArtistSimulation({
                     >
                       <ChevronLeft size={20} aria-hidden />
                     </button>
+                    {/* A phone already advances on a tap, so the control is
+                        just an arrow there and a labelled button on desktop.
+                        The accessible name stays the same at both widths. */}
                     <button
                       type="button"
                       onClick={goNext}
-                      className="ob-press inline-flex min-h-12 flex-1 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[15px] font-bold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:min-w-[180px] lg:flex-none"
+                      aria-label={nextLabel}
+                      className="ob-press inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:h-auto lg:min-h-12 lg:w-auto lg:min-w-[180px] lg:rounded-[var(--radius-lg)] lg:px-6"
                     >
-                      {index === lastIndex - 1 ? "Finish" : "Next"}
+                      <span className="hidden text-[15px] font-bold lg:inline">{nextLabel}</span>
+                      <ChevronRight className="lg:hidden" size={20} aria-hidden />
                     </button>
                   </div>
                   <p className="mt-4 hidden text-[12px] text-white/35 lg:block">

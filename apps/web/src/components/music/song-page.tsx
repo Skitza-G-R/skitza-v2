@@ -524,14 +524,18 @@ export type SongPageProps = {
   data: SongPageData;
   role?: SongPageRole;
   /**
-   * Gallery and onboarding-simulation only: keep the phone layout at every
-   * viewport width. The page normally decides its layout from a viewport
-   * media query, which is wrong inside a fixed-width device frame — the
-   * two-column desktop layout would burst out of a 392px phone frame while
-   * the notes thread stayed hidden behind a sheet on real phones. With this
-   * on, the page is always one column and the notes thread renders inline.
+   * Gallery and onboarding-simulation only: this page is rendered inside a
+   * fixed-width frame rather than as its own route.
+   *
+   * The page normally reads the viewport to choose its layout, which is wrong
+   * inside a device frame: the two-column desktop layout burst out of a 392px
+   * phone frame, the notes thread hid behind a sheet on real phones, and the
+   * 200-bar desktop waveform was crammed into a phone-width box. Embedded, the
+   * page stays one column, the notes render inline, the waveform keeps its
+   * phone bar count, and it never rewrites the browser address, because a
+   * frame has no route of its own.
    */
-  narrowLayout?: boolean | undefined;
+  embedded?: boolean | undefined;
   artistStudioId?: string | undefined;
   producerProjectHref?: string | undefined;
   versionUpload?: ProducerVersionUpload | undefined;
@@ -555,7 +559,7 @@ export function SongPage(props: SongPageProps) {
 function SongPageContent({
   data,
   role = "producer",
-  narrowLayout = false,
+  embedded = false,
   artistStudioId,
   producerProjectHref,
   versionUpload,
@@ -656,8 +660,8 @@ function SongPageContent({
   const activeVersionDeleted = activeVersion?.audioDeletedAtIso != null;
 
   useEffect(() => {
-    if (activeVersionId) replaceBrowserSongPageVersion(role, activeVersionId);
-  }, [activeVersionId, role]);
+    if (activeVersionId && !embedded) replaceBrowserSongPageVersion(role, activeVersionId);
+  }, [activeVersionId, embedded, role]);
 
   // App Router can preserve this client component while navigating between
   // two exact /music/[versionId] URLs. Follow that route-prop change, but do
@@ -750,7 +754,7 @@ function SongPageContent({
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
   // A frame that pins the page to phone width must also get the phone layout,
   // whatever the viewport around it says.
-  const isDesktopMoreActions = narrowLayout ? false : isDesktopViewport;
+  const isDesktopMoreActions = embedded ? false : isDesktopViewport;
   const moreActionsPanelId = useId();
   const versionPanelId = useId();
   const overflowRef = useRef<HTMLDivElement | null>(null);
@@ -2560,7 +2564,7 @@ function SongPageContent({
           <div
             className={[
               "grid gap-4",
-              role === "guest" || narrowLayout
+              role === "guest" || embedded
                 ? ""
                 : "lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch",
             ].join(" ")}
@@ -2583,7 +2587,7 @@ function SongPageContent({
                   <>
                     <Waveform50
                       appearance="studio"
-                      density={{ mobile: 96, desktop: 200 }}
+                      density={embedded ? 96 : { mobile: 96, desktop: 200 }}
                       durationMs={effectiveDurationMs ?? 240_000}
                       comments={role === "guest" ? [] : waveformComments}
                       seed={activeVersion.id}
@@ -2686,13 +2690,13 @@ function SongPageContent({
                 </div>
               </div>
 
-              {role !== "guest" && narrowLayout ? (
+              {role !== "guest" && embedded ? (
                 <div className="flex min-h-[320px] flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))]">
                   {renderNotesPanel("desktop")}
                 </div>
               ) : null}
 
-              {role !== "guest" && !narrowLayout ? (
+              {role !== "guest" && !embedded ? (
                 <div className="lg:hidden">
                   <button
                     type="button"
@@ -2739,7 +2743,7 @@ function SongPageContent({
 
         {role !== "guest" ? (
           <Sheet
-            open={notesOpen && !isDesktopMoreActions && !narrowLayout}
+            open={notesOpen && !isDesktopMoreActions && !embedded}
             onOpenChange={(open) => {
               if (!open) closeNotes();
             }}
