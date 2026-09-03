@@ -2673,24 +2673,32 @@ function SongPageContent({
                     </button>
                   </div>
 
-                  <div className="hidden items-center justify-end gap-3 text-[rgb(var(--fg-onsidebar)/0.58)] xl:flex">
-                    <VolumeIcon />
-                    <label className="sr-only" htmlFor="song-player-volume">
-                      Player volume
-                    </label>
-                    <input
-                      id="song-player-volume"
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={playbackSnapshot.volume}
-                      onChange={(event) => {
-                        playerSetVolume(Number(event.currentTarget.value));
-                      }}
-                      className="h-11 w-28 accent-[rgb(var(--brand-primary))]"
-                    />
-                  </div>
+                  {/* The volume slider appears from `xl` up, which is a
+                      viewport rule. Inside a phone-width frame the viewport is
+                      the desktop's, so the slider rendered and spilled past the
+                      bezel. A framed player keeps the phone transport. */}
+                  {embedded ? (
+                    <span aria-hidden />
+                  ) : (
+                    <div className="hidden items-center justify-end gap-3 text-[rgb(var(--fg-onsidebar)/0.58)] xl:flex">
+                      <VolumeIcon />
+                      <label className="sr-only" htmlFor="song-player-volume">
+                        Player volume
+                      </label>
+                      <input
+                        id="song-player-volume"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={playbackSnapshot.volume}
+                        onChange={(event) => {
+                          playerSetVolume(Number(event.currentTarget.value));
+                        }}
+                        className="h-11 w-28 accent-[rgb(var(--brand-primary))]"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
