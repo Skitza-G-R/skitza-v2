@@ -181,7 +181,8 @@ describe("FirstArtistSimulation", () => {
     expect(caption()?.textContent).toBe("Noya opens your link and sees your Store.");
     expect(stepCounter()).toBe("1 / 8");
     expectLabelledFrame();
-    expect(artistFrame().hasAttribute("inert")).toBe(true);
+    // The screen is live: a producer judging what their artist gets can press it.
+    expect(artistFrame().hasAttribute("inert")).toBe(false);
     expect(within(artistFrame()).getAllByText("Signature production").length).toBeGreaterThan(0);
     expect(within(artistFrame()).getAllByText(/Maya Stone/).length).toBeGreaterThan(0);
 
@@ -313,6 +314,46 @@ describe("FirstArtistSimulation", () => {
     expect(names).not.toContain("simulation_exited_early");
     fetchSpy.mockRestore();
     // The walk plays three acted beats and two decision beats on real timers.
+  }, 30_000);
+
+  it("lets the producer press the artist's own screens, and still writes nothing", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderSimulation();
+    const next = () => user.click(within(dialog()).getByRole("button", { name: /^Next/ }));
+
+    // Straight to the agreement, and accept it by hand rather than waiting.
+    await next();
+    const [approveButton] = within(producerPanel()).getAllByRole("button", { name: "Approve" });
+    if (!approveButton) throw new Error("no Approve button");
+    await user.click(approveButton);
+    await waitFor(() => {
+      expect(caption()?.textContent).toBe("She accepts your exact agreement.");
+    }, WAIT);
+
+    // The screen is live, so role queries reach inside it and clicks land.
+    const agreement = artistFrame();
+    await user.click(within(agreement).getByRole("checkbox"));
+    await user.click(within(agreement).getByRole("button", { name: /Accept exact agreement/ }));
+    await waitFor(() => {
+      expect(caption()?.textContent).toBe(
+        "She pays ₪900 straight to you and sends the receipt.",
+      );
+    }, WAIT);
+
+    // Her "I've paid" button moves the story on instead of navigating.
+    await user.click(within(artistFrame()).getByRole("button", { name: /upload proof/i }));
+    await waitFor(() => {
+      expect(caption()?.textContent).toBe("You check the receipt and confirm.");
+    }, WAIT);
+
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    Object.values(actionSpies).forEach((spy) => {
+      expect(spy).not.toHaveBeenCalled();
+    });
+    fetchSpy.mockRestore();
   }, 30_000);
 
   it("drops the booking frame when the product includes no studio time", async () => {

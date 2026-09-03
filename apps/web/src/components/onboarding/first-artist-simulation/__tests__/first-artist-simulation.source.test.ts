@@ -22,8 +22,15 @@ describe("FirstArtistSimulation source contract (SK-298)", () => {
     expect(serverImports.every((line) => line.startsWith("import type"))).toBe(true);
   });
 
-  it("keeps the artist storyboard inert and the producer screens on their preview seams", () => {
-    expect(OVERLAY).toMatch(/inert\s+aria-hidden/);
+  it("keeps every live screen on a preview seam, since they are all pressable", () => {
+    // The artist screens are no longer frozen pictures, so what keeps them
+    // safe is that every control which would reach the server or leave the
+    // page is handed a callback instead.
+    expect(OVERLAY).not.toMatch(/\binert\b\s+aria-hidden/);
+    expect(OVERLAY).toContain("onPreviewAccept={goNext}");
+    expect(OVERLAY).toContain("onPreviewProof={goNext}");
+    expect(OVERLAY).toContain("onPreviewSubmit={actNow}");
+    expect(OVERLAY).toContain("swallowInertLink");
     expect(OVERLAY).toContain("previewOnly");
     expect(OVERLAY).toContain("previewSentHref={INERT_HREF}");
     expect(OVERLAY).toContain("previewProofHref={INERT_HREF}");

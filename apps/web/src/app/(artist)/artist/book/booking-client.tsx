@@ -70,6 +70,12 @@ type Props = {
   activePackages: ActivePackage[];
   initialSessionAllowanceId: string | null;
   rescheduleSessionId: string | null;
+  /**
+   * Gallery and onboarding-simulation only: takes the booking instead of the
+   * server action, so the screen can be used for real without holding a slot.
+   * Mirrors the seams on the purchase and proof screens.
+   */
+  onPreviewSubmit?: ((slot: { startsAtISO: string }) => void) | undefined;
 };
 
 type Step = "package" | "day" | "time" | "review";
@@ -140,6 +146,7 @@ export function BookingClient({
   activePackages,
   initialSessionAllowanceId,
   rescheduleSessionId,
+  onPreviewSubmit,
 }: Props) {
   const router = useRouter();
   const online = useOnlineStatus();
@@ -233,6 +240,10 @@ export function BookingClient({
 
   function submit() {
     if (!online || !selectedPackage || !selectedSlot || isPending) return;
+    if (onPreviewSubmit) {
+      onPreviewSubmit({ startsAtISO: selectedSlot.startsAtISO });
+      return;
+    }
     startTransition(async () => {
       operationKey.current ??= crypto.randomUUID();
       try {

@@ -30,7 +30,7 @@ import {
 } from "~/components/dashboard/payments/payment-proof-review";
 import { PurchaseRequestCommercialDetails } from "~/components/dashboard/requests/purchase-request-commercial-details";
 import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
-import { SongPage, type L3Actions } from "~/components/music/song-page";
+import { SongPage } from "~/components/music/song-page";
 import {
   LiquidGlassBottomNav,
   type LiquidGlassBottomNavTab,
@@ -162,12 +162,6 @@ const SIMULATION_PRODUCER_IDENTITY: RuntimeIdentity = {
   contextId: SIMULATION_IDS.studio,
 };
 
-// The song page takes its writes as props. Approval is the only control the
-// story shows, and it resolves without leaving the browser.
-const SIMULATION_SONG_ACTIONS: L3Actions = {
-  approveVersion: () => Promise.resolve({ ok: true }),
-};
-
 // A beat before the artist acts, so the viewer reads the screen first and then
 // watches it change, the way a screen recording pauses before it moves.
 const ACT_DELAY_MS = 1100;
@@ -175,13 +169,24 @@ const ACT_DELAY_MS = 1100;
 // Room kept above a revealed element so its own heading stays in shot.
 const REVEAL_HEADROOM_PX = 64;
 
+// Booking is the one beat worth waiting on: the screen is usable, so the story
+// gives the viewer time to pick a day before it books one itself.
+const BOOKING_ACT_DELAY_MS = 3600;
+
 /**
  * An artist frame that plays one action. It renders the screen as she found
  * it, waits a beat, then renders it as she left it: the plan accepted, the
  * version approved, the session booked. Reduced motion goes straight to the
  * result. The frame is keyed by its id, so stepping back replays the beat.
  */
-function ActedFrame({ children }: { children: (acted: boolean) => ReactNode }) {
+function ActedFrame({
+  children,
+  delayMs = ACT_DELAY_MS,
+}: {
+  /** `actNow` lets the screen itself finish the beat when the viewer acts. */
+  children: (acted: boolean, actNow: () => void) => ReactNode;
+  delayMs?: number;
+}) {
   const [acted, setActed] = useState(false);
 
   useEffect(() => {
@@ -194,18 +199,32 @@ function ActedFrame({ children }: { children: (acted: boolean) => ReactNode }) {
     }
     const timer = setTimeout(() => {
       setActed(true);
-    }, ACT_DELAY_MS);
+    }, delayMs);
     return () => {
       clearTimeout(timer);
     };
-  }, []);
+  }, [delayMs]);
 
-  return <>{children(acted)}</>;
+  const actNow = () => {
+    setActed(true);
+  };
+
+  return <>{children(acted, actNow)}</>;
 }
 
 // The beat before a scripted scroll, so the viewer reads the top of the screen
 // before it moves, the way a screen recording pauses before it scrolls.
 const REVEAL_DELAY_MS = 1800;
+
+/**
+ * The reused screens need an href for links the story has no route for. They
+ * all point at INERT_HREF, so a click on one is swallowed here rather than
+ * pushing a hash onto the producer's address bar.
+ */
+function swallowInertLink(event: MouseEvent<HTMLElement>) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest(`a[href="${INERT_HREF}"]`)) event.preventDefault();
+}
 
 /** The closest ancestor that actually scrolls, which the live screens own. */
 function scrollableAncestor(node: Element): Element | null {
@@ -253,7 +272,15 @@ function ScreenArea({ children, tab }: { children: ReactNode; tab?: ArtistTabId 
   );
 }
 
-/** Noya's phone: edge to edge on phones, a device frame on desktop. */
+/**
+ * Noya's phone: edge to edge on phones, a device frame on desktop.
+ *
+ * The screen inside is live — it scrolls and its controls work — because a
+ * producer judging "what does my artist get" should be able to press things.
+ * What keeps it safe is the seams: every control that would reach the server
+ * or leave the page is handed a preview callback instead, and the guard below
+ * swallows the inert links the story hands to the reused screens.
+ */
 function ArtistDevice({
   children,
   tab,
@@ -299,9 +326,8 @@ function ArtistDevice({
   return (
     <div
       ref={rootRef}
-      inert
-      aria-hidden
       data-testid="simulation-artist-frame"
+      onClickCapture={swallowInertLink}
       className="h-full w-full lg:mx-auto lg:h-[min(80vh,780px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
       <div className="h-full w-full overflow-hidden lg:rounded-[37px]">
@@ -568,17 +594,6 @@ export function FirstArtistSimulation({
     }
   }
 
-  // Stories gesture on the inert artist frames: right side advances, left side
-  // goes back. Producer frames carry real controls, so they keep their clicks.
-  function handleStoryTap(event: MouseEvent<HTMLDivElement>) {
-    if (!isArtist) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    if (bounds.width === 0) return;
-    const ratio = (event.clientX - bounds.left) / bounds.width;
-    if (ratio < 0.3) goBack();
-    else goNext();
-  }
-
   async function copyLink() {
     try {
       await navigator.clipboard.writeText(links.publicUrl);
@@ -659,6 +674,7 @@ export function FirstArtistSimulation({
                   previewReference={SIMULATION_IDS.requestRef}
                   previewTax={{ mode: model.taxMode, ratePct: model.taxRatePct }}
                   defaultAccepted={acted}
+                  onPreviewAccept={goNext}
                 />
               </ArtistDevice>
             )}
@@ -675,6 +691,7 @@ export function FirstArtistSimulation({
               productName={product.name}
               planLabel={model.planLabel}
               previewProofHref={INERT_HREF}
+              onPreviewProof={goNext}
             />
           </ArtistDevice>
         );
@@ -692,7 +709,7 @@ export function FirstArtistSimulation({
       case "music":
         return (
           <ActedFrame>
-            {(acted) => (
+            {(acted, actNow) => (
               <ArtistDevice tab="music" revealSelector={SIMULATION_NOTE_SELECTOR}>
                 <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
                   <SongPage
@@ -700,7 +717,12 @@ export function FirstArtistSimulation({
                     role="artist"
                     embedded
                     data={acted ? model.song.approved : model.song.data}
-                    actions={SIMULATION_SONG_ACTIONS}
+                    actions={{
+                      approveVersion: () => {
+                        actNow();
+                        return Promise.resolve({ ok: true });
+                      },
+                    }}
                   />
                 </RuntimeStatePreviewProvider>
               </ArtistDevice>
@@ -709,8 +731,8 @@ export function FirstArtistSimulation({
         );
       case "sessions":
         return (
-          <ActedFrame>
-            {(acted) => (
+          <ActedFrame delayMs={BOOKING_ACT_DELAY_MS}>
+            {(acted, actNow) => (
               <ArtistDevice tab="sessions">
                 <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
                   {acted ? (
@@ -733,6 +755,7 @@ export function FirstArtistSimulation({
                       activePackages={model.booking.activePackages}
                       initialSessionAllowanceId={model.booking.allowanceId}
                       rescheduleSessionId={null}
+                      onPreviewSubmit={actNow}
                     />
                   )}
                 </RuntimeStatePreviewProvider>
@@ -844,8 +867,12 @@ export function FirstArtistSimulation({
               {/* Narration: bottom bar on phones, left column on desktop. The
                   desktop block has a fixed height so the progress strip and
                   the buttons stay put while captions change length. */}
-              <div className="order-2 shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),14px)] lg:order-1 lg:w-[400px] lg:px-0 lg:pt-0 lg:pb-0">
-                <div className="lg:flex lg:h-[400px] lg:flex-col">
+              <div className="order-2 shrink-0 px-3 pt-2.5 pb-[max(env(safe-area-inset-bottom),10px)] lg:order-1 lg:w-[400px] lg:px-0 lg:pt-0 lg:pb-0">
+                {/* On a phone this is one row: the arrows sit at the edges and
+                    the words sit between them, so the bar costs the height of
+                    the text and nothing more. On desktop it goes back to a
+                    column, with the controls resting at the bottom. */}
+                <div className="relative lg:flex lg:h-[400px] lg:flex-col">
                   <div className="hidden lg:block">
                     <Progress frames={numbered} current={frame} />
                     <p
@@ -855,23 +882,25 @@ export function FirstArtistSimulation({
                       {frame.step !== null ? `${String(frame.step)} / ${String(stepCount)}` : ""}
                     </p>
                   </div>
-                  <p
-                    key={frame.id}
-                    data-testid="simulation-caption"
-                    aria-live="polite"
-                    className="sk-step-enter font-display text-[19px] leading-[1.2] font-bold tracking-[-0.02em] text-balance text-white lg:mt-3 lg:text-[32px] lg:leading-[1.1] lg:tracking-[-0.03em]"
-                  >
-                    {frame.caption}
-                  </p>
-                  <p className="mt-1 text-[13px] leading-snug text-white/55 lg:mt-3 lg:text-[15px] lg:leading-relaxed lg:text-white/60">
-                    {frame.detail}
-                  </p>
-                  <div className="mt-3 flex items-center justify-between gap-2 lg:mt-auto lg:justify-start">
+                  <div className="px-[46px] text-center lg:px-0 lg:text-left">
+                    <p
+                      key={frame.id}
+                      data-testid="simulation-caption"
+                      aria-live="polite"
+                      className="sk-step-enter font-display text-[15.5px] leading-[1.22] font-bold tracking-[-0.02em] text-balance text-white lg:mt-3 lg:text-[32px] lg:leading-[1.1] lg:tracking-[-0.03em]"
+                    >
+                      {frame.caption}
+                    </p>
+                    <p className="mt-0.5 text-[12px] leading-[1.32] text-balance text-white/55 lg:mt-3 lg:text-[15px] lg:leading-relaxed lg:text-white/60">
+                      {frame.detail}
+                    </p>
+                  </div>
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-between lg:pointer-events-auto lg:static lg:mt-auto lg:justify-start lg:gap-2">
                     <button
                       type="button"
                       onClick={goBack}
                       aria-label="Back"
-                      className={`ob-press inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none ${
+                      className={`ob-press pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none lg:h-12 lg:w-12 ${
                         index === 0 ? "invisible" : ""
                       }`}
                     >
@@ -884,26 +913,20 @@ export function FirstArtistSimulation({
                       type="button"
                       onClick={goNext}
                       aria-label={nextLabel}
-                      className="ob-press inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:h-auto lg:min-h-12 lg:w-auto lg:min-w-[180px] lg:rounded-[var(--radius-lg)] lg:px-6"
+                      className="ob-press pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none lg:h-auto lg:min-h-12 lg:w-auto lg:min-w-[180px] lg:rounded-[var(--radius-lg)] lg:px-6"
                     >
                       <span className="hidden text-[15px] font-bold lg:inline">{nextLabel}</span>
                       <ChevronRight className="lg:hidden" size={20} aria-hidden />
                     </button>
                   </div>
                   <p className="mt-4 hidden text-[12px] text-white/35 lg:block">
-                    Use the arrow keys, or tap the phone.
+                    Use the arrow keys, or press the screen itself.
                   </p>
                 </div>
               </div>
 
               {/* The screen. */}
-              <div
-                role="presentation"
-                onClick={handleStoryTap}
-                className={`order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center ${
-                  isArtist ? "cursor-pointer" : ""
-                }`}
-              >
+              <div className="order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center">
                 <div key={frame.id} className="sk-step-enter h-full w-full">
                   {renderFrame(frame)}
                 </div>
