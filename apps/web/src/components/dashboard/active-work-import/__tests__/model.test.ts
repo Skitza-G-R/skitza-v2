@@ -795,3 +795,59 @@ describe("what the producer sees right after the import", () => {
     ).not.toContain("Join me on Skitza");
   });
 });
+
+describe("the server's own verdict on a quick row", () => {
+  // The UI is never trusted: assessActiveWorkImportDraft re-derives the frozen
+  // snapshot from the raw payload. These assert the server agrees with what the
+  // producer confirmed on screen — money included.
+  function assessQuick(input: Partial<typeof quickInput>, template = quickTemplate) {
+    const draft = quickRowDraft({ ...quickInput, ...input }, template, defaults);
+    return assessActiveWorkImportDraft(toServerDraftPayload(draft));
+  }
+
+  it("accepts a quick row and freezes the total the producer typed", () => {
+    const assessment = assessQuick({});
+    if (assessment.state !== "ready") {
+      throw new Error(`Expected Ready, got ${assessment.reasons[0]?.code ?? "none"}`);
+    }
+    const snapshot = assessment.normalized.commercialSnapshot;
+    expect(snapshot.totalCents).toBe(500_000);
+    expect(snapshot.currency).toBe("ILS");
+    expect(snapshot.tax).toMatchObject({ mode: "tax_included", ratePct: 17 });
+    expect(snapshot.includedSongSpaces).toBe(3);
+    expect(assessment.normalized.plan).toEqual({ kind: "split_50_50" });
+    // 50/50 on ₪5,000, with the confirmed ₪2,500 sitting on the first half.
+    expect(assessment.normalized.schedule.map((entry) => entry.amountCents)).toEqual([
+      250_000, 250_000,
+    ]);
+    expect(assessment.normalized.payments).toHaveLength(1);
+    expect(assessment.normalized.payments[0]).toMatchObject({
+      installmentPosition: 1,
+      amountCents: 250_000,
+    });
+  });
+
+  it("agrees with the reversed tax maths for a price with tax added on top", () => {
+    const assessment = assessQuick({}, { ...quickTemplate, taxMode: "tax_added" });
+    if (assessment.state !== "ready") {
+      throw new Error(`Expected Ready, got ${assessment.reasons[0]?.code ?? "none"}`);
+    }
+    const snapshot = assessment.normalized.commercialSnapshot;
+    // The producer typed ₪5,000. The server, working only from the payload,
+    // stores ₪4,273.50 + 17% and lands on exactly ₪5,000 again.
+    expect(snapshot.subtotalCents).toBe(427_350);
+    expect(snapshot.tax).toMatchObject({ mode: "tax_added", ratePct: 17, amountCents: 72_650 });
+    expect(snapshot.totalCents).toBe(500_000);
+  });
+
+  it("marks the row as producer-imported, never as an artist acceptance", () => {
+    const assessment = assessQuick({});
+    if (assessment.state !== "ready") throw new Error("Expected Ready");
+    expect(assessment.normalized.schedule[0]?.trigger).toBe("producer_import");
+  });
+
+  it("still refuses a quick row that is missing what the server requires", () => {
+    const assessment = assessQuick({ email: "" });
+    expect(assessment.state).toBe("needs_info");
+  });
+});
