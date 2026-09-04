@@ -112,12 +112,43 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 
 export function Sk299Preview() {
   const [draft, setDraft] = useState<ActiveWorkImportDraft>(() => newImportDraft(defaults));
+  // ?mobile=1 renders the phone dialog, which is a fixed overlay and so cannot
+  // share the page with the other panels.
+  const [phone, setPhone] = useState(false);
 
   return (
     <main className="mx-auto min-w-0 max-w-[900px] px-3 py-6 sm:px-5">
       <h1 className="mb-6 text-[20px] font-extrabold text-[rgb(var(--fg-default))]">
         SK-299 — quick row and the screen after
       </h1>
+
+      <button
+        type="button"
+        onClick={() => {
+          setPhone((current) => !current);
+        }}
+        className="sk-press mb-4 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[13px] font-bold text-[rgb(var(--fg-default))]"
+      >
+        {phone ? "Show the desktop pane" : "Show the phone dialog"}
+      </button>
+
+      {phone ? (
+        <QuickRowForm
+          row={row(draft)}
+          template={TEMPLATE}
+          mobile
+          reasons={[]}
+          saving={false}
+          onBack={() => {
+            setPhone(false);
+          }}
+          onChange={setDraft}
+          onSave={() => Promise.resolve()}
+          onChangeDetails={() => undefined}
+          onRemove={() => undefined}
+          removeDisabled={false}
+        />
+      ) : null}
 
       <Panel title="Quick row — live, type in it">
         <div className="flex h-[640px] flex-col">

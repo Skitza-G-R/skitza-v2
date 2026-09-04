@@ -107,7 +107,7 @@ function issueAttributes(
     : {};
 }
 
-function keyboardFocusableElements(container: HTMLElement): HTMLElement[] {
+export function keyboardFocusableElements(container: HTMLElement): HTMLElement[] {
   const candidates = container.querySelectorAll<HTMLElement>(
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
   );

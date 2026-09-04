@@ -1,11 +1,11 @@
 "use client";
 
 import { ArrowLeft, Check, CircleAlert, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SaveIndicator } from "~/components/ui/save-indicator";
 
-import { FIELD_CLASS, FieldLabel } from "./import-row-editor";
+import { FIELD_CLASS, FieldLabel, keyboardFocusableElements } from "./import-row-editor";
 import {
   formatImportMoney,
   centsToInput,
@@ -92,7 +92,43 @@ export function QuickRowForm({
     () => row.draft.payments[0]?.operationKey ?? `active-work-import-payment:${crypto.randomUUID()}`,
   );
 
+  const formRef = useRef<HTMLElement>(null);
+
+  // Focus the phone dialog itself on open, or focus stays on the queue behind
+  // it and neither Escape nor the tab trap can fire.
+  useEffect(() => {
+    if (mobile) formRef.current?.focus();
+  }, [mobile, row.operationKey]);
+
   const fieldId = (name: string) => `quick-${name}-${row.operationKey}`;
+
+  // On a phone this is a real modal over the queue, exactly as the three-step
+  // editor is: Escape closes it and Tab cannot wander into the page behind.
+  function handleMobileKeys(event: React.KeyboardEvent<HTMLElement>) {
+    if (!mobile) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onBack();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = keyboardFocusableElements(event.currentTarget);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) {
+      event.preventDefault();
+      formRef.current?.focus();
+      return;
+    }
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === event.currentTarget)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   function patch(next: Partial<TypedFields>) {
     const merged = { ...fields, ...next };
@@ -116,7 +152,19 @@ export function QuickRowForm({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col">
+    <section
+      ref={formRef}
+      className={`min-w-0 bg-[rgb(var(--bg-elevated))] ${
+        mobile
+          ? "sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[70] flex flex-col overflow-hidden"
+          : "flex min-h-0 flex-1 flex-col"
+      }`}
+      role={mobile ? "dialog" : undefined}
+      aria-modal={mobile ? true : undefined}
+      aria-label={`Add ${fields.artistName.trim() || "active work"}`}
+      tabIndex={mobile ? -1 : undefined}
+      onKeyDownCapture={handleMobileKeys}
+    >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[rgb(var(--border-subtle))] px-3 py-2.5 sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5">
           {mobile ? (

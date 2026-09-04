@@ -67,11 +67,11 @@ function readyAssessment(): ImportAssessmentView {
   return { state: "ready", creationDigest: "digest-quick", normalized: {} as never };
 }
 
-function installMatchMedia() {
+function installMatchMedia(matches = false) {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation(() => ({
-      matches: false,
+      matches,
       media: "(max-width: 1023px)",
       onchange: null,
       addEventListener: vi.fn(),
@@ -267,6 +267,28 @@ describe("quick row in the import workspace", () => {
 
     expect(paymentKeys.length).toBeGreaterThan(1);
     expect(new Set(paymentKeys).size).toBe(1);
+  });
+
+  it("is a real modal on a phone, like the editor it replaces", async () => {
+    // The three-step editor is an aria-modal dialog over the queue. A quick row
+    // has to be one too, or Tab wanders into the page behind it and Escape is
+    // dead — neither of which jsdom notices unless it is asked.
+    installMatchMedia(true);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: /add|start/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(screen.getByLabelText("Artist name")).toBeDefined();
+
+    // Escape dismisses it, exactly as it does for the full editor.
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
   });
 
   it("stays on the three-step editor when there is no product to copy from", async () => {
