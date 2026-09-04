@@ -12,6 +12,7 @@ import {
   loadImportBatchRowsAction,
   loadImportSetupOptionsAction,
   materializeImportRowsAction,
+  type MaterializeImportOutcome,
   prepareImportAgreementPdfAction,
   prepareImportProofAction,
   restoreImportClientAction,
@@ -44,6 +45,7 @@ import {
   type WorkspaceImportRow,
 } from "./model";
 import type { ProofUploadView } from "./payment-history-editor";
+import { QuickRowForm } from "./quick-row-form";
 import { agreementPdfFileError } from "~/lib/agreement-pdf";
 import { useBodyScrollLock } from "~/components/native/use-body-scroll-lock";
 import { ReviewAndFinish } from "./review-and-finish";
@@ -188,6 +190,10 @@ export function ActiveWorkImportWorkspace({
   );
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [finishResult, setFinishResult] = useState<FinishSetupResultView | null>(null);
+  // A new row starts as a quick row whenever there is a product to copy from.
+  // Change details drops it from this set for good; rows restored from the
+  // server were left mid-edit, so they always open in the full editor.
+  const [quickRowKeys, setQuickRowKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [proofUploads, setProofUploads] = useState<Record<string, ProofUploadView>>({});
   // Keyed by row operation key: one agreement PDF per item.
   const [agreementPdfUploads, setAgreementPdfUploads] = useState<Record<string, ProofUploadView>>(
@@ -334,6 +340,9 @@ export function ActiveWorkImportWorkspace({
           persistedLocalVersion: -1,
         };
         updateRows((current) => [...current, row]);
+        if (templates.length > 0) {
+          setQuickRowKeys((current) => new Set(current).add(operationKey));
+        }
         setSelectedOperationKey(operationKey);
         setMobileEditorOpen(true);
         await persistRow(operationKey);
@@ -761,54 +770,16 @@ export function ActiveWorkImportWorkspace({
     }
   }
 
-  async function materializeReadyRows() {
-    const activeBatchId = batchIdRef.current;
-    if (!activeBatchId || creating) return;
-    const readyRows = rowsRef.current.filter(
-      (row) =>
-        row.rowId &&
-        !row.materializedAtIso &&
-        !row.materializeError &&
-        isRowReady(row.assessment, row.draft, activeClientOptions, archivedClientOptions),
-    );
-    const retryableFailedRows = rowsRef.current.filter(
-      (row) =>
-        row.rowId &&
-        !row.materializedAtIso &&
-        row.materializeError &&
-        isRowReady(row.assessment, row.draft, activeClientOptions, archivedClientOptions),
-    );
-    const rowsToMaterialize = readyRows.length > 0 ? readyRows : retryableFailedRows;
-    const requests = rowsToMaterialize.flatMap((row) =>
-      row.rowId && row.assessment?.state === "ready"
-        ? [{ rowId: row.rowId, expectedCreationDigest: row.assessment.creationDigest }]
-        : [],
-    );
-    if (requests.length === 0) return;
-
-    setCreating(true);
-    setReviewError(null);
-    let result: Awaited<ReturnType<typeof materializeImportRowsAction>>;
-    try {
-      result = await callAction(() =>
-        materializeImportRowsAction({
-          batchId: activeBatchId,
-          rows: requests,
-        }),
-      );
-    } finally {
-      setCreating(false);
-    }
-    if (!result.ok) {
-      setReviewError(result.error);
-      return;
-    }
-
-    const outcomeByRowId = new Map(result.data.outcomes.map((outcome) => [outcome.rowId, outcome]));
+  /**
+   * Apply what the server did to the rows on screen. Shared so creating a
+   * single quick row and creating a whole reviewed batch can never drift apart.
+   */
+  function applyMaterializeOutcomes(outcomes: readonly MaterializeImportOutcome[]) {
+    const outcomeByRowId = new Map(outcomes.map((outcome) => [outcome.rowId, outcome]));
     const rowById = new Map(
       rowsRef.current.flatMap((row) => (row.rowId ? ([[row.rowId, row]] as const) : [])),
     );
-    const createdClientOptions = result.data.outcomes.flatMap<ExistingClientOption>((outcome) => {
+    const createdClientOptions = outcomes.flatMap<ExistingClientOption>((outcome) => {
       if (outcome.state !== "created") return [];
       const sourceRow = rowById.get(outcome.rowId);
       if (!sourceRow) return [];
@@ -858,6 +829,52 @@ export function ActiveWorkImportWorkspace({
         return { ...row, materializeError: materializeErrorMessage(outcome.code, outcome.message) };
       }),
     );
+  }
+
+  async function materializeReadyRows() {
+    const activeBatchId = batchIdRef.current;
+    if (!activeBatchId || creating) return;
+    const readyRows = rowsRef.current.filter(
+      (row) =>
+        row.rowId &&
+        !row.materializedAtIso &&
+        !row.materializeError &&
+        isRowReady(row.assessment, row.draft, activeClientOptions, archivedClientOptions),
+    );
+    const retryableFailedRows = rowsRef.current.filter(
+      (row) =>
+        row.rowId &&
+        !row.materializedAtIso &&
+        row.materializeError &&
+        isRowReady(row.assessment, row.draft, activeClientOptions, archivedClientOptions),
+    );
+    const rowsToMaterialize = readyRows.length > 0 ? readyRows : retryableFailedRows;
+    const requests = rowsToMaterialize.flatMap((row) =>
+      row.rowId && row.assessment?.state === "ready"
+        ? [{ rowId: row.rowId, expectedCreationDigest: row.assessment.creationDigest }]
+        : [],
+    );
+    if (requests.length === 0) return;
+
+    setCreating(true);
+    setReviewError(null);
+    let result: Awaited<ReturnType<typeof materializeImportRowsAction>>;
+    try {
+      result = await callAction(() =>
+        materializeImportRowsAction({
+          batchId: activeBatchId,
+          rows: requests,
+        }),
+      );
+    } finally {
+      setCreating(false);
+    }
+    if (!result.ok) {
+      setReviewError(result.error);
+      return;
+    }
+
+    applyMaterializeOutcomes(result.data.outcomes);
 
     const createdTotal = rowsRef.current.filter((row) => row.materializedAtIso !== null).length;
     const failedTotal = result.data.outcomes.filter(
@@ -881,6 +898,54 @@ export function ActiveWorkImportWorkspace({
     setReviewError(
       result.data.error ?? "Nothing was created. Review the messages below and try again.",
     );
+  }
+
+  /**
+   * Create one confirmed quick row. Same action, same tRPC procedure and so the
+   * same database transaction the reviewed batch uses — there is no second
+   * write path, only a smaller list of rows.
+   */
+  async function materializeRow(operationKey: string): Promise<void> {
+    const activeBatchId = batchIdRef.current;
+    const row = rowsRef.current.find((item) => item.operationKey === operationKey);
+    const rowId = row?.rowId;
+    const assessment = row?.assessment;
+    if (!activeBatchId || !rowId || row.materializedAtIso) return;
+    if (assessment?.state !== "ready" || creating) return;
+
+    setCreating(true);
+    let result: Awaited<ReturnType<typeof materializeImportRowsAction>>;
+    try {
+      result = await callAction(() =>
+        materializeImportRowsAction({
+          batchId: activeBatchId,
+          rows: [{ rowId, expectedCreationDigest: assessment.creationDigest }],
+        }),
+      );
+    } finally {
+      setCreating(false);
+    }
+    if (!result.ok) {
+      setPageError(result.error);
+      return;
+    }
+    applyMaterializeOutcomes(result.data.outcomes);
+    if (result.data.error) setPageError(result.data.error);
+  }
+
+  /**
+   * The quick row's "Yes, save": save the draft, wait for Skitza's own check,
+   * and create only when it comes back clean. Anything unresolved leaves the
+   * row exactly as it was, in the queue, with its reasons on screen.
+   */
+  async function saveQuickRow(operationKey: string): Promise<void> {
+    const saved = await flushPendingRows([operationKey]);
+    if (!saved) {
+      setPageError("We couldn't save this item. Check your connection and try again.");
+      return;
+    }
+    if (latestReasons(operationKey).length > 0) return;
+    await materializeRow(operationKey);
   }
 
   function uploadProofForRow(
@@ -1213,6 +1278,87 @@ export function ActiveWorkImportWorkspace({
   const createdCount = rows.filter((row) => row.materializedAtIso !== null).length;
   const needsInfoCount = rows.length - readyCount - createdCount;
   const hasUnfinishedDrafts = rows.some((row) => row.materializedAtIso === null);
+  /**
+   * One row, two shapes. A quick row shows five fields and a line to confirm;
+   * everything else — including a row the producer sent to Change details —
+   * shows the full three-step editor over the very same draft.
+   */
+  function renderRowEditor(row: WorkspaceImportRow, index: number, mobile: boolean) {
+    const quickTemplate = quickRowKeys.has(row.operationKey) ? templates[0] : undefined;
+    if (quickTemplate) {
+      return (
+        <QuickRowForm
+          key={`quick-${row.operationKey}`}
+          row={row}
+          template={quickTemplate}
+          mobile={mobile}
+          reasons={rowDisplayReasons(
+            row.assessment,
+            row.draft,
+            activeClientOptions,
+            archivedClientOptions,
+          )}
+          saving={creating}
+          onBack={() => {
+            void closeMobileEditor(row.operationKey);
+          }}
+          onChange={(draft) => {
+            changeDraft(row.operationKey, draft);
+          }}
+          onSave={() => saveQuickRow(row.operationKey)}
+          onChangeDetails={() => {
+            setQuickRowKeys((current) => {
+              const next = new Set(current);
+              next.delete(row.operationKey);
+              return next;
+            });
+          }}
+          onRemove={() => {
+            void removeRow(row);
+          }}
+          removeDisabled={removeIsBlocked(row)}
+        />
+      );
+    }
+    return (
+<ImportRowEditor
+      key={row.operationKey}
+      row={row}
+      index={index}
+      clients={activeClientOptions}
+      archivedClients={archivedClientOptions}
+      templates={templates}
+      mobile={mobile}
+      onBack={() => {
+        if (mobile) void closeMobileEditor(row.operationKey);
+      }}
+      onChange={(draft) => {
+        changeDraft(row.operationKey, draft);
+      }}
+      editorMemory={editorMemoryRef.current}
+      onContinueStep={(step) => continueEditorStep(row.operationKey, step)}
+      onFinishItem={() => finishItem(row.operationKey)}
+      onSaveForLater={() => saveForLater(row.operationKey)}
+      onRemove={() => {
+        void removeRow(row);
+      }}
+      removeDisabled={removeIsBlocked(row)}
+      restoringClientId={restoringClientId}
+      onRestoreClient={(client) => {
+        void restoreClientForRow(row.operationKey, client);
+      }}
+      proofUploads={proofUploads}
+      onUploadProof={(paymentOperationKey, file) => {
+        void uploadProofForRow(row.operationKey, paymentOperationKey, file);
+      }}
+      agreementPdfUpload={agreementPdfUploads[row.operationKey]}
+      onUploadAgreementPdf={(file) => {
+        void uploadAgreementPdfForRow(row.operationKey, file);
+      }}
+    />
+    );
+  }
+
   const batchIsTerminal =
     initialBatch?.status === "completed" || (rows.length > 0 && !hasUnfinishedDrafts);
   const selectedRow = rows.find((row) => row.operationKey === selectedOperationKey) ?? null;
@@ -1417,39 +1563,7 @@ export function ActiveWorkImportWorkspace({
 
             <div className="hidden min-w-0 lg:block lg:h-full lg:min-h-0">
               {selectedRow && !mobileEditorVisible ? (
-                <ImportRowEditor
-                  key={selectedRow.operationKey}
-                  row={selectedRow}
-                  index={selectedIndex}
-                  clients={activeClientOptions}
-                  archivedClients={archivedClientOptions}
-                  templates={templates}
-                  mobile={false}
-                  onBack={() => undefined}
-                  onChange={(draft) => {
-                    changeDraft(selectedRow.operationKey, draft);
-                  }}
-                  editorMemory={editorMemoryRef.current}
-                  onContinueStep={(step) => continueEditorStep(selectedRow.operationKey, step)}
-                  onFinishItem={() => finishItem(selectedRow.operationKey)}
-                  onSaveForLater={() => saveForLater(selectedRow.operationKey)}
-                  onRemove={() => {
-                    void removeRow(selectedRow);
-                  }}
-                  removeDisabled={removeIsBlocked(selectedRow)}
-                  restoringClientId={restoringClientId}
-                  onRestoreClient={(client) => {
-                    void restoreClientForRow(selectedRow.operationKey, client);
-                  }}
-                  proofUploads={proofUploads}
-                  onUploadProof={(paymentOperationKey, file) => {
-                    void uploadProofForRow(selectedRow.operationKey, paymentOperationKey, file);
-                  }}
-                  agreementPdfUpload={agreementPdfUploads[selectedRow.operationKey]}
-                  onUploadAgreementPdf={(file) => {
-                    void uploadAgreementPdfForRow(selectedRow.operationKey, file);
-                  }}
-                />
+                renderRowEditor(selectedRow, selectedIndex, false)
               ) : (
                 <div className="flex h-full min-h-[24rem] items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.55)] p-8 text-center text-[13px] text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)]">
                   Select an item from the queue.
@@ -1460,41 +1574,7 @@ export function ActiveWorkImportWorkspace({
 
           {mobileEditorVisible && mobilePortalTarget
             ? createPortal(
-                <ImportRowEditor
-                  key={selectedRow.operationKey}
-                  row={selectedRow}
-                  index={selectedIndex}
-                  clients={activeClientOptions}
-                  archivedClients={archivedClientOptions}
-                  templates={templates}
-                  mobile
-                  onBack={() => {
-                    void closeMobileEditor(selectedRow.operationKey);
-                  }}
-                  onChange={(draft) => {
-                    changeDraft(selectedRow.operationKey, draft);
-                  }}
-                  editorMemory={editorMemoryRef.current}
-                  onContinueStep={(step) => continueEditorStep(selectedRow.operationKey, step)}
-                  onFinishItem={() => finishItem(selectedRow.operationKey)}
-                  onSaveForLater={() => saveForLater(selectedRow.operationKey)}
-                  onRemove={() => {
-                    void removeRow(selectedRow);
-                  }}
-                  removeDisabled={removeIsBlocked(selectedRow)}
-                  restoringClientId={restoringClientId}
-                  onRestoreClient={(client) => {
-                    void restoreClientForRow(selectedRow.operationKey, client);
-                  }}
-                  proofUploads={proofUploads}
-                  onUploadProof={(paymentOperationKey, file) => {
-                    void uploadProofForRow(selectedRow.operationKey, paymentOperationKey, file);
-                  }}
-                  agreementPdfUpload={agreementPdfUploads[selectedRow.operationKey]}
-                  onUploadAgreementPdf={(file) => {
-                    void uploadAgreementPdfForRow(selectedRow.operationKey, file);
-                  }}
-                />,
+                renderRowEditor(selectedRow, selectedIndex, true),
                 mobilePortalTarget,
               )
             : null}
