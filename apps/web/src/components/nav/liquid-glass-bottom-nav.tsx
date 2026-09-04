@@ -36,7 +36,25 @@ type LiquidGlassNavStyle = CSSProperties & {
   "--sk-nav-column-width": string;
 };
 
-export type LiquidGlassBottomNavPosition = "fixed" | "in-flow";
+export type LiquidGlassBottomNavPosition = "fixed" | "in-flow" | "overlay";
+
+/**
+ * `overlay` is the shipping mode for both app shells (SK-306). The bar used to
+ * be an in-flow flex sibling *below* the scroller, so the scroll box ended
+ * exactly where the bar began and the screen read as chopped off at that line
+ * — page content could never pass beneath the glass. Overlaying it on the
+ * scroller restores that, and because both shells are `fixed inset-0`, an
+ * absolute bar is anchored to the shell rather than the document viewport:
+ * iOS rubber-band still cannot carry it away, which is what SK-143 protected.
+ * Scrollers pair this with `.sk-bottom-nav-inset` so the last row can still be
+ * scrolled clear of the bar.
+ */
+const FRAME_POSITION_CLASS: Record<LiquidGlassBottomNavPosition, string> = {
+  fixed:
+    "fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] items-end pointer-events-none",
+  "in-flow": "relative",
+  overlay: "absolute inset-x-0 bottom-0 pointer-events-none",
+};
 
 export type LiquidGlassBottomNavTab<Id extends string = string> = Readonly<{
   id: Id;
@@ -483,9 +501,7 @@ export function LiquidGlassBottomNav<Id extends string>({
       data-liquid-glass-bottom-nav-frame={position}
       className={cn(
         "liquid-glass-bottom-nav-frame z-30 shrink-0 lg:hidden",
-        position === "fixed"
-          ? "fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] items-end pointer-events-none"
-          : "relative",
+        FRAME_POSITION_CLASS[position],
         frameClassName,
       )}
       style={{
@@ -497,7 +513,7 @@ export function LiquidGlassBottomNav<Id extends string>({
         data-liquid-glass-bottom-nav-stack=""
         className={cn(
           "liquid-glass-bottom-nav__stack mx-auto w-full max-w-[420px]",
-          position === "fixed" && "pointer-events-auto",
+          position !== "in-flow" && "pointer-events-auto",
         )}
       >
         <span className="liquid-glass-bottom-nav__pane" aria-hidden="true" />

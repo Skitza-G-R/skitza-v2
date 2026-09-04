@@ -56,7 +56,7 @@ export function ProducerBottomNav(): ReactNode {
     <LiquidGlassBottomNav
       ariaLabel="Producer tabs"
       tabs={tabs}
-      position="in-flow"
+      position="overlay"
       frameClassName="producer-bottom-nav-frame"
       onTabClick={(event) => {
         captureRuntimeMainNavigationTarget(event.currentTarget);

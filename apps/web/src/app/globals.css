@@ -754,28 +754,38 @@
     }
   }
 
-  /* When PersistentPlayer mounts a track it sets `data-skitza-dock="1"`
-   * on <body>. Reserve enough padding-bottom on the dashboard's main
-   * scroll container so long pages (notably the L3 song-page comment
-   * thread) can scroll past the fixed dock instead of disappearing
-   * underneath it. 88px on mobile (62px dock + 16px gap + safe-area
-   * already added by the dock itself), 110px on desktop (~94px dock
-   * pill + 16px gap). */
-  body[data-skitza-dock="1"] main#main-content {
-    padding-bottom: 110px;
+  /* Scroll clearance under the overlaid mobile chrome (SK-306).
+   *
+   * The tab bar floats above the page scroller rather than sitting below it
+   * as a flex sibling, so content passes *under* the glass — which is the
+   * whole point of a transparent bar. The scroller then has to reserve that
+   * height itself, or the last row stays trapped beneath the bar.
+   *
+   * Two independent reservations compose into one padding so neither rule has
+   * to know about the other:
+   *   --sk-bottom-nav-inset  the 68px tab row + its Home Indicator inset
+   *                          + a 12px breathing gap. Zero on lg+ (desktop
+   *                          uses the sidebar) and zero while the keyboard
+   *                          is up (the bar hides itself then).
+   *   --sk-dock-inset        the PersistentPlayer dock, only while a track
+   *                          is mounted (body[data-skitza-dock="1"]).
+   * Both default to 0px, so `.sk-bottom-nav-inset` is inert wherever neither
+   * piece of chrome is on screen. */
+  .sk-bottom-nav-inset {
+    padding-bottom: calc(var(--sk-bottom-nav-inset, 0px) + var(--sk-dock-inset, 0px));
+  }
+  body[data-skitza-dock="1"] {
+    /* ~94px dock pill + 16px gap. */
+    --sk-dock-inset: 110px;
   }
   @media (max-width: 1023px) {
-    body[data-skitza-dock="1"] main#main-content {
-      /* 80px nav clearance + 88px dock + buffer + iPhone home-indicator inset
-       * (SK-58 — static padding left the last row under the bar). */
-      padding-bottom: calc(182px + env(safe-area-inset-bottom));
+    body {
+      --sk-bottom-nav-inset: calc(80px + max(8px, env(safe-area-inset-bottom, 0px)));
     }
-    body[data-skitza-dock="1"] main#main-content[data-artist-shell-mode="standing"] {
-      /* Artist's tab bar is an in-flow sibling, so the main already ends
-       * above both the nav row and its safe-area inset. Reserve only the
-       * player dock + breathing room here; the producer shell keeps the
-       * legacy fixed-nav clearance above. */
-      padding-bottom: 102px;
+    body[data-skitza-dock="1"] {
+      /* 62px dock + 16px gap; the dock adds its own safe-area inset, and the
+       * nav reservation above already covers the tab row. */
+      --sk-dock-inset: 78px;
     }
   }
 
@@ -2175,6 +2185,24 @@
    * or a text-entry control has focus. The focus fallback is important in a
    * Home Screen app, where some routes shrink innerHeight and visualViewport
    * together and therefore report no measurable keyboard inset. */
+  body[data-sk-keyboard="open"],
+  body:has(
+    input:is(
+      :not([type]),
+      [type="text"],
+      [type="search"],
+      [type="email"],
+      [type="url"],
+      [type="tel"],
+      [type="password"],
+      [type="number"]
+    ):focus,
+    textarea:focus,
+    [contenteditable]:not([contenteditable="false"]):focus
+  ) {
+    --sk-bottom-nav-inset: 0px;
+  }
+
   body[data-sk-keyboard="open"] .liquid-glass-bottom-nav-frame,
   body:has(
     input:is(

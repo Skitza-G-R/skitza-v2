@@ -49,8 +49,8 @@ describe("SK-235 restored mobile bottom-navigation sizing", () => {
     expect(SHARED_NAV).toContain(
       '"0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))"',
     );
-    expect(PRODUCER_NAV).toContain('position="in-flow"');
-    expect(ARTIST_NAV).toContain('position="in-flow"');
+    expect(PRODUCER_NAV).toContain('position="overlay"');
+    expect(ARTIST_NAV).toContain('position="overlay"');
     expect(GLOBALS).toContain("padding-bottom: 0;");
     expect(GLOBALS).not.toContain("calc(env(safe-area-inset-bottom, 0px) - 8px)");
   });
@@ -78,19 +78,29 @@ describe("SK-235 restored mobile bottom-navigation sizing", () => {
     expect(GLOBALS).not.toContain("transform: scaleY(calc(68 / 60));");
   });
 
-  it("keeps artist content above the in-flow nav without changing desktop spacing", () => {
+  // SK-306: content scrolls *under* the overlaid bar, so the scroller reserves
+  // the bar's height itself instead of ending above it. The reservation and the
+  // player dock's compose as two independent custom properties.
+  it("reserves the overlaid nav in the scroller without changing desktop spacing", () => {
     expect(ARTIST_SHELL).toContain("<ArtistShellMain>");
     expect(ARTIST_SHELL_MAIN).toContain("sk-native-scroll");
-    expect(ARTIST_SHELL_MAIN).toContain("pb-4");
+    expect(ARTIST_SHELL_MAIN).toContain("sk-bottom-nav-inset");
+    expect(ARTIST_SHELL_MAIN).not.toContain("pb-4");
     expect(ARTIST_SHELL_MAIN).not.toContain("pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]");
     expect(ARTIST_SHELL_MAIN).toContain("lg:pb-12");
     expect(ARTIST_SONG_LOADING).not.toContain("pb-24");
     expect(ARTIST_SONG_LOADING).toContain("lg:pb-10");
     expect(GLOBALS).toContain("bottom: calc(80px + env(safe-area-inset-bottom, 0px));");
-    expect(GLOBALS).toContain("padding-bottom: calc(182px + env(safe-area-inset-bottom));");
-    expect(GLOBALS).toMatch(
-      /main#main-content\[data-artist-shell-mode="standing"\]\s*\{[\s\S]*?padding-bottom:\s*102px;/,
+    // 68px tab row + 12px gap, plus the Home Indicator inset the frame owns.
+    expect(GLOBALS).toContain(
+      "--sk-bottom-nav-inset: calc(80px + max(8px, env(safe-area-inset-bottom, 0px)));",
     );
+    expect(GLOBALS).toContain("--sk-dock-inset: 78px;");
+    // The bar hides itself for the keyboard, so its reservation goes too.
+    expect(GLOBALS).toMatch(
+      /body\[data-sk-keyboard="open"\],[\s\S]*?--sk-bottom-nav-inset: 0px;/,
+    );
+    expect(GLOBALS).not.toContain("padding-bottom: calc(182px + env(safe-area-inset-bottom));");
   });
 
   it("keeps the producer settings save bar above the larger mobile nav", () => {

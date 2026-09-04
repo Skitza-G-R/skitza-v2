@@ -124,12 +124,27 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(APP_SHELL).toContain("min-h-0 min-w-0 flex-1 overflow-y-auto");
   });
 
-  it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
-    expect(BOTTOM).toContain('position="in-flow"');
+  // SK-306. The bar used to be an in-flow flex sibling *below* the scroller,
+  // so the scroll box ended at the bar's top edge: the screen read as chopped
+  // off there and nothing could ever pass under the glass.
+  it("scrolls page content under the bar and reserves its height in the scroller", () => {
+    expect(APP_SHELL).toContain('<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">');
+    expect(APP_SHELL).toContain("sk-bottom-nav-inset min-h-0 min-w-0 flex-1 overflow-y-auto");
+    // The bar overlays the column, not the document viewport, so iOS
+    // rubber-band still cannot carry it away (SK-143).
+    expect(SHARED_BOTTOM).toContain('overlay: "absolute inset-x-0 bottom-0 pointer-events-none"');
+    expect(GLOBALS).toMatch(
+      /\.sk-bottom-nav-inset\s*\{[\s\S]*?padding-bottom:\s*calc\(\s*var\(--sk-bottom-nav-inset, 0px\) \+ var\(--sk-dock-inset, 0px\)\s*\);/,
+    );
+  });
+
+  it("overlays the glass nav on the scroller instead of fixing it to the document viewport", () => {
+    expect(BOTTOM).toContain('position="overlay"');
     expect(SHARED_BOTTOM).toContain(
       '"fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] items-end pointer-events-none"',
     );
-    expect(SHARED_BOTTOM).toContain(': "relative"');
+    expect(SHARED_BOTTOM).toContain('overlay: "absolute inset-x-0 bottom-0 pointer-events-none"');
+    expect(SHARED_BOTTOM).toContain('"in-flow": "relative"');
     expect(SHARED_BOTTOM).toContain(
       ") max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
     );
