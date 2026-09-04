@@ -19,14 +19,19 @@ import {
   matchingExistingClient,
   newImportDraft,
   normalizedEmail,
+  artistShareMessage,
   parseStoredImportDraft,
+  postImportSummary,
   quickRowAllocation,
   quickRowDraft,
   quickRowSummary,
   requiresExplicitClientMatch,
   rowDisplayReasons,
   toServerDraftPayload,
+  type SetupClientOption,
+  type SetupInstallmentOption,
   type StoreTemplateOption,
+  type WorkspaceImportRow,
 } from "../model";
 
 const defaults = {
@@ -623,5 +628,170 @@ describe("quick row", () => {
   it("has no summary until the money makes sense", () => {
     expect(quickRowSummary(quickRowDraft({ ...quickInput, total: "" }, quickTemplate, defaults)))
       .toBeNull();
+  });
+});
+
+function createdRow(rowId: string, clientContactId: string): WorkspaceImportRow {
+  return {
+    rowId,
+    operationKey: `op-${rowId}`,
+    revision: 1,
+    draft: newImportDraft(defaults),
+    assessment: null,
+    materializedAtIso: "2026-09-04T10:00:00.000Z",
+    createdClientContactId: clientContactId,
+    createdProjectId: `project-${rowId}`,
+    createdPurchaseId: `purchase-${rowId}`,
+    saveState: "idle",
+    saveError: null,
+    materializeError: null,
+    localVersion: 0,
+    persistedLocalVersion: 0,
+  };
+}
+
+function installment(
+  input: Partial<SetupInstallmentOption> & { rowId: string },
+): SetupInstallmentOption {
+  return {
+    id: `installment-${input.rowId}-${String(input.position ?? 1)}`,
+    projectId: `project-${input.rowId}`,
+    purchaseId: `purchase-${input.rowId}`,
+    projectTitle: "Noya EP",
+    agreementName: "Full production",
+    position: 1,
+    amountCents: 250_000,
+    remainingCents: 250_000,
+    currency: "ILS",
+    dueTrigger: "producer_import",
+    dueAtIso: "2026-10-15T00:00:00.000Z",
+    triggeredAtIso: null,
+    status: "not_paid",
+    remindersEnabled: true,
+    reminderEligible: true,
+    reminderWaitingForDueDate: false,
+    ...input,
+  };
+}
+
+function setupClient(id: string, name: string): SetupClientOption {
+  return {
+    id,
+    name,
+    email: `${name.toLowerCase()}@example.com`,
+    connected: false,
+    providerAcceptedAtIso: null,
+    invitationEligible: true,
+    invitationState: "available",
+  };
+}
+
+describe("what the producer sees right after the import", () => {
+  it("adds up only what is still owed, per currency", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1"), createdRow("row-2", "client-2")],
+      installments: [
+        installment({ rowId: "row-1", remainingCents: 250_000 }),
+        // Already settled by the paid-so-far the producer confirmed.
+        installment({ rowId: "row-1", position: 2, remainingCents: 0 }),
+        installment({ rowId: "row-2", currency: "USD", remainingCents: 100_000 }),
+      ],
+      clients: [setupClient("client-1", "Noya"), setupClient("client-2", "Amit")],
+    });
+
+    expect(summary.owed).toEqual([
+      { currency: "ILS", cents: 250_000 },
+      { currency: "USD", cents: 100_000 },
+    ]);
+  });
+
+  it("finds the soonest payment still coming", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1"), createdRow("row-2", "client-2")],
+      installments: [
+        installment({ rowId: "row-1", dueAtIso: "2026-11-01T00:00:00.000Z" }),
+        installment({ rowId: "row-2", dueAtIso: "2026-09-20T00:00:00.000Z" }),
+      ],
+      clients: [setupClient("client-1", "Noya"), setupClient("client-2", "Amit")],
+    });
+
+    expect(summary.nextDueAtIso).toBe("2026-09-20T00:00:00.000Z");
+  });
+
+  it("joins money to the right artist through the created row", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1"), createdRow("row-2", "client-2")],
+      installments: [
+        installment({ rowId: "row-2", remainingCents: 90_000, projectTitle: "Amit single" }),
+      ],
+      clients: [setupClient("client-1", "Noya"), setupClient("client-2", "Amit")],
+    });
+
+    expect(summary.artists).toEqual([
+      {
+        clientContactId: "client-1",
+        name: "Noya",
+        projectTitles: [],
+        owed: [],
+        nextDueAtIso: null,
+        reminderArmed: false,
+      },
+      {
+        clientContactId: "client-2",
+        name: "Amit",
+        projectTitles: ["Amit single"],
+        owed: [{ currency: "ILS", cents: 90_000 }],
+        nextDueAtIso: "2026-10-15T00:00:00.000Z",
+        reminderArmed: true,
+      },
+    ]);
+  });
+
+  it("never claims a reminder is armed without a due date behind it", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1")],
+      installments: [
+        installment({ rowId: "row-1", remindersEnabled: true, dueAtIso: null }),
+      ],
+      clients: [setupClient("client-1", "Noya")],
+    });
+
+    expect(summary.artists[0]?.reminderArmed).toBe(false);
+  });
+
+  it("ignores rows that were never created", () => {
+    const uncreated = { ...createdRow("row-1", "client-1"), materializedAtIso: null };
+    const summary = postImportSummary({
+      rows: [uncreated],
+      installments: [installment({ rowId: "row-1" })],
+      clients: [setupClient("client-1", "Noya")],
+    });
+
+    expect(summary.artists).toEqual([]);
+    expect(summary.owed).toEqual([]);
+  });
+
+  it("writes a message an artist would actually read", () => {
+    expect(
+      artistShareMessage({
+        artistName: "Noya Levi",
+        projectTitle: "Noya EP",
+        producerName: "Gili",
+        url: "https://skitza.app/sign-up/join/gili/home",
+      }),
+    ).toBe(
+      "Hi Noya, I moved our work on Noya EP into Skitza. You can hear the songs, see what's " +
+        "paid and what's left, and book sessions in one place: " +
+        "https://skitza.app/sign-up/join/gili/home — Gili",
+    );
+    // Never the old placeholder.
+    expect(
+      artistShareMessage({
+        artistName: "",
+        projectTitle: "",
+        producerName: "",
+        url: "https://skitza.app/x",
+      }),
+    ).not.toContain("Join me on Skitza");
   });
 });

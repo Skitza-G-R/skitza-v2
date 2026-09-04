@@ -175,6 +175,8 @@ export default async function BringActiveWorkPage({ searchParams }: PageProps) {
           .filter((client) => client.producerArchivedAt !== null)
           .map((client) => ({ id: client.id, name: client.name, email: client.email }))}
         templates={templates}
+        producerSlug={profile.slug}
+        producerName={profile.displayName ?? ""}
         defaultCurrency={profile.defaultCurrency}
         defaultTaxMode={taxMode}
         defaultTaxRatePct={taxRatePct}

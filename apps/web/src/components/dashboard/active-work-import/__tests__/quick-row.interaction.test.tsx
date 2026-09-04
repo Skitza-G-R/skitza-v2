@@ -90,6 +90,8 @@ function renderWorkspace() {
       initialSetupOptions={null}
       existingClients={[]}
       archivedClients={[]}
+      producerSlug="gili"
+      producerName="Gili"
       templates={[template]}
       defaultCurrency="ILS"
       defaultTaxMode="tax_included"
@@ -194,7 +196,7 @@ describe("quick row in the import workspace", () => {
             clientContactId: "client-1",
             projectId: "project-1",
             purchaseId: "purchase-1",
-            created: { client: true, project: true, purchase: true },
+            created: true,
             materializedAtIso: "2026-09-04T10:00:00.000Z",
           },
         ],
@@ -257,7 +259,9 @@ describe("quick row in the import workspace", () => {
         initialSetupOptions={null}
         existingClients={[]}
         archivedClients={[]}
-        templates={[]}
+        producerSlug="gili"
+      producerName="Gili"
+      templates={[]}
         defaultCurrency="USD"
         defaultTaxMode="tax_free"
         defaultTaxRatePct={0}

@@ -625,6 +625,8 @@ function renderWorkspace(
       initialSetupOptions={options.initialSetupOptions ?? null}
       existingClients={options.existingClients ?? []}
       archivedClients={options.archivedClients ?? []}
+      producerSlug="gili"
+      producerName="Gili"
       templates={[]}
       defaultCurrency="USD"
       defaultTaxMode="tax_free"
@@ -2414,7 +2416,9 @@ describe("ActiveWorkImportWorkspace page notice", () => {
         initialSetupOptions={null}
         existingClients={[]}
         archivedClients={[]}
-        templates={[]}
+        producerSlug="gili"
+      producerName="Gili"
+      templates={[]}
         defaultCurrency="USD"
         defaultTaxMode="tax_free"
         defaultTaxRatePct={0}
@@ -2811,7 +2815,7 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("leaves for Clients & Projects only once the import is really closed", async () => {
+  it("shows what was brought in once the import is really closed, then leaves when asked", async () => {
     mocks.finishSetup.mockResolvedValue({
       ok: true,
       data: {
@@ -2825,6 +2829,13 @@ describe("ActiveWorkImportWorkspace required reminder setup", () => {
     const user = await openCreatedSetup();
 
     await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    // SK-299: closing the import no longer dumps the producer on the client
+    // list with nothing to show for it. They see what they now have first.
+    const leave = await screen.findByRole("button", { name: "Go to my dashboard" });
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    await user.click(leave);
 
     await waitFor(() => {
       expect(mocks.push).toHaveBeenCalledWith("/dashboard/clients-projects");

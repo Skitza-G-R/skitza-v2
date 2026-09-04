@@ -1313,3 +1313,138 @@ export function quickRowSummary(
       typedTotal === undefined ? false : (inputToCents(typedTotal) ?? totalCents) !== totalCents,
   };
 }
+
+// ---------------------------------------------------------------------------
+// What the producer sees right after the import (SK-299)
+// ---------------------------------------------------------------------------
+
+export type MoneyByCurrency = Readonly<{ currency: string; cents: number }>;
+
+export type PostImportArtist = Readonly<{
+  clientContactId: string;
+  name: string;
+  projectTitles: readonly string[];
+  owed: readonly MoneyByCurrency[];
+  nextDueAtIso: string | null;
+  /** A reminder is armed for at least one payment this artist still owes. */
+  reminderArmed: boolean;
+}>;
+
+function addMoney(into: Map<string, number>, currency: string, cents: number): void {
+  into.set(currency, (into.get(currency) ?? 0) + cents);
+}
+
+function moneyList(totals: ReadonlyMap<string, number>): readonly MoneyByCurrency[] {
+  return [...totals.entries()]
+    .filter(([, cents]) => cents > 0)
+    .map(([currency, cents]) => ({ currency, cents }))
+    .sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
+function earlier(left: string | null, right: string | null): string | null {
+  if (!left) return right;
+  if (!right) return left;
+  return left <= right ? left : right;
+}
+
+/**
+ * Turn what was just created into the numbers the producer actually cares
+ * about: what they are owed, when the next payment lands, and who to send a
+ * link to. Installments carry a `rowId` rather than a client, so the created
+ * rows are the bridge between the money and the person.
+ *
+ * Only money still outstanding counts as owed — a payment the producer already
+ * confirmed as received must never reappear as something to chase.
+ */
+export function postImportSummary(input: {
+  rows: readonly WorkspaceImportRow[];
+  installments: readonly SetupInstallmentOption[];
+  clients: readonly SetupClientOption[];
+}): Readonly<{
+  owed: readonly MoneyByCurrency[];
+  nextDueAtIso: string | null;
+  artists: readonly PostImportArtist[];
+}> {
+  const clientByRowId = new Map<string, string>();
+  const orderedClientIds: string[] = [];
+  for (const row of input.rows) {
+    if (!row.rowId || !row.createdClientContactId || !row.materializedAtIso) continue;
+    clientByRowId.set(row.rowId, row.createdClientContactId);
+    if (!orderedClientIds.includes(row.createdClientContactId)) {
+      orderedClientIds.push(row.createdClientContactId);
+    }
+  }
+
+  const totals = new Map<string, number>();
+  const perClientTotals = new Map<string, Map<string, number>>();
+  const perClientProjects = new Map<string, string[]>();
+  const perClientDue = new Map<string, string | null>();
+  const perClientReminder = new Map<string, boolean>();
+  let nextDueAtIso: string | null = null;
+
+  for (const installment of input.installments) {
+    const clientContactId = clientByRowId.get(installment.rowId);
+    if (!clientContactId) continue;
+
+    const projects = perClientProjects.get(clientContactId) ?? [];
+    if (!projects.includes(installment.projectTitle)) projects.push(installment.projectTitle);
+    perClientProjects.set(clientContactId, projects);
+
+    if (installment.remainingCents <= 0) continue;
+
+    addMoney(totals, installment.currency, installment.remainingCents);
+    const clientTotals = perClientTotals.get(clientContactId) ?? new Map<string, number>();
+    addMoney(clientTotals, installment.currency, installment.remainingCents);
+    perClientTotals.set(clientContactId, clientTotals);
+
+    nextDueAtIso = earlier(nextDueAtIso, installment.dueAtIso);
+    perClientDue.set(
+      clientContactId,
+      earlier(perClientDue.get(clientContactId) ?? null, installment.dueAtIso),
+    );
+    if (installment.remindersEnabled && installment.dueAtIso) {
+      perClientReminder.set(clientContactId, true);
+    }
+  }
+
+  const clientById = new Map(input.clients.map((client) => [client.id, client]));
+  const artists = orderedClientIds.flatMap<PostImportArtist>((clientContactId) => {
+    const client = clientById.get(clientContactId);
+    if (!client) return [];
+    return [
+      {
+        clientContactId,
+        name: client.name,
+        projectTitles: perClientProjects.get(clientContactId) ?? [],
+        owed: moneyList(perClientTotals.get(clientContactId) ?? new Map()),
+        nextDueAtIso: perClientDue.get(clientContactId) ?? null,
+        reminderArmed: perClientReminder.get(clientContactId) ?? false,
+      },
+    ];
+  });
+
+  return { owed: moneyList(totals), nextDueAtIso, artists };
+}
+
+/**
+ * The message that goes out with the link. Named, tied to the real project, and
+ * nothing like "Join me on Skitza: URL" — this is the first thing the artist
+ * ever reads about Skitza.
+ */
+export function artistShareMessage(input: {
+  artistName: string;
+  projectTitle: string;
+  producerName: string;
+  url: string;
+}): string {
+  const who = input.artistName.trim().split(/\s+/)[0] ?? "";
+  const greeting = who ? `Hi ${who}, ` : "Hi, ";
+  const project = input.projectTitle.trim();
+  const work = project ? `our work on ${project}` : "our work together";
+  const from = input.producerName.trim() ? ` — ${input.producerName.trim()}` : "";
+  return (
+    `${greeting}I moved ${work} into Skitza. ` +
+    `You can hear the songs, see what's paid and what's left, and book sessions in one place: ` +
+    `${input.url}${from}`
+  );
+}

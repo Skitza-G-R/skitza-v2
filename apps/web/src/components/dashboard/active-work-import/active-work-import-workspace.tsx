@@ -120,6 +120,8 @@ export function ActiveWorkImportWorkspace({
   existingClients,
   archivedClients,
   templates,
+  producerSlug,
+  producerName,
   defaultCurrency,
   defaultTaxMode,
   defaultTaxRatePct,
@@ -130,6 +132,10 @@ export function ActiveWorkImportWorkspace({
   existingClients: readonly ExistingClientOption[];
   archivedClients: readonly ArchivedClientOption[];
   templates: readonly StoreTemplateOption[];
+  /** Builds the artist join link shown after the import. */
+  producerSlug: string;
+  /** Signs the message the producer sends each artist. */
+  producerName: string;
   defaultCurrency: string;
   defaultTaxMode: ImportTaxMode;
   defaultTaxRatePct: number;
@@ -178,7 +184,7 @@ export function ActiveWorkImportWorkspace({
   const [restoringClientId, setRestoringClientId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewStage, setReviewStage] = useState<"review" | "setup">("review");
+  const [reviewStage, setReviewStage] = useState<"review" | "setup" | "done">("review");
   const [openingReview, setOpeningReview] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loadingSetup, setLoadingSetup] = useState(false);
@@ -1249,7 +1255,7 @@ export function ActiveWorkImportWorkspace({
       setReviewError(unfinishedImportMessage(result.data.batch.unfinishedDraftCount));
       return;
     }
-    router.push("/dashboard/clients-projects");
+    setReviewStage("done");
   }
 
   const effectiveReadyOperationKeys = new Set(
@@ -1420,6 +1426,11 @@ export function ActiveWorkImportWorkspace({
       }}
       onDone={() => {
         void finishSetup();
+      }}
+      producerSlug={producerSlug}
+      producerName={producerName}
+      onLeaveToDashboard={() => {
+        router.push("/dashboard/clients-projects");
       }}
     />
   ) : null;
