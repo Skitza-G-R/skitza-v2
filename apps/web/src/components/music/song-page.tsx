@@ -103,6 +103,30 @@ export type MusicL3CompleteArtworkActionResult =
     }
   | { ok: false; error: string };
 
+/**
+ * SK-305. Saving lyrics has three endings, not two.
+ *
+ * `stale` is not a failure — it means the other side saved while this editor
+ * was open, so the dialog shows their words beside the ones still in the
+ * textarea and offers to keep either. It carries the fresh stamp, which is
+ * what "save mine anyway" re-sends.
+ */
+export type MusicL3LyricsActionResult =
+  | {
+      ok: true;
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string;
+      lyricsUpdatedBy: "producer" | "artist";
+    }
+  | {
+      ok: false;
+      reason: "stale";
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string | null;
+      lyricsUpdatedBy: "producer" | "artist" | null;
+    }
+  | { ok: false; reason: "error"; error: string };
+
 export type L3Actions = {
   addComment?: (input: {
     versionId: string;
@@ -126,6 +150,15 @@ export type L3Actions = {
     versionId: string;
     title: string;
   }) => Promise<MusicL3ActionResult>;
+  // SK-305. Supplied for producer and artist alike — both write the sheet.
+  // Absent for a guest, which is what hides the Lyrics row entirely.
+  setSongLyrics?: (input: {
+    projectId: string;
+    trackId: string;
+    versionId: string;
+    lyrics: string | null;
+    expectedUpdatedAtIso: string | null;
+  }) => Promise<MusicL3LyricsActionResult>;
   editArtist?: (input: {
     projectId: string;
     trackId: string;

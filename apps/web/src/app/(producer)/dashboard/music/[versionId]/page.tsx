@@ -16,6 +16,7 @@ import {
   markMusicSongReleased,
   renameMusicSong,
   renameMusicVersion,
+  saveMusicSongLyrics,
   setMusicSongArchived,
 } from "../actions";
 import {
@@ -191,6 +192,7 @@ export default async function ProducerSongPage({ params, searchParams }: PagePro
         prepareArtwork,
         completeArtwork,
         renameSong: renameMusicSong,
+        setSongLyrics: saveMusicSongLyrics,
         editArtist: editMusicSongArtist,
         setArchived: setMusicSongArchived,
         markReleased: markMusicSongReleased,
