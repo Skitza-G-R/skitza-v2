@@ -26,7 +26,10 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
   { id: "music", label: "Music", href: "/dashboard/music", icon: "music" },
   { id: "clients-projects", label: "Clients", href: "/dashboard/clients-projects", icon: "users" },
   { id: "calendar", label: "Calendar", href: "/dashboard/calendar?tab=sessions", icon: "calendar" },
-  { id: "payments", label: "Payments", href: "/dashboard/payments", icon: "payments" },
+  // SK-306: Store took the fifth slot from Payments. Producers reach for the
+  // store (products and private offers) far more often than the payments
+  // workspace, so Payments moved into the mobile account sheet instead.
+  { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
 ] as const;
 
 const OFFLINE_MESSAGE = "You’re offline. This screen will stay open until you reconnect.";

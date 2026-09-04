@@ -23,9 +23,14 @@ const HE_MESSAGES = readFileSync(join(here, "..", "..", "..", "..", "messages", 
 //     bottom-nav stays at 5 tabs — Portfolio is desktop-only chrome,
 //     consistent with the desktop-only producer dashboard preference
 //     in CLAUDE.md.
+//   - SK-306: Store and Payments swapped places on MOBILE. Store took
+//     the fifth tab; Payments moved into the account sheet behind the
+//     avatar. Producers open the store far more often than the payments
+//     workspace, because private offers start there.
 //
-// These tests guard the current invariant: Portfolio and Store remain
-// in the desktop sidebar, while the five mobile tabs end in Payments.
+// These tests guard the current invariant: Portfolio, Store and Payments
+// all remain in the desktop sidebar, while the five mobile tabs end in
+// Store and Payments is reachable only from the account sheet.
 
 describe("producer nav: Portfolio in sidebar only", () => {
   it("sidebar Store entry hrefs to /dashboard/store", () => {
@@ -46,9 +51,9 @@ describe("producer nav: Portfolio in sidebar only", () => {
   it("uses the approved five mobile labels and routes", () => {
     expect(BOTTOM).toMatch(/label:\s*["']Today["']/);
     expect(BOTTOM).toMatch(/label:\s*["']Music["']/);
-    expect(BOTTOM).toMatch(/label:\s*["']Payments["']/);
-    expect(BOTTOM).toMatch(/href:\s*["']\/dashboard\/payments["']/);
-    expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
+    expect(BOTTOM).toMatch(/label:\s*["']Store["']/);
+    expect(BOTTOM).toMatch(/href:\s*["']\/dashboard\/store["']/);
+    expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/payments["']/);
   });
 
   it("prefetches only the lightweight Home boundary and leaves full routes to the serial warmer", () => {
@@ -154,14 +159,51 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__glass");
     expect(SHARED_BOTTOM).toContain('data-active={tab.active ? "true" : "false"}');
     expect(GLOBALS).toContain(".liquid-glass-bottom-nav__glass");
-    expect(GLOBALS).toContain("background: rgb(var(--bg-sidebar) / 0.9)");
-    expect(GLOBALS).toContain("backdrop-filter: blur(24px) saturate(170%)");
-    expect(GLOBALS).toContain("-webkit-backdrop-filter: blur(24px) saturate(170%)");
     expect(GLOBALS).toMatch(
       /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?grid-template-columns:\s*repeat\(var\(--sk-nav-column-count\),\s*minmax\(0,\s*1fr\)\)/,
     );
     expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
-    expect(GLOBALS).toContain("rgb(var(--bg-sidebar) / 0.52)");
+  });
+
+  // SK-306. The bar takes no colour of its own: it frosts the page behind it,
+  // so its tint and ink follow the page surface instead of the dark sidebar
+  // chrome, and page content stays visible through it.
+  it("frosts the page through a colourless, theme-following pill", () => {
+    expect(SHARED_BOTTOM).toContain('className="liquid-glass-bottom-nav__pane"');
+    expect(SHARED_BOTTOM).toContain('className="liquid-glass-bottom-nav__rim"');
+    expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__stack");
+    expect(SHARED_BOTTOM).toContain("rgb(var(--sk-nav-glass-ink) / 0.78)");
+    expect(SHARED_BOTTOM).not.toContain("--fg-onsidebar");
+
+    expect(GLOBALS).toContain("--sk-nav-glass-tint: var(--bg-elevated);");
+    expect(GLOBALS).toContain("--sk-nav-glass-ink: var(--fg-default);");
+    expect(GLOBALS).toContain(
+      "background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));",
+    );
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?background:\s*transparent;/,
+    );
+    // The pane must stay a sibling of the tab row: an element with
+    // backdrop-filter is a backdrop root, so a nested rim would sample the
+    // pane instead of the page.
+    const paneIndex = SHARED_BOTTOM.indexOf('className="liquid-glass-bottom-nav__pane"');
+    const navIndex = SHARED_BOTTOM.indexOf("<nav");
+    expect(paneIndex).toBeGreaterThan(0);
+    expect(paneIndex).toBeLessThan(navIndex);
+  });
+
+  // The refraction rim re-filters the page + pane composite in an edge band,
+  // so the boundary bends light instead of ending in a flat border.
+  it("carries an edge-refraction rim and a press-growth scale", () => {
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__rim\s*\{[\s\S]*?backdrop-filter:\s*blur\(1\.5px\)\s*saturate\(1\.7\)\s*brightness\(var\(--sk-nav-rim-lift\)\)/,
+    );
+    expect(GLOBALS).toContain("-webkit-mask-image:");
+    expect(GLOBALS).toContain("--sk-nav-press-scale: 1.03;");
+    expect(GLOBALS).toContain("transform: scale(var(--sk-nav-press-scale));");
+    expect(GLOBALS).toMatch(
+      /:has\(\s*\.liquid-glass-bottom-nav__glass\[data-interacting="true"\]\s*\)/,
+    );
   });
 
   it("tracks one real magnifying lens from pointer movement without React render-loop state", () => {
@@ -191,6 +233,9 @@ describe("producer mobile nav viewport anchoring", () => {
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__lens,[\s\S]*\.liquid-glass-bottom-nav__magnifier[\s\S]*display: none !important/,
     );
     expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
+    expect(GLOBALS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*--sk-nav-press-scale: 1 !important;/,
+    );
   });
 
   it("keeps producer topbar controls below the iPhone status area", () => {

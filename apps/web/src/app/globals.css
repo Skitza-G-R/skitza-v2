@@ -397,10 +397,117 @@
     min-height: 44px;
   }
 
-  /* Shared mobile Liquid Glass navigation. The producer frame remains an
-   * in-flow shell footer while the artist frame is fixed; both show the same
-   * compact translucent pill. A strong opaque fallback keeps the tabs readable
-   * in browsers that do not support backdrop-filter. */
+  /* Shared mobile Liquid Glass navigation (SK-306).
+   *
+   * The bar takes no colour of its own: it frosts whatever the page puts
+   * behind it, so `--sk-nav-glass-tint` / `--sk-nav-glass-ink` follow the
+   * page surface rather than the dark sidebar chrome. Light theme is a clear
+   * white lens over the warm canvas with dark ink; dark theme is a clear
+   * near-black lens with light ink.
+   *
+   * The glass is split into three sibling layers instead of one nested stack.
+   * An element with `backdrop-filter` is a backdrop root for its descendants,
+   * so a refraction rim nested inside the pane would sample the pane instead
+   * of the page. As siblings, pane and rim both resolve their backdrop
+   * against the frame:
+   *
+   *   __pane  z0  frosts the page          (backdrop: page)
+   *   __rim   z1  re-refracts pane edges   (backdrop: page + pane)
+   *   __glass z2  the tab row itself       (transparent, no backdrop-filter)
+   *
+   * A strong opaque fallback keeps the tabs readable where backdrop-filter is
+   * unsupported. */
+  .liquid-glass-bottom-nav__stack {
+    --sk-nav-glass-tint: var(--bg-elevated);
+    --sk-nav-glass-ink: var(--fg-default);
+    --sk-nav-glass-alpha: 0.54;
+    --sk-nav-glass-lift: 1.14;
+    --sk-nav-glass-flatten: 0.86;
+    --sk-nav-glass-bleed: 150%;
+    --sk-nav-rim-lift: 1.2;
+    --sk-nav-radius: 24px;
+    --sk-nav-press-scale: 1;
+    position: relative;
+  }
+  /* Dark theme frosts the elevated near-black and pulls the backdrop down
+     instead of up, so light page content cannot wash out light ink. */
+  [data-theme="chrome-dark"] .liquid-glass-bottom-nav__stack,
+  [data-theme="dark"] .liquid-glass-bottom-nav__stack {
+    --sk-nav-glass-alpha: 0.56;
+    --sk-nav-glass-lift: 0.72;
+    --sk-nav-glass-flatten: 1.08;
+    --sk-nav-glass-bleed: 140%;
+    --sk-nav-rim-lift: 1.35;
+  }
+  /* The whole pill grows under a finger and settles back on release. */
+  .liquid-glass-bottom-nav__stack:has(
+    .liquid-glass-bottom-nav__glass[data-interacting="true"]
+  ) {
+    --sk-nav-press-scale: 1.03;
+  }
+  .liquid-glass-bottom-nav__pane,
+  .liquid-glass-bottom-nav__rim {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--sk-nav-radius);
+    pointer-events: none;
+    transform: scale(var(--sk-nav-press-scale));
+    transition: transform 340ms var(--ease-press);
+  }
+  .liquid-glass-bottom-nav__pane {
+    z-index: 0;
+    overflow: hidden;
+    background: rgb(var(--sk-nav-glass-tint) / 0.93);
+    box-shadow:
+      0 18px 44px -24px rgb(0 0 0 / 0.45),
+      0 6px 16px -10px rgb(0 0 0 / 0.18);
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .liquid-glass-bottom-nav__pane {
+      background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
+      backdrop-filter: blur(22px) saturate(var(--sk-nav-glass-bleed))
+        brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
+      -webkit-backdrop-filter: blur(22px) saturate(var(--sk-nav-glass-bleed))
+        brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
+    }
+  }
+  .liquid-glass-bottom-nav__pane::before {
+    content: "";
+    position: absolute;
+    inset: -55% -18%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 18% 30%, rgb(255 255 255 / 0.3), transparent 32%),
+      linear-gradient(112deg, transparent 31%, rgb(255 255 255 / 0.14) 46%, transparent 61%);
+    opacity: 0.8;
+  }
+  /* The rim is the part that reads as a lens: it re-filters the already
+     frosted composite in a band around the edge, so the boundary bends and
+     brightens the content behind instead of ending in a flat border. Masked
+     to the edges — a browser that drops the mask simply brightens the whole
+     pill a little rather than breaking the bar. */
+  .liquid-glass-bottom-nav__rim {
+    z-index: 1;
+    border: 1px solid rgb(var(--sk-nav-glass-ink) / 0.12);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.55),
+      inset 0 -1px 0 rgb(var(--sk-nav-glass-ink) / 0.07),
+      inset 1px 0 0 rgb(255 255 255 / 0.22),
+      inset -1px 0 0 rgb(255 255 255 / 0.22);
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .liquid-glass-bottom-nav__rim {
+      backdrop-filter: blur(1.5px) saturate(1.7) brightness(var(--sk-nav-rim-lift));
+      -webkit-backdrop-filter: blur(1.5px) saturate(1.7) brightness(var(--sk-nav-rim-lift));
+      -webkit-mask-image:
+        linear-gradient(to bottom, #000 0%, transparent 30%, transparent 70%, #000 100%),
+        linear-gradient(to right, #000 0%, transparent 7%, transparent 93%, #000 100%);
+      mask-image:
+        linear-gradient(to bottom, #000 0%, transparent 30%, transparent 70%, #000 100%),
+        linear-gradient(to right, #000 0%, transparent 7%, transparent 93%, #000 100%);
+    }
+  }
   .liquid-glass-bottom-nav__glass {
     --sk-nav-column-count: 5;
     --sk-nav-column-width: 20%;
@@ -408,58 +515,20 @@
     --sk-nav-lens-y: 34px;
     --sk-nav-lens-width: calc(var(--sk-nav-column-width) - 2px);
     position: relative;
-    isolation: isolate;
+    z-index: 2;
     grid-template-columns: repeat(var(--sk-nav-column-count), minmax(0, 1fr));
     height: 68px;
     min-height: 68px;
     overflow: hidden;
     padding-bottom: 0;
     border: 0;
-    border-radius: 24px;
-    background: rgb(var(--bg-sidebar) / 0.94);
-    box-shadow:
-      inset 1.5px 1.5px 1px rgb(var(--fg-onsidebar) / 0.14),
-      inset -1px -1px 1px rgb(var(--fg-onsidebar) / 0.05),
-      0 16px 40px -20px rgb(var(--bg-sidebar) / 0.72),
-      0 4px 12px -6px rgb(var(--bg-sidebar) / 0.52);
+    border-radius: var(--sk-nav-radius);
+    background: transparent;
+    transform: scale(var(--sk-nav-press-scale));
+    transition: transform 340ms var(--ease-press);
     touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
-  }
-  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .liquid-glass-bottom-nav__glass {
-      background: rgb(var(--bg-sidebar) / 0.9);
-      backdrop-filter: blur(24px) saturate(170%);
-      -webkit-backdrop-filter: blur(24px) saturate(170%);
-    }
-  }
-  .liquid-glass-bottom-nav__glass::before {
-    content: "";
-    position: absolute;
-    inset: -55% -18%;
-    z-index: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(circle at 18% 30%, rgb(var(--fg-onsidebar) / 0.17), transparent 29%),
-      linear-gradient(
-        112deg,
-        transparent 31%,
-        rgb(var(--fg-onsidebar) / 0.07) 46%,
-        transparent 61%
-      );
-    opacity: 0.72;
-  }
-  .liquid-glass-bottom-nav__glass::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    border: 1px solid rgb(var(--fg-onsidebar) / 0.14);
-    border-radius: inherit;
-    box-shadow:
-      inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.08),
-      inset 0 -1px 0 rgb(var(--bg-sidebar) / 0.24);
-    pointer-events: none;
   }
   .liquid-glass-bottom-nav__lens {
     position: absolute;
@@ -491,22 +560,18 @@
     pointer-events: none;
   }
   .liquid-glass-bottom-nav__lens::before {
-    border: 1px solid rgb(var(--fg-onsidebar) / 0.1);
+    border: 1px solid rgb(255 255 255 / 0.35);
     background:
-      radial-gradient(
-        circle at 32% 16%,
-        rgb(var(--fg-onsidebar) / 0.24),
-        transparent 38%
-      ),
+      radial-gradient(circle at 32% 16%, rgb(255 255 255 / 0.5), transparent 40%),
       linear-gradient(
         145deg,
-        rgb(var(--fg-onsidebar) / 0.09),
-        rgb(var(--bg-sidebar) / 0.44)
+        rgb(255 255 255 / 0.3),
+        rgb(var(--sk-nav-glass-tint) / 0.34)
       );
     box-shadow:
-      inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.16),
-      inset 0 -1px 0 rgb(var(--bg-sidebar) / 0.28),
-      0 9px 18px -14px rgb(var(--bg-sidebar) / 0.82);
+      inset 0 1px 0 rgb(255 255 255 / 0.55),
+      inset 0 -1px 0 rgb(var(--sk-nav-glass-ink) / 0.1),
+      0 9px 18px -14px rgb(0 0 0 / 0.42);
     opacity: 0.7;
     transform: scale(0.9);
     transition:
@@ -516,8 +581,8 @@
   }
   .liquid-glass-bottom-nav__lens::after {
     inset: 2px;
-    border: 1px solid rgb(var(--brand-primary) / 0.11);
-    box-shadow: inset 0 0 0 0.5px rgb(var(--fg-onsidebar) / 0.05);
+    border: 1px solid rgb(255 255 255 / 0.22);
+    box-shadow: inset 0 0 0 0.5px rgb(var(--sk-nav-glass-ink) / 0.05);
     opacity: 0.66;
     transform: scale(0.9);
     transition:
@@ -544,7 +609,7 @@
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
-    background: rgb(var(--bg-sidebar) / 0.96);
+    background: rgb(var(--sk-nav-glass-tint) / 0.94);
     visibility: hidden;
     clip-path: ellipse(
       calc(var(--sk-nav-lens-width) / 2) 30px at var(--sk-nav-lens-x) var(--sk-nav-lens-y)
@@ -636,15 +701,15 @@
     transition-duration: 70ms;
   }
   .liquid-glass-bottom-nav__tab[data-active="true"]::before {
-    border-color: rgb(var(--fg-onsidebar) / 0.1);
+    border-color: rgb(255 255 255 / 0.32);
     background: linear-gradient(
       145deg,
-      rgb(var(--bg-sidebar) / 0.4),
-      rgb(var(--bg-sidebar) / 0.52)
+      rgb(var(--sk-nav-glass-tint) / 0.46),
+      rgb(var(--sk-nav-glass-tint) / 0.66)
     );
     box-shadow:
-      inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.12),
-      0 6px 18px -10px rgb(var(--bg-sidebar) / 0.72);
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      0 6px 18px -12px rgb(0 0 0 / 0.45);
     opacity: 1;
     transform: scale(1);
   }
@@ -653,7 +718,7 @@
     to   { transform: translate3d(2.5%, 1%, 0) scale(1.025); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .liquid-glass-bottom-nav__glass::before {
+    .liquid-glass-bottom-nav__pane::before {
       animation: liquid-glass-bottom-nav-refraction 9s ease-in-out infinite alternate;
     }
   }
@@ -2017,9 +2082,17 @@
     .sk-press-row { transition-duration: 0ms !important; }
     .sk-press-pop:active,
     .sk-press-row:active { transform: none !important; filter: none !important; }
-    .liquid-glass-bottom-nav__glass::before {
+    .liquid-glass-bottom-nav__pane::before {
       animation: none !important;
       transform: none !important;
+    }
+    .liquid-glass-bottom-nav__stack {
+      --sk-nav-press-scale: 1 !important;
+    }
+    .liquid-glass-bottom-nav__pane,
+    .liquid-glass-bottom-nav__rim,
+    .liquid-glass-bottom-nav__glass {
+      transition: none !important;
     }
     .liquid-glass-bottom-nav__lens,
     .liquid-glass-bottom-nav__magnifier {

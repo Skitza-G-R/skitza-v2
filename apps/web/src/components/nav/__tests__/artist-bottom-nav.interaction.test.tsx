@@ -94,7 +94,7 @@ describe("ArtistBottomNav liquid-glass adapter", () => {
     render(<ArtistBottomNav studios={[...STUDIOS]} initialStudioId="studio-1" />);
 
     const nav = screen.getByRole("navigation", { name: "Artist app tabs" });
-    const frame = nav.parentElement;
+    const frame = nav.closest<HTMLElement>("[data-liquid-glass-bottom-nav-frame]");
     const tabs = [...nav.querySelectorAll<HTMLAnchorElement>("[data-liquid-glass-nav-tab]")];
 
     expect(frame?.dataset.liquidGlassBottomNavFrame).toBe("in-flow");

@@ -493,111 +493,117 @@ export function LiquidGlassBottomNav<Id extends string>({
           "0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
       }}
     >
-      <nav
-        ref={navRef}
-        role="navigation"
-        aria-label={ariaLabel}
-        data-interacting="false"
-        data-lens-ready="false"
-        data-liquid-glass-bottom-nav=""
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerEnd}
-        onPointerCancel={handlePointerEnd}
-        onLostPointerCapture={handleLostPointerCapture}
-        onPointerLeave={handlePointerLeave}
+      <div
+        data-liquid-glass-bottom-nav-stack=""
         className={cn(
-          "liquid-glass-bottom-nav__glass mx-auto grid w-full max-w-[420px]",
+          "liquid-glass-bottom-nav__stack mx-auto w-full max-w-[420px]",
           position === "fixed" && "pointer-events-auto",
-          navClassName,
         )}
-        style={navStyle}
       >
-        <span className="liquid-glass-bottom-nav__lens" aria-hidden="true" />
-        <span className="liquid-glass-bottom-nav__magnifier" aria-hidden="true">
-          <span className="liquid-glass-bottom-nav__magnifier-grid">
-            {tabs.map((tab) => (
-              <span
-                key={tab.id}
-                data-active={tab.active ? "true" : "false"}
-                data-liquid-glass-nav-magnified-tab=""
-                className="liquid-glass-bottom-nav__magnified-tab flex min-w-0 flex-col items-center justify-center gap-1 py-2.5"
-                style={{
-                  minHeight: 68,
-                  color: tab.active
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-onsidebar) / 0.68)",
-                }}
-              >
-                <LiquidGlassTabVisual tab={tab} />
-              </span>
-            ))}
+        <span className="liquid-glass-bottom-nav__pane" aria-hidden="true" />
+        <span className="liquid-glass-bottom-nav__rim" aria-hidden="true" />
+        <nav
+          ref={navRef}
+          role="navigation"
+          aria-label={ariaLabel}
+          data-interacting="false"
+          data-lens-ready="false"
+          data-liquid-glass-bottom-nav=""
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onLostPointerCapture={handleLostPointerCapture}
+          onPointerLeave={handlePointerLeave}
+          className={cn("liquid-glass-bottom-nav__glass grid w-full", navClassName)}
+          style={navStyle}
+        >
+          <span className="liquid-glass-bottom-nav__lens" aria-hidden="true" />
+          <span className="liquid-glass-bottom-nav__magnifier" aria-hidden="true">
+            <span className="liquid-glass-bottom-nav__magnifier-grid">
+              {tabs.map((tab) => (
+                <span
+                  key={tab.id}
+                  data-active={tab.active ? "true" : "false"}
+                  data-liquid-glass-nav-magnified-tab=""
+                  className="liquid-glass-bottom-nav__magnified-tab flex min-w-0 flex-col items-center justify-center gap-1 py-2.5"
+                  style={{
+                    minHeight: 68,
+                    color: tab.active
+                      ? "rgb(var(--brand-primary))"
+                      : "rgb(var(--sk-nav-glass-ink) / 0.78)",
+                  }}
+                >
+                  <LiquidGlassTabVisual tab={tab} />
+                </span>
+              ))}
+            </span>
           </span>
-        </span>
 
-        {tabs.map((tab) => (
-          <Link
-            key={tab.id}
-            href={tab.href}
-            draggable={false}
-            data-sk-nav-destination={tab.href}
-            prefetch={tab.prefetch === undefined ? false : tab.prefetch}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                clearReleaseClickGuard();
-              }
-            }}
-            onNavigate={() => {
-              onTabNavigate?.(tab);
-            }}
-            aria-disabled={tab.navigationBlocked ?? false}
-            onClick={(event) => {
-              const isLiveDragClick = liveDragClickRef.current;
-              const isGuardedReleaseClick =
-                suppressClickRef.current &&
-                !isLiveDragClick &&
-                Date.now() <= releaseClickGuardUntilRef.current &&
-                releaseClickDestinationsRef.current.includes(tab.href);
-              if (isGuardedReleaseClick) {
+          {tabs.map((tab) => (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              draggable={false}
+              data-sk-nav-destination={tab.href}
+              prefetch={tab.prefetch === undefined ? false : tab.prefetch}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  clearReleaseClickGuard();
+                }
+              }}
+              onNavigate={() => {
+                onTabNavigate?.(tab);
+              }}
+              aria-disabled={tab.navigationBlocked ?? false}
+              onClick={(event) => {
+                const isLiveDragClick = liveDragClickRef.current;
+                const isGuardedReleaseClick =
+                  suppressClickRef.current &&
+                  !isLiveDragClick &&
+                  Date.now() <= releaseClickGuardUntilRef.current &&
+                  releaseClickDestinationsRef.current.includes(tab.href);
+                if (isGuardedReleaseClick) {
+                  event.preventDefault();
+                  clearReleaseClickGuard();
+                  if (navRef.current) settleLens(navRef.current);
+                  return;
+                }
+                if (!isLiveDragClick) {
+                  clearReleaseClickGuard();
+                } else {
+                  suppressClickRef.current = false;
+                }
+
+                onTabClick?.(event, tab);
+                if (!tab.navigationBlocked) return;
+
                 event.preventDefault();
-                clearReleaseClickGuard();
-                if (navRef.current) settleLens(navRef.current);
-                return;
-              }
-              if (!isLiveDragClick) {
-                clearReleaseClickGuard();
-              } else {
-                suppressClickRef.current = false;
-              }
-
-              onTabClick?.(event, tab);
-              if (!tab.navigationBlocked) return;
-
-              event.preventDefault();
-              if (isLiveDragClick) {
-                armReleaseClickGuard();
-                if (!blockedGestureNoticeShownRef.current) {
-                  blockedGestureNoticeShownRef.current = true;
+                if (isLiveDragClick) {
+                  armReleaseClickGuard();
+                  if (!blockedGestureNoticeShownRef.current) {
+                    blockedGestureNoticeShownRef.current = true;
+                    onNavigationBlocked?.(tab);
+                  }
+                } else {
+                  if (navRef.current) settleLens(navRef.current);
                   onNavigationBlocked?.(tab);
                 }
-              } else {
-                if (navRef.current) settleLens(navRef.current);
-                onNavigationBlocked?.(tab);
-              }
-            }}
-            {...(tab.active ? { "aria-current": "page" as const } : {})}
-            data-active={tab.active ? "true" : "false"}
-            data-liquid-glass-nav-tab=""
-            className="liquid-glass-bottom-nav__tab sk-press relative flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
-            style={{
-              minHeight: 68,
-              color: tab.active ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.68)",
-            }}
-          >
-            <LiquidGlassTabVisual tab={tab} />
-          </Link>
-        ))}
-      </nav>
+              }}
+              {...(tab.active ? { "aria-current": "page" as const } : {})}
+              data-active={tab.active ? "true" : "false"}
+              data-liquid-glass-nav-tab=""
+              className="liquid-glass-bottom-nav__tab sk-press relative flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+              style={{
+                minHeight: 68,
+                color: tab.active ? "rgb(var(--brand-primary))" : "rgb(var(--sk-nav-glass-ink) / 0.78)",
+              }}
+            >
+              <LiquidGlassTabVisual tab={tab} />
+            </Link>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }

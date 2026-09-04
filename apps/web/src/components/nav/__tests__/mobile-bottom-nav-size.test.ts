@@ -57,14 +57,16 @@ describe("SK-235 restored mobile bottom-navigation sizing", () => {
 
   it("keeps each 68px tab row inside a true 68px bordered surface", () => {
     const glassBlock = GLOBALS.match(/\.liquid-glass-bottom-nav__glass \{([\s\S]*?)\n\s{2}\}/)?.[1];
-    const borderOverlayBlock = GLOBALS.match(
-      /\.liquid-glass-bottom-nav__glass::after \{([\s\S]*?)\n\s{2}\}/,
+    // SK-306: the hairline moved onto the refraction rim, which is a sibling
+    // of the tab row rather than an overlay inside it.
+    const rimBlock = GLOBALS.match(
+      /\.liquid-glass-bottom-nav__rim \{\n\s{4}z-index: 1;([\s\S]*?)\n\s{2}\}/,
     )?.[1];
 
     expect(glassBlock).toContain("height: 68px;");
     expect(glassBlock).toContain("min-height: 68px;");
     expect(glassBlock).toContain("border: 0;");
-    expect(borderOverlayBlock).toContain("border: 1px solid rgb(var(--fg-onsidebar) / 0.14);");
+    expect(rimBlock).toContain("border: 1px solid rgb(var(--sk-nav-glass-ink) / 0.12);");
     expect(GLOBALS).toMatch(
       /\.liquid-glass-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/,
     );
