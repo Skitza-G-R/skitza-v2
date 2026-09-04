@@ -31,6 +31,8 @@ import {
   materializeErrorMessage,
   newImportDraft,
   parseStoredImportDraft,
+  postImportSummary,
+  QUICK_ROW_DEFAULTED_FIELDS,
   rowDisplayReasons,
   toServerDraftPayload,
   type ActiveWorkImportDraft,
@@ -47,6 +49,7 @@ import {
 import type { ProofUploadView } from "./payment-history-editor";
 import { QuickRowForm } from "./quick-row-form";
 import { agreementPdfFileError } from "~/lib/agreement-pdf";
+import { captureProductEvent } from "~/lib/observability/product-events";
 import { useBodyScrollLock } from "~/components/native/use-body-scroll-lock";
 import { ReviewAndFinish } from "./review-and-finish";
 
@@ -200,6 +203,9 @@ export function ActiveWorkImportWorkspace({
   // Change details drops it from this set for good; rows restored from the
   // server were left mid-edit, so they always open in the full editor.
   const [quickRowKeys, setQuickRowKeys] = useState<ReadonlySet<string>>(() => new Set());
+  // Rows that started as quick rows, kept even after Change details so the
+  // telemetry can tell a confirmed line from a hand-edited one.
+  const everQuickKeysRef = useRef(new Set<string>());
   const [proofUploads, setProofUploads] = useState<Record<string, ProofUploadView>>({});
   // Keyed by row operation key: one agreement PDF per item.
   const [agreementPdfUploads, setAgreementPdfUploads] = useState<Record<string, ProofUploadView>>(
@@ -347,6 +353,7 @@ export function ActiveWorkImportWorkspace({
         };
         updateRows((current) => [...current, row]);
         if (templates.length > 0) {
+          everQuickKeysRef.current.add(operationKey);
           setQuickRowKeys((current) => new Set(current).add(operationKey));
         }
         setSelectedOperationKey(operationKey);
@@ -881,6 +888,11 @@ export function ActiveWorkImportWorkspace({
     }
 
     applyMaterializeOutcomes(result.data.outcomes);
+    for (const outcome of result.data.outcomes) {
+      if (outcome.state !== "created") continue;
+      const source = rowsToMaterialize.find((row) => row.rowId === outcome.rowId);
+      if (source) reportCreated(source.operationKey);
+    }
 
     const createdTotal = rowsRef.current.filter((row) => row.materializedAtIso !== null).length;
     const failedTotal = result.data.outcomes.filter(
@@ -911,6 +923,16 @@ export function ActiveWorkImportWorkspace({
    * same database transaction the reviewed batch uses — there is no second
    * write path, only a smaller list of rows.
    */
+  function reportCreated(operationKey: string): void {
+    const startedQuick = everQuickKeysRef.current.has(operationKey);
+    const stillQuick = quickRowKeys.has(operationKey);
+    captureProductEvent("import_row_created", {
+      mode: stillQuick ? "quick" : "full",
+      fields_defaulted: startedQuick ? QUICK_ROW_DEFAULTED_FIELDS.length : 0,
+      changed_details: startedQuick && !stillQuick,
+    });
+  }
+
   async function materializeRow(operationKey: string): Promise<void> {
     const activeBatchId = batchIdRef.current;
     const row = rowsRef.current.find((item) => item.operationKey === operationKey);
@@ -936,6 +958,9 @@ export function ActiveWorkImportWorkspace({
       return;
     }
     applyMaterializeOutcomes(result.data.outcomes);
+    if (result.data.outcomes.some((outcome) => outcome.state === "created")) {
+      reportCreated(operationKey);
+    }
     if (result.data.error) setPageError(result.data.error);
   }
 
@@ -950,7 +975,14 @@ export function ActiveWorkImportWorkspace({
       setPageError("We couldn't save this item. Check your connection and try again.");
       return;
     }
-    if (latestReasons(operationKey).length > 0) return;
+    const reasons = latestReasons(operationKey);
+    if (reasons.length > 0) {
+      captureProductEvent("import_row_needs_info", {
+        mode: "quick",
+        reasons: reasons.map((reason) => reason.code).join(","),
+      });
+      return;
+    }
     await materializeRow(operationKey);
   }
 
@@ -1365,6 +1397,22 @@ export function ActiveWorkImportWorkspace({
     );
   }
 
+  const firstPaintReportedRef = useRef(false);
+  useEffect(() => {
+    if (reviewStage !== "done" || firstPaintReportedRef.current) return;
+    firstPaintReportedRef.current = true;
+    const summary = postImportSummary({
+      rows: rowsRef.current,
+      installments: setupOptions?.installments ?? [],
+      clients: setupOptions?.clients ?? [],
+    });
+    captureProductEvent("post_import_first_paint", {
+      artists: summary.artists.length,
+      owed_currencies: summary.owed.map((entry) => entry.currency).join(","),
+      has_next_due: summary.nextDueAtIso !== null,
+    });
+  }, [reviewStage, setupOptions]);
+
   const batchIsTerminal =
     initialBatch?.status === "completed" || (rows.length > 0 && !hasUnfinishedDrafts);
   const selectedRow = rows.find((row) => row.operationKey === selectedOperationKey) ?? null;
@@ -1429,6 +1477,9 @@ export function ActiveWorkImportWorkspace({
       }}
       producerSlug={producerSlug}
       producerName={producerName}
+      onShared={(channel) => {
+        captureProductEvent("link_shared", { channel, surface: "post_import" });
+      }}
       onLeaveToDashboard={() => {
         router.push("/dashboard/clients-projects");
       }}
