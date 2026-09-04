@@ -1201,7 +1201,12 @@ export function UploadTrackModal({
                               }}
                               aria-label="Lyrics"
                               placeholder="Type or paste the words of this song…"
-                              className="mt-2 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-[1.8] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                              // bg-elevated, matching the Version label input
+                              // beside it. bg-background is what the fields
+                              // INSIDE the "Stage and notes" drawer use, because
+                              // that drawer is itself elevated — out here it
+                              // makes the box vanish into the modal.
+                              className="mt-2 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-[1.8] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                               style={{ borderColor: "rgb(var(--border-subtle))" }}
                             />
                             <p className="mt-1.5 text-[11px] text-[rgb(var(--fg-muted))]">
