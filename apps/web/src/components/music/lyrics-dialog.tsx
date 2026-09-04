@@ -198,8 +198,17 @@ export function LyricsDialog({
                 Lyrics
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-1 text-[13px] leading-snug break-words text-[rgb(var(--fg-muted))]">
-                <span dir="auto">{songTitle}</span>
-                {" · everyone on this song can edit"}
+                {/*
+                  Two lines, not one. A Hebrew song name beside English copy
+                  on a single line strands the separator at the wrong end —
+                  the bidirectional algorithm reorders the run, and "· everyone
+                  on this song can edit" ends up reading backwards. Giving the
+                  name its own block keeps each language in its own direction.
+                */}
+                <span dir="auto" className="block truncate font-semibold">
+                  {songTitle}
+                </span>
+                <span className="mt-0.5 block">Everyone on this song can edit these words.</span>
               </DialogPrimitive.Description>
             </div>
             <button
@@ -331,34 +340,42 @@ export function LyricsDialog({
             </p>
           ) : null}
 
-          <div className="sticky bottom-0 mt-5 flex flex-col-reverse gap-2 bg-[rgb(var(--bg-background))] pt-2 sm:flex-row sm:items-center">
+          {/*
+            The "updated by" line sits ABOVE the buttons on a phone. Left in
+            the same flex-col-reverse run it lands underneath Cancel, orphaned
+            at the very bottom of the sheet where it reads like a stray caption.
+          */}
+          <div className="sticky bottom-0 mt-4 flex flex-col gap-2 bg-[rgb(var(--bg-background))] pt-2 sm:flex-row sm:items-center">
             <p
               data-test="lyrics-updated-label"
-              className="flex-1 text-[12px] text-[rgb(var(--fg-muted))]"
+              className="text-[12px] text-[rgb(var(--fg-muted))] sm:flex-1"
             >
               {footerLine}
             </p>
-            <button
-              type="button"
-              onClick={requestClose}
-              disabled={pending}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              data-test="lyrics-save"
-              // Disabled while unchanged is what lets this double as a reading
-              // view: somebody who only opened it to read along cannot save.
-              disabled={pending || !dirty}
-              onClick={() => {
-                void save();
-              }}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-white disabled:opacity-45"
-            >
-              {pending ? "Saving…" : "Save lyrics"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={requestClose}
+                disabled={pending}
+                className="sk-press inline-flex min-h-11 flex-1 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] disabled:opacity-50 sm:flex-none sm:border-0"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-test="lyrics-save"
+                // Disabled while unchanged is what lets this double as a
+                // reading view: somebody who only opened it to read along
+                // cannot save.
+                disabled={pending || !dirty}
+                onClick={() => {
+                  void save();
+                }}
+                className="sk-press inline-flex min-h-11 flex-1 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-white disabled:opacity-45 sm:flex-none"
+              >
+                {pending ? "Saving…" : "Save lyrics"}
+              </button>
+            </div>
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
