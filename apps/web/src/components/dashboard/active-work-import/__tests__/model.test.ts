@@ -20,6 +20,9 @@ import {
   newImportDraft,
   normalizedEmail,
   parseStoredImportDraft,
+  quickRowAllocation,
+  quickRowDraft,
+  quickRowSummary,
   requiresExplicitClientMatch,
   rowDisplayReasons,
   toServerDraftPayload,
@@ -439,5 +442,186 @@ describe("active-work import model", () => {
     const nonePayload = toServerDraftPayload(draft);
     expect((nonePayload.agreement as Record<string, unknown>).session).toBeNull();
     expect(parseStoredImportDraft(nonePayload, defaults).agreement.sessionsMode).toBe("none");
+  });
+});
+
+const quickTemplate: StoreTemplateOption = {
+  id: "template-quick",
+  name: "Full production",
+  kind: "album",
+  service: "Production and mixing",
+  deliverables: ["Mixes", "Masters"],
+  subtotalCents: 100_000,
+  currency: "ILS",
+  taxMode: "tax_included",
+  taxRatePct: 17,
+  includedSongSpaces: 3,
+  revisionRule: { kind: "fixed", count: 2 },
+  royaltyTerms: null,
+  rights: ["Artist owns the masters"],
+  plans: [{ kind: "split_50_50" }],
+  agreementText: "The agreement we already signed.",
+  session: null,
+};
+
+const quickInput = {
+  artistName: "Noya Levi",
+  email: "noya@example.com",
+  phone: "+972500000000",
+  projectTitle: "Noya EP",
+  total: "5000",
+  paidSoFar: "2500",
+  paidAt: "2026-09-04",
+  paymentOperationKey: "active-work-import-payment:fixed-key",
+};
+
+describe("quick row", () => {
+  it("takes five typed fields and defaults the rest from the product", () => {
+    const draft = quickRowDraft(quickInput, quickTemplate, defaults);
+
+    expect(draft.client).toEqual({
+      existingClientId: null,
+      name: "Noya Levi",
+      email: "noya@example.com",
+      phone: "+972500000000",
+    });
+    expect(draft.project.title).toBe("Noya EP");
+    // Everything below was proposed by the product, not typed.
+    expect(draft.agreement).toMatchObject({
+      templateProductId: "template-quick",
+      name: "Full production",
+      service: "Production and mixing",
+      currency: "ILS",
+      taxMode: "tax_included",
+      taxRatePct: "17",
+      includedSongSpaces: "3",
+      planKind: "split_50_50",
+      agreementText: "The agreement we already signed.",
+      rights: ["Artist owns the masters"],
+    });
+    // The typed total wins over the product's own price.
+    expect(draftTaxBreakdown(draft).totalCents).toBe(500_000);
+  });
+
+  it("derives the stored subtotal backwards for each tax mode", () => {
+    const included = quickRowDraft(quickInput, quickTemplate, defaults);
+    // tax_included: the typed number already IS the total, tax sits inside it.
+    expect(draftTaxBreakdown(included)).toMatchObject({
+      subtotalCents: 500_000,
+      taxAmountCents: 72_650,
+      totalCents: 500_000,
+    });
+
+    const added = quickRowDraft(
+      quickInput,
+      { ...quickTemplate, taxMode: "tax_added" },
+      defaults,
+    );
+    // tax_added: 427,350 + 17% = exactly the 500,000 the producer typed.
+    expect(draftTaxBreakdown(added)).toMatchObject({
+      subtotalCents: 427_350,
+      taxAmountCents: 72_650,
+      totalCents: 500_000,
+    });
+
+    const free = quickRowDraft(quickInput, { ...quickTemplate, taxMode: "tax_free" }, defaults);
+    expect(draftTaxBreakdown(free)).toMatchObject({
+      subtotalCents: 500_000,
+      taxAmountCents: 0,
+      totalCents: 500_000,
+    });
+  });
+
+  it("records paid-so-far as one confirmed payment on the first installment", () => {
+    const draft = quickRowDraft(quickInput, quickTemplate, defaults);
+    expect(draft.payments).toEqual([
+      {
+        operationKey: "active-work-import-payment:fixed-key",
+        installmentPosition: 1,
+        amount: "2500.00",
+        paidAt: "2026-09-04",
+        note: "",
+        proofUploadToken: null,
+        proofFileName: null,
+      },
+    ]);
+    expect(quickRowAllocation(draft).kind).toBe("ok");
+  });
+
+  it("records no payment at all when nothing has been paid", () => {
+    const draft = quickRowDraft({ ...quickInput, paidSoFar: "" }, quickTemplate, defaults);
+    expect(draft.payments).toEqual([]);
+    expect(quickRowAllocation(draft).kind).toBe("ok");
+  });
+
+  it("sends paid-so-far past the first installment to Needs info instead of splitting it", () => {
+    // 50/50 on ₪5,000 makes each half ₪2,500. ₪3,000 cannot belong to one
+    // installment, and quick mode never splits a payment on its own.
+    const draft = quickRowDraft({ ...quickInput, paidSoFar: "3000" }, quickTemplate, defaults);
+    const allocation = quickRowAllocation(draft);
+    expect(allocation.kind).toBe("needs_split");
+    expect(allocation.kind === "needs_split" && allocation.reason).toEqual({
+      code: "payment_needs_single_installment",
+      field: "payments",
+      message: "Payment must be assigned to one installment. Open Change details to split it.",
+    });
+  });
+
+  it("leaves a genuine overpayment alone when there is only one installment", () => {
+    // Paid in full means one installment, so more than the total is a real
+    // overpayment and stays Overpaid, exactly as the full editor shows it.
+    const draft = quickRowDraft(
+      { ...quickInput, paidSoFar: "6000" },
+      { ...quickTemplate, plans: [{ kind: "full" }] },
+      defaults,
+    );
+    expect(quickRowAllocation(draft).kind).toBe("ok");
+    expect(draftPaymentBalance(draft).overpaidCents).toBe(100_000);
+  });
+
+  it("writes the one-line summary the producer confirms", () => {
+    const summary = quickRowSummary(quickRowDraft(quickInput, quickTemplate, defaults));
+    expect(summary?.parts).toEqual([
+      "Full production",
+      "₪5,000 incl. 17% tax",
+      "50/50",
+      "3 songs",
+      "Noya has paid ₪2,500",
+    ]);
+    expect(summary?.question).toBe("Is this the deal with Noya?");
+  });
+
+  it("drops the paid clause from the summary when nothing has been paid", () => {
+    const summary = quickRowSummary(
+      quickRowDraft({ ...quickInput, paidSoFar: "" }, quickTemplate, defaults),
+    );
+    expect(summary?.parts).toEqual([
+      "Full production",
+      "₪5,000 incl. 17% tax",
+      "50/50",
+      "3 songs",
+    ]);
+  });
+
+  it("says so when rounding cannot land on the typed total exactly", () => {
+    // ₪1.00 at 17% added on top has no subtotal behind it.
+    const draft = quickRowDraft(
+      { ...quickInput, total: "1", paidSoFar: "" },
+      { ...quickTemplate, taxMode: "tax_added" },
+      defaults,
+    );
+    const summary = quickRowSummary(draft, "1");
+    expect(draftTaxBreakdown(draft).totalCents).toBe(99);
+    expect(summary?.roundedFromTypedTotal).toBe(true);
+    // A total that lands exactly never claims it was moved.
+    expect(
+      quickRowSummary(quickRowDraft(quickInput, quickTemplate, defaults), "5000")
+        ?.roundedFromTypedTotal,
+    ).toBe(false);
+  });
+
+  it("has no summary until the money makes sense", () => {
+    expect(quickRowSummary(quickRowDraft({ ...quickInput, total: "" }, quickTemplate, defaults)))
+      .toBeNull();
   });
 });
