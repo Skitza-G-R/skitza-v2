@@ -142,3 +142,56 @@ export function applyTaxToCents(
   const taxCents = Number((numerator * 2n + 100n) / 200n);
   return safeCents + taxCents;
 }
+
+// The inverse of `applyTaxToCents`. SK-299 lets a producer type the TOTAL of a
+// deal they already agreed outside Skitza, but the frozen snapshot stores a
+// subtotal, so the tax has to be divided back out.
+//
+// `tax_free` and `tax_included` need no work: in both, the number the producer
+// typed already IS the stored subtotal (for `tax_included` the tax is the
+// portion embedded inside it). Only `tax_added` inverts.
+//
+// Rounding means not every total can be produced: at a 100% rate every total is
+// even, so an odd one has no subtotal behind it. When that happens this returns
+// the closest reachable total — preferring the lower one on a tie, so an artist
+// is never billed above the number the producer typed — and reports
+// `exact: false` so the caller can say so plainly before anything is saved.
+export function subtotalCentsFromTotal(
+  totalCents: number,
+  mode: TaxMode,
+  ratePct: number,
+): Readonly<{ subtotalCents: number; totalCents: number; exact: boolean }> {
+  const safeTotal = Number.isSafeInteger(totalCents) ? Math.max(0, totalCents) : 0;
+  // Mirror applyTaxToCents exactly: a fractional rate is unsupported and folds
+  // to 0, an out-of-range one clamps.
+  const safeRate = Number.isSafeInteger(ratePct) ? Math.max(0, Math.min(100, ratePct)) : 0;
+  if (mode !== "tax_added" || safeRate === 0) {
+    return { subtotalCents: safeTotal, totalCents: safeTotal, exact: true };
+  }
+
+  const totalFor = (subtotal: number): number => {
+    const numerator = BigInt(subtotal) * BigInt(safeRate);
+    return subtotal + Number((numerator * 2n + 100n) / 200n);
+  };
+
+  // totalFor is strictly increasing (each extra cent of subtotal adds at least
+  // one cent of total), so a binary search for the first subtotal that reaches
+  // the typed total is exact and needs no floating-point estimate.
+  let low = 0;
+  let high = safeTotal;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (totalFor(mid) >= safeTotal) high = mid;
+    else low = mid + 1;
+  }
+
+  const upperTotal = totalFor(low);
+  if (upperTotal === safeTotal) {
+    return { subtotalCents: low, totalCents: safeTotal, exact: true };
+  }
+  const lower = Math.max(0, low - 1);
+  const lowerTotal = totalFor(lower);
+  return safeTotal - lowerTotal <= upperTotal - safeTotal
+    ? { subtotalCents: lower, totalCents: lowerTotal, exact: false }
+    : { subtotalCents: low, totalCents: upperTotal, exact: false };
+}
