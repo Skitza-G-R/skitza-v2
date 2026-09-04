@@ -9,6 +9,26 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 export type MusicManagementActionResult = { ok: true } | { ok: false; error: string };
 
+// SK-305. Structurally the same shape SongPage declares as
+// MusicL3LyricsActionResult. Declared locally rather than imported, the way
+// MusicL3ActionResult already is on both sides, so a "use server" module
+// never reaches into a client component for a type.
+export type MusicLyricsActionResult =
+  | {
+      ok: true;
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string;
+      lyricsUpdatedBy: "producer" | "artist";
+    }
+  | {
+      ok: false;
+      reason: "stale";
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string | null;
+      lyricsUpdatedBy: "producer" | "artist" | null;
+    }
+  | { ok: false; reason: "error"; error: string };
+
 export type MusicAudioDeletionActionResult =
   | {
       ok: true;
@@ -216,5 +236,34 @@ export async function deleteMusicSong(input: {
     return { ok: false, error: toMessage(error) };
   } finally {
     revalidateMusic(input.projectId);
+  }
+}
+
+// SK-305. Lyrics are one sheet per song, and the artist can write it too, so
+// `expectedUpdatedAtIso` is the stamp the page loaded and the whole clash
+// guard. A `stale` answer is a real outcome, not a thrown error — it comes
+// back untouched so the dialog can show the other side's words next to the
+// ones still in the textarea.
+export async function saveMusicSongLyrics(input: {
+  projectId: string;
+  trackId: string;
+  versionId?: string;
+  lyrics: string | null;
+  expectedUpdatedAtIso: string | null;
+}): Promise<MusicLyricsActionResult> {
+  const context = await callerOrError();
+  if (!context.ok) return { ok: false, reason: "error", error: context.error };
+  try {
+    const result = await context.caller.project.setSongLyrics({
+      projectId: input.projectId,
+      trackId: input.trackId,
+      lyrics: input.lyrics,
+      expectedUpdatedAtIso: input.expectedUpdatedAtIso,
+    });
+    // Only a save that actually landed changes what the server should re-render.
+    if (result.ok) revalidateMusic(input.projectId, input.versionId);
+    return result;
+  } catch (error) {
+    return { ok: false, reason: "error", error: toMessage(error) };
   }
 }

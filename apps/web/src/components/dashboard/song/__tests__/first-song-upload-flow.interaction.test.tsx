@@ -82,7 +82,7 @@ vi.mock("~/lib/audio/upload-manager", () => ({
   cancelManagedUpload: mocked.cancelManagedUpload,
 }));
 
-import { UploadTrackModal } from "../upload-track-modal";
+import { UploadTrackModal, type UploadTrackModalProps } from "../upload-track-modal";
 import { AUDIO_STORAGE_FULL_MESSAGE } from "~/lib/audio/storage-limits";
 
 const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
@@ -164,9 +164,15 @@ function deferred<T>() {
 function Harness({
   onClosed = vi.fn(),
   mode = "new-song",
+  songLyrics,
+  onSaveLyrics,
+  hasLyrics,
 }: {
   onClosed?: () => void;
   mode?: "new-song" | "new-version";
+  songLyrics?: { text: string | null; updatedAtIso: string | null };
+  onSaveLyrics?: UploadTrackModalProps["onSaveLyrics"];
+  hasLyrics?: boolean;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -180,8 +186,19 @@ function Harness({
       projectId={PROJECT_ID}
       {...(mode === "new-version" ? { trackId: TRACK_ID } : {})}
       tracks={
-        mode === "new-version" ? [{ id: TRACK_ID, title: "Existing Song", versionCount: 1 }] : []
+        mode === "new-version"
+          ? [
+              {
+                id: TRACK_ID,
+                title: "Existing Song",
+                versionCount: 1,
+                ...(hasLyrics === undefined ? {} : { hasLyrics }),
+              },
+            ]
+          : []
       }
+      {...(songLyrics === undefined ? {} : { songLyrics })}
+      {...(onSaveLyrics === undefined ? {} : { onSaveLyrics })}
     />
   );
 }
@@ -560,5 +577,173 @@ describe("staged audio upload journey", () => {
     expect(await screen.findByText("Audio files can be up to 100 MB.")).not.toBeNull();
     expect(mocked.stageAudioUploadAction).not.toHaveBeenCalled();
     expect(mocked.finalizeAudioUploadAction).not.toHaveBeenCalled();
+  });
+});
+
+// ─── SK-305 lyrics field ─────────────────────────────────────────────
+
+describe("SK-305 lyrics in the upload modal", () => {
+  const SHEET_STAMP = "2026-09-03T10:00:00.000Z";
+  const lyricsField = () => document.querySelector('[data-test="upload-lyrics-field"]');
+  const lyricsToggle = () =>
+    document.querySelector<HTMLButtonElement>('[data-test="upload-lyrics-toggle"]');
+  const lyricsBadge = () => document.querySelector<HTMLElement>('[data-test="upload-lyrics-badge"]');
+
+  async function uploadAndSave(user: ReturnType<typeof userEvent.setup>) {
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+    expect(await screen.findByText("Audio ready — finish the details, then save.")).not.toBeNull();
+    const submit = screen.getByRole<HTMLButtonElement>("button", { name: /Save|Add Version/ });
+    await waitFor(() => {
+      expect(submit.disabled).toBe(false);
+    });
+    await user.click(submit);
+  }
+
+  it("stays out of the collapsed Stage and notes drawer", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        mode="new-version"
+        songLyrics={{ text: null, updatedAtIso: null }}
+        onSaveLyrics={vi.fn(() => Promise.resolve({ ok: true as const }))}
+      />,
+    );
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+
+    const field = lyricsField();
+    expect(field).not.toBeNull();
+    // The drawer beside it already hides a field nothing renders. Burying this
+    // one there would make it just as invisible.
+    expect(field?.closest("details")).toBeNull();
+  });
+
+  it("arrives pre-filled when the song page already holds the sheet", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        mode="new-version"
+        songLyrics={{ text: "one\ntwo\nthree", updatedAtIso: SHEET_STAMP }}
+        onSaveLyrics={vi.fn(() => Promise.resolve({ ok: true as const }))}
+      />,
+    );
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+
+    expect(lyricsBadge()?.textContent).toBe("3 lines");
+    await user.click(lyricsToggle() as HTMLElement);
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Lyrics").value).toBe("one\ntwo\nthree");
+  });
+
+  it("goes read-only for a library upload into a song that already has words", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        mode="new-version"
+        hasLyrics
+        onSaveLyrics={vi.fn(() => Promise.resolve({ ok: true as const }))}
+      />,
+    );
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+
+    expect(lyricsBadge()?.textContent).toBe("already written");
+    expect(lyricsToggle()?.disabled).toBe(true);
+    expect(screen.queryByLabelText("Lyrics")).toBeNull();
+  });
+
+  it("saves the words after the audio, never inside its payload", async () => {
+    const user = userEvent.setup();
+    const onSaveLyrics = vi.fn(() => Promise.resolve({ ok: true as const }));
+    render(
+      <Harness
+        mode="new-version"
+        songLyrics={{ text: "old", updatedAtIso: SHEET_STAMP }}
+        onSaveLyrics={onSaveLyrics}
+      />,
+    );
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+    await user.click(lyricsToggle() as HTMLElement);
+    await user.type(screen.getByLabelText("Lyrics"), " and new");
+
+    const submit = screen.getByRole<HTMLButtonElement>("button", { name: /Save|Add Version/ });
+    await waitFor(() => {
+      expect(submit.disabled).toBe(false);
+    });
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(onSaveLyrics).toHaveBeenCalledWith({
+        projectId: PROJECT_ID,
+        trackId: TRACK_ID,
+        lyrics: "old and new",
+        expectedUpdatedAtIso: SHEET_STAMP,
+      });
+    });
+    // The guarded upload payload is untouched. SK-302 added one field to a
+    // payload like this with no migration and every booking rolled back.
+    const payload = mocked.finalizeAudioUploadAction.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.keys(payload)).not.toContain("lyrics");
+  });
+
+  it("does not touch the sheet when the words were never edited", async () => {
+    const user = userEvent.setup();
+    const onSaveLyrics = vi.fn(() => Promise.resolve({ ok: true as const }));
+    render(
+      <Harness
+        mode="new-version"
+        songLyrics={{ text: "untouched", updatedAtIso: SHEET_STAMP }}
+        onSaveLyrics={onSaveLyrics}
+      />,
+    );
+    await uploadAndSave(user);
+
+    await waitFor(() => {
+      expect(mocked.finalizeAudioUploadAction).toHaveBeenCalled();
+    });
+    // Opening the field must never stamp the song as "updated by you just now".
+    expect(onSaveLyrics).not.toHaveBeenCalled();
+  });
+
+  it("keeps the upload successful when the lyrics clash", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        mode="new-version"
+        songLyrics={{ text: "mine", updatedAtIso: SHEET_STAMP }}
+        onSaveLyrics={vi.fn(() =>
+          Promise.resolve({ ok: false as const, reason: "stale" as const }),
+        )}
+      />,
+    );
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+    await user.click(lyricsToggle() as HTMLElement);
+    await user.type(screen.getByLabelText("Lyrics"), "!");
+
+    const submit = screen.getByRole<HTMLButtonElement>("button", { name: /Save|Add Version/ });
+    await waitFor(() => {
+      expect(submit.disabled).toBe(false);
+    });
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(mocked.toast).toHaveBeenCalledWith(
+        "Version saved. Lyrics unchanged — someone else edited them while you uploaded.",
+        "error",
+      );
+    });
+    // The audio is what matters. It landed, and the modal reports success.
+    expect(mocked.router.refresh).toHaveBeenCalled();
+  });
+
+  it("shows no lyrics field at all when the caller cannot save them", async () => {
+    const user = userEvent.setup();
+    render(<Harness mode="new-version" />);
+    const file = new File([new Uint8Array([0])], "v2.aiff", { type: "audio/aiff" });
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+    expect(lyricsField()).toBeNull();
   });
 });

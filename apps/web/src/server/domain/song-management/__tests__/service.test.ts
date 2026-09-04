@@ -4,7 +4,9 @@ import {
   computeStoredAudioIdentityFingerprint,
   evaluateStoredAudioDeletionPolicy,
   monotonicStoredAudioDeletionTime,
+  LYRICS_MAX_LENGTH,
   normalizeArtistCredit,
+  normalizeLyrics,
   normalizeSongTitle,
   normalizeVersionLabel,
   planSongArchiveChange,
@@ -578,5 +580,48 @@ describe("reconcileExactStoredAudioDeletion", () => {
     await expect(reconcileExactStoredAudioDeletion(port, identity)).rejects.toMatchObject({
       code: "STORAGE_UNCERTAIN",
     });
+  });
+});
+
+describe("normalizeLyrics", () => {
+  it("keeps the words and the line breaks exactly as typed", () => {
+    expect(normalizeLyrics("one\ntwo")).toBe("one\ntwo");
+  });
+
+  it("treats a blank sheet as no lyrics at all", () => {
+    expect(normalizeLyrics("")).toBeNull();
+    expect(normalizeLyrics("   \n \n  ")).toBeNull();
+    expect(normalizeLyrics(null)).toBeNull();
+    expect(normalizeLyrics(undefined)).toBeNull();
+  });
+
+  it("normalises Windows line endings so a paste does not double the line count", () => {
+    expect(normalizeLyrics("one\r\ntwo\rthree")).toBe("one\ntwo\nthree");
+  });
+
+  it("trims the outer whitespace but never the layout inside", () => {
+    expect(normalizeLyrics("\n  one\n\n  two  \n")).toBe("one\n\n  two");
+  });
+
+  it("keeps Hebrew intact", () => {
+    expect(normalizeLyrics("  אין פה ציפייה לנצח\nזה משהו שרציתי  ")).toBe(
+      "אין פה ציפייה לנצח\nזה משהו שרציתי",
+    );
+  });
+
+  it("refuses anything past the cap rather than silently losing the last verse", () => {
+    expect(() => normalizeLyrics("x".repeat(LYRICS_MAX_LENGTH + 1))).toThrow(
+      /at most 8000 characters/,
+    );
+  });
+
+  it("accepts exactly the cap", () => {
+    expect(normalizeLyrics("x".repeat(LYRICS_MAX_LENGTH))).toHaveLength(LYRICS_MAX_LENGTH);
+  });
+
+  it("measures the cap after normalising, so trailing blank lines never push a song over", () => {
+    expect(normalizeLyrics("x".repeat(LYRICS_MAX_LENGTH) + "\n\n  ")).toHaveLength(
+      LYRICS_MAX_LENGTH,
+    );
   });
 });

@@ -16,6 +16,7 @@ import {
   markMusicSongReleased,
   renameMusicSong,
   renameMusicVersion,
+  saveMusicSongLyrics,
   setMusicSongArchived,
 } from "../actions";
 import {
@@ -110,6 +111,9 @@ export default async function ProducerSongPage({ params, searchParams }: PagePro
       projectTitle: data.track.projectTitle,
       clientName: data.track.clientName,
       artworkUrl: data.track.artworkUrl,
+      lyrics: data.track.lyrics,
+      lyricsUpdatedAtIso: data.track.lyricsUpdatedAt?.toISOString() ?? null,
+      lyricsUpdatedBy: data.track.lyricsUpdatedBy,
       archivedAtIso: data.track.archivedAt?.toISOString() ?? null,
       releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
       workflowStage: data.track.workflowStage,
@@ -188,6 +192,7 @@ export default async function ProducerSongPage({ params, searchParams }: PagePro
         prepareArtwork,
         completeArtwork,
         renameSong: renameMusicSong,
+        setSongLyrics: saveMusicSongLyrics,
         editArtist: editMusicSongArtist,
         setArchived: setMusicSongArchived,
         markReleased: markMusicSongReleased,

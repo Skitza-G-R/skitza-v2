@@ -45,6 +45,7 @@ import {
   type VersionDeliveryState,
 } from "./delivery-state";
 import { gradientForSeed } from "./lib";
+import { LyricsDialog, lyricsLineCount } from "./lyrics-dialog";
 import { ProjectCover } from "./project-cover";
 import { canonicalSongPageAddress, replaceBrowserSongPageVersion } from "./song-page-address";
 import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
@@ -103,6 +104,30 @@ export type MusicL3CompleteArtworkActionResult =
     }
   | { ok: false; error: string };
 
+/**
+ * SK-305. Saving lyrics has three endings, not two.
+ *
+ * `stale` is not a failure — it means the other side saved while this editor
+ * was open, so the dialog shows their words beside the ones still in the
+ * textarea and offers to keep either. It carries the fresh stamp, which is
+ * what "save mine anyway" re-sends.
+ */
+export type MusicL3LyricsActionResult =
+  | {
+      ok: true;
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string;
+      lyricsUpdatedBy: "producer" | "artist";
+    }
+  | {
+      ok: false;
+      reason: "stale";
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string | null;
+      lyricsUpdatedBy: "producer" | "artist" | null;
+    }
+  | { ok: false; reason: "error"; error: string };
+
 export type L3Actions = {
   addComment?: (input: {
     versionId: string;
@@ -126,6 +151,15 @@ export type L3Actions = {
     versionId: string;
     title: string;
   }) => Promise<MusicL3ActionResult>;
+  // SK-305. Supplied for producer and artist alike — both write the sheet.
+  // Absent for a guest, which is what hides the Lyrics row entirely.
+  setSongLyrics?: (input: {
+    projectId: string;
+    trackId: string;
+    versionId: string;
+    lyrics: string | null;
+    expectedUpdatedAtIso: string | null;
+  }) => Promise<MusicL3LyricsActionResult>;
   editArtist?: (input: {
     projectId: string;
     trackId: string;
@@ -254,6 +288,16 @@ export type SongPageData = {
     workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
     artistApprovalLocked: boolean;
     projectLifecycleStatus?: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
+    /** SK-305. One sheet for the whole song. Null means nobody wrote the words yet. */
+    lyrics: string | null;
+    /**
+     * The stamp this page loaded. It is echoed back on save and is the whole
+     * clash guard: the producer and the artist both write this sheet, so a save
+     * whose stamp no longer matches is refused instead of replacing the other
+     * side's words.
+     */
+    lyricsUpdatedAtIso: string | null;
+    lyricsUpdatedBy: "producer" | "artist" | null;
   };
   versions: SongPageVersion[];
   comments: SongPageComment[];
@@ -755,6 +799,19 @@ function SongPageContent({
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  // SK-305. The song's one lyrics sheet, held locally so a save updates the
+  // row's badge and the next open starts from the fresh stamp without waiting
+  // on a round trip.
+  const [lyricsOpen, setLyricsOpen] = useState(false);
+  const [lyricsSheet, setLyricsSheet] = useState<{
+    lyrics: string | null;
+    updatedAtIso: string | null;
+    updatedBy: "producer" | "artist" | null;
+  }>({
+    lyrics: data.track.lyrics,
+    updatedAtIso: data.track.lyricsUpdatedAtIso,
+    updatedBy: data.track.lyricsUpdatedBy,
+  });
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
   // A frame that pins the page to phone width must also get the phone layout,
   // whatever the viewport around it says.
@@ -770,6 +827,7 @@ function SongPageContent({
   const deliveryOverrideButtonRef = useRef<HTMLButtonElement | null>(null);
   const artworkInputRef = useRef<HTMLInputElement | null>(null);
   const notesDragStartYRef = useRef<number | null>(null);
+  const lyricsButtonRef = useRef<HTMLButtonElement | null>(null);
   const [artworkUploading, setArtworkUploading] = useState(false);
   const [managementDialog, setManagementDialog] = useState<OpenSongManagement | null>(null);
 
@@ -920,6 +978,12 @@ function SongPageContent({
   const artworkUrl =
     artworkUrlOverride !== undefined ? artworkUrlOverride : (data.track.artworkUrl ?? null);
   const clientLabel = data.track.clientName ?? songArtist ?? data.track.projectTitle;
+  // SK-305. The artist payload overloads `clientName` with the producer's
+  // display name, so this reads correctly from either side.
+  const lyricsOtherPartyName =
+    data.track.clientName ?? (role === "artist" ? "Your producer" : "Your artist");
+  const lyricsCount = lyricsLineCount(lyricsSheet.lyrics);
+  const canEditLyrics = role !== "guest" && Boolean(actions.setSongLyrics);
   const playbackTrackData: SongPageData["track"] = {
     ...data.track,
     title: songTitle,
@@ -2708,6 +2772,40 @@ function SongPageContent({
                 </div>
               ) : null}
 
+              {/*
+                SK-305. Deliberately below the player and above Notes, at every
+                width, borrowing that row's exact shape. A fourth pill in the
+                header action row would push it to three lines at 390px, and
+                lyrics belong next to the sound anyway — that is where anyone
+                who has used a music app looks for them.
+              */}
+              {canEditLyrics ? (
+                <div>
+                  <button
+                    ref={lyricsButtonRef}
+                    type="button"
+                    data-test="open-song-lyrics"
+                    aria-label={
+                      lyricsCount > 0
+                        ? "Open lyrics, " + String(lyricsCount) + " lines"
+                        : "Add lyrics"
+                    }
+                    onClick={() => {
+                      setLyricsOpen(true);
+                    }}
+                    className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+                  >
+                    <span>Lyrics</span>
+                    <span
+                      data-test="song-lyrics-badge"
+                      className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]"
+                    >
+                      {lyricsCount > 0 ? String(lyricsCount) + " lines" : "Add"}
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+
               {role !== "guest" && !embedded ? (
                 <div className="lg:hidden">
                   <button
@@ -2799,8 +2897,46 @@ function SongPageContent({
                 title: songTitle,
                 versionCount: versionUpload.versionCount,
                 publicExposure: versionUpload.publicExposure,
+                hasLyrics: lyricsSheet.lyrics !== null,
               },
             ]}
+            // SK-305. The song page is the one caller that already holds the
+            // sheet, so this is where the field arrives pre-filled.
+            songLyrics={{ text: lyricsSheet.lyrics, updatedAtIso: lyricsSheet.updatedAtIso }}
+            {...(actions.setSongLyrics
+              ? {
+                  onSaveLyrics: async (input) => {
+                    const save = actions.setSongLyrics;
+                    if (!save) return { ok: false as const, reason: "error" as const, error: "" };
+                    const result = await save({
+                      projectId: input.projectId,
+                      trackId: input.trackId,
+                      versionId: activeVersion.id,
+                      lyrics: input.lyrics,
+                      expectedUpdatedAtIso: input.expectedUpdatedAtIso,
+                    });
+                    if (result.ok) {
+                      setLyricsSheet({
+                        lyrics: result.lyrics,
+                        updatedAtIso: result.lyricsUpdatedAtIso,
+                        updatedBy: result.lyricsUpdatedBy,
+                      });
+                      return { ok: true as const };
+                    }
+                    // A clash keeps the other side's words. The upload itself
+                    // already landed and is not touched either way.
+                    if (result.reason === "stale") {
+                      setLyricsSheet({
+                        lyrics: result.lyrics,
+                        updatedAtIso: result.lyricsUpdatedAtIso,
+                        updatedBy: result.lyricsUpdatedBy,
+                      });
+                      return { ok: false as const, reason: "stale" as const };
+                    }
+                    return { ok: false as const, reason: "error" as const, error: result.error };
+                  },
+                }
+              : {})}
           />
         ) : null}
 
@@ -2819,6 +2955,53 @@ function SongPageContent({
                   ? versionButtonRef
                   : moreButtonRef
             }
+          />
+        ) : null}
+
+        {canEditLyrics && actions.setSongLyrics ? (
+          <LyricsDialog
+            open={lyricsOpen}
+            onOpenChange={setLyricsOpen}
+            songTitle={songTitle}
+            lyrics={lyricsSheet.lyrics}
+            updatedAtIso={lyricsSheet.updatedAtIso}
+            updatedBy={lyricsSheet.updatedBy}
+            viewerRole={role}
+            otherPartyName={lyricsOtherPartyName}
+            onSave={async (input) => {
+              // Offline, the words stay in the box and the dialog stays open —
+              // the same promise every other management action here makes.
+              if (!online) {
+                return {
+                  ok: false as const,
+                  reason: "error" as const,
+                  error: "Reconnect before saving. Nothing was changed.",
+                };
+              }
+              const save = actions.setSongLyrics;
+              if (!save) {
+                return {
+                  ok: false as const,
+                  reason: "error" as const,
+                  error: "Lyrics cannot be saved here.",
+                };
+              }
+              return save({
+                projectId: data.track.projectId,
+                trackId: data.track.id,
+                versionId: activeVersion.id,
+                lyrics: input.lyrics,
+                expectedUpdatedAtIso: input.expectedUpdatedAtIso,
+              });
+            }}
+            onSaved={(saved) => {
+              setLyricsSheet({
+                lyrics: saved.lyrics,
+                updatedAtIso: saved.updatedAtIso,
+                updatedBy: saved.updatedBy,
+              });
+            }}
+            returnFocusRef={lyricsButtonRef}
           />
         ) : null}
       </main>

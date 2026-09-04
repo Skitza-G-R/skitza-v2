@@ -2310,6 +2310,17 @@ export const projectTracks = pgTable(
     artworkContentType: text("artwork_content_type"),
     artworkSizeBytes: bigint("artwork_size_bytes", { mode: "number" }),
     artworkObjectEtag: text("artwork_object_etag"),
+    // SK-305. One lyrics sheet per song, shared by every version — a producer
+    // thinks "the words of this song", not "the words of V2". `lyricsUpdatedAt`
+    // is load-bearing, not decoration: both a producer and an artist may save,
+    // so every write is a compare-and-set against the stamp the editor loaded.
+    // The role is stored rather than a user id because a producer lives in
+    // `producers` and an artist in `client_contacts` — no single foreign key
+    // covers both, and each side's page already knows the other's name.
+    // Migration 0062.
+    lyrics: text("lyrics"),
+    lyricsUpdatedAt: timestamp("lyrics_updated_at", { withTimezone: true }),
+    lyricsUpdatedBy: text("lyrics_updated_by").$type<"producer" | "artist">(),
     // Release is a producer-confirmed product state, separate from creative
     // progress (Done / Delivered). Once set, application code treats it as
     // irreversible because protected audio may be permanently deleted.
@@ -2350,6 +2361,27 @@ export const projectTracks = pgTable(
           AND char_length(${t.artworkObjectEtag}) <= 512
         )
       ) IS TRUE`,
+    ),
+    // Both stamps travel together, and lyrics can never exist unstamped —
+    // otherwise the compare-and-set would have nothing to compare against.
+    // Clearing the sheet sets `lyrics` back to NULL but KEEPS the stamps, so
+    // "who emptied this, and when" survives. Migration 0062.
+    lyricsStampShape: check(
+      "project_tracks_lyrics_stamp_shape",
+      sql`(
+        (
+          (${t.lyricsUpdatedAt} IS NULL AND ${t.lyricsUpdatedBy} IS NULL)
+          OR (${t.lyricsUpdatedAt} IS NOT NULL AND ${t.lyricsUpdatedBy} IS NOT NULL)
+        )
+        AND (${t.lyrics} IS NULL OR ${t.lyricsUpdatedAt} IS NOT NULL)
+        AND (${t.lyrics} IS NULL OR char_length(${t.lyrics}) <= 8000)
+      ) IS TRUE`,
+    ),
+    // Exactly the two roles the application writes. A third writer appearing
+    // here would mean a caller invented one, which should fail loudly.
+    lyricsUpdatedByAllowed: check(
+      "project_tracks_lyrics_updated_by_allowed",
+      sql`${t.lyricsUpdatedBy} IS NULL OR ${t.lyricsUpdatedBy} IN ('producer', 'artist')`,
     ),
   }),
 );

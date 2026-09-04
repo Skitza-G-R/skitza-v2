@@ -33,6 +33,9 @@ import { after } from "next/server";
 import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
+import { setSongLyrics } from "~/server/domain/song-management/db";
+import { LYRICS_MAX_LENGTH } from "~/server/domain/song-management/service";
+import { mapSongLyricsDomainError, toSongLyricsWire } from "./song-lyrics-wire";
 import { artistPurchaseRouter } from "./purchase";
 import { ArtistDisconnectError, commitArtistStudioDisconnect } from "~/server/artist/disconnect";
 import { groupStudiosForArtist } from "~/server/artist/identity";
@@ -814,6 +817,11 @@ const musicSubrouter = router({
           trackArtist: projectTracks.artist,
           trackWorkflowStage: projectTracks.workflowStage,
           trackArtworkR2Key: projectTracks.artworkR2Key,
+          // SK-305. One sheet per song. The stamp rides down with it because
+          // the editor has to send it back on save — that is the clash guard.
+          trackLyrics: projectTracks.lyrics,
+          trackLyricsUpdatedAt: projectTracks.lyricsUpdatedAt,
+          trackLyricsUpdatedBy: projectTracks.lyricsUpdatedBy,
           trackArchivedAt: projectTracks.archivedAt,
           trackReleasedAt: projectTracks.releasedAt,
           projectId: projects.id,
@@ -957,6 +965,9 @@ const musicSubrouter = router({
           artist: head.trackArtist,
           workflowStage: head.trackWorkflowStage,
           artworkUrl: head.trackArtworkR2Key ? privateSongArtworkPath(head.trackId) : null,
+          lyrics: head.trackLyrics,
+          lyricsUpdatedAt: head.trackLyricsUpdatedAt,
+          lyricsUpdatedBy: head.trackLyricsUpdatedBy,
           archivedAt: head.trackArchivedAt,
           releasedAt: head.trackReleasedAt,
           projectId: head.projectId,
@@ -1040,6 +1051,49 @@ const musicSubrouter = router({
         .set({ resolvedAt: input.resolved ? new Date() : null })
         .where(eq(trackComments.id, input.id));
       return { ok: true as const };
+    }),
+
+  // SK-305. The artist writes the song's lyrics too — they are usually the
+  // one who wrote the words. There is one sheet per song, shared with the
+  // producer, so the clash guard inside setSongLyrics is what keeps the two
+  // writers from replacing each other.
+  //
+  // Auth: resolveProjectOwnership, the same NOT_FOUND-on-miss gate every other
+  // artist write uses, then the waiting-project check. The domain function is
+  // producer-scoped, so we hand it the owning producer id this gate resolved
+  // rather than trusting anything the client sent.
+  setSongLyrics: artistProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        projectId: z.string().uuid(),
+        lyrics: z.string().max(LYRICS_MAX_LENGTH).nullable(),
+        expectedUpdatedAtIso: z.string().datetime().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project: ownedProject } = await resolveProjectOwnership(
+        ctx.db,
+        ctx.clerkUserId,
+        input.projectId,
+      );
+      assertArtistMusicProjectAvailable(ownedProject.lifecycleStatus);
+      try {
+        const result = await setSongLyrics(ctx.db, {
+          producerId: ownedProject.producerId,
+          trackId: input.trackId,
+          projectId: input.projectId,
+          lyrics: input.lyrics,
+          expectedUpdatedAt: input.expectedUpdatedAtIso
+            ? new Date(input.expectedUpdatedAtIso)
+            : null,
+          updatedBy: "artist",
+          changedAt: new Date(),
+        });
+        return toSongLyricsWire(result);
+      } catch (error) {
+        mapSongLyricsDomainError(error);
+      }
     }),
 });
 

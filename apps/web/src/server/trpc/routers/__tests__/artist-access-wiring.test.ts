@@ -66,15 +66,30 @@ describe("artist exact relationship wiring", () => {
       "  // Resolve / re-open",
     );
 
-    expect(artistProjectHeads).toContain(
-      'ne(projects.lifecycleStatus, "waiting_for_payment")',
-    );
+    expect(artistProjectHeads).toContain('ne(projects.lifecycleStatus, "waiting_for_payment")');
     expect(detailBlock).toContain(
       "assertArtistMusicProjectAvailable(ownedProject.lifecycleStatus)",
     );
     expect(musicReadModelSource).not.toContain(
       'eq(projects.lifecycleStatus, "active") // artist Music',
     );
+  });
+
+  it("gates the artist lyrics write on the exact project relationship", () => {
+    const block = procedureBlock(artistSource, "  setSongLyrics: artistProcedure", "});");
+
+    // SK-305 lets the artist rewrite a song's words, so this is a real write
+    // on producer-owned data. It must pass through the same ownership gate as
+    // every other artist write, and it must hand the domain the producer id
+    // that gate resolved — never one the client supplied.
+    expect(block).toContain("resolveProjectOwnership(");
+    expect(block).toContain("assertArtistMusicProjectAvailable(ownedProject.lifecycleStatus)");
+    expect(block).toContain("producerId: ownedProject.producerId");
+    expect(block).not.toMatch(/producerId:\s*input\./);
+    expect(block).toContain('updatedBy: "artist"');
+    // The stamp is what stops the artist silently replacing the producer's
+    // sheet. Dropping it would make every save win.
+    expect(block).toContain("expectedUpdatedAt:");
   });
 
   it("does not infer booking-level payment state", () => {

@@ -85,6 +85,13 @@ export default async function AddressGuestSongPage({
       workflowStage: data.song.workflowStage,
       projectLifecycleStatus: "active",
       artistApprovalLocked: false,
+      // SK-305. Never sent to a public listener. Lyrics are unreleased words,
+      // and a share link reaches anyone the link reaches. Hardcoded null here
+      // rather than read-and-drop so no future edit to the guest read model can
+      // start leaking them by accident.
+      lyrics: null,
+      lyricsUpdatedAtIso: null,
+      lyricsUpdatedBy: null,
     },
     versions: data.versions.map((version) => {
       const entitlement = entitlementByVersion.get(version.id);

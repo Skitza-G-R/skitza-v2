@@ -3,6 +3,13 @@ import { createHash } from "node:crypto";
 export const SONG_TITLE_MAX_LENGTH = 120;
 export const ARTIST_CREDIT_MAX_LENGTH = 120;
 export const VERSION_LABEL_MAX_LENGTH = 40;
+/**
+ * SK-305. Generous enough for a long rap verse with repeats, small enough that
+ * a pasted document cannot make the song page slow to load for the artist.
+ * Mirrored by a CHECK in migration 0062 so a bug that bypasses this layer
+ * still cannot park a novel on a song.
+ */
+export const LYRICS_MAX_LENGTH = 8000;
 
 export type SongManagementDomainErrorCode =
   | "INVALID_INPUT"
@@ -59,6 +66,30 @@ export function normalizeArtistCredit(value: string | null | undefined): string 
 
 export function normalizeVersionLabel(value: string): string {
   return normalizeRequiredText(value, "Version label", VERSION_LABEL_MAX_LENGTH);
+}
+
+/**
+ * SK-305. Trim the outside, keep the inside.
+ *
+ * Blank lines and leading spaces are how a person lays a song out on the page,
+ * so only the outer edges are touched. Line endings are normalised because a
+ * paste out of Word arrives as CRLF and would otherwise inflate every line
+ * count the UI shows.
+ *
+ * Going past the cap throws rather than truncating: silently dropping the last
+ * verse of somebody's song is worse than refusing the save.
+ */
+export function normalizeLyrics(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") invalidInput("Lyrics must be text");
+  const normalized = value.replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim();
+  if (normalized.length === 0) return null;
+  // Measured after normalising, so trailing blank lines can never be what
+  // pushes an otherwise legal sheet over the edge.
+  if (normalized.length > LYRICS_MAX_LENGTH) {
+    invalidInput(`Lyrics must be at most ${String(LYRICS_MAX_LENGTH)} characters`);
+  }
+  return normalized;
 }
 
 export type SongArchiveIntent = "archive" | "restore";

@@ -183,3 +183,49 @@ export async function publishArtistPublicSongLink(input: {
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// SK-305. Same one sheet the producer writes. `expectedUpdatedAtIso` is the
+// stamp this page loaded and is the whole clash guard — without it the artist
+// would silently replace whatever the producer typed in the meantime.
+//
+// A `stale` answer is a real outcome, not a thrown error, so it passes straight
+// through for the dialog to render.
+export type MusicL3LyricsActionResult =
+  | {
+      ok: true;
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string;
+      lyricsUpdatedBy: "producer" | "artist";
+    }
+  | {
+      ok: false;
+      reason: "stale";
+      lyrics: string | null;
+      lyricsUpdatedAtIso: string | null;
+      lyricsUpdatedBy: "producer" | "artist" | null;
+    }
+  | { ok: false; reason: "error"; error: string };
+
+export async function l3SetSongLyrics(input: {
+  projectId: string;
+  trackId: string;
+  versionId: string;
+  lyrics: string | null;
+  expectedUpdatedAtIso: string | null;
+}): Promise<MusicL3LyricsActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return { ok: false, reason: "error", error: c.error };
+  try {
+    const result = await c.caller.artist.music.setSongLyrics({
+      projectId: input.projectId,
+      trackId: input.trackId,
+      lyrics: input.lyrics,
+      expectedUpdatedAtIso: input.expectedUpdatedAtIso,
+    });
+    // Only a save that actually landed changes what the server re-renders.
+    if (result.ok) revalidatePath(pathDetail(input.versionId));
+    return result;
+  } catch (err) {
+    return { ok: false, reason: "error", error: toMessage(err) };
+  }
+}
