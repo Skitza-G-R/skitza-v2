@@ -254,6 +254,16 @@ export type SongPageData = {
     workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
     artistApprovalLocked: boolean;
     projectLifecycleStatus?: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
+    /** SK-305. One sheet for the whole song. Null means nobody wrote the words yet. */
+    lyrics: string | null;
+    /**
+     * The stamp this page loaded. It is echoed back on save and is the whole
+     * clash guard: the producer and the artist both write this sheet, so a save
+     * whose stamp no longer matches is refused instead of replacing the other
+     * side's words.
+     */
+    lyricsUpdatedAtIso: string | null;
+    lyricsUpdatedBy: "producer" | "artist" | null;
   };
   versions: SongPageVersion[];
   comments: SongPageComment[];

@@ -130,6 +130,9 @@ export function Sk8SongDevScreen({
             workflowStage: archived ? "mixing" : "done",
             projectLifecycleStatus: "active",
             artistApprovalLocked: role === "artist",
+            lyrics: null,
+            lyricsUpdatedAtIso: null,
+            lyricsUpdatedBy: null,
           },
           versions: [
             {
@@ -277,6 +280,9 @@ export function Sk94ApprovalDevScreen({
             workflowStage: "mastering",
             projectLifecycleStatus: "active",
             artistApprovalLocked: approved,
+            lyrics: null,
+            lyricsUpdatedAtIso: null,
+            lyricsUpdatedBy: null,
           },
           versions: [
             {

@@ -817,6 +817,11 @@ const musicSubrouter = router({
           trackArtist: projectTracks.artist,
           trackWorkflowStage: projectTracks.workflowStage,
           trackArtworkR2Key: projectTracks.artworkR2Key,
+          // SK-305. One sheet per song. The stamp rides down with it because
+          // the editor has to send it back on save — that is the clash guard.
+          trackLyrics: projectTracks.lyrics,
+          trackLyricsUpdatedAt: projectTracks.lyricsUpdatedAt,
+          trackLyricsUpdatedBy: projectTracks.lyricsUpdatedBy,
           trackArchivedAt: projectTracks.archivedAt,
           trackReleasedAt: projectTracks.releasedAt,
           projectId: projects.id,
@@ -960,6 +965,9 @@ const musicSubrouter = router({
           artist: head.trackArtist,
           workflowStage: head.trackWorkflowStage,
           artworkUrl: head.trackArtworkR2Key ? privateSongArtworkPath(head.trackId) : null,
+          lyrics: head.trackLyrics,
+          lyricsUpdatedAt: head.trackLyricsUpdatedAt,
+          lyricsUpdatedBy: head.trackLyricsUpdatedBy,
           archivedAt: head.trackArchivedAt,
           releasedAt: head.trackReleasedAt,
           projectId: head.projectId,

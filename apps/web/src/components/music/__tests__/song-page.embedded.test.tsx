@@ -80,6 +80,9 @@ function songData(): SongPageData {
       workflowStage: "mastering",
       projectLifecycleStatus: "active",
       artistApprovalLocked: false,
+      lyrics: null,
+      lyricsUpdatedAtIso: null,
+      lyricsUpdatedBy: null,
     },
     versions: [
       {
