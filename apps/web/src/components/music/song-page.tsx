@@ -2897,8 +2897,46 @@ function SongPageContent({
                 title: songTitle,
                 versionCount: versionUpload.versionCount,
                 publicExposure: versionUpload.publicExposure,
+                hasLyrics: lyricsSheet.lyrics !== null,
               },
             ]}
+            // SK-305. The song page is the one caller that already holds the
+            // sheet, so this is where the field arrives pre-filled.
+            songLyrics={{ text: lyricsSheet.lyrics, updatedAtIso: lyricsSheet.updatedAtIso }}
+            {...(actions.setSongLyrics
+              ? {
+                  onSaveLyrics: async (input) => {
+                    const save = actions.setSongLyrics;
+                    if (!save) return { ok: false as const, reason: "error" as const, error: "" };
+                    const result = await save({
+                      projectId: input.projectId,
+                      trackId: input.trackId,
+                      versionId: activeVersion.id,
+                      lyrics: input.lyrics,
+                      expectedUpdatedAtIso: input.expectedUpdatedAtIso,
+                    });
+                    if (result.ok) {
+                      setLyricsSheet({
+                        lyrics: result.lyrics,
+                        updatedAtIso: result.lyricsUpdatedAtIso,
+                        updatedBy: result.lyricsUpdatedBy,
+                      });
+                      return { ok: true as const };
+                    }
+                    // A clash keeps the other side's words. The upload itself
+                    // already landed and is not touched either way.
+                    if (result.reason === "stale") {
+                      setLyricsSheet({
+                        lyrics: result.lyrics,
+                        updatedAtIso: result.lyricsUpdatedAtIso,
+                        updatedBy: result.lyricsUpdatedBy,
+                      });
+                      return { ok: false as const, reason: "stale" as const };
+                    }
+                    return { ok: false as const, reason: "error" as const, error: result.error };
+                  },
+                }
+              : {})}
           />
         ) : null}
 

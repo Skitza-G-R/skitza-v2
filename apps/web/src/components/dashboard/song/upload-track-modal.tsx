@@ -102,7 +102,19 @@ export interface UploadTrackModalTrack {
   versionCount: number;
   /** Public surfaces that will immediately resolve to this completed upload. */
   publicExposure?: "none" | "link" | "portfolio" | "link_and_portfolio";
+  /**
+   * SK-305. A flag, never the words. The library picker lists every song a
+   * producer owns, and shipping each one's full lyrics into that payload would
+   * bloat the page for a path almost nobody takes.
+   */
+  hasLyrics?: boolean;
 }
+
+/** SK-305. What the caller reports back after trying to save the sheet. */
+export type UploadTrackLyricsSaveResult =
+  | { ok: true }
+  | { ok: false; reason: "stale" }
+  | { ok: false; reason: "error"; error: string };
 
 export interface UploadTrackModalProject {
   id: string;
@@ -130,6 +142,25 @@ export interface UploadTrackModalProps {
   projects?: UploadTrackModalProject[];
   /** Fired after the upload chain finishes — parent can refresh. */
   onCreated?: () => void;
+  /**
+   * SK-305. The song's current lyrics sheet, supplied only by the song page
+   * for mode="new-version" — it is the one caller that already holds them.
+   * Absent means the field starts empty and editable (a new song), unless the
+   * chosen track reports hasLyrics, which makes it read-only.
+   */
+  songLyrics?: { text: string | null; updatedAtIso: string | null } | null;
+  /**
+   * Called AFTER the audio has landed, and only when the words actually
+   * changed. Never folded into the upload payload itself: that payload is a
+   * guarded state machine whose database CHECK treats it as an exact key
+   * allow-list, and SK-302 proved what adding a field to one of those costs.
+   */
+  onSaveLyrics?: (input: {
+    projectId: string;
+    trackId: string;
+    lyrics: string | null;
+    expectedUpdatedAtIso: string | null;
+  }) => Promise<UploadTrackLyricsSaveResult>;
 }
 
 export function UploadTrackModal({
@@ -142,6 +173,8 @@ export function UploadTrackModal({
   tracks = EMPTY_TRACKS,
   projects = EMPTY_PROJECTS,
   onCreated,
+  songLyrics,
+  onSaveLyrics,
 }: UploadTrackModalProps) {
   const { toast } = useToast();
   const router = useRouter();
@@ -169,6 +202,11 @@ export function UploadTrackModal({
   const [label, setLabel] = useState(defaultLabel ?? "V1");
   const [stage, setStage] = useState<"no-change" | WorkflowStage>("no-change");
   const [description, setDescription] = useState("");
+  // SK-305. The sheet as loaded, and the sheet as edited. Only a real
+  // difference triggers a save, so simply opening the field never stamps the
+  // song as "updated by you just now".
+  const [lyrics, setLyrics] = useState(songLyrics?.text ?? "");
+  const [lyricsExpanded, setLyricsExpanded] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [transferStatus, setTransferStatus] = useState<StagedTransferStatus>("idle");
@@ -203,6 +241,8 @@ export function UploadTrackModal({
     setLabel(defaultLabel ?? deriveNextLabel(tracks, startPick));
     setStage("no-change");
     setDescription("");
+    setLyrics(songLyrics?.text ?? "");
+    setLyricsExpanded(false);
     setFile(null);
     setTransferStatus("idle");
     setStagedIntentId(null);
@@ -211,7 +251,7 @@ export function UploadTrackModal({
     setIsDragging(false);
     fileReplacementInFlightRef.current = false;
     closingRef.current = false;
-  }, [open, mode, trackId, initialProjectId, defaultLabel, tracks, projects]);
+  }, [open, mode, trackId, initialProjectId, defaultLabel, tracks, projects, songLyrics?.text]);
 
   useEffect(() => {
     if (!open) return;
@@ -682,6 +722,9 @@ export function UploadTrackModal({
     const submittedLabel = isNewSong ? "V1" : label.trim();
     const submittedDescription = description.trim();
     const submittedStage = stage;
+    const submittedLyrics = lyrics;
+    const submittedLyricsChanged = lyricsChanged && lyricsEditable;
+    const submittedLyricsExpectedAt = songLyrics?.updatedAtIso ?? null;
     const acknowledgesPublicExposure = selectedPublicExposure !== "none";
     attempt.managed.setCompleting();
     setUploadError(null);
@@ -718,6 +761,26 @@ export function UploadTrackModal({
             toast(`Uploaded — but stage didn't update: ${stageResult.error}`, "error");
           }
         }
+        // SK-305. Separate call, deliberately after the audio. The audio is
+        // what matters; a lyrics problem must never roll back an upload, so
+        // this only ever toasts — exactly how the stage update above behaves.
+        if (submittedLyricsChanged && onSaveLyrics) {
+          const trimmed = submittedLyrics.trim();
+          const lyricsResult = await onSaveLyrics({
+            projectId: submittedProjectId,
+            trackId: result.data.trackId,
+            lyrics: trimmed === "" ? null : submittedLyrics,
+            expectedUpdatedAtIso: submittedLyricsExpectedAt,
+          });
+          if (!lyricsResult.ok) {
+            toast(
+              lyricsResult.reason === "stale"
+                ? "Version saved. Lyrics unchanged — someone else edited them while you uploaded."
+                : `Version saved — but the lyrics didn't save: ${lyricsResult.error}`,
+              "error",
+            );
+          }
+        }
         if (isCurrentStagedUpload(attempt)) {
           activeStagedUploadRef.current = null;
           setStagedIntentId(null);
@@ -736,6 +799,20 @@ export function UploadTrackModal({
       }
     });
   };
+
+  // SK-305. Three states, decided by what the caller could tell us:
+  //   - the caller handed over the sheet  → editable, pre-filled
+  //   - the chosen song reports hasLyrics → read-only, edit on the song page
+  //   - neither                           → editable, empty
+  const destinationHasLyrics = useMemo(
+    () => (isNewSong ? false : (tracks.find((t) => t.id === selectedTrackId)?.hasLyrics ?? false)),
+    [isNewSong, selectedTrackId, tracks],
+  );
+  const lyricsBaseline = songLyrics?.text ?? "";
+  const lyricsEditable =
+    Boolean(onSaveLyrics) && (songLyrics !== undefined || !destinationHasLyrics);
+  const lyricsLineCount = lyrics.trim() === "" ? 0 : lyrics.trim().split("\n").length;
+  const lyricsChanged = lyrics !== lyricsBaseline;
 
   // Display label for the locked song picker (new-version mode).
   const lockedSongTitle = useMemo(() => {
@@ -1057,6 +1134,83 @@ export function UploadTrackModal({
                           className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                           style={{ borderColor: "rgb(var(--border-subtle))" }}
                         />
+                      </div>
+                    ) : null}
+
+                    {/*
+                      SK-305. Outside the "Stage and notes (optional)" drawer
+                      below on purpose. That drawer already holds a field that
+                      goes nowhere — its "Notes for artist" writes
+                      track_versions.description, which no screen renders — and
+                      a grey collapsed "optional" arrow is where fields go to
+                      die. This one is a row you can see, carrying its own state
+                      so you know whether the words are there without opening it.
+                    */}
+                    {onSaveLyrics ? (
+                      <div data-test="upload-lyrics-field">
+                        <button
+                          type="button"
+                          data-test="upload-lyrics-toggle"
+                          disabled={finalizing || !lyricsEditable}
+                          aria-expanded={lyricsExpanded}
+                          onClick={() => {
+                            setLyricsExpanded((expanded) => !expanded);
+                          }}
+                          className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-left transition-colors hover:bg-[rgb(var(--bg-overlay))] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[rgb(var(--bg-elevated))]"
+                        >
+                          <span className="flex-1 text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                            Lyrics
+                          </span>
+                          <span
+                            data-test="upload-lyrics-badge"
+                            className={[
+                              "rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] font-semibold",
+                              lyricsLineCount > 0
+                                ? "bg-[rgb(var(--fg-success-text)/0.12)] text-[rgb(var(--fg-success-text))]"
+                                : "text-[rgb(var(--fg-muted))]",
+                            ].join(" ")}
+                          >
+                            {!lyricsEditable
+                              ? "already written"
+                              : lyricsLineCount > 0
+                                ? `${String(lyricsLineCount)} lines`
+                                : "optional"}
+                          </span>
+                          {lyricsEditable ? (
+                            <span aria-hidden className="text-[rgb(var(--fg-muted))]">
+                              {lyricsExpanded ? "⌃" : "⌄"}
+                            </span>
+                          ) : null}
+                        </button>
+                        {!lyricsEditable ? (
+                          <p className="mt-1.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                            This song already has lyrics. Open the song to read or change them.
+                          </p>
+                        ) : lyricsExpanded ? (
+                          <>
+                            <textarea
+                              // Hebrew lyrics inside an English app: let the
+                              // text decide its own direction.
+                              dir="auto"
+                              value={lyrics}
+                              disabled={finalizing}
+                              rows={8}
+                              maxLength={8000}
+                              onChange={(e) => {
+                                setLyrics(e.target.value);
+                              }}
+                              aria-label="Lyrics"
+                              placeholder="Type or paste the words of this song…"
+                              className="mt-2 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-[1.8] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                              style={{ borderColor: "rgb(var(--border-subtle))" }}
+                            />
+                            <p className="mt-1.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                              {lyricsBaseline
+                                ? "Every version of this song shares these words."
+                                : "Optional. Every version of this song will share these words."}
+                            </p>
+                          </>
+                        ) : null}
                       </div>
                     ) : null}
 
