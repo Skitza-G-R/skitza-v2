@@ -251,6 +251,24 @@ describe("quick row in the import workspace", () => {
     expect(mocks.materializeRows).not.toHaveBeenCalled();
   });
 
+  it("keeps one payment key across every edit, so a retry cannot double-charge", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    await fillQuickRow(user);
+    // Keep typing after the payment exists.
+    await user.type(screen.getByLabelText(/Paid so far/), "0");
+
+    const paymentKeys = mocks.saveRow.mock.calls
+      .flatMap((call) => {
+        const agreement = call[0].draftPayload as { payments?: { operationKey?: string }[] };
+        return agreement.payments ?? [];
+      })
+      .map((payment) => payment.operationKey);
+
+    expect(paymentKeys.length).toBeGreaterThan(1);
+    expect(new Set(paymentKeys).size).toBe(1);
+  });
+
   it("stays on the three-step editor when there is no product to copy from", async () => {
     const user = userEvent.setup();
     render(
