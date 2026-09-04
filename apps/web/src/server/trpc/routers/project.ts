@@ -73,14 +73,17 @@ import {
   markSongReleased,
   renameSongVersion,
   setSongArchiveState,
+  setSongLyrics,
   setSongWorkflowStage,
   tombstoneStoredAudioVersion,
   updateSongMetadata,
 } from "~/server/domain/song-management/db";
 import {
+  LYRICS_MAX_LENGTH,
   reconcileExactStoredAudioDeletion,
   SongManagementDomainError,
 } from "~/server/domain/song-management/service";
+import { mapSongLyricsDomainError, toSongLyricsWire } from "./song-lyrics-wire";
 import { r2ExactAudioStoragePort } from "~/server/domain/song-management/storage";
 import { SongDeletionError } from "~/server/domain/song-deletion/errors";
 import { reconcilePrivateSongArtworkDeletion } from "~/server/domain/song-artwork/storage";
@@ -954,6 +957,43 @@ export const projectRouter = router({
         return { ok: true as const, label: version.label };
       } catch (error) {
         mapSongManagementDomainError(error);
+      }
+    }),
+
+  // SK-305. One lyrics sheet per song, shared by every version.
+  //
+  // `expectedUpdatedAtIso` is the stamp the editor loaded, and it is the whole
+  // clash guard — the artist can write this sheet too, so a save that started
+  // from an older copy is refused instead of replacing their words. A stale
+  // result comes back as a normal return value, not a thrown error.
+  setSongLyrics: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        // Required, not optional: passing it makes the domain verify the song
+        // really belongs to that project, which is one more link in the
+        // ownership chain rather than one fewer.
+        projectId: z.string().uuid(),
+        lyrics: z.string().max(LYRICS_MAX_LENGTH).nullable(),
+        expectedUpdatedAtIso: z.string().datetime().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await setSongLyrics(ctx.db, {
+          producerId: ctx.producerId,
+          trackId: input.trackId,
+          projectId: input.projectId,
+          lyrics: input.lyrics,
+          expectedUpdatedAt: input.expectedUpdatedAtIso
+            ? new Date(input.expectedUpdatedAtIso)
+            : null,
+          updatedBy: "producer",
+          changedAt: new Date(),
+        });
+        return toSongLyricsWire(result);
+      } catch (error) {
+        mapSongLyricsDomainError(error);
       }
     }),
 
