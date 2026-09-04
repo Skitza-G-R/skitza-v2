@@ -187,7 +187,7 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(SHARED_BOTTOM).toContain('className="liquid-glass-bottom-nav__pane"');
     expect(SHARED_BOTTOM).toContain('className="liquid-glass-bottom-nav__rim"');
     expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__stack");
-    expect(SHARED_BOTTOM).toContain("rgb(var(--sk-nav-glass-ink) / 0.78)");
+    expect(SHARED_BOTTOM).toContain('const NAV_INK = "rgb(var(--sk-nav-glass-ink))"');
     expect(SHARED_BOTTOM).not.toContain("--fg-onsidebar");
 
     expect(GLOBALS).toContain("--sk-nav-glass-tint: var(--bg-elevated);");
@@ -214,7 +214,8 @@ describe("producer mobile nav viewport anchoring", () => {
       /\.liquid-glass-bottom-nav__rim\s*\{[\s\S]*?backdrop-filter:\s*blur\(1\.5px\)\s*saturate\(1\.7\)\s*brightness\(var\(--sk-nav-rim-lift\)\)/,
     );
     expect(GLOBALS).toContain("-webkit-mask-image:");
-    expect(GLOBALS).toContain("--sk-nav-press-scale: 1.03;");
+    expect(GLOBALS).toContain("--sk-nav-press-scale: 1.038;");
+    expect(GLOBALS).toContain("--sk-nav-press-scale: 0.975;");
     expect(GLOBALS).toContain("transform: scale(var(--sk-nav-press-scale));");
     expect(GLOBALS).toMatch(
       /:has\(\s*\.liquid-glass-bottom-nav__glass\[data-interacting="true"\]\s*\)/,
@@ -243,6 +244,81 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(GLOBALS).toContain("touch-action: pan-y");
   });
 
+  // SK-306 A. Gili asked for the brand amber out of the tab bar. The active
+  // tab now reads through the frosted capsule, weight and icon stroke, so the
+  // only --brand-primary left in the surface is the accessibility focus ring.
+  it("tints no tab with the brand colour, but keeps the focus ring", () => {
+    expect(SHARED_BOTTOM).toContain(
+      "focus-visible:ring-[rgb(var(--brand-primary))]",
+    );
+    expect(SHARED_BOTTOM.match(/--brand-primary/g)).toHaveLength(1);
+    expect(SHARED_BOTTOM).not.toContain('color: tab.active');
+    // The capsule is what carries the active state now, so it must stay.
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__tab\[data-active="true"\]::before\s*\{[\s\S]*?background: linear-gradient/,
+    );
+  });
+
+  // SK-306 B. Dropping the pane's alpha is what makes the page visible through
+  // the bar; the tint-coloured halo is what stops that costing legibility.
+  // Measured over black, white, flat purple, flat amber and hard stripes in
+  // both themes, every case beats the alpha-0.54 bar it replaces.
+  it("buys transparency back with a self-hiding halo rather than more alpha", () => {
+    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.40;");
+    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.42;");
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__label\s*\{\s*text-shadow:[\s\S]*?rgb\(var\(--sk-nav-glass-tint\)/,
+    );
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__icon\s*\{\s*filter: drop-shadow\([\s\S]*?--sk-nav-glass-tint/,
+    );
+  });
+
+  // SK-306 C. The one layer that actually moves the page's pixels. It has to
+  // stay a *sibling* of the pane and paint before it, and it has to fail
+  // invisibly: the neutral grey flood under the map means a browser that
+  // never draws the feImage displaces nothing at all, rather than shoving the
+  // backdrop sideways by half the scale.
+  it("adds the displacement warp as a sibling that degrades to nothing", () => {
+    expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__warp");
+    expect(SHARED_BOTTOM).toContain("feDisplacementMap");
+    expect(SHARED_BOTTOM).toContain('xChannelSelector="R"');
+    expect(SHARED_BOTTOM).toContain('colorInterpolationFilters="sRGB"');
+    const flood = SHARED_BOTTOM.indexOf("<feFlood");
+    const image = SHARED_BOTTOM.indexOf("<feImage");
+    expect(flood).toBeGreaterThan(0);
+    expect(flood).toBeLessThan(image);
+    const warp = SHARED_BOTTOM.indexOf("liquid-glass-bottom-nav__warp");
+    const pane = SHARED_BOTTOM.indexOf('className="liquid-glass-bottom-nav__pane"');
+    expect(warp).toBeLessThan(pane);
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__warp\s*\{[\s\S]*?z-index: 0;/,
+    );
+  });
+
+  // SK-306 D. The bar breathes so it reads as a live surface. The breath uses
+  // the standalone `scale` property so it composes with the press `transform`
+  // instead of overwriting it, and it never touches the tab row — keeping the
+  // icons and labels still means they never re-rasterise.
+  it("breathes on the glass layers only, and stands down under a finger", () => {
+    expect(GLOBALS).toMatch(
+      /@keyframes liquid-glass-bottom-nav-breath\s*\{\s*from \{ scale: 1; \}/,
+    );
+    const breathRule = GLOBALS.match(
+      /\.liquid-glass-bottom-nav__pane,\n\s{4}\.liquid-glass-bottom-nav__rim \{\n\s{6}animation: liquid-glass-bottom-nav-breath[^\n]*\n/,
+    );
+    expect(breathRule).not.toBeNull();
+    // The tab row must be excluded from the breath: exactly one rule applies
+    // it, and the match above proves that rule lists only the pane and rim.
+    expect(GLOBALS.match(/animation: liquid-glass-bottom-nav-breath/g)).toHaveLength(1);
+    expect(GLOBALS).toMatch(
+      /:is\(\.liquid-glass-bottom-nav__pane, \.liquid-glass-bottom-nav__rim\) \{\n\s+animation: none;/,
+    );
+    // Growing and settling are asymmetric on purpose.
+    expect(GLOBALS).toContain("transition: transform 420ms var(--ease-out-strong);");
+    expect(GLOBALS).toContain("transition: transform 220ms var(--ease-press);");
+  });
+
   it("keeps a static active treatment when reduced motion is requested", () => {
     expect(GLOBALS).toMatch(
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__lens,[\s\S]*\.liquid-glass-bottom-nav__magnifier[\s\S]*display: none !important/,
@@ -250,6 +326,10 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
     expect(GLOBALS).toMatch(
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*--sk-nav-press-scale: 1 !important;/,
+    );
+    // The breath has to die with the press scale, not just the transition.
+    expect(GLOBALS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__warp,[\s\S]*?animation: none !important;\n\s+scale: none !important;/,
     );
   });
 

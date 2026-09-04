@@ -24,6 +24,39 @@ const RELEASE_CLICK_GUARD_MS = 350;
 const TAB_SELECTOR = "[data-liquid-glass-nav-tab]";
 const MAGNIFIED_TAB_SELECTOR = "[data-liquid-glass-nav-magnified-tab]";
 
+/**
+ * One ink for every tab, at full strength.
+ *
+ * SK-306 took the brand amber off the active tab, and the obvious replacement
+ * was full-strength ink against a dimmed 0.78 for the rest. Measured against
+ * the transparency Gili asked for, that dimming is what breaks: over a black
+ * album cover in light mode the inactive labels fall to 3.6:1, below the 4.5:1
+ * floor for text. Ink strength turned out to be the strongest contrast lever
+ * available and the only one that costs no transparency at all, so it is spent
+ * here rather than on a hierarchy the tab already carries three other ways —
+ * the frosted capsule, 700 against 500 weight, and a 2.4 against 2 icon
+ * stroke. `aria-current="page"` carries the state non-visually.
+ */
+const NAV_INK = "rgb(var(--sk-nav-glass-ink))";
+const LENS_WARP_FILTER_ID = "sk-nav-lens-warp";
+const LENS_WARP_DISPLACEMENT = 40;
+
+/**
+ * Displacement map for the optical warp layer (SK-306 C).
+ *
+ * Red carries horizontal displacement, green vertical. Green is a flat 128
+ * everywhere — a 68px-tall pill has no vertical depth worth bending — while
+ * red runs 255 at the left rim down to a flat 128 across the middle 64% and
+ * on to 0 at the right rim. `feDisplacementMap` samples the backdrop at
+ * `x + scale * (red - 0.5)`, so red above 128 pulls content inward from the
+ * left and below 128 pulls it inward from the right: the outer 18% at each
+ * end stretches by ~22% while the middle is left untouched. That is a
+ * cylindrical lens, and sampling only ever reads *inward*, so no pixel is
+ * ever fetched from outside the filter region.
+ */
+const LENS_WARP_MAP =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='80' preserveAspectRatio='none'%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='rgb(255,128,128)'/%3E%3Cstop offset='0.03' stop-color='rgb(246,128,128)'/%3E%3Cstop offset='0.06' stop-color='rgb(222,128,128)'/%3E%3Cstop offset='0.09' stop-color='rgb(192,128,128)'/%3E%3Cstop offset='0.12' stop-color='rgb(161,128,128)'/%3E%3Cstop offset='0.15' stop-color='rgb(137,128,128)'/%3E%3Cstop offset='0.18' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='0.82' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='0.85' stop-color='rgb(119,128,128)'/%3E%3Cstop offset='0.88' stop-color='rgb(95,128,128)'/%3E%3Cstop offset='0.91' stop-color='rgb(64,128,128)'/%3E%3Cstop offset='0.94' stop-color='rgb(33,128,128)'/%3E%3Cstop offset='0.97' stop-color='rgb(9,128,128)'/%3E%3Cstop offset='1' stop-color='rgb(0,128,128)'/%3E%3C/linearGradient%3E%3Crect width='400' height='80' fill='url(%23g)'/%3E%3C/svg%3E";
+
 type LensPoint = {
   clientX: number;
   clientY: number;
@@ -304,10 +337,16 @@ export function LiquidGlassBottomNav<Id extends string>({
   const flushPendingLensPoint = (): void => {
     lensFrameRef.current = null;
     const nav = navRef.current;
-    const rect = navRectRef.current;
     const point = pendingPointRef.current;
-    if (!nav || !rect || !point) return;
+    if (!nav || !navRectRef.current || !point) return;
 
+    // Re-measure rather than trust the pointerdown rect. The press grows the
+    // whole pill by 7%, so a rect cached before `data-interacting` was set
+    // leaves the lens trailing the finger by up to ~13px at the far ends of
+    // the bar. This frame already reads ten tab rects below, so one more
+    // measurement of the same dirty layout costs nothing.
+    const rect = nav.getBoundingClientRect();
+    navRectRef.current = rect;
     setLensFromPointer(nav, rect, point);
   };
 
@@ -509,6 +548,48 @@ export function LiquidGlassBottomNav<Id extends string>({
           "0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
       }}
     >
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        width="0"
+        height="0"
+        className="absolute h-0 w-0"
+      >
+        <filter
+          id={LENS_WARP_FILTER_ID}
+          x="0%"
+          y="0%"
+          width="100%"
+          height="100%"
+          colorInterpolationFilters="sRGB"
+        >
+          {/* A neutral 128 grey under the map means zero displacement, so if
+              the browser never paints the feImage the layer renders its
+              backdrop untouched — invisible — instead of shoving the whole
+              page sideways by half the scale. That is what makes this safe to
+              ship before anyone has seen it on an iPhone.
+
+              The id is fixed rather than per-instance. Two bars can share a
+              document — the SK-298 simulation renders one inside the producer
+              shell — and a `useId()` value would carry characters that need
+              escaping inside `url(#…)`. Duplicate definitions are identical,
+              and a fragment reference resolves to the first, so both layers
+              get the same lens either way. */}
+          <feFlood floodColor="rgb(128,128,128)" floodOpacity="1" result="neutral" />
+          <feImage href={LENS_WARP_MAP} preserveAspectRatio="none" result="ramp" />
+          <feMerge result="map">
+            <feMergeNode in="neutral" />
+            <feMergeNode in="ramp" />
+          </feMerge>
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="map"
+            scale={LENS_WARP_DISPLACEMENT}
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </svg>
       <div
         data-liquid-glass-bottom-nav-stack=""
         className={cn(
@@ -516,6 +597,19 @@ export function LiquidGlassBottomNav<Id extends string>({
           position !== "in-flow" && "pointer-events-auto",
         )}
       >
+        <span
+          className="liquid-glass-bottom-nav__warp"
+          aria-hidden="true"
+          style={{
+            // Inline rather than in globals.css on purpose: a filter `url(#…)`
+            // written in an external stylesheet has historically resolved
+            // against the stylesheet's URL rather than the document in some
+            // engines, which silently yields no filter at all. An inline style
+            // is unambiguously document-relative.
+            backdropFilter: `url(#${LENS_WARP_FILTER_ID})`,
+            WebkitBackdropFilter: `url(#${LENS_WARP_FILTER_ID})`,
+          }}
+        />
         <span className="liquid-glass-bottom-nav__pane" aria-hidden="true" />
         <span className="liquid-glass-bottom-nav__rim" aria-hidden="true" />
         <nav
@@ -545,9 +639,7 @@ export function LiquidGlassBottomNav<Id extends string>({
                   className="liquid-glass-bottom-nav__magnified-tab flex min-w-0 flex-col items-center justify-center gap-1 py-2.5"
                   style={{
                     minHeight: 68,
-                    color: tab.active
-                      ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--sk-nav-glass-ink) / 0.78)",
+                    color: NAV_INK,
                   }}
                 >
                   <LiquidGlassTabVisual tab={tab} />
@@ -612,7 +704,7 @@ export function LiquidGlassBottomNav<Id extends string>({
               className="liquid-glass-bottom-nav__tab sk-press relative flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{
                 minHeight: 68,
-                color: tab.active ? "rgb(var(--brand-primary))" : "rgb(var(--sk-nav-glass-ink) / 0.78)",
+                color: NAV_INK,
               }}
             >
               <LiquidGlassTabVisual tab={tab} />
