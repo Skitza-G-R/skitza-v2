@@ -839,3 +839,97 @@ describe("SongPage More actions interactions", () => {
     expect(document.activeElement).toBe(outside);
   });
 });
+
+// ─── SK-305 lyrics row ───────────────────────────────────────────────
+
+describe("song lyrics row", () => {
+  beforeEach(() => {
+    installMatchMedia(true);
+  });
+
+  const savedStamp = "2026-09-04T12:00:00.000Z";
+
+  function lyricsActions(lyrics: string | null = "one\ntwo\nthree") {
+    const setSongLyrics = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        lyrics,
+        lyricsUpdatedAtIso: savedStamp,
+        lyricsUpdatedBy: "producer" as const,
+      }),
+    );
+    return { ...songActions(), setSongLyrics };
+  }
+
+  const row = () => document.querySelector<HTMLElement>('[data-test="open-song-lyrics"]');
+  const badge = () => document.querySelector<HTMLElement>('[data-test="song-lyrics-badge"]');
+
+  it("invites a first draft when the song has no words", () => {
+    render(<SongPage data={songData(false)} role="producer" actions={lyricsActions()} />);
+    expect(badge()?.textContent).toBe("Add");
+    expect(row()?.getAttribute("aria-label")).toBe("Add lyrics");
+  });
+
+  it("counts the lines once the words are there", () => {
+    const data = songData(false);
+    data.track.lyrics = "one\ntwo\nthree";
+    data.track.lyricsUpdatedAtIso = "2026-09-03T10:00:00.000Z";
+    data.track.lyricsUpdatedBy = "producer";
+    render(<SongPage data={data} role="producer" actions={lyricsActions()} />);
+    expect(badge()?.textContent).toBe("3 lines");
+  });
+
+  it("is offered to the artist too — Gili's call is that both sides write", () => {
+    render(<SongPage data={songData(false)} role="artist" actions={lyricsActions()} />);
+    expect(row()).not.toBeNull();
+  });
+
+  it("never appears for a guest on a public listen link", () => {
+    render(<SongPage data={songData(false)} role="guest" actions={{}} />);
+    expect(row()).toBeNull();
+  });
+
+  it("stays hidden when the surface cannot save lyrics at all", () => {
+    render(<SongPage data={songData(false)} role="producer" actions={songActions()} />);
+    expect(row()).toBeNull();
+  });
+
+  it("opens the editor and sends the stamp the page loaded", async () => {
+    const user = userEvent.setup();
+    const data = songData(false);
+    data.track.lyrics = "old words";
+    data.track.lyricsUpdatedAtIso = "2026-09-03T10:00:00.000Z";
+    data.track.lyricsUpdatedBy = "artist";
+    const actions = lyricsActions("old words!");
+    render(<SongPage data={data} role="producer" actions={actions} />);
+
+    await user.click(row() as HTMLElement);
+    const editor = screen.getByRole("textbox", { name: /Lyrics for/ });
+    await user.type(editor, "!");
+    await user.click(document.querySelector('[data-test="lyrics-save"]') as HTMLElement);
+
+    await waitFor(() => {
+      expect(actions.setSongLyrics).toHaveBeenCalledWith({
+        projectId: "project-1",
+        trackId: "track-1",
+        versionId: "version-1",
+        lyrics: "old words!",
+        expectedUpdatedAtIso: "2026-09-03T10:00:00.000Z",
+      });
+    });
+  });
+
+  it("updates the badge after a save without waiting for a page reload", async () => {
+    const user = userEvent.setup();
+    const actions = lyricsActions("one\ntwo\nthree\nfour");
+    render(<SongPage data={songData(false)} role="producer" actions={actions} />);
+
+    await user.click(row() as HTMLElement);
+    await user.type(screen.getByRole("textbox", { name: /Lyrics for/ }), "anything");
+    await user.click(document.querySelector('[data-test="lyrics-save"]') as HTMLElement);
+
+    await waitFor(() => {
+      expect(badge()?.textContent).toBe("4 lines");
+    });
+  });
+});

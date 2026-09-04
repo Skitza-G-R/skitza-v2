@@ -53,7 +53,7 @@ function node(test: string): HTMLElement {
   return found;
 }
 const missing = (test: string) => document.querySelector(`[data-test="${test}"]`) === null;
-const textarea = () => screen.getByRole("textbox");
+const textarea = () => screen.getByRole<HTMLTextAreaElement>("textbox");
 const saveButton = () => node("lyrics-save") as HTMLButtonElement;
 
 describe("LyricsDialog", () => {
@@ -220,7 +220,7 @@ describe("LyricsDialog", () => {
     it("says so plainly when the same person saved from somewhere else", async () => {
       const user = userEvent.setup();
       renderDialog({
-        onSave: vi.fn(() => Promise.resolve({ ...staleResult, lyricsUpdatedBy: "producer" })),
+        onSave: vi.fn(() => Promise.resolve({ ...staleResult, lyricsUpdatedBy: "producer" as const })),
       });
       await user.type(textarea(), "!");
       await user.click(saveButton());
