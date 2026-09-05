@@ -685,18 +685,25 @@ export function MobileDock({
           hidden ? "pointer-events-none" : "",
         ].join(" ")}
         style={{
-          // No `filter` here, deliberately. An element with a filter is a
-          // backdrop root for everything inside it, so the pill's
-          // `backdrop-filter` would sample this wrapper — which paints nothing
-          // — instead of the page, and the glass would silently not render.
-          // The exit gave up its blur to buy that; transform and opacity still
-          // carry the motion. The desktop dock keeps its blur: it is not glass.
-          transform: hidden ? "translateY(120%) scale(0.98)" : "translateY(0) scale(1)",
+          // This wrapper must be *completely inert* while the dock is visible.
+          //
+          // An element that establishes a backdrop root hides the page from any
+          // `backdrop-filter` beneath it — the pill would sample this wrapper,
+          // which paints nothing, and blur nothing. `filter` does that, and so
+          // do `transform` and `will-change: transform`, which is why all three
+          // are conditional. Measured with a hard colour edge behind the bar:
+          // with an identity `transform` still set, the edge came through at
+          // 0.0px spread — no blur at all, even though the computed style read
+          // `blur(20px)`. The tab row escapes this because its transform sits on
+          // the blurred layer itself, not on an ancestor.
+          //
+          // `none` -> `translateY(120%)` still animates, so the exit is intact.
+          transform: hidden ? "translateY(120%) scale(0.98)" : "none",
           opacity: hidden ? 0 : 1,
           transition: hidden
             ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)"
             : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)",
-          willChange: "transform, opacity",
+          willChange: hidden ? "transform, opacity" : "auto",
         }}
       >
         <div className="persistent-player-dock__glass sk-toast-in flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]">

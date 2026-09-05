@@ -508,16 +508,22 @@ describe("mobile dock glass", () => {
     expect(playerSrc).not.toContain('background: "#1A1A1A"');
   });
 
-  // An element with a filter is a backdrop root for everything inside it, so a
-  // `backdrop-filter` beneath one samples that wrapper instead of the page and
-  // the glass silently does not render. The mobile dock's wrapper therefore
-  // carries no filter at all — its hide animation gave up the blur for this.
-  it("keeps the mobile dock's wrapper free of a filter", () => {
+  // Anything that establishes a backdrop root hides the page from a
+  // `backdrop-filter` beneath it, and THREE properties do that: `filter`,
+  // `transform`, and `will-change` naming either. Measured with a hard colour
+  // edge behind the bar, an identity `transform` left on the wrapper produced
+  // 0.0px of blur while the computed style still read `blur(20px)` — the glass
+  // was inert and nothing said so. All three are therefore conditional, and the
+  // wrapper is completely untouched while the dock is visible.
+  it("keeps the mobile dock's wrapper inert while it is visible", () => {
     const dock = playerSrc.slice(
       playerSrc.indexOf("export function MobileDock("),
       playerSrc.indexOf("export function MobileFullPlayer("),
     );
     expect(dock).not.toContain("filter: hidden");
-    expect(dock).toContain('willChange: "transform, opacity"');
+    expect(dock).toContain('transform: hidden ? "translateY(120%) scale(0.98)" : "none"');
+    expect(dock).toContain('willChange: hidden ? "transform, opacity" : "auto"');
+    // A bare `willChange: "transform..."` would silently kill the blur again.
+    expect(dock).not.toMatch(/willChange: "transform/);
   });
 });
