@@ -685,23 +685,21 @@ export function MobileDock({
           hidden ? "pointer-events-none" : "",
         ].join(" ")}
         style={{
+          // No `filter` here, deliberately. An element with a filter is a
+          // backdrop root for everything inside it, so the pill's
+          // `backdrop-filter` would sample this wrapper — which paints nothing
+          // — instead of the page, and the glass would silently not render.
+          // The exit gave up its blur to buy that; transform and opacity still
+          // carry the motion. The desktop dock keeps its blur: it is not glass.
           transform: hidden ? "translateY(120%) scale(0.98)" : "translateY(0) scale(1)",
           opacity: hidden ? 0 : 1,
-          filter: hidden ? "blur(6px)" : "blur(0px)",
           transition: hidden
-            ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 380ms cubic-bezier(0.16, 1, 0.3, 1)"
-            : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms cubic-bezier(0.16, 1, 0.3, 1)",
-          willChange: "transform, opacity, filter",
+            ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)"
+            : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+          willChange: "transform, opacity",
         }}
       >
-        <div
-          className="sk-toast-in flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"
-          style={{
-            background: "#1A1A1A",
-            borderColor: "rgba(255,255,255,0.08)",
-            color: "#fff",
-          }}
-        >
+        <div className="persistent-player-dock__glass sk-toast-in flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]">
           {/* Cover + title is one tappable surface → expands the
               full-screen player (Spotify/Apple-Music mini-bar
               behavior). The song PAGE stays reachable from inside the
@@ -717,8 +715,15 @@ export function MobileDock({
           >
             <Cover track={track} size={38} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-bold tracking-[-0.01em]">{track.title}</p>
-              <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
+              <p className="persistent-player-dock__ink truncate text-[13px] font-bold tracking-[-0.01em]">
+                {track.title}
+              </p>
+              {/* Neutral, not brand amber. Over a warm cover the amber
+                  subtitle sat on a wash of its own hue and washed out in both
+                  themes — the one place the glass genuinely cost legibility.
+                  It stays secondary through size and weight, the same way the
+                  tab row below dropped its own tint. */}
+              <p className="persistent-player-dock__ink truncate text-[11px] font-semibold text-[rgb(var(--sk-nav-glass-ink)/0.72)]">
                 {track.subtitle}
               </p>
             </div>
@@ -727,7 +732,7 @@ export function MobileDock({
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={onTogglePlay}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--sk-nav-glass-ink))] text-[rgb(var(--sk-nav-glass-tint))]"
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -738,7 +743,7 @@ export function MobileDock({
             onClick={() => {
               setExpanded(true);
             }}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--sk-nav-glass-ink)/0.72)] hover:text-[rgb(var(--sk-nav-glass-ink))]"
           >
             <ExpandIcon />
           </button>
@@ -749,7 +754,7 @@ export function MobileDock({
             onClick={() => {
               playerClose();
             }}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-white/[0.06] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--sk-nav-glass-ink)/0.08)] text-[rgb(var(--sk-nav-glass-ink)/0.72)] hover:text-[rgb(var(--sk-nav-glass-ink))]"
           >
             <CloseIcon />
           </button>

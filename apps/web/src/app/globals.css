@@ -417,7 +417,8 @@
    *
    * A strong opaque fallback keeps the tabs readable where backdrop-filter is
    * unsupported. */
-  .liquid-glass-bottom-nav__stack {
+  .liquid-glass-bottom-nav__stack,
+  .persistent-player-dock__glass {
     --sk-nav-glass-tint: var(--bg-elevated);
     --sk-nav-glass-ink: var(--fg-default);
     --sk-nav-glass-alpha: 0.30;
@@ -432,7 +433,9 @@
   /* Dark theme frosts the elevated near-black and pulls the backdrop down
      instead of up, so light page content cannot wash out light ink. */
   [data-theme="chrome-dark"] .liquid-glass-bottom-nav__stack,
-  [data-theme="dark"] .liquid-glass-bottom-nav__stack {
+  [data-theme="dark"] .liquid-glass-bottom-nav__stack,
+  [data-theme="chrome-dark"] .persistent-player-dock__glass,
+  [data-theme="dark"] .persistent-player-dock__glass {
     --sk-nav-glass-alpha: 0.32;
     --sk-nav-glass-lift: 0.58;
     --sk-nav-glass-flatten: 0.86;
@@ -853,6 +856,37 @@
    * + `lg:sk-safe-bottom` take over via cascade). */
   .persistent-player-dock {
     bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+  /* The mini player is the same material as the tab row it floats above —
+   * same tint, alpha, blur and brightness/contrast pass — so the two surfaces
+   * read as one piece of glass rather than a slab sitting on a lens.
+   *
+   * It carries no `filter` of its own and neither may its wrapper: an element
+   * with a filter is a backdrop root for everything inside it, so a
+   * `backdrop-filter` under one samples the wrapper instead of the page and
+   * the glass silently disappears. The mobile dock's hide animation gave up
+   * its blur for exactly that reason; see the component. */
+  .persistent-player-dock__glass {
+    border-color: rgb(var(--sk-nav-glass-ink) / 0.12);
+    background: rgb(var(--sk-nav-glass-tint) / 0.93);
+    color: rgb(var(--sk-nav-glass-ink));
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .persistent-player-dock__glass {
+      background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
+      backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+        brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
+      -webkit-backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+        brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
+    }
+  }
+  /* Same self-hiding halo the tab row uses, for the same reason: it buys the
+     text back the contrast the alpha spends, and is invisible wherever the
+     glass already resembles what is behind it. */
+  .persistent-player-dock__glass .persistent-player-dock__ink {
+    text-shadow:
+      0 0 3px rgb(var(--sk-nav-glass-tint) / 0.9),
+      0 0 7px rgb(var(--sk-nav-glass-tint) / 0.54);
   }
   .mobile-full-player-sheet {
     visibility: hidden;

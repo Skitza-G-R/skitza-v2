@@ -23,6 +23,10 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const PLAYER_PATH = join(here, "persistent-player.tsx");
 const playerSrc = readFileSync(PLAYER_PATH, "utf8");
+const globalsCss = readFileSync(
+  join(dirname(PLAYER_PATH), "..", "..", "app", "globals.css"),
+  "utf8",
+);
 
 // ─── fmtTime ─────────────────────────────────────────────────────────
 // fmtTime renders the "1:23 / 4:56" ticker in the persistent player
@@ -485,5 +489,35 @@ describe("PersistentPlayer source — duration fallback (the 0:00 bug)", () => {
     // user reported in the screenshot.
     expect(playerSrc).toMatch(/pickDurationMs\(/);
     expect(playerSrc).toContain(".duration"); // audio element ref
+  });
+});
+
+describe("mobile dock glass", () => {
+  // The mini player is the same material as the tab row it floats above, so it
+  // reads the same recipe rather than carrying a second copy of the numbers.
+  it("shares the tab row's glass recipe instead of a hardcoded pill", () => {
+    expect(globalsCss).toMatch(
+      /\.liquid-glass-bottom-nav__stack,\n\s+\.persistent-player-dock__glass \{/,
+    );
+    expect(globalsCss).toMatch(
+      /\.persistent-player-dock__glass \{[\s\S]*?backdrop-filter: blur\(8px\) saturate\(var\(--sk-nav-glass-bleed\)\)/,
+    );
+    expect(playerSrc).toContain("persistent-player-dock__glass");
+    // The old opaque pill and its hardcoded white ink are gone, so the dock
+    // follows the theme the way the tab row does.
+    expect(playerSrc).not.toContain('background: "#1A1A1A"');
+  });
+
+  // An element with a filter is a backdrop root for everything inside it, so a
+  // `backdrop-filter` beneath one samples that wrapper instead of the page and
+  // the glass silently does not render. The mobile dock's wrapper therefore
+  // carries no filter at all — its hide animation gave up the blur for this.
+  it("keeps the mobile dock's wrapper free of a filter", () => {
+    const dock = playerSrc.slice(
+      playerSrc.indexOf("export function MobileDock("),
+      playerSrc.indexOf("export function MobileFullPlayer("),
+    );
+    expect(dock).not.toContain("filter: hidden");
+    expect(dock).toContain('willChange: "transform, opacity"');
   });
 });
