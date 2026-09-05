@@ -1,5 +1,7 @@
 import type { PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
 
+import { subtotalCentsFromTotal } from "~/lib/tax-mode";
+
 export const IMPORT_NOTICE = "Added by producer from an existing agreement" as const;
 export const PAYMENT_NOTICE = "Confirmed by producer" as const;
 const MAX_POSTGRES_INTEGER_CENTS = 2_147_483_647;
@@ -1138,4 +1140,311 @@ export function draftInstallmentSchedule(draft: ActiveWorkImportDraft): readonly
     amountCents: base + (index === 0 ? remainder : 0),
     trigger: index === 0 ? "producer_import" : "monthly_anniversary",
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Quick row (SK-299)
+//
+// The three-step editor asks for everything an outside agreement contains. A
+// quick row asks for the five things only the producer knows — who, what, how
+// much, how much of it is already paid — and proposes the rest from a Store
+// product. Nothing here saves anything: it builds the same draft shape the full
+// editor builds, so the assessment, the transaction and every rule behind them
+// stay exactly as they are.
+// ---------------------------------------------------------------------------
+
+export type QuickRowInput = Readonly<{
+  artistName: string;
+  email: string;
+  phone: string;
+  projectTitle: string;
+  /** What the artist owes in total, all in — not the pre-tax subtotal. */
+  total: string;
+  /** Already paid before today. Empty or "0" means nothing has been paid. */
+  paidSoFar: string;
+  /** The day the money arrived, as `YYYY-MM-DD`. */
+  paidAt: string;
+  /** Minted once per row so a retry can never duplicate the payment. */
+  paymentOperationKey: string;
+}>;
+
+/** What a quick row copies from the product, in the order the summary shows it. */
+export const QUICK_ROW_DEFAULTED_FIELDS = [
+  "service",
+  "deliverables",
+  "rights",
+  "agreementText",
+  "taxMode",
+  "taxRatePct",
+  "currency",
+  "includedSongSpaces",
+  "planKind",
+  "revisions",
+  "royalties",
+  "sessions",
+] as const;
+
+export function quickRowDraft(
+  input: QuickRowInput,
+  template: StoreTemplateOption,
+  defaults: {
+    defaultCurrency: string;
+    defaultTaxMode: ImportTaxMode;
+    defaultTaxRatePct: number;
+  },
+): ActiveWorkImportDraft {
+  const templated = applyTemplate(newImportDraft(defaults), template);
+  const typedTotalCents = inputToCents(input.total);
+  const taxRatePct = integerInput(templated.agreement.taxRatePct) ?? 0;
+  // The producer types the total; the snapshot stores a subtotal.
+  const derived =
+    typedTotalCents === null
+      ? null
+      : subtotalCentsFromTotal(typedTotalCents, templated.agreement.taxMode, taxRatePct);
+
+  const paidCents = inputToCents(input.paidSoFar) ?? 0;
+
+  return {
+    ...templated,
+    client: {
+      existingClientId: null,
+      name: input.artistName,
+      email: input.email,
+      phone: input.phone,
+    },
+    project: { title: input.projectTitle, deadlineAt: "" },
+    agreement: {
+      ...templated.agreement,
+      subtotal: derived === null ? input.total : centsToInput(derived.subtotalCents),
+    },
+    payments:
+      paidCents > 0
+        ? [
+            {
+              operationKey: input.paymentOperationKey,
+              installmentPosition: 1,
+              amount: centsToInput(paidCents),
+              paidAt: input.paidAt,
+              note: "",
+              proofUploadToken: null,
+              proofFileName: null,
+            },
+          ]
+        : [],
+  };
+}
+
+/**
+ * A payment belongs to exactly one installment. Quick mode puts paid-so-far on
+ * the first one, which only works while it fits. When it does not — ₪3,000
+ * against a ₪2,500 first half — the row stays Needs info and the producer
+ * splits it in the full editor, because guessing a split would invent money
+ * movements that never happened.
+ *
+ * A plan with a single installment is the exception: there is nothing to split
+ * into, so paying more than the total is a real overpayment and shows as
+ * Overpaid exactly as it does in the full editor.
+ */
+export function quickRowAllocation(
+  draft: ActiveWorkImportDraft,
+): Readonly<{ kind: "ok" }> | Readonly<{ kind: "needs_split"; reason: ImportReasonView }> {
+  const paid = paidCents(draft);
+  if (paid <= 0) return { kind: "ok" };
+  const schedule = draftInstallmentSchedule(draft);
+  const first = schedule[0];
+  // No schedule means the money is not valid yet; other reasons already say so.
+  if (!first || schedule.length === 1 || paid <= first.amountCents) return { kind: "ok" };
+  return {
+    kind: "needs_split",
+    reason: {
+      code: "payment_needs_single_installment",
+      field: "payments",
+      message: "Payment must be assigned to one installment. Open Change details to split it.",
+    },
+  };
+}
+
+function firstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] ?? "";
+}
+
+/**
+ * The one line the producer confirms before anything is saved. Every value in
+ * it that came from the product is visible, so agreeing to the line is
+ * agreeing to the defaults.
+ */
+export function quickRowSummary(
+  draft: ActiveWorkImportDraft,
+  /** What the producer actually typed, so the line can admit any rounding. */
+  typedTotal?: string,
+): Readonly<{
+  parts: readonly string[];
+  line: string;
+  question: string;
+  /** True when no subtotal produces the typed total and Skitza had to move it. */
+  roundedFromTypedTotal: boolean;
+}> | null {
+  const { totalCents, taxRatePct } = draftTaxBreakdown(draft);
+  if (totalCents === null || totalCents <= 0 || taxRatePct === null) return null;
+
+  const currency = normalizedCurrency(draft.agreement.currency) || "USD";
+  const money = formatImportMoney(totalCents, currency);
+  const songs = Math.max(1, integerInput(draft.agreement.includedSongSpaces) ?? 1);
+  const paid = paidCents(draft);
+  const who = firstName(draft.client.name);
+
+  const parts = [
+    draft.agreement.name.trim(),
+    draft.agreement.taxMode === "tax_free"
+      ? `${money} (tax-free)`
+      : `${money} incl. ${String(taxRatePct)}% tax`,
+    paymentPlanLabel(draft),
+    `${String(songs)} ${songs === 1 ? "song" : "songs"}`,
+    ...(paid > 0
+      ? [`${who || "Already"} ${who ? "has paid" : "paid"} ${formatImportMoney(paid, currency)}`]
+      : []),
+  ].filter((part) => part.length > 0);
+
+  return {
+    parts,
+    line: parts.join(" · "),
+    question: who ? `Is this the deal with ${who}?` : "Is this the deal?",
+    roundedFromTypedTotal:
+      typedTotal === undefined ? false : (inputToCents(typedTotal) ?? totalCents) !== totalCents,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// What the producer sees right after the import (SK-299)
+// ---------------------------------------------------------------------------
+
+export type MoneyByCurrency = Readonly<{ currency: string; cents: number }>;
+
+export type PostImportArtist = Readonly<{
+  clientContactId: string;
+  name: string;
+  projectTitles: readonly string[];
+  owed: readonly MoneyByCurrency[];
+  nextDueAtIso: string | null;
+  /** A reminder is armed for at least one payment this artist still owes. */
+  reminderArmed: boolean;
+}>;
+
+function addMoney(into: Map<string, number>, currency: string, cents: number): void {
+  into.set(currency, (into.get(currency) ?? 0) + cents);
+}
+
+function moneyList(totals: ReadonlyMap<string, number>): readonly MoneyByCurrency[] {
+  return [...totals.entries()]
+    .filter(([, cents]) => cents > 0)
+    .map(([currency, cents]) => ({ currency, cents }))
+    .sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
+function earlier(left: string | null, right: string | null): string | null {
+  if (!left) return right;
+  if (!right) return left;
+  return left <= right ? left : right;
+}
+
+/**
+ * Turn what was just created into the numbers the producer actually cares
+ * about: what they are owed, when the next payment lands, and who to send a
+ * link to. Installments carry a `rowId` rather than a client, so the created
+ * rows are the bridge between the money and the person.
+ *
+ * Only money still outstanding counts as owed — a payment the producer already
+ * confirmed as received must never reappear as something to chase.
+ */
+export function postImportSummary(input: {
+  rows: readonly WorkspaceImportRow[];
+  installments: readonly SetupInstallmentOption[];
+  clients: readonly SetupClientOption[];
+}): Readonly<{
+  owed: readonly MoneyByCurrency[];
+  nextDueAtIso: string | null;
+  artists: readonly PostImportArtist[];
+}> {
+  const clientByRowId = new Map<string, string>();
+  const orderedClientIds: string[] = [];
+  for (const row of input.rows) {
+    if (!row.rowId || !row.createdClientContactId || !row.materializedAtIso) continue;
+    clientByRowId.set(row.rowId, row.createdClientContactId);
+    if (!orderedClientIds.includes(row.createdClientContactId)) {
+      orderedClientIds.push(row.createdClientContactId);
+    }
+  }
+
+  const totals = new Map<string, number>();
+  const perClientTotals = new Map<string, Map<string, number>>();
+  const perClientProjects = new Map<string, string[]>();
+  const perClientDue = new Map<string, string | null>();
+  const perClientReminder = new Map<string, boolean>();
+  let nextDueAtIso: string | null = null;
+
+  for (const installment of input.installments) {
+    const clientContactId = clientByRowId.get(installment.rowId);
+    if (!clientContactId) continue;
+
+    const projects = perClientProjects.get(clientContactId) ?? [];
+    if (!projects.includes(installment.projectTitle)) projects.push(installment.projectTitle);
+    perClientProjects.set(clientContactId, projects);
+
+    if (installment.remainingCents <= 0) continue;
+
+    addMoney(totals, installment.currency, installment.remainingCents);
+    const clientTotals = perClientTotals.get(clientContactId) ?? new Map<string, number>();
+    addMoney(clientTotals, installment.currency, installment.remainingCents);
+    perClientTotals.set(clientContactId, clientTotals);
+
+    nextDueAtIso = earlier(nextDueAtIso, installment.dueAtIso);
+    perClientDue.set(
+      clientContactId,
+      earlier(perClientDue.get(clientContactId) ?? null, installment.dueAtIso),
+    );
+    if (installment.remindersEnabled && installment.dueAtIso) {
+      perClientReminder.set(clientContactId, true);
+    }
+  }
+
+  const clientById = new Map(input.clients.map((client) => [client.id, client]));
+  const artists = orderedClientIds.flatMap<PostImportArtist>((clientContactId) => {
+    const client = clientById.get(clientContactId);
+    if (!client) return [];
+    return [
+      {
+        clientContactId,
+        name: client.name,
+        projectTitles: perClientProjects.get(clientContactId) ?? [],
+        owed: moneyList(perClientTotals.get(clientContactId) ?? new Map()),
+        nextDueAtIso: perClientDue.get(clientContactId) ?? null,
+        reminderArmed: perClientReminder.get(clientContactId) ?? false,
+      },
+    ];
+  });
+
+  return { owed: moneyList(totals), nextDueAtIso, artists };
+}
+
+/**
+ * The message that goes out with the link. Named, tied to the real project, and
+ * nothing like "Join me on Skitza: URL" — this is the first thing the artist
+ * ever reads about Skitza.
+ */
+export function artistShareMessage(input: {
+  artistName: string;
+  projectTitle: string;
+  producerName: string;
+  url: string;
+}): string {
+  const who = input.artistName.trim().split(/\s+/)[0] ?? "";
+  const greeting = who ? `Hi ${who}, ` : "Hi, ";
+  const project = input.projectTitle.trim();
+  const work = project ? `our work on ${project}` : "our work together";
+  const from = input.producerName.trim() ? ` — ${input.producerName.trim()}` : "";
+  return (
+    `${greeting}I moved ${work} into Skitza. ` +
+    `You can hear the songs, see what's paid and what's left, and book sessions in one place: ` +
+    `${input.url}${from}`
+  );
 }

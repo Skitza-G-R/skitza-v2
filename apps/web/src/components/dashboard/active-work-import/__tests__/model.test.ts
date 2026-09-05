@@ -19,11 +19,19 @@ import {
   matchingExistingClient,
   newImportDraft,
   normalizedEmail,
+  artistShareMessage,
   parseStoredImportDraft,
+  postImportSummary,
+  quickRowAllocation,
+  quickRowDraft,
+  quickRowSummary,
   requiresExplicitClientMatch,
   rowDisplayReasons,
   toServerDraftPayload,
+  type SetupClientOption,
+  type SetupInstallmentOption,
   type StoreTemplateOption,
+  type WorkspaceImportRow,
 } from "../model";
 
 const defaults = {
@@ -439,5 +447,407 @@ describe("active-work import model", () => {
     const nonePayload = toServerDraftPayload(draft);
     expect((nonePayload.agreement as Record<string, unknown>).session).toBeNull();
     expect(parseStoredImportDraft(nonePayload, defaults).agreement.sessionsMode).toBe("none");
+  });
+});
+
+const quickTemplate: StoreTemplateOption = {
+  id: "template-quick",
+  name: "Full production",
+  kind: "album",
+  service: "Production and mixing",
+  deliverables: ["Mixes", "Masters"],
+  subtotalCents: 100_000,
+  currency: "ILS",
+  taxMode: "tax_included",
+  taxRatePct: 17,
+  includedSongSpaces: 3,
+  revisionRule: { kind: "fixed", count: 2 },
+  royaltyTerms: null,
+  rights: ["Artist owns the masters"],
+  plans: [{ kind: "split_50_50" }],
+  agreementText: "The agreement we already signed.",
+  session: null,
+};
+
+const quickInput = {
+  artistName: "Noya Levi",
+  email: "noya@example.com",
+  phone: "+972500000000",
+  projectTitle: "Noya EP",
+  total: "5000",
+  paidSoFar: "2500",
+  paidAt: "2026-09-04",
+  paymentOperationKey: "active-work-import-payment:fixed-key",
+};
+
+describe("quick row", () => {
+  it("takes five typed fields and defaults the rest from the product", () => {
+    const draft = quickRowDraft(quickInput, quickTemplate, defaults);
+
+    expect(draft.client).toEqual({
+      existingClientId: null,
+      name: "Noya Levi",
+      email: "noya@example.com",
+      phone: "+972500000000",
+    });
+    expect(draft.project.title).toBe("Noya EP");
+    // Everything below was proposed by the product, not typed.
+    expect(draft.agreement).toMatchObject({
+      templateProductId: "template-quick",
+      name: "Full production",
+      service: "Production and mixing",
+      currency: "ILS",
+      taxMode: "tax_included",
+      taxRatePct: "17",
+      includedSongSpaces: "3",
+      planKind: "split_50_50",
+      agreementText: "The agreement we already signed.",
+      rights: ["Artist owns the masters"],
+    });
+    // The typed total wins over the product's own price.
+    expect(draftTaxBreakdown(draft).totalCents).toBe(500_000);
+  });
+
+  it("derives the stored subtotal backwards for each tax mode", () => {
+    const included = quickRowDraft(quickInput, quickTemplate, defaults);
+    // tax_included: the typed number already IS the total, tax sits inside it.
+    expect(draftTaxBreakdown(included)).toMatchObject({
+      subtotalCents: 500_000,
+      taxAmountCents: 72_650,
+      totalCents: 500_000,
+    });
+
+    const added = quickRowDraft(
+      quickInput,
+      { ...quickTemplate, taxMode: "tax_added" },
+      defaults,
+    );
+    // tax_added: 427,350 + 17% = exactly the 500,000 the producer typed.
+    expect(draftTaxBreakdown(added)).toMatchObject({
+      subtotalCents: 427_350,
+      taxAmountCents: 72_650,
+      totalCents: 500_000,
+    });
+
+    const free = quickRowDraft(quickInput, { ...quickTemplate, taxMode: "tax_free" }, defaults);
+    expect(draftTaxBreakdown(free)).toMatchObject({
+      subtotalCents: 500_000,
+      taxAmountCents: 0,
+      totalCents: 500_000,
+    });
+  });
+
+  it("records paid-so-far as one confirmed payment on the first installment", () => {
+    const draft = quickRowDraft(quickInput, quickTemplate, defaults);
+    expect(draft.payments).toEqual([
+      {
+        operationKey: "active-work-import-payment:fixed-key",
+        installmentPosition: 1,
+        amount: "2500.00",
+        paidAt: "2026-09-04",
+        note: "",
+        proofUploadToken: null,
+        proofFileName: null,
+      },
+    ]);
+    expect(quickRowAllocation(draft).kind).toBe("ok");
+  });
+
+  it("records no payment at all when nothing has been paid", () => {
+    const draft = quickRowDraft({ ...quickInput, paidSoFar: "" }, quickTemplate, defaults);
+    expect(draft.payments).toEqual([]);
+    expect(quickRowAllocation(draft).kind).toBe("ok");
+  });
+
+  it("sends paid-so-far past the first installment to Needs info instead of splitting it", () => {
+    // 50/50 on ₪5,000 makes each half ₪2,500. ₪3,000 cannot belong to one
+    // installment, and quick mode never splits a payment on its own.
+    const draft = quickRowDraft({ ...quickInput, paidSoFar: "3000" }, quickTemplate, defaults);
+    const allocation = quickRowAllocation(draft);
+    expect(allocation.kind).toBe("needs_split");
+    expect(allocation.kind === "needs_split" && allocation.reason).toEqual({
+      code: "payment_needs_single_installment",
+      field: "payments",
+      message: "Payment must be assigned to one installment. Open Change details to split it.",
+    });
+  });
+
+  it("leaves a genuine overpayment alone when there is only one installment", () => {
+    // Paid in full means one installment, so more than the total is a real
+    // overpayment and stays Overpaid, exactly as the full editor shows it.
+    const draft = quickRowDraft(
+      { ...quickInput, paidSoFar: "6000" },
+      { ...quickTemplate, plans: [{ kind: "full" }] },
+      defaults,
+    );
+    expect(quickRowAllocation(draft).kind).toBe("ok");
+    expect(draftPaymentBalance(draft).overpaidCents).toBe(100_000);
+  });
+
+  it("writes the one-line summary the producer confirms", () => {
+    const summary = quickRowSummary(quickRowDraft(quickInput, quickTemplate, defaults));
+    expect(summary?.parts).toEqual([
+      "Full production",
+      "₪5,000 incl. 17% tax",
+      "50/50",
+      "3 songs",
+      "Noya has paid ₪2,500",
+    ]);
+    expect(summary?.question).toBe("Is this the deal with Noya?");
+  });
+
+  it("drops the paid clause from the summary when nothing has been paid", () => {
+    const summary = quickRowSummary(
+      quickRowDraft({ ...quickInput, paidSoFar: "" }, quickTemplate, defaults),
+    );
+    expect(summary?.parts).toEqual([
+      "Full production",
+      "₪5,000 incl. 17% tax",
+      "50/50",
+      "3 songs",
+    ]);
+  });
+
+  it("says so when rounding cannot land on the typed total exactly", () => {
+    // ₪1.00 at 17% added on top has no subtotal behind it.
+    const draft = quickRowDraft(
+      { ...quickInput, total: "1", paidSoFar: "" },
+      { ...quickTemplate, taxMode: "tax_added" },
+      defaults,
+    );
+    const summary = quickRowSummary(draft, "1");
+    expect(draftTaxBreakdown(draft).totalCents).toBe(99);
+    expect(summary?.roundedFromTypedTotal).toBe(true);
+    // A total that lands exactly never claims it was moved.
+    expect(
+      quickRowSummary(quickRowDraft(quickInput, quickTemplate, defaults), "5000")
+        ?.roundedFromTypedTotal,
+    ).toBe(false);
+  });
+
+  it("has no summary until the money makes sense", () => {
+    expect(quickRowSummary(quickRowDraft({ ...quickInput, total: "" }, quickTemplate, defaults)))
+      .toBeNull();
+  });
+});
+
+function createdRow(rowId: string, clientContactId: string): WorkspaceImportRow {
+  return {
+    rowId,
+    operationKey: `op-${rowId}`,
+    revision: 1,
+    draft: newImportDraft(defaults),
+    assessment: null,
+    materializedAtIso: "2026-09-04T10:00:00.000Z",
+    createdClientContactId: clientContactId,
+    createdProjectId: `project-${rowId}`,
+    createdPurchaseId: `purchase-${rowId}`,
+    saveState: "idle",
+    saveError: null,
+    materializeError: null,
+    localVersion: 0,
+    persistedLocalVersion: 0,
+  };
+}
+
+function installment(
+  input: Partial<SetupInstallmentOption> & { rowId: string },
+): SetupInstallmentOption {
+  return {
+    id: `installment-${input.rowId}-${String(input.position ?? 1)}`,
+    projectId: `project-${input.rowId}`,
+    purchaseId: `purchase-${input.rowId}`,
+    projectTitle: "Noya EP",
+    agreementName: "Full production",
+    position: 1,
+    amountCents: 250_000,
+    remainingCents: 250_000,
+    currency: "ILS",
+    dueTrigger: "producer_import",
+    dueAtIso: "2026-10-15T00:00:00.000Z",
+    triggeredAtIso: null,
+    status: "not_paid",
+    remindersEnabled: true,
+    reminderEligible: true,
+    reminderWaitingForDueDate: false,
+    ...input,
+  };
+}
+
+function setupClient(id: string, name: string): SetupClientOption {
+  return {
+    id,
+    name,
+    email: `${name.toLowerCase()}@example.com`,
+    connected: false,
+    providerAcceptedAtIso: null,
+    invitationEligible: true,
+    invitationState: "available",
+  };
+}
+
+describe("what the producer sees right after the import", () => {
+  it("adds up only what is still owed, per currency", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1"), createdRow("row-2", "client-2")],
+      installments: [
+        installment({ rowId: "row-1", remainingCents: 250_000 }),
+        // Already settled by the paid-so-far the producer confirmed.
+        installment({ rowId: "row-1", position: 2, remainingCents: 0 }),
+        installment({ rowId: "row-2", currency: "USD", remainingCents: 100_000 }),
+      ],
+      clients: [setupClient("client-1", "Noya"), setupClient("client-2", "Amit")],
+    });
+
+    expect(summary.owed).toEqual([
+      { currency: "ILS", cents: 250_000 },
+      { currency: "USD", cents: 100_000 },
+    ]);
+  });
+
+  it("finds the soonest payment still coming", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1"), createdRow("row-2", "client-2")],
+      installments: [
+        installment({ rowId: "row-1", dueAtIso: "2026-11-01T00:00:00.000Z" }),
+        installment({ rowId: "row-2", dueAtIso: "2026-09-20T00:00:00.000Z" }),
+      ],
+      clients: [setupClient("client-1", "Noya"), setupClient("client-2", "Amit")],
+    });
+
+    expect(summary.nextDueAtIso).toBe("2026-09-20T00:00:00.000Z");
+  });
+
+  it("joins money to the right artist through the created row", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1"), createdRow("row-2", "client-2")],
+      installments: [
+        installment({ rowId: "row-2", remainingCents: 90_000, projectTitle: "Amit single" }),
+      ],
+      clients: [setupClient("client-1", "Noya"), setupClient("client-2", "Amit")],
+    });
+
+    expect(summary.artists).toEqual([
+      {
+        clientContactId: "client-1",
+        name: "Noya",
+        projectTitles: [],
+        owed: [],
+        nextDueAtIso: null,
+        reminderArmed: false,
+      },
+      {
+        clientContactId: "client-2",
+        name: "Amit",
+        projectTitles: ["Amit single"],
+        owed: [{ currency: "ILS", cents: 90_000 }],
+        nextDueAtIso: "2026-10-15T00:00:00.000Z",
+        reminderArmed: true,
+      },
+    ]);
+  });
+
+  it("never claims a reminder is armed without a due date behind it", () => {
+    const summary = postImportSummary({
+      rows: [createdRow("row-1", "client-1")],
+      installments: [
+        installment({ rowId: "row-1", remindersEnabled: true, dueAtIso: null }),
+      ],
+      clients: [setupClient("client-1", "Noya")],
+    });
+
+    expect(summary.artists[0]?.reminderArmed).toBe(false);
+  });
+
+  it("ignores rows that were never created", () => {
+    const uncreated = { ...createdRow("row-1", "client-1"), materializedAtIso: null };
+    const summary = postImportSummary({
+      rows: [uncreated],
+      installments: [installment({ rowId: "row-1" })],
+      clients: [setupClient("client-1", "Noya")],
+    });
+
+    expect(summary.artists).toEqual([]);
+    expect(summary.owed).toEqual([]);
+  });
+
+  it("writes a message an artist would actually read", () => {
+    expect(
+      artistShareMessage({
+        artistName: "Noya Levi",
+        projectTitle: "Noya EP",
+        producerName: "Gili",
+        url: "https://skitza.app/sign-up/join/gili/home",
+      }),
+    ).toBe(
+      "Hi Noya, I moved our work on Noya EP into Skitza. You can hear the songs, see what's " +
+        "paid and what's left, and book sessions in one place: " +
+        "https://skitza.app/sign-up/join/gili/home — Gili",
+    );
+    // Never the old placeholder.
+    expect(
+      artistShareMessage({
+        artistName: "",
+        projectTitle: "",
+        producerName: "",
+        url: "https://skitza.app/x",
+      }),
+    ).not.toContain("Join me on Skitza");
+  });
+});
+
+describe("the server's own verdict on a quick row", () => {
+  // The UI is never trusted: assessActiveWorkImportDraft re-derives the frozen
+  // snapshot from the raw payload. These assert the server agrees with what the
+  // producer confirmed on screen — money included.
+  function assessQuick(input: Partial<typeof quickInput>, template = quickTemplate) {
+    const draft = quickRowDraft({ ...quickInput, ...input }, template, defaults);
+    return assessActiveWorkImportDraft(toServerDraftPayload(draft));
+  }
+
+  it("accepts a quick row and freezes the total the producer typed", () => {
+    const assessment = assessQuick({});
+    if (assessment.state !== "ready") {
+      throw new Error(`Expected Ready, got ${assessment.reasons[0]?.code ?? "none"}`);
+    }
+    const snapshot = assessment.normalized.commercialSnapshot;
+    expect(snapshot.totalCents).toBe(500_000);
+    expect(snapshot.currency).toBe("ILS");
+    expect(snapshot.tax).toMatchObject({ mode: "tax_included", ratePct: 17 });
+    expect(snapshot.includedSongSpaces).toBe(3);
+    expect(assessment.normalized.plan).toEqual({ kind: "split_50_50" });
+    // 50/50 on ₪5,000, with the confirmed ₪2,500 sitting on the first half.
+    expect(assessment.normalized.schedule.map((entry) => entry.amountCents)).toEqual([
+      250_000, 250_000,
+    ]);
+    expect(assessment.normalized.payments).toHaveLength(1);
+    expect(assessment.normalized.payments[0]).toMatchObject({
+      installmentPosition: 1,
+      amountCents: 250_000,
+    });
+  });
+
+  it("agrees with the reversed tax maths for a price with tax added on top", () => {
+    const assessment = assessQuick({}, { ...quickTemplate, taxMode: "tax_added" });
+    if (assessment.state !== "ready") {
+      throw new Error(`Expected Ready, got ${assessment.reasons[0]?.code ?? "none"}`);
+    }
+    const snapshot = assessment.normalized.commercialSnapshot;
+    // The producer typed ₪5,000. The server, working only from the payload,
+    // stores ₪4,273.50 + 17% and lands on exactly ₪5,000 again.
+    expect(snapshot.subtotalCents).toBe(427_350);
+    expect(snapshot.tax).toMatchObject({ mode: "tax_added", ratePct: 17, amountCents: 72_650 });
+    expect(snapshot.totalCents).toBe(500_000);
+  });
+
+  it("marks the row as producer-imported, never as an artist acceptance", () => {
+    const assessment = assessQuick({});
+    if (assessment.state !== "ready") throw new Error("Expected Ready");
+    expect(assessment.normalized.schedule[0]?.trigger).toBe("producer_import");
+  });
+
+  it("still refuses a quick row that is missing what the server requires", () => {
+    const assessment = assessQuick({ email: "" });
+    expect(assessment.state).toBe("needs_info");
   });
 });

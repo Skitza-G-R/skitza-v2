@@ -2,39 +2,64 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { resampleWaveformHeights } from "~/lib/audio/rms-peaks";
+import { useAudioPeaks } from "~/lib/audio/use-audio-peaks";
+import { shareNative } from "~/lib/native/share";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
+import { useToast } from "~/components/ui/toast";
 import {
   PLAYER_EVENTS,
   clampSeekMs,
+  nextLoopMode,
   playerClose,
   playerLoad,
+  playerNext,
   playerPlay,
+  playerPrevious,
   playerSeek,
+  playerSetLoop,
+  playerSetShuffle,
   playerSetVolume,
   playerToggle,
   publishNowPlaying,
+  queueNeighbors,
   useNowPlaying,
   usePlaybackSnapshot,
+  type LoopMode,
   type PlayerTrack,
 } from "./playback-runtime";
 
 export {
   PLAYER_EVENTS,
   clampSeekMs,
+  nextLoopMode,
   playerClose,
   playerLoad,
+  playerNext,
   playerPlay,
+  playerPrevious,
   playerSeek,
+  playerSetLoop,
+  playerSetShuffle,
   playerSetVolume,
   playerToggle,
   publishNowPlaying,
+  queueNeighbors,
   useNowPlaying,
   usePlaybackSnapshot,
 };
-export type { PlayerLoadOptions, PlayerTrack } from "./playback-runtime";
+export type { LoopMode, PlayerLoadOptions, PlayerTrack } from "./playback-runtime";
+
+/**
+ * Fixed seek step for the ±10 second transport buttons. Track skips are
+ * a separate control now — the founder reported the old "next" arrow
+ * jumping 15 seconds instead of moving to the next song.
+ */
+export const SEEK_STEP_MS = 10_000;
 
 const UUID_PATH_SEGMENT = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const PRODUCER_SHARED_SONG_PATH = new RegExp(`^/dashboard/music/${UUID_PATH_SEGMENT}/?$`, "i");
@@ -114,6 +139,45 @@ export function expandHrefForTrack(track: PlayerTrack, pathname: string | null):
   return `/dashboard/music/${track.id}`;
 }
 
+/**
+ * Brand-canonical address for the currently-playing track, so a shared
+ * link always reads as skitza.app/... regardless of which deployment
+ * the producer happens to be viewing from. Mirrors the Song page's own
+ * share control (canonicalSongPageAddress).
+ */
+export function shareUrlForTrack(track: PlayerTrack, pathname: string | null): string {
+  return `${PUBLIC_BRAND_ORIGIN}${expandHrefForTrack(track, pathname)}`;
+}
+
+/** Accessible name for the tri-state repeat button. */
+export function loopButtonLabel(mode: LoopMode): string {
+  if (mode === "all") return "Repeat all";
+  if (mode === "one") return "Repeat this song";
+  return "Repeat off";
+}
+
+/**
+ * Only decode audio the browser can actually fetch: the same-origin
+ * stream route carries the session cookie, while a raw R2 URL has no
+ * CORS grant for our origins and would fail every time. Returns the URL
+ * unchanged (not normalized) so the decode cache key matches the one
+ * the Song page hero already uses for the same track.
+ */
+export function sameOriginPeaksUrl(
+  audioUrl: string | null | undefined,
+  origin: string | null,
+): string | null {
+  if (!audioUrl || !origin) return null;
+  try {
+    const base = new URL(origin);
+    const url = new URL(audioUrl, base);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.origin === base.origin ? audioUrl : null;
+  } catch {
+    return null;
+  }
+}
+
 export function shouldCollapsePlayerDrag({
   offsetY,
   velocityY,
@@ -140,6 +204,8 @@ export function PersistentPlayer() {
   const state = usePlaybackSnapshot();
   const currentMs = state.currentMs;
   const audioDurationSec = state.audioDurationSec;
+  const { toast } = useToast();
+  const [sharing, setSharing] = useState(false);
   // Reactive pathname — re-renders on navigation. Drives
   // expandHrefForTrack so the dock's title / cover / expand button
   // route to the right L3 (artist vs producer) without each caller
@@ -168,6 +234,7 @@ export function PersistentPlayer() {
 
   if (!state.track) return null;
 
+  const neighbors = queueNeighbors(state);
   const dbDurationMs = state.track.durationMs;
   const effectiveDurationMs = pickDurationMs(dbDurationMs, audioDurationSec);
   const progressPct =
@@ -189,6 +256,55 @@ export function PersistentPlayer() {
     playerToggle();
   }
 
+  async function onShare() {
+    const track = state.track;
+    if (!track || sharing) return;
+    setSharing(true);
+    try {
+      const url = shareUrlForTrack(track, pathname);
+      const result = await shareNative({
+        title: track.title,
+        text: `Listen to ${track.title} on Skitza`,
+        url,
+        fallbackText: url,
+      });
+      if (result.status === "shared") toast("Song shared", "success");
+      if (result.status === "copied") toast("Song link copied", "success");
+      if (result.status === "unavailable") {
+        toast("Could not share this song. Try again.", "error");
+      }
+    } catch {
+      toast("Could not share this song. Try again.", "error");
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  const transport = {
+    loop: state.loop,
+    shuffle: state.shuffle,
+    hasNext: neighbors.next !== null,
+    onTogglePlay,
+    onScrub,
+    onSkip,
+    onNext: () => {
+      playerNext();
+    },
+    onPrevious: () => {
+      playerPrevious();
+    },
+    onCycleLoop: () => {
+      playerSetLoop(nextLoopMode(state.loop));
+    },
+    onToggleShuffle: () => {
+      playerSetShuffle(!state.shuffle);
+    },
+    onShare: () => {
+      void onShare();
+    },
+    sharing,
+  };
+
   return (
     <>
       {/* Desktop dock — md+ */}
@@ -198,11 +314,9 @@ export function PersistentPlayer() {
         currentMs={currentMs}
         durationMs={effectiveDurationMs}
         progressPct={progressPct}
-        onTogglePlay={onTogglePlay}
-        onScrub={onScrub}
-        onSkip={onSkip}
         hidden={dockHidden}
         pathname={pathname}
+        {...transport}
       />
       {/* Mobile dock — <md, sits above the bottom nav. Tapping it
           expands into the full-screen player (SK-55), so it needs the
@@ -213,14 +327,34 @@ export function PersistentPlayer() {
         currentMs={currentMs}
         durationMs={effectiveDurationMs}
         progressPct={progressPct}
-        onTogglePlay={onTogglePlay}
-        onScrub={onScrub}
-        onSkip={onSkip}
         hidden={dockHidden}
         pathname={pathname}
+        {...transport}
       />
     </>
   );
+}
+
+// ─── Shared transport contract ───────────────────────────────────────
+//
+// Every surface (desktop dock, mobile mini bar, full-screen player)
+// drives the same runtime, so they share one prop bag rather than each
+// re-deriving queue position and repeat state.
+
+export interface PlayerTransport {
+  loop: LoopMode;
+  shuffle: boolean;
+  /** False at the end of the queue with repeat off — the button disables. */
+  hasNext: boolean;
+  onTogglePlay: () => void;
+  onScrub: (pct: number) => void;
+  onSkip: (deltaMs: number) => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onCycleLoop: () => void;
+  onToggleShuffle: () => void;
+  onShare: () => void;
+  sharing: boolean;
 }
 
 // ─── Desktop dock ────────────────────────────────────────────────────
@@ -231,23 +365,29 @@ function DesktopDock({
   currentMs,
   durationMs,
   progressPct,
+  hidden = false,
+  pathname,
+  loop,
+  shuffle,
+  hasNext,
   onTogglePlay,
   onScrub,
   onSkip,
-  hidden = false,
-  pathname,
+  onNext,
+  onPrevious,
+  onCycleLoop,
+  onToggleShuffle,
+  onShare,
+  sharing,
 }: {
   track: PlayerTrack;
   playing: boolean;
   currentMs: number;
   durationMs: number | null;
   progressPct: number;
-  onTogglePlay: () => void;
-  onScrub: (pct: number) => void;
-  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
-}) {
+} & PlayerTransport) {
   return (
     <div
       role="region"
@@ -322,17 +462,40 @@ function DesktopDock({
             to render — without it the waveform collapses (regression
             the founder flagged: "no waveform bar on the floating
             player"). */}
-        <div className="hidden min-w-[360px] flex-col items-center gap-1.5 lg:flex">
-          <div className="flex items-center justify-center gap-4">
+        <div className="hidden min-w-[420px] flex-col items-center gap-1.5 lg:flex">
+          <div className="flex items-center justify-center gap-1">
             <button
               type="button"
-              aria-label="Back 15 seconds"
-              onClick={() => {
-                onSkip(-15_000);
-              }}
+              aria-label="Shuffle"
+              aria-pressed={shuffle}
+              title="Shuffle"
+              onClick={onToggleShuffle}
+              className={[
+                "sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-lg)]",
+                shuffle ? "text-[rgb(var(--brand-primary))]" : "text-white/55 hover:text-white",
+              ].join(" ")}
+            >
+              <ShuffleIcon />
+            </button>
+            <button
+              type="button"
+              aria-label="Previous song"
+              title="Previous song"
+              onClick={onPrevious}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
               <SkipBackIcon />
+            </button>
+            <button
+              type="button"
+              aria-label="Back 10 seconds"
+              title="Back 10 seconds"
+              onClick={() => {
+                onSkip(-SEEK_STEP_MS);
+              }}
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
+            >
+              <Seek10Icon direction="back" />
             </button>
             <button
               type="button"
@@ -344,18 +507,42 @@ function DesktopDock({
             </button>
             <button
               type="button"
-              aria-label="Forward 15 seconds"
+              aria-label="Forward 10 seconds"
+              title="Forward 10 seconds"
               onClick={() => {
-                onSkip(15_000);
+                onSkip(SEEK_STEP_MS);
               }}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
+              <Seek10Icon direction="forward" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next song"
+              title="Next song"
+              onClick={onNext}
+              disabled={!hasNext}
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white disabled:cursor-not-allowed disabled:text-white/20 disabled:hover:text-white/20"
+            >
               <SkipForwardIcon />
+            </button>
+            <button
+              type="button"
+              aria-label={loopButtonLabel(loop)}
+              aria-pressed={loop !== "off"}
+              title={loopButtonLabel(loop)}
+              onClick={onCycleLoop}
+              className={[
+                "sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-lg)]",
+                loop === "off" ? "text-white/55 hover:text-white" : "text-[rgb(var(--brand-primary))]",
+              ].join(" ")}
+            >
+              <LoopIcon single={loop === "one"} />
             </button>
           </div>
           <div className="flex w-full items-center gap-2.5 font-mono text-[10px] text-white/40">
             <span className="w-8 text-right tabular-nums">{fmtTime(currentMs)}</span>
-            <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} />
+            <MiniWaveform track={track} progressPct={progressPct} onScrub={onScrub} />
             <span className="w-8 tabular-nums">
               {durationMs == null ? "—" : fmtTime(durationMs)}
             </span>
@@ -380,6 +567,17 @@ function DesktopDock({
             1fr column on the left mirrors this so the center auto
             column stays at true geometric center. */}
         <div className="flex items-center justify-end gap-1 justify-self-end border-s border-white/10 ps-3">
+          <button
+            type="button"
+            aria-label="Share song"
+            title="Share song"
+            aria-busy={sharing}
+            disabled={sharing}
+            onClick={onShare}
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/55 hover:text-white disabled:opacity-50"
+          >
+            <ShareIcon />
+          </button>
           <Link
             href={expandHrefForTrack(track, pathname)}
             prefetch={false}
@@ -414,23 +612,19 @@ export function MobileDock({
   currentMs,
   durationMs,
   progressPct,
-  onTogglePlay,
-  onScrub,
-  onSkip,
   hidden = false,
   pathname,
+  ...transport
 }: {
   track: PlayerTrack;
   playing: boolean;
   currentMs: number;
   durationMs: number | null;
   progressPct: number;
-  onTogglePlay: () => void;
-  onScrub: (pct: number) => void;
-  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
-}) {
+} & PlayerTransport) {
+  const { onTogglePlay } = transport;
   // SK-55 — tapping the mini bar expands a full-screen player (the
   // Spotify/Apple-Music pattern). One state flag toggles the
   // `.expanded` class on the overlay; CSS transitions do the motion.
@@ -570,9 +764,7 @@ export function MobileDock({
               currentMs={currentMs}
               durationMs={durationMs}
               progressPct={progressPct}
-              onTogglePlay={onTogglePlay}
-              onScrub={onScrub}
-              onSkip={onSkip}
+              {...transport}
               expanded={expanded}
               onCollapse={() => {
                 setExpanded(false);
@@ -603,9 +795,18 @@ export function MobileFullPlayer({
   currentMs,
   durationMs,
   progressPct,
+  loop,
+  shuffle,
+  hasNext,
   onTogglePlay,
   onScrub,
   onSkip,
+  onNext,
+  onPrevious,
+  onCycleLoop,
+  onToggleShuffle,
+  onShare,
+  sharing,
   expanded,
   onCollapse,
   collapseBtnRef,
@@ -618,16 +819,13 @@ export function MobileFullPlayer({
   currentMs: number;
   durationMs: number | null;
   progressPct: number;
-  onTogglePlay: () => void;
-  onScrub: (pct: number) => void;
-  onSkip: (deltaMs: number) => void;
   expanded: boolean;
   onCollapse: () => void;
   collapseBtnRef: React.RefObject<HTMLButtonElement | null>;
   pathname: string | null;
   direction?: "ltr" | "rtl";
   language?: string | undefined;
-}) {
+} & PlayerTransport) {
   // Tint the top of the sheet with the track's identity gradient —
   // same producerGradient hash the covers use, so mini → full reads
   // as the same object growing.
@@ -836,14 +1034,20 @@ export function MobileFullPlayer({
         {/* Artwork — square, screen-width minus gutters, capped so it
             never starves the transport on short phones. Soft radial
             highlight over the identity gradient (Samply's airbrushed
-            cover feel) instead of a flat color slab. */}
+            cover feel) instead of a flat color slab.
+
+            The cap is 100% of this flex slot, not a slice of the viewport:
+            a viewport fraction knows nothing about the chrome stacked below,
+            so on a short phone the cover overflowed the slot and painted over
+            the song title. Letting it letterbox is fine — the block is a
+            decorative gradient, not a real cover image. */}
         <div className="flex min-h-0 flex-1 items-center justify-center py-3">
           <div
             aria-hidden
             className="relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
             style={{
               background: tint,
-              maxHeight: "min(360px, 46vh)",
+              maxHeight: "min(360px, 100%)",
             }}
           >
             <span
@@ -876,6 +1080,17 @@ export function MobileFullPlayer({
               {track.subtitle}
             </p>
           </Link>
+          <button
+            type="button"
+            aria-label="Share song"
+            title="Share song"
+            aria-busy={sharing}
+            disabled={sharing}
+            onClick={onShare}
+            className="sk-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/85 hover:bg-white/[0.14] hover:text-white disabled:opacity-50"
+          >
+            <ShareIcon />
+          </button>
           <Link
             href={expandHrefForTrack(track, pathname)}
             prefetch={false}
@@ -892,7 +1107,7 @@ export function MobileFullPlayer({
         <div className="mt-4">
           <div className="flex items-center">
             <MiniWaveform
-              seed={track.id}
+              track={track}
               progressPct={displayedProgressPct}
               onScrub={onScrub}
               onPreview={setScrubPreviewPct}
@@ -905,14 +1120,25 @@ export function MobileFullPlayer({
           </div>
         </div>
 
-        {/* Transport — 64px play/pause flanked by fixed ±15 second skips. */}
-        <div className="mt-2 flex items-center justify-center gap-9">
+        {/* Transport — 64px play/pause between song skips, with shuffle
+            and repeat on the outside (Spotify / Apple Music order). */}
+        <div className="mt-2 flex items-center justify-center gap-3">
           <button
             type="button"
-            aria-label="Back 15 seconds"
-            onClick={() => {
-              onSkip(-15_000);
-            }}
+            aria-label="Shuffle"
+            aria-pressed={shuffle}
+            onClick={onToggleShuffle}
+            className={[
+              "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
+              shuffle ? "text-[rgb(var(--brand-primary))]" : "text-white/60 hover:text-white",
+            ].join(" ")}
+          >
+            <ShuffleIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="Previous song"
+            onClick={onPrevious}
             className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
           >
             <SkipBackIcon />
@@ -927,13 +1153,49 @@ export function MobileFullPlayer({
           </button>
           <button
             type="button"
-            aria-label="Forward 15 seconds"
-            onClick={() => {
-              onSkip(15_000);
-            }}
-            className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
+            aria-label="Next song"
+            onClick={onNext}
+            disabled={!hasNext}
+            className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white disabled:cursor-not-allowed disabled:text-white/25 disabled:hover:text-white/25"
           >
             <SkipForwardIcon />
+          </button>
+          <button
+            type="button"
+            aria-label={loopButtonLabel(loop)}
+            aria-pressed={loop !== "off"}
+            onClick={onCycleLoop}
+            className={[
+              "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
+              loop === "off" ? "text-white/60 hover:text-white" : "text-[rgb(var(--brand-primary))]",
+            ].join(" ")}
+          >
+            <LoopIcon single={loop === "one"} />
+          </button>
+        </div>
+
+        {/* Fine seek — the ±10 second nudges live on their own row so
+            the song skips above never get mistaken for them again. */}
+        <div className="mt-1.5 flex items-center justify-center gap-3">
+          <button
+            type="button"
+            aria-label="Back 10 seconds"
+            onClick={() => {
+              onSkip(-SEEK_STEP_MS);
+            }}
+            className="sk-press inline-flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-white/60 hover:text-white"
+          >
+            <Seek10Icon direction="back" />
+          </button>
+          <button
+            type="button"
+            aria-label="Forward 10 seconds"
+            onClick={() => {
+              onSkip(SEEK_STEP_MS);
+            }}
+            className="sk-press inline-flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-white/60 hover:text-white"
+          >
+            <Seek10Icon direction="forward" />
           </button>
         </div>
 
@@ -983,13 +1245,25 @@ function Cover({ track, size }: { track: PlayerTrack; size: number }) {
 }
 
 // ─── Mini waveform (dock progress visual) ────────────────────────────
-// Replaces the flat ScrubBar with a row of seeded bars matching the
-// L3 hero waveform aesthetic — same "this is a music app" visual
-// language. Played bars render solid white, unplayed bars sit at
-// 12% white. Click anywhere on the strip to seek (the founder still
-// expects scrubbing to work from the dock).
+// A row of bars matching the L3 hero waveform aesthetic — same "this is
+// a music app" visual language. Played bars render solid white,
+// unplayed bars sit at 20% white. Click anywhere on the strip to seek
+// (the founder still expects scrubbing to work from the dock).
+//
+// The envelope is the REAL audio, in this order:
+//
+//   1. track.peaks — pre-computed server-side at upload and shipped
+//      down with the page payload. No fetch, correct on first frame.
+//   2. a client decode of the same-origin stream URL, sharing the
+//      module cache with the L3 hero waveform, so a track that was
+//      already drawn on the Song page costs nothing here.
+//   3. the seeded pseudo-envelope below — only while a decode is in
+//      flight, or when the audio can't be decoded at all (offline,
+//      exotic container, cross-origin public URL).
 
 const MINI_BAR_COUNT = 32;
+/** The full-screen player is wider and taller — give it finer detail. */
+const FULL_BAR_COUNT = 64;
 
 // 32-bit FNV-1a + tiny PRNG, derived from `seededHeights` in
 // waveform-50.tsx. Same input → same bar pattern, every render.
@@ -1016,24 +1290,43 @@ function seededBars(seed: string, n: number): number[] {
 }
 
 export function MiniWaveform({
-  seed,
+  track,
   progressPct,
   onScrub,
   onPreview,
   tall = false,
 }: {
-  seed: string;
+  track: PlayerTrack;
   progressPct: number;
   onScrub: (pct: number) => void;
   onPreview?: (pct: number | null) => void;
   /** Full-screen player variant — taller strip, thicker bars. */
   tall?: boolean;
 }) {
-  const heights = seededBars(seed, MINI_BAR_COUNT);
+  const barCount = tall ? FULL_BAR_COUNT : MINI_BAR_COUNT;
+  const seed = track.id;
+  const fallback = useMemo(() => seededBars(seed, barCount), [seed, barCount]);
+  // Peaks that rode down with the page payload win outright — no fetch,
+  // no decode, right envelope on the first painted frame.
+  const supplied = useMemo(
+    () =>
+      track.peaks && track.peaks.length > 0
+        ? resampleWaveformHeights(track.peaks, barCount)
+        : null,
+    [track.peaks, barCount],
+  );
+  // Read the origin after mount so the server-rendered markup and the
+  // first client render agree; the decode is an effect either way.
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+  const decodeUrl = supplied ? null : sameOriginPeaksUrl(track.audioUrl, origin);
+  const heights = useAudioPeaks(decodeUrl, barCount, supplied ?? fallback);
   const [pointerPreviewPct, setPointerPreviewPct] = useState<number | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const displayedProgressPct = pointerPreviewPct ?? progressPct;
-  const playedBars = Math.floor((displayedProgressPct / 100) * MINI_BAR_COUNT);
+  const playedBars = Math.floor((displayedProgressPct / 100) * heights.length);
 
   function percentAt(clientX: number, element: HTMLDivElement): number {
     const rect = element.getBoundingClientRect();
@@ -1206,6 +1499,116 @@ function SkipForwardIcon() {
     >
       <polygon points="5 3 11 8 5 13" fill="currentColor" stroke="none" />
       <line x1="13" y1="3" x2="13" y2="13" />
+    </svg>
+  );
+}
+
+function ShuffleIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={17}
+      height={17}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" y1="20" x2="21" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" y1="15" x2="21" y2="21" />
+      <line x1="4" y1="4" x2="9" y2="9" />
+    </svg>
+  );
+}
+
+/** Repeat. `single` adds the "1" that marks repeat-this-song. */
+function LoopIcon({ single = false }: { single?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={17}
+      height={17}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="17 2 21 6 17 10" />
+      <path d="M3 12V10a4 4 0 0 1 4-4h14" />
+      <polyline points="7 22 3 18 7 14" />
+      <path d="M21 12v2a4 4 0 0 1-4 4H3" />
+      {single ? (
+        <text
+          x="12"
+          y="15.4"
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="800"
+          fill="currentColor"
+          stroke="none"
+        >
+          1
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
+/**
+ * Circular seek arrow with the step printed inside — the Apple Podcasts
+ * / Spotify convention that makes "this nudges 10 seconds" unmistakable
+ * next to the triangular song-skip arrows.
+ */
+function Seek10Icon({ direction }: { direction: "back" | "forward" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={19} height={19} aria-hidden>
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        {...(direction === "forward" ? { transform: "translate(24,0) scale(-1,1)" } : {})}
+      >
+        <path d="M12 4.6a7.6 7.6 0 1 1-7.2 5.2" />
+        <polygon points="12,1.9 12,7.3 8.4,4.6" fill="currentColor" stroke="none" />
+      </g>
+      <text
+        x="12"
+        y="16.2"
+        textAnchor="middle"
+        fontSize="8.4"
+        fontWeight="800"
+        fill="currentColor"
+        stroke="none"
+      >
+        10
+      </text>
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 10V2" />
+      <path d="m5 5 3-3 3 3" />
+      <path d="M4 7.5h-.5A1.5 1.5 0 0 0 2 9v3.5A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5V9a1.5 1.5 0 0 0-1.5-1.5H12" />
     </svg>
   );
 }

@@ -6,7 +6,7 @@ import { SongPage, type SongPageData } from "~/components/music/song-page";
 import { ArtistTrackVersionAcknowledger } from "~/components/artist/artist-track-version-acknowledger";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
+import { l3AddComment, l3ApproveVersion, l3ResolveComment, l3SetSongLyrics } from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
@@ -71,6 +71,9 @@ export default async function ArtistSongPage({ params }: PageProps) {
       projectTitle: data.track.projectTitle,
       clientName: data.track.clientName,
       artworkUrl: data.track.artworkUrl,
+      lyrics: data.track.lyrics,
+      lyricsUpdatedAtIso: data.track.lyricsUpdatedAt?.toISOString() ?? null,
+      lyricsUpdatedBy: data.track.lyricsUpdatedBy,
       archivedAtIso: data.track.archivedAt?.toISOString() ?? null,
       releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
       workflowStage: data.track.workflowStage,
@@ -126,6 +129,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
           addComment: l3AddComment,
           resolveComment: l3ResolveComment,
           approveVersion: l3ApproveVersion,
+          setSongLyrics: l3SetSongLyrics,
         }}
       />
     </div>

@@ -24,6 +24,7 @@ import {
   assertStoredAudioDeletionAllowed,
   monotonicStoredAudioDeletionTime,
   normalizeArtistCredit,
+  normalizeLyrics,
   normalizeSongTitle,
   normalizeVersionLabel,
   planSongArchiveChange,
@@ -290,6 +291,129 @@ export async function updateSongMetadata(
       changedAt: input.changedAt,
     });
     return updated;
+  });
+}
+
+export type LyricsWriterRole = "producer" | "artist";
+
+export type SetSongLyricsResult =
+  | Readonly<{
+      ok: true;
+      lyrics: string | null;
+      lyricsUpdatedAt: Date;
+      lyricsUpdatedBy: LyricsWriterRole;
+    }>
+  | Readonly<{
+      ok: false;
+      reason: "stale";
+      lyrics: string | null;
+      lyricsUpdatedAt: Date | null;
+      lyricsUpdatedBy: LyricsWriterRole | null;
+    }>;
+
+/**
+ * SK-305. One lyrics sheet per song, written by either side.
+ *
+ * This is optimistic concurrency, not a lock held across the edit. The editor
+ * was handed the `lyricsUpdatedAt` the page loaded; the UPDATE only fires while
+ * the row still carries that exact value. Zero rows updated means the other
+ * side saved first, and we return their current sheet so the caller can show
+ * it instead of replacing a whole set of words nobody meant to lose.
+ *
+ * `IS NOT DISTINCT FROM` rather than `=` because the very first save compares
+ * against NULL, and `NULL = NULL` is not true in SQL — a plain equality would
+ * make every first save look stale.
+ *
+ * A stale save is a return value, not a throw: the caller has to render the
+ * other side's words next to the ones still sitting in the textarea, which is
+ * ordinary flow rather than a failure.
+ *
+ * Authorization belongs to the caller. Both roles route through here, and the
+ * producer and artist routers each resolve the owning `producerId` their own
+ * way before calling.
+ */
+export async function setSongLyrics(
+  db: Db,
+  input: Readonly<{
+    producerId: string;
+    trackId: string;
+    projectId?: string;
+    lyrics: string | null;
+    expectedUpdatedAt: Date | null;
+    updatedBy: LyricsWriterRole;
+    changedAt: Date;
+  }>,
+): Promise<SetSongLyricsResult> {
+  const lyrics = normalizeLyrics(input.lyrics);
+  return db.transaction(async (tx) => {
+    const scope = await discoverSongScope(tx, input);
+    if (input.projectId !== undefined && scope.projectId !== input.projectId) notFound();
+    await lockSong(tx, { producerId: input.producerId, scope });
+    const [updated] = await tx
+      .update(projectTracks)
+      .set({
+        lyrics,
+        lyricsUpdatedAt: input.changedAt,
+        lyricsUpdatedBy: input.updatedBy,
+      })
+      .where(
+        and(
+          eq(projectTracks.id, scope.trackId),
+          eq(projectTracks.projectId, scope.projectId),
+          eq(projectTracks.purchaseId, scope.purchaseId),
+          sql`${projectTracks.lyricsUpdatedAt} is not distinct from ${input.expectedUpdatedAt}`,
+        ),
+      )
+      .returning({
+        lyrics: projectTracks.lyrics,
+        lyricsUpdatedAt: projectTracks.lyricsUpdatedAt,
+        lyricsUpdatedBy: projectTracks.lyricsUpdatedBy,
+      });
+
+    if (!updated) {
+      // The row is still locked, so what we read here is exactly what beat us.
+      const [current] = await tx
+        .select({
+          lyrics: projectTracks.lyrics,
+          lyricsUpdatedAt: projectTracks.lyricsUpdatedAt,
+          lyricsUpdatedBy: projectTracks.lyricsUpdatedBy,
+        })
+        .from(projectTracks)
+        .where(
+          and(
+            eq(projectTracks.id, scope.trackId),
+            eq(projectTracks.projectId, scope.projectId),
+            eq(projectTracks.purchaseId, scope.purchaseId),
+          ),
+        )
+        .limit(1);
+      if (!current) integrityError("The song disappeared while its lyrics were being saved");
+      return {
+        ok: false as const,
+        reason: "stale" as const,
+        lyrics: current.lyrics,
+        lyricsUpdatedAt: current.lyricsUpdatedAt,
+        lyricsUpdatedBy: current.lyricsUpdatedBy,
+      };
+    }
+
+    // The stamps are written in the same statement as the words, and the
+    // migration's CHECK forbids one without the other, so a null here means
+    // the row shape drifted rather than that this save was partial.
+    if (!updated.lyricsUpdatedAt || !updated.lyricsUpdatedBy) {
+      integrityError("Lyrics were saved without their stamp");
+    }
+    await touchProject(tx, {
+      producerId: input.producerId,
+      projectId: scope.projectId,
+      changedAt: input.changedAt,
+    });
+    return {
+      ok: true as const,
+      lyrics: updated.lyrics,
+      lyricsUpdatedAt: updated.lyricsUpdatedAt,
+      lyricsUpdatedBy: updated.lyricsUpdatedBy,
+    };
   });
 }
 

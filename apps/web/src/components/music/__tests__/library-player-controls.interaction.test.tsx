@@ -84,8 +84,7 @@ describe("Music library grid player controls", () => {
 
     fireEvent.click(play);
 
-    expect(playerMocks.playerPlay).toHaveBeenCalledTimes(1);
-    expect(playerMocks.playerPlay).toHaveBeenCalledWith({
+    const expectedTrack = {
       id: "version-1",
       songId: "song-1",
       audioUrl: "https://audio.example/version-1.mp3",
@@ -93,6 +92,13 @@ describe("Music library grid player controls", () => {
       subtitle: "Lital Ohayon · V1",
       durationMs: 213_000,
       cachePolicy: "account-unlocked",
+    };
+    expect(playerMocks.playerPlay).toHaveBeenCalledTimes(1);
+    // The Library hands the player its playback context, which is what
+    // makes the dock's next / previous buttons walk the list instead of
+    // dead-ending on the one song the producer clicked.
+    expect(playerMocks.playerPlay).toHaveBeenCalledWith(expectedTrack, {
+      queue: [expectedTrack],
     });
     expect(playerMocks.playerToggle).not.toHaveBeenCalled();
   });

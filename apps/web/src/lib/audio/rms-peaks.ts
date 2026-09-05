@@ -48,3 +48,36 @@ export function roundPeaks(peaks: number[], decimals = 4): number[] {
 
 /** Default bar count for Skitza waveforms — matches Waveform50's BAR_COUNT. */
 export const BAR_COUNT = 200;
+
+/** Density guard rails shared by every waveform surface. */
+export const WAVEFORM_MIN_BAR_COUNT = 24;
+export const WAVEFORM_MAX_BAR_COUNT = 320;
+
+/**
+ * Resize a peak envelope without changing its overall shape. Linear
+ * interpolation keeps the responsive mobile and desktop layers aligned,
+ * and lets one cached 200-bar decode feed every density on the page
+ * (L3 hero, dock strip, full-screen player) without decoding twice.
+ */
+export function resampleWaveformHeights(heights: readonly number[], barCount: number): number[] {
+  const targetCount = Number.isFinite(barCount)
+    ? Math.min(WAVEFORM_MAX_BAR_COUNT, Math.max(1, Math.round(barCount)))
+    : BAR_COUNT;
+  if (heights.length === 0) {
+    return Array.from({ length: targetCount }, () => 0.12);
+  }
+  if (heights.length === targetCount) return [...heights];
+  if (heights.length === 1) {
+    return Array.from({ length: targetCount }, () => heights[0] ?? 0.12);
+  }
+
+  return Array.from({ length: targetCount }, (_, index) => {
+    const position = targetCount === 1 ? 0 : (index / (targetCount - 1)) * (heights.length - 1);
+    const leftIndex = Math.floor(position);
+    const rightIndex = Math.min(heights.length - 1, Math.ceil(position));
+    const mix = position - leftIndex;
+    const left = heights[leftIndex] ?? 0.12;
+    const right = heights[rightIndex] ?? left;
+    return left + (right - left) * mix;
+  });
+}

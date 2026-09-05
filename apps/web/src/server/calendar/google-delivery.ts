@@ -217,6 +217,7 @@ function buildWrite(prepared: GoogleCalendarPreparedJob, remote: GoogleCalendarE
       kind: "hold",
       startsAt: new Date(payload.startsAtUtc),
       endsAt: new Date(payload.endsAtUtc),
+      ...(payload.timeZone === undefined ? {} : { timeZone: payload.timeZone }),
       revision: payload.sequence,
       opaqueLink: payload.privateProperties.skitzaLink,
     });
@@ -229,6 +230,7 @@ function buildWrite(prepared: GoogleCalendarPreparedJob, remote: GoogleCalendarE
     kind: "confirmed" as const,
     startsAt: new Date(payload.startsAtUtc),
     endsAt: new Date(payload.endsAtUtc),
+    ...(payload.timeZone === undefined ? {} : { timeZone: payload.timeZone }),
     revision: payload.sequence,
     opaqueLink: payload.privateProperties.skitzaLink,
     summary: payload.summary,

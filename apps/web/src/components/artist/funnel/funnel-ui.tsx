@@ -107,7 +107,7 @@ export function FunnelTopBar({
         borderBottom: "1px solid rgb(var(--fg-default) / 0.07)",
       }}
     >
-      <div className="relative flex h-[56px] items-center justify-center px-[14px]">
+      <div className="relative flex min-h-[56px] items-center justify-center px-[14px] py-2">
         {onBack ? (
           <button
             type="button"
@@ -125,7 +125,10 @@ export function FunnelTopBar({
           </button>
         ) : null}
         <div className="min-w-0 px-14 text-center">
-          <div className="font-syne truncate text-[clamp(13px,4vw,15px)] font-extrabold tracking-[-0.01em] whitespace-nowrap text-[rgb(var(--fg-default))]">
+          {/* Titles wrap instead of truncating. A 390px phone leaves about
+              250px between the back button and its mirrored padding, which
+              cut real screen names in half ("Review exact agree…"). */}
+          <div className="font-syne text-[clamp(12px,3.6vw,15px)] leading-[1.15] font-extrabold tracking-[-0.01em] text-balance text-[rgb(var(--fg-default))]">
             {title}
           </div>
           {sub ? (

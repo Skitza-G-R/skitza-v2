@@ -51,6 +51,9 @@ const data: SongPageData = {
     releasedAtIso: null,
     workflowStage: "mixing",
     artistApprovalLocked: false,
+    lyrics: null,
+    lyricsUpdatedAtIso: null,
+    lyricsUpdatedBy: null,
     projectLifecycleStatus: "active",
   },
   versions: [

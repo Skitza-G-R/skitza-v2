@@ -39,6 +39,9 @@ export default async function Sk217GuestVisualCheck({
       workflowStage: "mixing",
       projectLifecycleStatus: "active",
       artistApprovalLocked: false,
+      lyrics: null,
+      lyricsUpdatedAtIso: null,
+      lyricsUpdatedBy: null,
     },
     versions: [
       {

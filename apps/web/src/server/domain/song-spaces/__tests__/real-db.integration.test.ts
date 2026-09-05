@@ -312,6 +312,13 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
         "archived_at" timestamptz,
         "portfolio_published_at" timestamptz,
         "created_at" timestamptz not null default now(),
+        -- SK-305. Not optional bookkeeping: createSong below calls
+        -- .returning() with no arguments, so Drizzle asks for EVERY column the
+        -- schema declares. A column missing here makes that insert error out,
+        -- and the allocation races then report zero winners instead of one.
+        "lyrics" text,
+        "lyrics_updated_at" timestamptz,
+        "lyrics_updated_by" text,
         constraint "project_tracks_artwork_identity_shape" check ((
           (
             "artwork_r2_key" is null
