@@ -160,9 +160,6 @@ function reviewProps(rows: readonly WorkspaceImportRow[]) {
     onReloadSetup: vi.fn(),
     onToggleClient: vi.fn(),
     onDone: vi.fn(),
-    producerSlug: "gili",
-    producerName: "Gili",
-    onLeaveToDashboard: vi.fn(),
   };
 }
 

@@ -11,12 +11,7 @@ export type ProductEventName =
   | "simulation_started"
   | "simulation_step"
   | "simulation_completed"
-  | "simulation_exited_early"
-  // SK-299 — bringing existing work in.
-  | "import_row_created"
-  | "import_row_needs_info"
-  | "post_import_first_paint"
-  | "link_shared";
+  | "simulation_exited_early";
 
 export type ProductEventProperties = Record<string, string | number | boolean | null>;
 

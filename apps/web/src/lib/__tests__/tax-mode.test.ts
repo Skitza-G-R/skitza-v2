@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   TAX_MODES,
   applyTaxToCents,
-  subtotalCentsFromTotal,
   coerceTaxMode,
   isTaxMode,
   taxTotalMultiplier,
@@ -138,87 +137,5 @@ describe("applyTaxToCents", () => {
   it("fails closed for non-integer preview inputs instead of floating-point drift", () => {
     expect(applyTaxToCents(10_000.5, "tax_added", 18)).toBe(0);
     expect(applyTaxToCents(10_000, "tax_added", 18.5)).toBe(10_000);
-  });
-});
-
-describe("subtotalCentsFromTotal", () => {
-  it("returns the typed total unchanged for non-additive modes", () => {
-    // tax_free has no tax line; tax_included already IS the total. In both the
-    // producer's number is the subtotal the snapshot stores.
-    expect(subtotalCentsFromTotal(500_000, "tax_free", 18)).toEqual({
-      subtotalCents: 500_000,
-      totalCents: 500_000,
-      exact: true,
-    });
-    expect(subtotalCentsFromTotal(500_000, "tax_included", 17)).toEqual({
-      subtotalCents: 500_000,
-      totalCents: 500_000,
-      exact: true,
-    });
-  });
-
-  it("divides the tax back out for tax_added", () => {
-    expect(subtotalCentsFromTotal(11_800, "tax_added", 18)).toEqual({
-      subtotalCents: 10_000,
-      totalCents: 11_800,
-      exact: true,
-    });
-    // ₪5,000.00 at Israeli VAT — the example in SK-299.
-    expect(subtotalCentsFromTotal(500_000, "tax_added", 17)).toEqual({
-      subtotalCents: 427_350,
-      totalCents: 500_000,
-      exact: true,
-    });
-    expect(subtotalCentsFromTotal(0, "tax_added", 18)).toEqual({
-      subtotalCents: 0,
-      totalCents: 0,
-      exact: true,
-    });
-  });
-
-  it("is a true inverse of applyTaxToCents wherever a total is reachable", () => {
-    for (const rate of [0, 5, 17, 18, 20, 23, 99]) {
-      for (const subtotal of [1, 7, 99, 333, 10_000, 123_457, 999_999]) {
-        const total = applyTaxToCents(subtotal, "tax_added", rate);
-        const back = subtotalCentsFromTotal(total, "tax_added", rate);
-        // Adding tax is strictly increasing, so the trip back is lossless.
-        expect(back).toEqual({ subtotalCents: subtotal, totalCents: total, exact: true });
-      }
-    }
-  });
-
-  it("flags an everyday total no subtotal can produce", () => {
-    // Not exotic: at 17% VAT added on top, about one in seven whole-shekel
-    // totals has no subtotal behind it. ₪1.00 is one — 85 rounds up to 99 and
-    // 86 to 101, so 100 is skipped. The lower one wins and `exact` says so.
-    expect(subtotalCentsFromTotal(100, "tax_added", 17)).toEqual({
-      subtotalCents: 85,
-      totalCents: 99,
-      exact: false,
-    });
-    // Every reachable total still reports exact, so the flag stays meaningful.
-    expect(subtotalCentsFromTotal(99, "tax_added", 17).exact).toBe(true);
-  });
-
-  it("flags a total no subtotal can produce, and never charges above it", () => {
-    // At 100% every total is even, so 5 is unreachable. 2 → 4 and 3 → 6 are
-    // equally close; the lower one wins so the artist is never billed more
-    // than the producer typed.
-    expect(subtotalCentsFromTotal(5, "tax_added", 100)).toEqual({
-      subtotalCents: 2,
-      totalCents: 4,
-      exact: false,
-    });
-  });
-
-  it("fails closed on inputs applyTaxToCents would reject", () => {
-    expect(subtotalCentsFromTotal(10_000.5, "tax_added", 18).subtotalCents).toBe(0);
-    expect(subtotalCentsFromTotal(-1, "tax_added", 18).subtotalCents).toBe(0);
-    // A fractional rate is not supported, exactly as applyTaxToCents treats it.
-    expect(subtotalCentsFromTotal(11_800, "tax_added", 18.5)).toEqual({
-      subtotalCents: 11_800,
-      totalCents: 11_800,
-      exact: true,
-    });
   });
 });

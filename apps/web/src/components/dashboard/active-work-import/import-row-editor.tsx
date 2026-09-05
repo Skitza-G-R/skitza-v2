@@ -29,7 +29,7 @@ import {
 } from "./model";
 import { PaymentHistoryEditor, type ProofUploadView } from "./payment-history-editor";
 
-export const FIELD_CLASS =
+const FIELD_CLASS =
   "sk-native-field min-h-11 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-10 sm:rounded-[var(--radius-md)] sm:text-[13px]";
 
 export type ImportEditorMemory = {
@@ -54,7 +54,7 @@ function reasonsForStep(reasons: readonly ImportReasonView[], index: number) {
   );
 }
 
-export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
+function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
   return (
     <label htmlFor={htmlFor} className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
       {children}
@@ -107,7 +107,7 @@ function issueAttributes(
     : {};
 }
 
-export function keyboardFocusableElements(container: HTMLElement): HTMLElement[] {
+function keyboardFocusableElements(container: HTMLElement): HTMLElement[] {
   const candidates = container.querySelectorAll<HTMLElement>(
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
   );
