@@ -368,6 +368,7 @@ export function LiquidGlassBottomNav<Id extends string>({
     activePointerIdRef.current = null;
     blockedGestureNoticeShownRef.current = false;
     nav.dataset.interacting = "false";
+    nav.dataset.tracking = "false";
     resetTabProximities(nav);
 
     if (settleFrameRef.current !== null) {
@@ -402,6 +403,10 @@ export function LiquidGlassBottomNav<Id extends string>({
     blockedGestureNoticeShownRef.current = false;
     clearReleaseClickGuard();
     nav.dataset.interacting = "true";
+    // Not tracking yet: a press that turns out to be a tap lets the selected
+    // capsule glide across, and only a resolved horizontal drag pins it to the
+    // finger. See `data-tracking` in globals.css.
+    nav.dataset.tracking = "false";
     setLensFromPointer(nav, navRectRef.current, event);
   };
 
@@ -421,6 +426,7 @@ export function LiquidGlassBottomNav<Id extends string>({
         const verticalDistance = Math.abs(deltaY);
         if (horizontalDistance > verticalDistance * INTENT_DOMINANCE) {
           gestureIntentRef.current = "horizontal";
+          event.currentTarget.dataset.tracking = "true";
           try {
             event.currentTarget.setPointerCapture(event.pointerId);
           } catch {
@@ -432,6 +438,7 @@ export function LiquidGlassBottomNav<Id extends string>({
           cancelLensFrame();
           pendingPointRef.current = null;
           event.currentTarget.dataset.interacting = "false";
+          event.currentTarget.dataset.tracking = "false";
           resetTabProximities(event.currentTarget);
           positionLensOnActiveTab(event.currentTarget);
         }

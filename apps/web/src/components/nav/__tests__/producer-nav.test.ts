@@ -177,7 +177,7 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(GLOBALS).toMatch(
       /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?grid-template-columns:\s*repeat\(var\(--sk-nav-column-count\),\s*minmax\(0,\s*1fr\)\)/,
     );
-    expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
+    expect(GLOBALS).toContain(".liquid-glass-bottom-nav__lens");
   });
 
   // SK-306. The bar takes no colour of its own: it frosts the page behind it,
@@ -253,10 +253,34 @@ describe("producer mobile nav viewport anchoring", () => {
     );
     expect(SHARED_BOTTOM.match(/--brand-primary/g)).toHaveLength(1);
     expect(SHARED_BOTTOM).not.toContain('color: tab.active');
-    // The capsule is what carries the active state now, so it must stay.
+    // The lens capsule carries the active state now, so it must stay — and
+    // the tab must not draw a second one on top of it.
     expect(GLOBALS).toMatch(
-      /\.liquid-glass-bottom-nav__tab\[data-active="true"\]::before\s*\{[\s\S]*?background: linear-gradient/,
+      /\.liquid-glass-bottom-nav__lens::before\s*\{[\s\S]*?radial-gradient/,
     );
+    expect(GLOBALS).not.toMatch(
+      /\.liquid-glass-bottom-nav__tab\[data-active="true"\]::before\s*\{/,
+    );
+    expect(GLOBALS).not.toContain(".liquid-glass-bottom-nav__lens::after");
+  });
+
+  // The selected capsule slides between tabs. Its position rides on a custom
+  // property, and an unregistered one is a discrete value — the transition
+  // that used to sit on the lens interpolated nothing and the capsule
+  // teleported. Registering the property is the whole fix.
+  it("glides the selected capsule instead of teleporting it", () => {
+    expect(GLOBALS).toMatch(
+      /@property --sk-nav-lens-x\s*\{[\s\S]*?syntax: "<length>";[\s\S]*?inherits: true;/,
+    );
+    expect(GLOBALS).toContain("--sk-nav-lens-x 440ms var(--ease-out-strong)");
+    // A tap glides; only a resolved horizontal drag pins it to the finger.
+    expect(SHARED_BOTTOM).toContain('dataset.tracking = "true"');
+    expect(SHARED_BOTTOM).toContain('nav.dataset.tracking = "false"');
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__glass\[data-tracking="true"\]\s*\{\s*transition: transform/,
+    );
+    // Behind the tabs, or it washes out the label it is meant to emphasise.
+    expect(GLOBALS).toMatch(/\.liquid-glass-bottom-nav__lens\s*\{[\s\S]*?z-index: 0;/);
   });
 
   // SK-306 B. Dropping the pane's alpha is what makes the page visible through
@@ -264,8 +288,8 @@ describe("producer mobile nav viewport anchoring", () => {
   // Measured over black, white, flat purple, flat amber and hard stripes in
   // both themes, every case beats the alpha-0.54 bar it replaces.
   it("buys transparency back with a self-hiding halo rather than more alpha", () => {
-    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.40;");
-    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.42;");
+    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.30;");
+    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.32;");
     expect(GLOBALS).toMatch(
       /\.liquid-glass-bottom-nav__label\s*\{\s*text-shadow:[\s\S]*?rgb\(var\(--sk-nav-glass-tint\)/,
     );
@@ -320,10 +344,14 @@ describe("producer mobile nav viewport anchoring", () => {
   });
 
   it("keeps a static active treatment when reduced motion is requested", () => {
+    // The lens is the selected state now, so reduced motion keeps it visible
+    // and merely stops it sliding. Only the magnifier goes.
     expect(GLOBALS).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__lens,[\s\S]*\.liquid-glass-bottom-nav__magnifier[\s\S]*display: none !important/,
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__magnifier \{\n\s+display: none !important;/,
     );
-    expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
+    expect(GLOBALS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__lens,\n\s+\.liquid-glass-bottom-nav__lens::before \{\n\s+transition: none !important;/,
+    );
     expect(GLOBALS).toMatch(
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*--sk-nav-press-scale: 1 !important;/,
     );
