@@ -130,14 +130,40 @@ function getMagnifiedTabs(nav: HTMLElement): HTMLElement[] {
   return [...nav.querySelectorAll<HTMLElement>(MAGNIFIED_TAB_SELECTOR)];
 }
 
-function setTabProximities(nav: HTMLElement, x: number, navLeft: number): void {
+/**
+ * The bar rests at `scale(0.975)` and grows under a finger, so the nav lives in
+ * two coordinate spaces at once and they must never be mixed.
+ *
+ * `getBoundingClientRect()` reports *visual* pixels — already multiplied by the
+ * current scale. `--sk-nav-lens-x` is consumed as a CSS length *inside* that
+ * same scaled element, so a rect-derived number gets scaled a second time and
+ * lands short by `distance x (1 - scale)`. Measured at rest that put the
+ * capsule 0.9px left of centre on the first tab and 8.0px on the fifth.
+ *
+ * Rects stay the single source of geometry — they are what a pointer event can
+ * be compared against — and every distance taken from one is divided by the
+ * scale before it is written back. Comparing `getBoundingClientRect().width`
+ * against `offsetWidth` is what recovers that factor, and it falls back to 1
+ * wherever layout metrics are unavailable (jsdom reports `offsetWidth` as 0),
+ * which is exactly the untransformed case.
+ */
+function navScale(nav: HTMLElement, navRect: DOMRect): number {
+  return nav.offsetWidth > 0 ? navRect.width / nav.offsetWidth : 1;
+}
+
+function setTabProximities(
+  nav: HTMLElement,
+  x: number,
+  navLeft: number,
+  scale: number,
+): void {
   const magnifiedTabs = getMagnifiedTabs(nav);
   const tabs = getTabs(nav).map((tab) => {
     const rect = tab.getBoundingClientRect();
     return {
-      center: rect.left - navLeft + rect.width / 2,
+      center: (rect.left - navLeft + rect.width / 2) / scale,
       tab,
-      width: rect.width,
+      width: rect.width / scale,
     };
   });
 
@@ -170,7 +196,12 @@ function setLensWidth(nav: HTMLElement, tabWidth: number): number {
   return lensWidth;
 }
 
-function measuredTabWidthAtPointer(nav: HTMLElement, navRect: DOMRect, clientX: number): number {
+function measuredTabWidthAtPointer(
+  nav: HTMLElement,
+  navRect: DOMRect,
+  clientX: number,
+  scale: number,
+): number {
   const tabs = getTabs(nav);
   const measured = tabs.map((tab) => tab.getBoundingClientRect()).filter((rect) => rect.width > 0);
   const containing = measured.find((rect) => clientX >= rect.left && clientX <= rect.right);
@@ -181,7 +212,8 @@ function measuredTabWidthAtPointer(nav: HTMLElement, navRect: DOMRect, clientX: 
     return rectDistance < closestDistance ? rect : closest;
   }, null);
 
-  return containing?.width ?? nearest?.width ?? navRect.width / Math.max(1, tabs.length);
+  const width = containing?.width ?? nearest?.width ?? navRect.width / Math.max(1, tabs.length);
+  return width / scale;
 }
 
 function setLensFromPointer(
@@ -189,23 +221,32 @@ function setLensFromPointer(
   rect: DOMRect,
   { clientX }: LensPoint,
 ): void {
-  const lensWidth = setLensWidth(nav, measuredTabWidthAtPointer(nav, rect, clientX));
+  const scale = navScale(nav, rect);
+  const lensWidth = setLensWidth(nav, measuredTabWidthAtPointer(nav, rect, clientX, scale));
   const lensHalfWidth = lensWidth / 2;
-  const x = clamp(clientX - rect.left, lensHalfWidth, rect.width - lensHalfWidth);
+  const x = clamp(
+    (clientX - rect.left) / scale,
+    lensHalfWidth,
+    rect.width / scale - lensHalfWidth,
+  );
   const y = NAV_ROW_HEIGHT / 2;
 
   setLensCoordinates(nav, x, y);
-  setTabProximities(nav, x, rect.left);
+  setTabProximities(nav, x, rect.left, scale);
 }
 
 function positionLensOnTab(nav: HTMLElement, tab: HTMLElement): void {
   const navRect = nav.getBoundingClientRect();
   const activeRect = tab.getBoundingClientRect();
-  setLensWidth(nav, activeRect.width || navRect.width / Math.max(1, getTabs(nav).length));
+  const scale = navScale(nav, navRect);
+  setLensWidth(
+    nav,
+    (activeRect.width || navRect.width / Math.max(1, getTabs(nav).length)) / scale,
+  );
   setLensCoordinates(
     nav,
-    activeRect.left - navRect.left + activeRect.width / 2,
-    activeRect.top - navRect.top + activeRect.height / 2,
+    (activeRect.left - navRect.left + activeRect.width / 2) / scale,
+    (activeRect.top - navRect.top + activeRect.height / 2) / scale,
   );
   nav.dataset.lensReady = "true";
 }
