@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Reads every number that could explain a full-screen surface moving when the
@@ -43,6 +43,30 @@ function readMetrics(): string[] {
 }
 
 /**
+ * A phone screenshot is one instant, and iOS settles the viewport quickly after
+ * a field is focused. Remembering the sample with the largest
+ * `visualViewport.offsetTop` means the photograph still carries the moment the
+ * surface was furthest out of place, whenever it is taken.
+ */
+function readPeakCandidate() {
+  const viewport = window.visualViewport;
+  const offsetTop = Math.round(viewport?.offsetTop ?? 0);
+  const root = document.documentElement;
+  const cssVar = (name: string) => getComputedStyle(root).getPropertyValue(name).trim() || "—";
+  const article = document.querySelector<HTMLElement>('[role="dialog"]');
+  const round = (value: number) => String(Math.round(value));
+  const articleLabel = article
+    ? `article top ${round(article.getBoundingClientRect().top)} scrollTop ${round(article.scrollTop)}`
+    : "article absent";
+  return {
+    offsetTop,
+    line:
+      `PEAK vv.offsetTop ${String(offsetTop)}  kbd ${document.body.dataset.skKeyboard ?? "—"}\n` +
+      `  vv.h ${round(viewport?.height ?? 0)}  --off ${cssVar("--sk-viewport-offset-top")}  --kbd ${cssVar("--sk-keyboard-inset")}  ${articleLabel}`,
+  };
+}
+
+/**
  * When `guard` is on, any scroll of the `overflow: hidden` editor shell is
  * undone. iOS will scroll such a box to reveal a focused field even though the
  * user never can, which pushes the header and step nav off the top — the
@@ -69,13 +93,26 @@ function useArticleScrollGuard(guard: boolean) {
 
 export function KeyboardDiagnostics() {
   const [lines, setLines] = useState<readonly string[]>([]);
+  const [peak, setPeak] = useState<string>("PEAK vv.offsetTop 0");
+  const [offsetTop, setOffsetTop] = useState(0);
   const [guard, setGuard] = useState(false);
+  const peakOffsetRef = useRef(-1);
 
   useArticleScrollGuard(guard);
 
   useEffect(() => {
     const sample = () => {
       setLines(readMetrics());
+      const candidate = readPeakCandidate();
+      // `position: fixed` resolves against the layout viewport, so this panel
+      // would be pushed off the top by exactly the offset it exists to report.
+      // Translating by the offset keeps it inside the visual viewport — and
+      // keeps the guard switch tappable — whatever iOS does to the page.
+      setOffsetTop(candidate.offsetTop);
+      if (candidate.offsetTop > peakOffsetRef.current) {
+        peakOffsetRef.current = candidate.offsetTop;
+        setPeak(candidate.line);
+      }
     };
     sample();
     const timer = window.setInterval(sample, 200);
@@ -89,20 +126,36 @@ export function KeyboardDiagnostics() {
   }, []);
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] px-1 pt-1">
-      <pre className="pointer-events-auto m-0 overflow-x-auto rounded bg-black/85 p-1.5 font-mono text-[9px] leading-[1.35] whitespace-pre text-lime-300">
-        {lines.join("\n")}
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[100] px-1 pt-1"
+      style={{ transform: `translate3d(0, ${String(offsetTop)}px, 0)` }}
+    >
+      <pre className="pointer-events-auto m-0 overflow-x-auto rounded bg-black/90 p-1.5 font-mono text-[10px] leading-[1.35] whitespace-pre text-lime-300">
+        {[...lines, peak].join("\n")}
       </pre>
-      <button
-        type="button"
-        data-sim="toggle-article-guard"
-        onClick={() => {
-          setGuard((current) => !current);
-        }}
-        className="pointer-events-auto mt-1 rounded bg-black/85 px-2 py-1 font-mono text-[10px] font-bold text-lime-300"
-      >
-        shell scroll guard: {guard ? "ON" : "off"}
-      </button>
+      <div className="mt-1 flex gap-1">
+        <button
+          type="button"
+          data-sim="toggle-article-guard"
+          onClick={() => {
+            setGuard((current) => !current);
+          }}
+          className="pointer-events-auto rounded bg-black/90 px-2 py-1 font-mono text-[11px] font-bold text-lime-300"
+        >
+          shell scroll guard: {guard ? "ON" : "off"}
+        </button>
+        <button
+          type="button"
+          data-sim="reset-peak"
+          onClick={() => {
+            peakOffsetRef.current = -1;
+            setPeak("PEAK vv.offsetTop 0");
+          }}
+          className="pointer-events-auto rounded bg-black/90 px-2 py-1 font-mono text-[11px] font-bold text-lime-300"
+        >
+          reset peak
+        </button>
+      </div>
     </div>
   );
 }
