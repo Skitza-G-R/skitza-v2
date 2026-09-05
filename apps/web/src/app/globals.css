@@ -421,7 +421,7 @@
   .persistent-player-dock__glass {
     --sk-nav-glass-tint: var(--bg-elevated);
     --sk-nav-glass-ink: var(--fg-default);
-    --sk-nav-glass-alpha: 0.30;
+    --sk-nav-glass-alpha: 0.36;
     --sk-nav-glass-lift: 1.22;
     --sk-nav-glass-flatten: 0.74;
     --sk-nav-glass-bleed: 150%;
@@ -436,7 +436,7 @@
   [data-theme="dark"] .liquid-glass-bottom-nav__stack,
   [data-theme="chrome-dark"] .persistent-player-dock__glass,
   [data-theme="dark"] .persistent-player-dock__glass {
-    --sk-nav-glass-alpha: 0.32;
+    --sk-nav-glass-alpha: 0.38;
     --sk-nav-glass-lift: 0.58;
     --sk-nav-glass-flatten: 0.86;
     --sk-nav-glass-bleed: 140%;
@@ -535,9 +535,9 @@
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .liquid-glass-bottom-nav__pane {
       background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
-      backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+      backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
-      -webkit-backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+      -webkit-backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
     }
   }
@@ -732,14 +732,16 @@
    * self-hiding: over a backdrop the glass already resembles it is invisible,
    * and it only builds where the ink would otherwise sit on a wash of its own
    * luminance. It is what pays for the alpha, and it is also what let the
-   * blur come down from 22px to 8px: a 22px blur hides the page behind a
-   * frosted wash, and the ask was to *see* through, with only a little
-   * softening. Measured over pure black, pure white, flat purple, flat amber
-   * and hard stripes in both themes, dropping alpha 0.40 -> 0.30 and blur
-   * 22px -> 8px costs the worst case about one point (light 5.8:1 -> 4.8:1)
-   * and leaves dark where it already was (4.3:1 -> 4.2:1). Going further —
-   * 0.24 alpha at 6px blur — looks near-identical and drops light to 4.1:1,
-   * so this is the floor, not a waypoint. */
+   * blur come down from 22px, where the page behind is a colour wash with no
+   * shape to it.
+   *
+   * Settled at alpha 0.36 / 0.38 and a 12px blur after a round at 0.30 / 8px
+   * read too raw: at that blur the hard seam where two album covers meet cut
+   * straight through both bars like a join rather than diffusing the way glass
+   * does. Measured over pure black, pure white, flat purple, flat amber and
+   * hard stripes in both themes, this sits comfortably clear of the 22px
+   * frosted original while giving the text back the margin the 8px round had
+   * spent. */
   .liquid-glass-bottom-nav__label {
     text-shadow:
       0 0 3px rgb(var(--sk-nav-glass-tint) / 0.9),
@@ -874,9 +876,9 @@
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .persistent-player-dock__glass {
       background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
-      backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+      backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
-      -webkit-backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+      -webkit-backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
     }
   }

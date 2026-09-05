@@ -500,7 +500,7 @@ describe("mobile dock glass", () => {
       /\.liquid-glass-bottom-nav__stack,\n\s+\.persistent-player-dock__glass \{/,
     );
     expect(globalsCss).toMatch(
-      /\.persistent-player-dock__glass \{[\s\S]*?backdrop-filter: blur\(8px\) saturate\(var\(--sk-nav-glass-bleed\)\)/,
+      /\.persistent-player-dock__glass \{[\s\S]*?backdrop-filter: blur\(12px\) saturate\(var\(--sk-nav-glass-bleed\)\)/,
     );
     expect(playerSrc).toContain("persistent-player-dock__glass");
     // The old opaque pill and its hardcoded white ink are gone, so the dock
