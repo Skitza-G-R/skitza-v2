@@ -12,6 +12,8 @@ import {
 } from "~/components/dashboard/active-work-import/model";
 import { useBodyScrollLock } from "~/components/native/use-body-scroll-lock";
 
+import { KeyboardDiagnostics } from "./keyboard-diagnostics";
+
 // Every server-facing callback on this page is inert: the gallery exists so
 // the phone editor can be driven by hand, not to talk to the server.
 const noReasons = () => Promise.resolve<readonly ImportReasonView[]>([]);
@@ -95,6 +97,7 @@ export function Sk297Preview() {
 
   return (
     <div className="min-h-dvh bg-[rgb(var(--bg-background))] p-4 text-[rgb(var(--fg-default))]">
+      <KeyboardDiagnostics />
       <h1 className="text-[15px] font-extrabold">SK-297 — keyboard and the phone import editor</h1>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
