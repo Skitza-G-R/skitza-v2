@@ -288,8 +288,8 @@ describe("producer mobile nav viewport anchoring", () => {
   // Measured over black, white, flat purple, flat amber and hard stripes in
   // both themes, every case beats the alpha-0.54 bar it replaces.
   it("buys transparency back with a self-hiding halo rather than more alpha", () => {
-    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.30;");
-    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.32;");
+    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.36;");
+    expect(GLOBALS).toContain("--sk-nav-glass-alpha: 0.38;");
     expect(GLOBALS).toMatch(
       /\.liquid-glass-bottom-nav__label\s*\{\s*text-shadow:[\s\S]*?rgb\(var\(--sk-nav-glass-tint\)/,
     );

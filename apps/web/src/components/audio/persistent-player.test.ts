@@ -23,6 +23,10 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const PLAYER_PATH = join(here, "persistent-player.tsx");
 const playerSrc = readFileSync(PLAYER_PATH, "utf8");
+const globalsCss = readFileSync(
+  join(dirname(PLAYER_PATH), "..", "..", "app", "globals.css"),
+  "utf8",
+);
 
 // ─── fmtTime ─────────────────────────────────────────────────────────
 // fmtTime renders the "1:23 / 4:56" ticker in the persistent player
@@ -485,5 +489,41 @@ describe("PersistentPlayer source — duration fallback (the 0:00 bug)", () => {
     // user reported in the screenshot.
     expect(playerSrc).toMatch(/pickDurationMs\(/);
     expect(playerSrc).toContain(".duration"); // audio element ref
+  });
+});
+
+describe("mobile dock glass", () => {
+  // The mini player is the same material as the tab row it floats above, so it
+  // reads the same recipe rather than carrying a second copy of the numbers.
+  it("shares the tab row's glass recipe instead of a hardcoded pill", () => {
+    expect(globalsCss).toMatch(
+      /\.liquid-glass-bottom-nav__stack,\n\s+\.persistent-player-dock__glass \{/,
+    );
+    expect(globalsCss).toMatch(
+      /\.persistent-player-dock__glass \{[\s\S]*?backdrop-filter: blur\(20px\) saturate\(var\(--sk-nav-glass-bleed\)\)/,
+    );
+    expect(playerSrc).toContain("persistent-player-dock__glass");
+    // The old opaque pill and its hardcoded white ink are gone, so the dock
+    // follows the theme the way the tab row does.
+    expect(playerSrc).not.toContain('background: "#1A1A1A"');
+  });
+
+  // Anything that establishes a backdrop root hides the page from a
+  // `backdrop-filter` beneath it, and THREE properties do that: `filter`,
+  // `transform`, and `will-change` naming either. Measured with a hard colour
+  // edge behind the bar, an identity `transform` left on the wrapper produced
+  // 0.0px of blur while the computed style still read `blur(20px)` — the glass
+  // was inert and nothing said so. All three are therefore conditional, and the
+  // wrapper is completely untouched while the dock is visible.
+  it("keeps the mobile dock's wrapper inert while it is visible", () => {
+    const dock = playerSrc.slice(
+      playerSrc.indexOf("export function MobileDock("),
+      playerSrc.indexOf("export function MobileFullPlayer("),
+    );
+    expect(dock).not.toContain("filter: hidden");
+    expect(dock).toContain('transform: hidden ? "translateY(120%) scale(0.98)" : "none"');
+    expect(dock).toContain('willChange: hidden ? "transform, opacity" : "auto"');
+    // A bare `willChange: "transform..."` would silently kill the blur again.
+    expect(dock).not.toMatch(/willChange: "transform/);
   });
 });

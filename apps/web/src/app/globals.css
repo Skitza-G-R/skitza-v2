@@ -417,10 +417,11 @@
    *
    * A strong opaque fallback keeps the tabs readable where backdrop-filter is
    * unsupported. */
-  .liquid-glass-bottom-nav__stack {
+  .liquid-glass-bottom-nav__stack,
+  .persistent-player-dock__glass {
     --sk-nav-glass-tint: var(--bg-elevated);
     --sk-nav-glass-ink: var(--fg-default);
-    --sk-nav-glass-alpha: 0.30;
+    --sk-nav-glass-alpha: 0.36;
     --sk-nav-glass-lift: 1.22;
     --sk-nav-glass-flatten: 0.74;
     --sk-nav-glass-bleed: 150%;
@@ -432,8 +433,10 @@
   /* Dark theme frosts the elevated near-black and pulls the backdrop down
      instead of up, so light page content cannot wash out light ink. */
   [data-theme="chrome-dark"] .liquid-glass-bottom-nav__stack,
-  [data-theme="dark"] .liquid-glass-bottom-nav__stack {
-    --sk-nav-glass-alpha: 0.32;
+  [data-theme="dark"] .liquid-glass-bottom-nav__stack,
+  [data-theme="chrome-dark"] .persistent-player-dock__glass,
+  [data-theme="dark"] .persistent-player-dock__glass {
+    --sk-nav-glass-alpha: 0.38;
     --sk-nav-glass-lift: 0.58;
     --sk-nav-glass-flatten: 0.86;
     --sk-nav-glass-bleed: 140%;
@@ -532,9 +535,9 @@
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .liquid-glass-bottom-nav__pane {
       background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
-      backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+      backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
-      -webkit-backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
+      -webkit-backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
     }
   }
@@ -729,14 +732,21 @@
    * self-hiding: over a backdrop the glass already resembles it is invisible,
    * and it only builds where the ink would otherwise sit on a wash of its own
    * luminance. It is what pays for the alpha, and it is also what let the
-   * blur come down from 22px to 8px: a 22px blur hides the page behind a
-   * frosted wash, and the ask was to *see* through, with only a little
-   * softening. Measured over pure black, pure white, flat purple, flat amber
-   * and hard stripes in both themes, dropping alpha 0.40 -> 0.30 and blur
-   * 22px -> 8px costs the worst case about one point (light 5.8:1 -> 4.8:1)
-   * and leaves dark where it already was (4.3:1 -> 4.2:1). Going further —
-   * 0.24 alpha at 6px blur — looks near-identical and drops light to 4.1:1,
-   * so this is the floor, not a waypoint. */
+   * blur come down from 22px, where the page behind is a colour wash with no
+   * shape to it.
+   *
+   * Settled at alpha 0.36 / 0.38 with a 20px blur, walked up from 8px in two
+   * steps. The tell each time was the hard seam where two album covers meet:
+   * below ~16px it cut straight through both bars like a join instead of
+   * diffusing the way a thick material does. At 20px that seam finally reads
+   * as a gradient while the covers keep their colour, and 26px starts trading
+   * the see-through quality back for frost.
+   *
+   * Alpha, not blur, is what governs legibility here — the blur only removes
+   * detail, it does not lighten or darken what is behind. Measured over pure
+   * black, pure white, flat purple, flat amber and hard stripes in both
+   * themes, the walk up from 0.30/8px gained roughly half a point everywhere
+   * rather than costing any. */
   .liquid-glass-bottom-nav__label {
     text-shadow:
       0 0 3px rgb(var(--sk-nav-glass-tint) / 0.9),
@@ -853,6 +863,37 @@
    * + `lg:sk-safe-bottom` take over via cascade). */
   .persistent-player-dock {
     bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+  /* The mini player is the same material as the tab row it floats above —
+   * same tint, alpha, blur and brightness/contrast pass — so the two surfaces
+   * read as one piece of glass rather than a slab sitting on a lens.
+   *
+   * It carries no `filter` of its own and neither may its wrapper: an element
+   * with a filter is a backdrop root for everything inside it, so a
+   * `backdrop-filter` under one samples the wrapper instead of the page and
+   * the glass silently disappears. The mobile dock's hide animation gave up
+   * its blur for exactly that reason; see the component. */
+  .persistent-player-dock__glass {
+    border-color: rgb(var(--sk-nav-glass-ink) / 0.12);
+    background: rgb(var(--sk-nav-glass-tint) / 0.93);
+    color: rgb(var(--sk-nav-glass-ink));
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .persistent-player-dock__glass {
+      background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
+      backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
+        brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
+      -webkit-backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
+        brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
+    }
+  }
+  /* Same self-hiding halo the tab row uses, for the same reason: it buys the
+     text back the contrast the alpha spends, and is invisible wherever the
+     glass already resembles what is behind it. */
+  .persistent-player-dock__glass .persistent-player-dock__ink {
+    text-shadow:
+      0 0 3px rgb(var(--sk-nav-glass-tint) / 0.9),
+      0 0 7px rgb(var(--sk-nav-glass-tint) / 0.54);
   }
   .mobile-full-player-sheet {
     visibility: hidden;
