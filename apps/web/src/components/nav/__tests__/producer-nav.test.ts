@@ -343,6 +343,39 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(GLOBALS).toContain("transition: transform 220ms var(--ease-press);");
   });
 
+  // The bar rests at scale(0.975), which puts the nav in two coordinate spaces
+  // at once. `getBoundingClientRect()` reports visual pixels; `--sk-nav-lens-x`
+  // is consumed as a CSS length *inside* that same scaled element, so a
+  // rect-derived offset is scaled twice and lands short by distance x 0.025 —
+  // measured as 0.9px off centre on the first tab and 8.0px on the fifth.
+  it("centres the capsule by dividing rect distances back out of the scale", () => {
+    // Comparing the visual width against the layout width recovers the factor,
+    // and falls back to 1 wherever layout metrics are unavailable.
+    expect(SHARED_BOTTOM).toMatch(
+      /function navScale\([\s\S]*?nav\.offsetWidth > 0 \? navRect\.width \/ nav\.offsetWidth : 1/,
+    );
+
+    // Every distance taken from a rect is divided before it is written back.
+    const positionLensOnTab = SHARED_BOTTOM.match(
+      /function positionLensOnTab\([\s\S]*?\n\}/,
+    )?.[0];
+    expect(positionLensOnTab).toBeDefined();
+    expect(positionLensOnTab).toContain("const scale = navScale(nav, navRect)");
+    expect(positionLensOnTab).toContain(
+      "(activeRect.left - navRect.left + activeRect.width / 2) / scale",
+    );
+
+    const setTabProximities = SHARED_BOTTOM.match(
+      /function setTabProximities\([\s\S]*?\n\}/,
+    )?.[0];
+    expect(setTabProximities).toBeDefined();
+    expect(setTabProximities).toContain("(rect.left - navLeft + rect.width / 2) / scale");
+
+    // A pointer's clientX is a viewport coordinate, so it converts the same way.
+    expect(SHARED_BOTTOM).toContain("(clientX - rect.left) / scale");
+    expect(SHARED_BOTTOM).toContain("rect.width / scale - lensHalfWidth");
+  });
+
   it("keeps a static active treatment when reduced motion is requested", () => {
     // The lens is the selected state now, so reduced motion keeps it visible
     // and merely stops it sliding. Only the magnifier goes.
