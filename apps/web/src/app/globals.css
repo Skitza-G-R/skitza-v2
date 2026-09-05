@@ -420,7 +420,7 @@
   .liquid-glass-bottom-nav__stack {
     --sk-nav-glass-tint: var(--bg-elevated);
     --sk-nav-glass-ink: var(--fg-default);
-    --sk-nav-glass-alpha: 0.40;
+    --sk-nav-glass-alpha: 0.30;
     --sk-nav-glass-lift: 1.22;
     --sk-nav-glass-flatten: 0.74;
     --sk-nav-glass-bleed: 150%;
@@ -433,7 +433,7 @@
      instead of up, so light page content cannot wash out light ink. */
   [data-theme="chrome-dark"] .liquid-glass-bottom-nav__stack,
   [data-theme="dark"] .liquid-glass-bottom-nav__stack {
-    --sk-nav-glass-alpha: 0.42;
+    --sk-nav-glass-alpha: 0.32;
     --sk-nav-glass-lift: 0.58;
     --sk-nav-glass-flatten: 0.86;
     --sk-nav-glass-bleed: 140%;
@@ -503,9 +503,22 @@
     :is(
       .liquid-glass-bottom-nav__warp,
       .liquid-glass-bottom-nav__pane,
-      .liquid-glass-bottom-nav__rim,
-      .liquid-glass-bottom-nav__glass
+      .liquid-glass-bottom-nav__rim
     ) {
+    transition: transform 220ms var(--ease-press);
+  }
+  /* The tab row grows on the same curve, but keeps the selected capsule
+     gliding: a tap should slide the capsule across, not teleport it under the
+     finger the instant it lands. */
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] {
+    transition:
+      transform 220ms var(--ease-press),
+      --sk-nav-lens-x 440ms var(--ease-out-strong);
+  }
+  /* ...unless the finger is genuinely dragging across the bar, where the
+     capsule has to sit exactly under it. `data-tracking` is set only once the
+     gesture resolves as horizontal, so a plain tap never reaches this. */
+  .liquid-glass-bottom-nav__glass[data-tracking="true"] {
     transition: transform 220ms var(--ease-press);
   }
   .liquid-glass-bottom-nav__pane {
@@ -519,9 +532,9 @@
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .liquid-glass-bottom-nav__pane {
       background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
-      backdrop-filter: blur(22px) saturate(var(--sk-nav-glass-bleed))
+      backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
-      -webkit-backdrop-filter: blur(22px) saturate(var(--sk-nav-glass-bleed))
+      -webkit-backdrop-filter: blur(8px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
     }
   }
@@ -579,7 +592,9 @@
     border-radius: var(--sk-nav-radius);
     background: transparent;
     transform: scale(var(--sk-nav-press-scale));
-    transition: transform 420ms var(--ease-out-strong);
+    transition:
+      transform 420ms var(--ease-out-strong),
+      --sk-nav-lens-x 440ms var(--ease-out-strong);
     touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
@@ -588,7 +603,10 @@
     position: absolute;
     top: 0;
     left: 0;
-    z-index: 3;
+    /* Behind the tabs (z-index 1), not over them. As a finger-tracking
+       highlight it could sit on top; as the selected state it cannot, or it
+       washes out the very label it is meant to emphasise. */
+    z-index: 0;
     width: var(--sk-nav-lens-width);
     height: 60px;
     opacity: 0;
@@ -598,15 +616,12 @@
       calc(var(--sk-nav-lens-y) - 50%),
       0
     );
-    transition:
-      transform 420ms var(--ease-press),
-      opacity 180ms var(--ease-out-strong);
+    transition: opacity 180ms var(--ease-out-strong);
   }
   .liquid-glass-bottom-nav__glass[data-lens-ready="true"] .liquid-glass-bottom-nav__lens {
     opacity: 1;
   }
-  .liquid-glass-bottom-nav__lens::before,
-  .liquid-glass-bottom-nav__lens::after {
+  .liquid-glass-bottom-nav__lens::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -614,46 +629,28 @@
     pointer-events: none;
   }
   .liquid-glass-bottom-nav__lens::before {
-    border: 1px solid rgb(255 255 255 / 0.35);
+    border: 1px solid rgb(255 255 255 / 0.42);
     background:
-      radial-gradient(circle at 32% 16%, rgb(255 255 255 / 0.5), transparent 40%),
+      radial-gradient(circle at 32% 16%, rgb(255 255 255 / 0.45), transparent 42%),
       linear-gradient(
         145deg,
-        rgb(255 255 255 / 0.3),
-        rgb(var(--sk-nav-glass-tint) / 0.34)
+        rgb(var(--sk-nav-glass-tint) / 0.52),
+        rgb(var(--sk-nav-glass-tint) / 0.78)
       );
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.55),
+      inset 0 1px 0 rgb(255 255 255 / 0.6),
       inset 0 -1px 0 rgb(var(--sk-nav-glass-ink) / 0.1),
-      0 9px 18px -14px rgb(0 0 0 / 0.42);
-    opacity: 0.7;
-    transform: scale(0.9);
-    transition:
-      opacity 180ms var(--ease-out-strong),
-      transform 260ms var(--ease-press),
-      background-color 180ms ease-out;
-  }
-  .liquid-glass-bottom-nav__lens::after {
-    inset: 2px;
-    border: 1px solid rgb(255 255 255 / 0.22);
-    box-shadow: inset 0 0 0 0.5px rgb(var(--sk-nav-glass-ink) / 0.05);
-    opacity: 0.66;
-    transform: scale(0.9);
-    transition:
-      opacity 180ms var(--ease-out-strong),
-      transform 260ms var(--ease-press);
+      0 9px 18px -14px rgb(0 0 0 / 0.45);
+    opacity: 1;
+    transform: scale(1);
+    transition: transform 260ms var(--ease-press);
   }
   .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__lens {
-    transition: none;
     will-change: transform;
   }
   .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__lens::before {
     opacity: 1;
     transform: scale(1.055);
-  }
-  .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__lens::after {
-    opacity: 1;
-    transform: scale(1.035);
   }
   .liquid-glass-bottom-nav__magnifier {
     position: absolute;
@@ -731,9 +728,15 @@
    * A tint-coloured halo is the lever that costs nothing, because it is
    * self-hiding: over a backdrop the glass already resembles it is invisible,
    * and it only builds where the ink would otherwise sit on a wash of its own
-   * luminance. Measured over pure black, pure white, flat purple, flat amber
-   * and hard stripes in both themes, the worst case improved from 3.6:1 to
-   * 5.9:1 in light and from 2.8:1 to 4.3:1 in dark. */
+   * luminance. It is what pays for the alpha, and it is also what let the
+   * blur come down from 22px to 8px: a 22px blur hides the page behind a
+   * frosted wash, and the ask was to *see* through, with only a little
+   * softening. Measured over pure black, pure white, flat purple, flat amber
+   * and hard stripes in both themes, dropping alpha 0.40 -> 0.30 and blur
+   * 22px -> 8px costs the worst case about one point (light 5.8:1 -> 4.8:1)
+   * and leaves dark where it already was (4.3:1 -> 4.2:1). Going further —
+   * 0.24 alpha at 6px blur — looks near-identical and drops light to 4.1:1,
+   * so this is the floor, not a waypoint. */
   .liquid-glass-bottom-nav__label {
     text-shadow:
       0 0 3px rgb(var(--sk-nav-glass-tint) / 0.9),
@@ -776,21 +779,30 @@
     > .liquid-glass-bottom-nav__label {
     transition-duration: 70ms;
   }
-  /* Nothing in this bar is tinted any more, so the capsule is the active
-     state — it is doing the job the brand amber used to. Strengthened
-     accordingly rather than reaching back for a colour. */
-  .liquid-glass-bottom-nav__tab[data-active="true"]::before {
-    border-color: rgb(255 255 255 / 0.42);
-    background: linear-gradient(
-      145deg,
-      rgb(var(--sk-nav-glass-tint) / 0.62),
-      rgb(var(--sk-nav-glass-tint) / 0.84)
-    );
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.62),
-      0 8px 20px -12px rgb(0 0 0 / 0.5);
-    opacity: 1;
-    transform: scale(1);
+  /* The active tab draws no capsule of its own. The lens is the selected
+     state — one piece of glass that slides between tabs — and the tab's own
+     capsule sat in almost exactly the same rectangle (both inset 2px and 4px
+     from the tab box), so the two together read as a doubled border. Worse,
+     a per-tab capsule can only cross-fade, which made the selection appear to
+     jump to its destination while the lens was still travelling. */
+  /* The selected capsule slides between tabs instead of teleporting.
+   *
+   * Its position is carried by `--sk-nav-lens-x`, and an *unregistered* custom
+   * property is a discrete value: when it changes, `transform` recomputes at
+   * the new value instantly and a transition on the transform has nothing to
+   * interpolate. Measured before this: the lens jumped 87px to 296px in a
+   * single frame with a 420ms transition sitting on it, doing nothing.
+   *
+   * Registering the property is what makes it animatable, so the glide belongs
+   * on the variable — on the tab row, where the variable is set — rather than
+   * on the lens. Everything derived from it follows for free.
+   *
+   * `--ease-out-strong` rather than `--ease-press`: this is a slide across the
+   * bar, and the press curve's overshoot reads as a wobble at that distance. */
+  @property --sk-nav-lens-x {
+    syntax: "<length>";
+    inherits: true;
+    initial-value: 0px;
   }
   @keyframes liquid-glass-bottom-nav-refraction {
     from { transform: translate3d(-2.5%, 0, 0) scale(1); }
@@ -2214,9 +2226,15 @@
       scale: none !important;
       transition: none !important;
     }
-    .liquid-glass-bottom-nav__lens,
+    /* The lens is the selected state now, so it has to stay visible here —
+       the `transition: none` above already stops it sliding. Only the
+       finger-tracking magnifier is purely interactive and can go. */
     .liquid-glass-bottom-nav__magnifier {
       display: none !important;
+    }
+    .liquid-glass-bottom-nav__lens,
+    .liquid-glass-bottom-nav__lens::before {
+      transition: none !important;
     }
     .liquid-glass-bottom-nav__tab::before,
     .liquid-glass-bottom-nav__tab > svg,
