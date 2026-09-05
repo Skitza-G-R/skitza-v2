@@ -264,25 +264,25 @@ export function CompleteScreenClient({
         ) : null}
 
         <section
-          aria-labelledby="active-work-heading"
+          aria-labelledby="optional-next-steps-heading"
           className="mt-9 w-full border-t border-[rgb(var(--border-subtle))] pt-7 text-left"
         >
           <div>
             <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
-              Your real work
+              Optional next steps
             </p>
             <h2
-              id="active-work-heading"
+              id="optional-next-steps-heading"
               className="mt-1.5 text-[19px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
             >
-              Start with the artists you already have
+              Add more whenever you want
             </h2>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <Link
               href="/dashboard/clients-projects/bring-active-work"
-              className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.055)] p-4 hover:border-[rgb(var(--brand-primary)/0.65)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none sm:flex sm:items-center sm:gap-4"
+              className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.055)] p-4 hover:border-[rgb(var(--brand-primary)/0.65)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none sm:col-span-2 sm:flex sm:items-center sm:gap-4"
             >
               <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
                 <FolderInput aria-hidden size={18} />
@@ -301,33 +301,7 @@ export function CompleteScreenClient({
                 <ArrowRight aria-hidden size={14} />
               </span>
             </Link>
-          </div>
 
-          <Link
-            href={COMPLETE_DASHBOARD_HREF}
-            className="ob-press mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-          >
-            I&apos;ll do this later
-          </Link>
-        </section>
-
-        <section
-          aria-labelledby="optional-next-steps-heading"
-          className="mt-9 w-full border-t border-[rgb(var(--border-subtle))] pt-7 text-left"
-        >
-          <div>
-            <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
-              Optional next steps
-            </p>
-            <h2
-              id="optional-next-steps-heading"
-              className="mt-1.5 text-[19px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
-            >
-              Add more whenever you want
-            </h2>
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <Link
               href={portfolioHref}
               className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 hover:border-[rgb(var(--brand-primary)/0.55)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"

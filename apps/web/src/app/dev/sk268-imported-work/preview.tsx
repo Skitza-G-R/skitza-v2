@@ -155,9 +155,6 @@ function reviewProps(rows: readonly WorkspaceImportRow[]) {
     onReloadSetup: noop,
     onToggleClient: noop,
     onDone: noop,
-    producerSlug: "demo",
-    producerName: "Demo Studio",
-    onLeaveToDashboard: noop,
   };
 }
 
