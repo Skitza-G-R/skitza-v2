@@ -21,7 +21,7 @@ import { PushMomentBanner } from "~/components/push/push-moment-banner";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { buildJoinUrl } from "~/lib/share/public-url";
 
-export const COMPLETE_DASHBOARD_HREF = "/dashboard?storeTip=1" as const;
+export const COMPLETE_DASHBOARD_HREF = "/dashboard" as const;
 
 type FollowUpRoute = "/onboarding/portfolio" | "/onboarding/payment";
 
