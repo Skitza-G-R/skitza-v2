@@ -535,9 +535,9 @@
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .liquid-glass-bottom-nav__pane {
       background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
-      backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
+      backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
-      -webkit-backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
+      -webkit-backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
     }
   }
@@ -735,13 +735,18 @@
    * blur come down from 22px, where the page behind is a colour wash with no
    * shape to it.
    *
-   * Settled at alpha 0.36 / 0.38 and a 12px blur after a round at 0.30 / 8px
-   * read too raw: at that blur the hard seam where two album covers meet cut
-   * straight through both bars like a join rather than diffusing the way glass
-   * does. Measured over pure black, pure white, flat purple, flat amber and
-   * hard stripes in both themes, this sits comfortably clear of the 22px
-   * frosted original while giving the text back the margin the 8px round had
-   * spent. */
+   * Settled at alpha 0.36 / 0.38 with a 20px blur, walked up from 8px in two
+   * steps. The tell each time was the hard seam where two album covers meet:
+   * below ~16px it cut straight through both bars like a join instead of
+   * diffusing the way a thick material does. At 20px that seam finally reads
+   * as a gradient while the covers keep their colour, and 26px starts trading
+   * the see-through quality back for frost.
+   *
+   * Alpha, not blur, is what governs legibility here — the blur only removes
+   * detail, it does not lighten or darken what is behind. Measured over pure
+   * black, pure white, flat purple, flat amber and hard stripes in both
+   * themes, the walk up from 0.30/8px gained roughly half a point everywhere
+   * rather than costing any. */
   .liquid-glass-bottom-nav__label {
     text-shadow:
       0 0 3px rgb(var(--sk-nav-glass-tint) / 0.9),
@@ -876,9 +881,9 @@
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .persistent-player-dock__glass {
       background: rgb(var(--sk-nav-glass-tint) / var(--sk-nav-glass-alpha));
-      backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
+      backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
-      -webkit-backdrop-filter: blur(12px) saturate(var(--sk-nav-glass-bleed))
+      -webkit-backdrop-filter: blur(20px) saturate(var(--sk-nav-glass-bleed))
         brightness(var(--sk-nav-glass-lift)) contrast(var(--sk-nav-glass-flatten));
     }
   }
