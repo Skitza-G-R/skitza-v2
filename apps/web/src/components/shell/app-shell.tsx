@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { ProducerBottomNav } from "~/components/nav/producer-bottom-nav";
 import { ProducerSidebar } from "~/components/nav/producer-sidebar";
-import { HomePullToRefresh } from "~/components/native/home-pull-to-refresh";
+import { PullToRefresh } from "~/components/native/pull-to-refresh";
 import { RuntimeNavigationBridge } from "~/components/runtime-state/runtime-navigation-bridge";
 import { RuntimeStateProvider } from "~/components/runtime-state/runtime-state-provider";
 import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
@@ -111,7 +111,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
             tabIndex={-1}
             className="sk-bottom-nav-inset min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-none lg:overflow-visible lg:overscroll-auto"
           >
-            <HomePullToRefresh homePath="/dashboard" />
+            <PullToRefresh shell="producer" />
             {children}
           </main>
         </TopBarBreadcrumbProvider>

@@ -44,8 +44,8 @@ describe("artist mobile viewport shell", () => {
     expect(mainSource).toContain("lg:overflow-visible");
   });
 
-  it("mounts standing-page elasticity with refresh gated to Artist Home", () => {
-    expect(mainSource).toContain('<HomePullToRefresh homePath="/artist" enabled={!focused} />');
+  it("mounts standing-page elasticity with refresh on every artist main screen", () => {
+    expect(mainSource).toContain('<PullToRefresh shell="artist" enabled={!focused} />');
   });
 
   it("suppresses the native colored boundary affordance on every native page scroller", () => {
