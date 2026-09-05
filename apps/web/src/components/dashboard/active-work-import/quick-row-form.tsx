@@ -59,6 +59,7 @@ function fieldsFromDraft(draft: ActiveWorkImportDraft): TypedFields {
 export function QuickRowForm({
   row,
   template,
+  templates,
   mobile,
   reasons,
   saving,
@@ -70,8 +71,10 @@ export function QuickRowForm({
   removeDisabled,
 }: {
   row: WorkspaceImportRow;
-  /** The product a quick row copies from. Quick mode is hidden without one. */
+  /** The product this row is copying from right now. */
   template: StoreTemplateOption;
+  /** Every product the producer could copy from. One means no picker. */
+  templates: readonly StoreTemplateOption[];
   mobile: boolean;
   reasons: readonly ImportReasonView[];
   saving: boolean;
@@ -128,6 +131,10 @@ export function QuickRowForm({
       event.preventDefault();
       first.focus();
     }
+  }
+
+  function chooseTemplate(next: StoreTemplateOption) {
+    onChange(quickRowDraft({ ...fields, paymentOperationKey }, next, defaultsFor(next)));
   }
 
   function patch(next: Partial<TypedFields>) {
@@ -229,6 +236,27 @@ export function QuickRowForm({
               <span className="font-bold text-[rgb(var(--fg-default))]">{template.name}</span>, and
               you check it before anything is saved.
             </p>
+
+            {templates.length > 1 ? (
+              <div className="space-y-2">
+                <FieldLabel htmlFor={fieldId("template")}>Copy from</FieldLabel>
+                <select
+                  id={fieldId("template")}
+                  value={template.id}
+                  onChange={(event) => {
+                    const next = templates.find((item) => item.id === event.target.value);
+                    if (next) chooseTemplate(next);
+                  }}
+                  className={FIELD_CLASS}
+                >
+                  {templates.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <FieldLabel htmlFor={fieldId("name")}>Artist name</FieldLabel>

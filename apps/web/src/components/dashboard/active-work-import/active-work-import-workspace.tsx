@@ -1322,13 +1322,19 @@ export function ActiveWorkImportWorkspace({
    * shows the full three-step editor over the very same draft.
    */
   function renderRowEditor(row: WorkspaceImportRow, index: number, mobile: boolean) {
-    const quickTemplate = quickRowKeys.has(row.operationKey) ? templates[0] : undefined;
+    // Which product this row copies from lives in the draft, so the choice
+    // survives autosave, a remount and a phone/desktop switch.
+    const quickTemplate = quickRowKeys.has(row.operationKey)
+      ? (templates.find((item) => item.id === row.draft.agreement.templateProductId) ??
+        templates[0])
+      : undefined;
     if (quickTemplate) {
       return (
         <QuickRowForm
           key={`quick-${row.operationKey}`}
           row={row}
           template={quickTemplate}
+          templates={templates}
           mobile={mobile}
           reasons={rowDisplayReasons(
             row.assessment,

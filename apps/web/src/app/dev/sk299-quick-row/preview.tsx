@@ -38,6 +38,21 @@ const TEMPLATE: StoreTemplateOption = {
   session: null,
 };
 
+const SECOND_TEMPLATE: StoreTemplateOption = {
+  ...TEMPLATE,
+  id: "template-mixing",
+  name: "Mixing only",
+  service: "Mixing",
+  deliverables: ["Mixes"],
+  subtotalCents: 150_000,
+  taxMode: "tax_added",
+  includedSongSpaces: 1,
+  plans: [{ kind: "full" }],
+  agreementText: "Mixing terms, carried over from the deal we already agreed.",
+};
+
+const TEMPLATES = [TEMPLATE, SECOND_TEMPLATE] as const;
+
 function row(draft: ActiveWorkImportDraft): WorkspaceImportRow {
   return {
     rowId: "row-1",
@@ -115,6 +130,8 @@ export function Sk299Preview() {
   // ?mobile=1 renders the phone dialog, which is a fixed overlay and so cannot
   // share the page with the other panels.
   const [phone, setPhone] = useState(false);
+  const selected =
+    TEMPLATES.find((item) => item.id === draft.agreement.templateProductId) ?? TEMPLATE;
 
   return (
     <main className="mx-auto min-w-0 max-w-[900px] px-3 py-6 sm:px-5">
@@ -135,7 +152,8 @@ export function Sk299Preview() {
       {phone ? (
         <QuickRowForm
           row={row(draft)}
-          template={TEMPLATE}
+          template={selected}
+          templates={TEMPLATES}
           mobile
           reasons={[]}
           saving={false}
@@ -154,7 +172,8 @@ export function Sk299Preview() {
         <div className="flex h-[640px] flex-col">
           <QuickRowForm
             row={row(draft)}
-            template={TEMPLATE}
+            template={selected}
+          templates={TEMPLATES}
             mobile={false}
             reasons={[]}
             saving={false}

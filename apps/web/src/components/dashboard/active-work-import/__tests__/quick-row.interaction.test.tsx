@@ -63,6 +63,17 @@ const template: StoreTemplateOption = {
   session: null,
 };
 
+const secondTemplate: StoreTemplateOption = {
+  ...template,
+  id: "template-mixing",
+  name: "Mixing only",
+  service: "Mixing",
+  deliverables: ["Mixes"],
+  taxMode: "tax_added",
+  includedSongSpaces: 1,
+  plans: [{ kind: "full" }],
+};
+
 function readyAssessment(): ImportAssessmentView {
   return { state: "ready", creationDigest: "digest-quick", normalized: {} as never };
 }
@@ -83,7 +94,7 @@ function installMatchMedia(matches = false) {
   });
 }
 
-function renderWorkspace() {
+function renderWorkspace(templates: readonly StoreTemplateOption[] = [template]) {
   return render(
     <ActiveWorkImportWorkspace
       initialBatch={null}
@@ -92,7 +103,7 @@ function renderWorkspace() {
       archivedClients={[]}
       producerSlug="gili"
       producerName="Gili"
-      templates={[template]}
+      templates={templates}
       defaultCurrency="ILS"
       defaultTaxMode="tax_included"
       defaultTaxRatePct={17}
@@ -288,6 +299,66 @@ describe("quick row in the import workspace", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("offers no product picker when there is only one product", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: /add|start/i }));
+
+    await screen.findByLabelText("Artist name");
+    expect(screen.queryByLabelText("Copy from")).toBeNull();
+  });
+
+  it("lets the producer pick which product to copy from", async () => {
+    const user = userEvent.setup();
+    renderWorkspace([template, secondTemplate]);
+    await fillQuickRow(user);
+
+    const picker = screen.getByLabelText("Copy from");
+    expect((picker as HTMLSelectElement).value).toBe("template-quick");
+
+    await user.selectOptions(picker, "template-mixing");
+
+    // The five typed fields survive the switch.
+    await waitFor(() => {
+      expect(screen.getByLabelText("Artist name")).toHaveProperty("value", "Noya Levi");
+    });
+    expect(screen.getByLabelText("Agreed price")).toHaveProperty("value", "5000");
+    expect(screen.getByLabelText(/Paid so far/)).toHaveProperty("value", "2500");
+
+    // The picker itself has to show the new choice, or the next keystroke is
+    // applied against the old product and silently reverts everything.
+    await waitFor(() => {
+      expect(screen.getByLabelText("Copy from")).toHaveProperty("value", "template-mixing");
+    });
+
+    // Typing after the switch must keep the chosen product, not fall back.
+    await user.type(screen.getByLabelText("Project name"), " vol 2");
+
+    await user.click(screen.getByRole("button", { name: "Check this deal" }));
+
+    // Mixing only is one song, paid in full, and tax added on top of ₪5,000 —
+    // every number in the line now comes from the product that was chosen.
+    await screen.findByText(
+      "Mixing only · ₪5,000 incl. 17% tax · Full · 1 song · Noya has paid ₪2,500",
+    );
+  });
+
+  it("remembers the chosen product in the draft it saves", async () => {
+    const user = userEvent.setup();
+    renderWorkspace([template, secondTemplate]);
+    await fillQuickRow(user);
+
+    await user.selectOptions(screen.getByLabelText("Copy from"), "template-mixing");
+
+    await waitFor(() => {
+      const last = mocks.saveRow.mock.calls.at(-1)?.[0].draftPayload as {
+        agreement?: { templateProductId?: string };
+      };
+      expect(last.agreement?.templateProductId).toBe("template-mixing");
     });
   });
 
