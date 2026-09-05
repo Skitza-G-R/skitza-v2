@@ -907,6 +907,17 @@
       transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
       visibility 0s linear 0s;
   }
+  /* Artwork swipe: the cover rides the finger with no transition, then
+     springs back to centre once the gesture resolves — the same curve
+     the sheet itself settles on, so the two gestures feel related. */
+  .mobile-full-player-artwork {
+    transition:
+      transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .mobile-full-player-artwork[data-swipe-state="dragging"] {
+    transition: none;
+  }
   @media (min-width: 1024px) {
     .persistent-player-dock {
       bottom: 0;
@@ -2315,6 +2326,11 @@
       filter: none !important;
     }
     .mobile-full-player-sheet {
+      transition: none !important;
+    }
+    /* The artwork swipe still skips songs for motion-sensitive users —
+       the component just never paints the travelling cover. */
+    .mobile-full-player-artwork {
       transition: none !important;
     }
     .reveal-up,
