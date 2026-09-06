@@ -2018,20 +2018,6 @@
   }
   .sk-reel-rise { animation: sk-reel-rise 480ms var(--ease-out-strong) both; animation-delay: var(--sk-reel-t, 0ms); }
   .sk-reel-pop { animation: sk-reel-pop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; animation-delay: var(--sk-reel-t, 0ms); }
-  .sk-reel-stage { will-change: transform; transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1); }
-  .sk-reel-stage-settled { transition: none; }
-  .sk-reel-mask {
-    position: absolute;
-    border-radius: 16px;
-    pointer-events: none;
-    box-shadow: 0 0 0 4000px rgb(var(--bg-sidebar) / 0.5);
-    transition:
-      left 900ms cubic-bezier(0.4, 0, 0.2, 1),
-      top 900ms cubic-bezier(0.4, 0, 0.2, 1),
-      width 900ms cubic-bezier(0.4, 0, 0.2, 1),
-      height 900ms cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .sk-reel-cover { position: absolute; z-index: 3; display: flex; animation: sk-reel-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
   .sk-reel-ring {
     position: absolute;
     z-index: 4;
@@ -2056,9 +2042,12 @@
     border-radius: 9999px;
     background: rgb(var(--fg-success));
     color: #fff;
-    box-shadow: 0 10px 24px rgb(var(--fg-success) / 0.35), 0 0 0 4px rgb(var(--bg-elevated));
+    box-shadow: 0 10px 24px rgb(var(--fg-success) / 0.35), 0 0 0 4px rgb(var(--bg-background));
+    opacity: 0;
     animation: sk-reel-pop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation-delay: var(--sk-reel-t, 0ms);
   }
+  .sk-reel-stamp-sm { width: 44px; height: 44px; box-shadow: 0 8px 18px rgb(var(--fg-success) / 0.35), 0 0 0 3px rgb(var(--bg-elevated)); }
   .sk-reel-stamp::after {
     content: "";
     position: absolute;
@@ -2066,9 +2055,32 @@
     border-radius: 9999px;
     border: 3px solid rgb(var(--fg-success));
     opacity: 0;
-    animation: sk-reel-halo 700ms ease-out 120ms both;
+    animation: sk-reel-halo 700ms ease-out both;
+    animation-delay: calc(var(--sk-reel-t, 0ms) + 120ms);
   }
-  .sk-reel-stamp path { stroke-dasharray: 26; stroke-dashoffset: 26; animation: sk-reel-draw 320ms ease-out 160ms both; }
+  .sk-reel-stamp path { stroke-dasharray: 26; stroke-dashoffset: 26; animation: sk-reel-draw 320ms ease-out both; animation-delay: calc(var(--sk-reel-t, 0ms) + 160ms); }
+  @keyframes sk-reel-out { to { opacity: 0; transform: scale(0.9); } }
+  @keyframes sk-reel-grow { to { transform: scaleY(1); } }
+  @keyframes sk-reel-sweep { from { left: 0; } to { left: 42%; } }
+  @keyframes sk-reel-pin {
+    from { transform: rotate(-45deg) scale(0) translateY(-24px); }
+    to   { transform: rotate(-45deg) scale(1); }
+  }
+  @keyframes sk-reel-slide {
+    from { opacity: 0; transform: translateX(-40px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .sk-reel-swap { position: relative; display: inline-grid; }
+  .sk-reel-swap > * { grid-area: 1 / 1; white-space: nowrap; }
+  .sk-reel-swap-b { animation: sk-reel-out 220ms ease both; animation-delay: var(--sk-reel-t, 0ms); }
+  .sk-reel-swap-a { opacity: 0; transform: scale(0.7); animation: sk-reel-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; animation-delay: var(--sk-reel-t, 0ms); }
+  .sk-reel-slide { opacity: 0; transform: translateX(-40px); animation: sk-reel-slide 520ms var(--ease-out-strong) both; animation-delay: var(--sk-reel-t, 0ms); }
+  .sk-reel-bar { transform: scaleY(0.1); animation: sk-reel-grow 420ms var(--ease-out-strong) both; animation-delay: var(--sk-reel-t, 0ms); }
+  .sk-reel-playhead { position: absolute; top: -6px; bottom: -6px; left: 0; width: 3px; border-radius: 3px; background: rgb(var(--fg-default)); animation: sk-reel-sweep 1000ms cubic-bezier(0.4, 0, 0.2, 1) both; animation-delay: var(--sk-reel-t, 0ms); }
+  .sk-reel-pin { position: absolute; left: 42%; top: -16px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50% 50% 50% 0; background: rgb(var(--brand-primary)); border: 3px solid rgb(var(--fg-default)); transform: rotate(-45deg) scale(0); animation: sk-reel-pin 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; animation-delay: var(--sk-reel-t, 0ms); }
+  .sk-reel-busy { background: repeating-linear-gradient(135deg, rgb(var(--fg-default) / 0.07) 0 5px, transparent 5px 10px); }
+  .sk-reel-receipt { background: linear-gradient(180deg, rgb(var(--bg-elevated)) 0 34%, rgb(var(--brand-primary) / 0.12) 34% 100%); }
+  .sk-reel-receipt::before { content: ""; position: absolute; left: 10px; right: 10px; top: 12px; height: 4px; border-radius: 2px; background: rgb(var(--brand-primary)); box-shadow: 0 10px 0 0 rgb(var(--border-strong)), 0 18px 0 0 rgb(var(--border-strong)); }
   .sk-reel-tile { animation: sk-reel-collapse 700ms cubic-bezier(0.6, -0.1, 0.3, 1) both; animation-delay: var(--sk-reel-t, 0ms); transform: rotate(var(--sk-reel-rot, 0deg)); }
   .sk-reel-pill { opacity: 0; transform: translate(-50%, -50%) scale(0.5); animation: sk-reel-pill 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; animation-delay: var(--sk-reel-t, 0ms); }
   .sk-reel-shine::after {
@@ -2086,7 +2098,6 @@
   .sk-reel-fill { animation: sk-reel-fill var(--sk-reel-dur, 5000ms) linear both; }
   .sk-reel-paused .sk-reel-rise,
   .sk-reel-paused .sk-reel-pop,
-  .sk-reel-paused .sk-reel-cover,
   .sk-reel-paused .sk-reel-ring,
   .sk-reel-paused .sk-reel-stamp,
   .sk-reel-paused .sk-reel-stamp::after,
@@ -2094,6 +2105,12 @@
   .sk-reel-paused .sk-reel-tile,
   .sk-reel-paused .sk-reel-pill,
   .sk-reel-paused .sk-reel-shine::after,
+  .sk-reel-paused .sk-reel-swap-b,
+  .sk-reel-paused .sk-reel-swap-a,
+  .sk-reel-paused .sk-reel-slide,
+  .sk-reel-paused .sk-reel-bar,
+  .sk-reel-paused .sk-reel-playhead,
+  .sk-reel-paused .sk-reel-pin,
   .sk-reel-paused .sk-reel-fill { animation-play-state: paused; }
 
   /* Drag drop indicator — fades + grows from 60% width so the brand
@@ -2290,7 +2307,6 @@
     .sk-gloss::after,
     .sk-reel-rise,
     .sk-reel-pop,
-    .sk-reel-cover,
     .sk-reel-ring,
     .sk-reel-stamp,
     .sk-reel-stamp::after,
@@ -2298,25 +2314,35 @@
     .sk-reel-tile,
     .sk-reel-pill,
     .sk-reel-shine::after,
+    .sk-reel-swap-b,
+    .sk-reel-swap-a,
+    .sk-reel-slide,
+    .sk-reel-bar,
+    .sk-reel-playhead,
+    .sk-reel-pin,
     .sk-reel-fill { animation: none !important; }
-    /* The reel lands on its final frame: marks visible, tiles gone, the
-       link pill and the progress strip already full, no camera move. */
+    /* The reel lands on its final frame: every mark in its after state,
+       tiles gone, the link pill and the progress strip already full. */
     .sk-reel-rise,
     .sk-reel-pop,
-    .sk-reel-cover,
     .sk-reel-stamp,
-    .sk-reel-pill { opacity: 1 !important; }
+    .sk-reel-pill,
+    .sk-reel-swap-a,
+    .sk-reel-slide { opacity: 1 !important; }
     .sk-reel-rise,
     .sk-reel-pop,
-    .sk-reel-cover,
-    .sk-reel-stamp { transform: none !important; }
+    .sk-reel-stamp,
+    .sk-reel-swap-a,
+    .sk-reel-slide,
+    .sk-reel-bar { transform: none !important; }
     .sk-reel-pill { transform: translate(-50%, -50%) !important; }
+    .sk-reel-pin { transform: rotate(-45deg) scale(1) !important; }
+    .sk-reel-playhead { left: 42% !important; }
     .sk-reel-stamp path { stroke-dashoffset: 0 !important; }
     .sk-reel-tile,
-    .sk-reel-ring { opacity: 0 !important; }
+    .sk-reel-ring,
+    .sk-reel-swap-b { opacity: 0 !important; }
     .sk-reel-fill { width: 100% !important; }
-    .sk-reel-stage,
-    .sk-reel-mask { transition: none !important; }
     [data-tab-swipe-state] {
       transform: none !important;
       transition: none !important;

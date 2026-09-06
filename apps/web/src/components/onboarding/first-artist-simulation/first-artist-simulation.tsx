@@ -1,17 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import {
-  AudioLines,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Lock,
-  LockOpen,
-  Pause,
-  Play,
-  X,
-} from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Lock, LockOpen, Pause, Play, X } from "lucide-react";
 import Link from "next/link";
 import {
   useEffect,
@@ -20,47 +10,30 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
 } from "react";
 
-import { BookingClient } from "~/app/(artist)/artist/book/booking-client";
-import { ConfirmationHero } from "~/components/artist/sessions/confirmation-hero";
-import { FocalProductCard } from "~/components/artist/store/focal-product-card";
-import { ProducerHero } from "~/components/artist/store/producer-hero";
-import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
-import { PaymentProofReview } from "~/components/dashboard/payments/payment-proof-review";
-import { SongsGrid } from "~/components/music/library-screen";
-import { SongPage } from "~/components/music/song-page";
-import {
-  LiquidGlassBottomNav,
-  type LiquidGlassBottomNavTab,
-} from "~/components/nav/liquid-glass-bottom-nav";
-import {
-  RuntimeStatePreviewProvider,
-  type RuntimeIdentity,
-} from "~/components/runtime-state/runtime-state-provider";
+import { formatMoney } from "~/lib/format/money";
 import { captureProductEvent } from "~/lib/observability/product-events";
 
 import {
   buildSimulation,
+  previewPeaks,
   SIMULATED_ARTIST,
-  SIMULATION_IDS,
   SIMULATION_LABEL,
   type SimulationInput,
+  type SimulationModel,
   type SimulationScene,
   type SimulationSceneId,
 } from "./simulation-model";
-import { Spotlight, type SpotlightCue } from "./spotlight";
 
 // The onboarding reel (SK-310, replacing the SK-298 story): six screens,
-// about 35 seconds, that show what a producer gets, not the steps to get it.
-// Every screen after the hook is a live artist or producer screen rendered
-// with the producer's REAL first product, cropped by a spotlight to the one
-// element that matters, with the same chain on each: a ring where Noya
-// taps, one change on the screen, one green check. It never calls a
-// mutation: every control that would reach the server is on a preview seam,
-// and every link is swallowed before it can navigate.
+// about 31 seconds, that show what a producer gets, not the steps to get it.
+// Each screen is one drawn picture with one chain on it: the artist acts, the
+// picture changes, the same green check stamps the payoff. The producer's
+// real product name and price sit inside the pictures. Nothing here reaches
+// the server: the pictures are static markup timed by CSS, and the only links
+// are the two on the last screen.
 
 export interface SimulationLinks {
   bringActiveWork: string;
@@ -76,78 +49,16 @@ interface FirstArtistSimulationProps {
   links: SimulationLinks;
 }
 
-// The reused funnel screens position themselves `fixed` against the viewport.
-// A transformed, isolated container turns that into "fixed inside the screen
-// area", and the viewport-height token makes their 100dvh fill that area.
-const SCREEN_AREA_STYLE = {
-  "--sk-viewport-height": "100%",
-  "--sk-viewport-offset-top": "0px",
-  transform: "translateZ(0)",
-  isolation: "isolate",
-} as CSSProperties;
-
-// The reused screens need an href for links the reel has no route for.
-const INERT_HREF = "#simulation";
-
-type ArtistTabId = "home" | "music" | "sessions" | "payments" | "store";
-
-function artistTabs(active: ArtistTabId): LiquidGlassBottomNavTab<ArtistTabId>[] {
-  return (["home", "music", "sessions", "payments", "store"] as const).map((id) => ({
-    id,
-    label: id === "home" ? "Home" : id.charAt(0).toUpperCase() + id.slice(1),
-    href: INERT_HREF,
-    icon: id === "sessions" ? "calendar" : id,
-    active: active === id,
-    prefetch: false,
-  }));
-}
-
-// Runtime state is per-account private storage. The reel borrows the preview
-// provider so the live screens can read a draft slot without ever touching
-// the producer's own runtime state.
-const SIMULATION_ARTIST_IDENTITY: RuntimeIdentity = {
-  userId: "simulation-artist",
-  role: "artist",
-  contextId: SIMULATION_IDS.project,
+/** Milliseconds after a scene starts at which its later beats begin. */
+const PHASES: Record<SimulationSceneId, readonly number[]> = {
+  hook: [0],
+  link: [0],
+  booking: [0],
+  library: [0],
+  money: [0],
+  // The action appears once the studio picture has settled.
+  studio: [0, 2100],
 };
-const SIMULATION_PRODUCER_IDENTITY: RuntimeIdentity = {
-  userId: "simulation-producer",
-  role: "producer",
-  contextId: SIMULATION_IDS.studio,
-};
-
-/**
- * One beat of a scene: when it starts, which screen state it shows, and
- * where the spotlight, ring, cover and check go. Selectors reach into the
- * live screens; the interaction test walks every one of them.
- */
-interface ScenePhase {
-  at: number;
-  state: string;
-  cue: SpotlightCue | null;
-}
-
-const PRODUCT = '[data-reel-focus="product"]';
-const DAYS = '[data-reel-focus="booking"] .grid-cols-2';
-const BOOKED = '[data-reel-focus="booked"]';
-const LIST = '[data-reel-focus="list"]';
-const NOTE = "[data-song-comment]";
-const APPROVE = '[data-test="approve-final-version"]';
-const APPROVED = '[data-test="artist-approved-status"]';
-const PROOF = '[data-reel-focus="proof"]';
-const DELIVERY = '[data-reel-focus="delivery"]';
-const OVERVIEW = '[data-reel-focus="overview"]';
-
-function SentChip() {
-  return (
-    <span className="inline-flex h-full w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-success)/0.14)] px-4 text-[13px] font-bold text-[rgb(var(--fg-success-text))]">
-      <Check size={14} strokeWidth={3} aria-hidden />
-      Booking request sent
-    </span>
-  );
-}
-
-const SENT_COVER = { selector: `${PRODUCT} button`, node: <SentChip /> };
 
 // `buildScenes` always returns at least five scenes; this only keeps the
 // hooks below unconditional for the type checker.
@@ -160,49 +71,25 @@ const FALLBACK_SCENE: SimulationScene = {
   durationMs: 0,
 };
 
-const PHASES: Record<SimulationSceneId, readonly ScenePhase[]> = {
-  hook: [{ at: 0, state: "mess", cue: null }],
-  link: [
-    { at: 0, state: "store", cue: { focus: [PRODUCT] } },
-    { at: 1500, state: "store", cue: { focus: [PRODUCT], ring: `${PRODUCT} button` } },
-    { at: 2100, state: "sent", cue: { focus: [PRODUCT], cover: SENT_COVER } },
-    { at: 2600, state: "sent", cue: { focus: [PRODUCT], cover: SENT_COVER, stamp: PRODUCT } },
-  ],
-  booking: [
-    { at: 0, state: "days", cue: { focus: [DAYS] } },
-    { at: 1400, state: "days", cue: { focus: [DAYS], ring: `${DAYS} > button` } },
-    { at: 2300, state: "booked", cue: { focus: [BOOKED] } },
-    { at: 3100, state: "booked", cue: { focus: [BOOKED], stamp: BOOKED } },
-  ],
-  library: [
-    { at: 0, state: "list", cue: { focus: [LIST] } },
-    { at: 1300, state: "list", cue: { focus: [LIST], ring: `${LIST} li` } },
-    { at: 1700, state: "song", cue: { focus: [NOTE] } },
-    { at: 4300, state: "song", cue: { focus: [APPROVE], ring: APPROVE } },
-    { at: 4700, state: "approved", cue: { focus: [APPROVED] } },
-    { at: 4900, state: "approved", cue: { focus: [APPROVED], stamp: APPROVED } },
-  ],
-  money: [
-    { at: 0, state: "pending", cue: { focus: [PROOF] } },
-    { at: 1500, state: "pending", cue: { focus: [PROOF], ring: `${PROOF} button`, ringText: /^Confirm/ } },
-    { at: 1900, state: "confirmed", cue: { focus: [PROOF], stamp: PROOF } },
-    { at: 2500, state: "delivery", cue: { focus: [DELIVERY], stamp: PROOF } },
-    { at: 3100, state: "unlocked", cue: { focus: [DELIVERY], stamp: PROOF } },
-  ],
-  studio: [
-    { at: 0, state: "overview", cue: { focus: [`${OVERVIEW} header`, '[aria-label="Studio pulse"]'] } },
-    { at: 2100, state: "cta", cue: { focus: [`${OVERVIEW} header`, '[aria-label="Studio pulse"]'] } },
-  ],
-};
+function at(ms: number, extra?: CSSProperties): CSSProperties {
+  return { "--sk-reel-t": `${String(ms)}ms`, ...extra } as CSSProperties;
+}
+
+function clock(ms: number): string {
+  const total = Math.round(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
+}
 
 /**
- * Advances through a scene's phases on real time, pauses with the reel, and
- * calls back when the scene has run its length. Reduced motion lands on the
- * last phase at once and never auto-advances.
+ * Advances a scene's beats on real time, pauses with the reel, and calls
+ * back when the scene has run its length. Reduced motion lands on the last
+ * beat at once and never auto-advances.
  */
 function useSceneTimeline(input: {
   sceneKey: string;
-  phases: readonly ScenePhase[];
+  phases: readonly number[];
   durationMs: number;
   paused: boolean;
   settled: boolean;
@@ -233,15 +120,15 @@ function useSceneTimeline(input: {
     const base = elapsedBefore.current;
     startedAt.current = performance.now();
     const timers: ReturnType<typeof setTimeout>[] = [];
-    phases.forEach((phase, index) => {
-      if (phase.at <= base) {
+    phases.forEach((phaseAt, index) => {
+      if (phaseAt <= base) {
         setPhaseIndex((current) => Math.max(current, index));
         return;
       }
       timers.push(
         setTimeout(() => {
           setPhaseIndex((current) => Math.max(current, index));
-        }, phase.at - base),
+        }, phaseAt - base),
       );
     });
     if (autoplay && durationMs > base) {
@@ -279,98 +166,99 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-/**
- * The reel is watched, not driven: no link inside a screen may leave the
- * page, whichever route the live component wrote into it.
- */
-function swallowLinks(event: MouseEvent<HTMLElement>) {
-  const target = event.target instanceof Element ? event.target : null;
-  if (target?.closest("a[href]")) event.preventDefault();
-}
+// ---------------------------------------------------------------------------
+// Shared marks: the artist, the fingertip ring, the green check, a swap.
+// ---------------------------------------------------------------------------
 
-function ScreenArea({ children, tab }: { children: ReactNode; tab?: ArtistTabId }) {
+const AVATAR_TONES = {
+  noya: "bg-[#DCEBF5] text-[#1E4A6B]",
+  amit: "bg-[#F1E1D2] text-[#6B3A16]",
+  dana: "bg-[#E5E1F4] text-[#3F2E7A]",
+} as const;
+
+function Avatar({
+  tone,
+  initial,
+  size = "md",
+}: {
+  tone: keyof typeof AVATAR_TONES;
+  initial: string;
+  size?: "sm" | "md";
+}) {
   return (
-    <div
-      className="relative h-full min-h-0 w-full overflow-hidden bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
-      style={SCREEN_AREA_STYLE}
+    <span
+      aria-hidden
+      className={`inline-grid shrink-0 place-items-center rounded-full font-bold ${AVATAR_TONES[tone]} ${
+        size === "sm" ? "h-[34px] w-[34px] text-[14px]" : "h-12 w-12 text-[18px]"
+      }`}
     >
-      {tab ? (
-        <>
-          <div className="h-full overflow-y-auto">
-            {children}
-            {/* In-flow spacer, not padding: sticky calls to action measure
-                their 4.75rem offset from the scrollport's content edge, so
-                padding here would push them above the tabs. */}
-            <div aria-hidden className="h-[4.75rem] lg:h-5" />
-          </div>
-          <div className="lg:hidden">
-            <LiquidGlassBottomNav
-              ariaLabel="Artist app tabs"
-              tabs={artistTabs(tab)}
-              position="fixed"
-            />
-          </div>
-        </>
-      ) : (
-        children
-      )}
-    </div>
+      {initial}
+    </span>
   );
 }
 
-interface DeviceProps {
-  children: ReactNode;
-  cue: SpotlightCue | null;
-  cueKey: string;
-  settled: boolean;
-}
-
-/** Noya's phone: edge to edge on phones, a device frame on desktop. */
-function ArtistDevice({ children, cue, cueKey, settled, tab }: DeviceProps & { tab?: ArtistTabId }) {
+/** The fingertip: blooms once where the artist taps. */
+function Ring({ ms, large = false }: { ms: number; large?: boolean }) {
   return (
-    <div
-      data-testid="simulation-artist-frame"
-      onClickCapture={swallowLinks}
-      className="h-full w-full lg:mx-auto lg:h-[min(80vh,780px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
-    >
-      <div className="h-full w-full overflow-hidden lg:rounded-[37px]">
-        <Spotlight cue={cue} cueKey={cueKey} settled={settled}>
-          <ScreenArea {...(tab ? { tab } : {})}>{children}</ScreenArea>
-        </Spotlight>
-      </div>
-    </div>
+    <span
+      aria-hidden
+      className={`sk-reel-ring ${large ? "sk-reel-ring-lg" : ""}`}
+      style={at(ms, { left: "50%", top: "50%" })}
+    />
   );
 }
 
-/** The producer's own screen: edge to edge on phones, a browser window on desktop. */
-function ProducerWindow({ children, cue, cueKey, settled, flush = false }: DeviceProps & { flush?: boolean }) {
+/** The payoff: one green check, the same on every screen. */
+function Stamp({ ms, small = false, className = "" }: { ms: number; small?: boolean; className?: string }) {
   return (
-    <div
-      data-testid="simulation-producer-panel"
-      onClickCapture={swallowLinks}
-      className="flex h-full w-full flex-col bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] lg:mx-auto lg:h-[min(80vh,780px)] lg:w-full lg:max-w-[880px] lg:overflow-hidden lg:rounded-[14px] lg:border lg:border-white/10 lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
+    <span
+      role="img"
+      aria-label="Done"
+      data-testid="reel-stamp"
+      className={`sk-reel-stamp ${small ? "sk-reel-stamp-sm" : ""} ${className}`}
+      style={at(ms)}
     >
-      <div
+      <svg
+        width={small ? 22 : 26}
+        height={small ? 22 : 26}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         aria-hidden
-        className="hidden h-9 shrink-0 items-center gap-2 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 lg:flex"
       >
-        <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--border-subtle))]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--border-subtle))]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--border-subtle))]" />
-        <span className="mx-auto rounded-[var(--radius-sm)] bg-[rgb(var(--bg-background))] px-3 py-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
-          skitza.app/dashboard
-        </span>
-      </div>
-      <div className="min-h-0 flex-1" style={SCREEN_AREA_STYLE}>
-        <Spotlight cue={cue} cueKey={cueKey} settled={settled}>
-          <div className="h-full overflow-y-auto">
-            {flush ? children : <div className="px-4 pt-5 pb-6 sm:px-6">{children}</div>}
-          </div>
-        </Spotlight>
-      </div>
-    </div>
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </svg>
+    </span>
   );
 }
+
+/** One slot that shows `before`, then `after`, at `ms`. */
+function Swap({ ms, before, after }: { ms: number; before: ReactNode; after: ReactNode }) {
+  return (
+    <span className="sk-reel-swap" style={at(ms)}>
+      <span className="sk-reel-swap-b">{before}</span>
+      <span className="sk-reel-swap-a">{after}</span>
+    </span>
+  );
+}
+
+function CheckIcon({ size = 14 }: { size?: number }) {
+  return <Check size={size} strokeWidth={3} aria-hidden className="shrink-0" />;
+}
+
+const CHIP = "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[14px] font-bold";
+const CHIP_AMBER = `${CHIP} bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]`;
+const CHIP_GREEN = `${CHIP} bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success-text))]`;
+const CHIP_GREY = `${CHIP} border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-muted))]`;
+const CARD =
+  "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] rounded-[var(--radius-xl)]";
+
+// ---------------------------------------------------------------------------
+// The six pictures.
+// ---------------------------------------------------------------------------
 
 // The hook: five app tiles collapse into the producer's own link. Positions
 // are in a 300×210 box; each tile flies to its centre, which the CSS reads
@@ -383,97 +271,376 @@ const HOOK_TILES = [
   { label: "Contract", x: 176, y: 124, rotate: -9, tone: "#6B6359", delay: 1140 },
 ] as const;
 
-function HookScene({ publicUrl }: { publicUrl: string }) {
-  const shown = publicUrl.replace(/^https?:\/\//, "");
+function LinkPill({ publicUrl, className = "" }: { publicUrl: string; className?: string }) {
   return (
-    <div className="flex h-full w-full items-center justify-center">
-      <div className="relative h-[210px] w-[300px]" aria-hidden>
-        {HOOK_TILES.map((tile) => (
-          <span
-            key={tile.label}
-            className="sk-reel-tile absolute flex h-[74px] w-[74px] flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] shadow-[0_8px_20px_rgb(17_16_9/0.08)]"
-            style={
-              {
-                left: tile.x,
-                top: tile.y,
-                "--sk-reel-rot": `${String(tile.rotate)}deg`,
-                "--sk-reel-dx": `${String(150 - tile.x - 37)}px`,
-                "--sk-reel-dy": `${String(105 - tile.y - 37)}px`,
-                "--sk-reel-t": `${String(tile.delay)}ms`,
-              } as CSSProperties
-            }
-          >
-            <span className="h-[26px] w-[26px] rounded-[8px]" style={{ background: tile.tone }} />
-            {tile.label}
-          </span>
-        ))}
+    <>
+      <span className="font-display grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] bg-[rgb(var(--brand-primary))] text-[15px] font-extrabold text-[rgb(var(--bg-sidebar))]">
+        S
+      </span>
+      <span className={`truncate ${className}`}>{publicUrl.replace(/^https?:\/\//, "")}</span>
+    </>
+  );
+}
+
+function HookScene({ publicUrl }: { publicUrl: string }) {
+  return (
+    <div className="relative h-[210px] w-[300px]" aria-hidden>
+      {HOOK_TILES.map((tile) => (
         <span
-          className="sk-reel-pill absolute top-1/2 left-1/2 inline-flex h-[52px] items-center gap-2.5 rounded-[14px] bg-[rgb(var(--bg-sidebar))] px-4.5 font-mono text-[15px] whitespace-nowrap text-[rgb(var(--fg-onsidebar))] shadow-[0_16px_36px_rgb(17_16_9/0.28)]"
-          style={{ "--sk-reel-t": "1650ms" } as CSSProperties}
+          key={tile.label}
+          className="sk-reel-tile absolute flex h-[74px] w-[74px] flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] shadow-[0_8px_20px_rgb(17_16_9/0.08)]"
+          style={at(tile.delay, {
+            left: tile.x,
+            top: tile.y,
+            "--sk-reel-rot": `${String(tile.rotate)}deg`,
+            "--sk-reel-dx": `${String(150 - tile.x - 37)}px`,
+            "--sk-reel-dy": `${String(105 - tile.y - 37)}px`,
+          } as CSSProperties)}
         >
-          <span className="font-display grid h-[26px] w-[26px] place-items-center rounded-[7px] bg-[rgb(var(--brand-primary))] text-[15px] font-extrabold text-[rgb(var(--bg-sidebar))]">
-            S
-          </span>
-          {shown}
+          <span className="h-[26px] w-[26px] rounded-[8px]" style={{ background: tile.tone }} />
+          {tile.label}
         </span>
-        <span
-          className="sk-reel-ring sk-reel-ring-lg"
-          style={{ left: "50%", top: "50%", "--sk-reel-t": "2150ms" } as CSSProperties}
-        />
-      </div>
+      ))}
+      <span
+        className="sk-reel-pill absolute top-1/2 left-1/2 inline-flex h-[52px] max-w-[300px] items-center gap-2.5 rounded-[14px] bg-[rgb(var(--bg-sidebar))] px-4.5 font-mono text-[15px] whitespace-nowrap text-[rgb(var(--fg-onsidebar))] shadow-[0_16px_36px_rgb(17_16_9/0.28)]"
+        style={at(1650)}
+      >
+        <LinkPill publicUrl={publicUrl} />
+      </span>
+      <Ring ms={2150} large />
     </div>
   );
 }
 
-function GoogleCalendarLine() {
+function LinkScene({ model, publicUrl }: { model: SimulationModel; publicUrl: string }) {
+  const price = formatMoney(model.totalCents, model.currency, {
+    withCents: model.totalCents % 100 !== 0,
+  });
   return (
-    <p className="mx-auto inline-flex h-10 items-center gap-2.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
-      <span
-        aria-hidden
-        className="font-display grid h-6 w-6 place-items-center rounded-[6px] border border-[rgb(var(--border-subtle))] text-[12px] font-extrabold text-[#1a73e8]"
+    <>
+      <div
+        className="sk-reel-rise relative inline-flex h-[52px] max-w-full items-center gap-2.5 rounded-[14px] bg-[rgb(var(--bg-sidebar))] px-4.5 font-mono text-[15px] text-[rgb(var(--fg-onsidebar))]"
+        style={at(100)}
       >
-        G
-      </span>
-      Added to Google Calendar
-    </p>
+        <LinkPill publicUrl={publicUrl} />
+        <Ring ms={1500} />
+      </div>
+      <div
+        className="sk-reel-slide flex flex-col items-center gap-1.5 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+        style={at(900)}
+      >
+        <Avatar tone="noya" initial="N" />
+        {SIMULATED_ARTIST.firstName}
+      </div>
+      <svg
+        className="sk-reel-rise text-[rgb(var(--border-strong))]"
+        style={at(2000)}
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M12 5v14M6 13l6 6 6-6" />
+      </svg>
+      <div className={`sk-reel-rise relative flex w-[300px] max-w-full flex-col gap-3 p-[18px] ${CARD}`} style={at(2100)}>
+        <p className="text-[13px] font-bold tracking-[0.06em] text-[rgb(var(--fg-muted))] uppercase">
+          New request
+        </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar tone="noya" initial="N" size="sm" />
+          <div className="min-w-0">
+            <p className="text-[17px] font-bold">{SIMULATED_ARTIST.firstName}</p>
+            <p className="truncate text-[14px] text-[rgb(var(--fg-muted))]">
+              {model.product.name} · <span className="font-mono font-semibold">{price}</span>
+            </p>
+          </div>
+        </div>
+        <Stamp ms={2700} className="top-[-14px] right-[-14px]" />
+      </div>
+    </>
   );
 }
 
-function DeliveryRow({ unlocked, artist }: { unlocked: boolean; artist: string }) {
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu"] as const;
+// Row by row: open, busy in Google, or the slot she picks.
+const CELLS: readonly ("open" | "busy" | "pick")[] = [
+  "busy", "open", "open", "open", "open",
+  "open", "busy", "pick", "open", "open",
+  "open", "open", "open", "busy", "open",
+];
+
+function BookingScene() {
+  return (
+    <>
+      <div
+        className="sk-reel-slide flex flex-col items-center gap-1.5 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+        style={at(800)}
+      >
+        <Avatar tone="noya" initial="N" />
+        {SIMULATED_ARTIST.firstName} picks a time
+      </div>
+      <div className={`sk-reel-rise w-[320px] max-w-full p-3.5 ${CARD}`} style={at(100)}>
+        <div className="mb-1.5 grid grid-cols-5 gap-1.5">
+          {DAYS.map((day) => (
+            <span key={day} className="text-center text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
+              {day}
+            </span>
+          ))}
+        </div>
+        <div className="grid grid-cols-5 gap-1.5">
+          {CELLS.map((cell, index) => (
+            <span
+              key={String(index)}
+              className={`relative h-[46px] rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] ${
+                cell === "busy" ? "sk-reel-busy" : ""
+              }`}
+            >
+              {cell === "pick" ? (
+                <>
+                  <Ring ms={1400} />
+                  <span
+                    className="sk-reel-pop absolute inset-0 flex flex-col items-center justify-center rounded-[10px] bg-[rgb(var(--brand-primary))] text-[12px] leading-[1.1] font-bold text-[rgb(var(--bg-sidebar))]"
+                    style={at(1600)}
+                  >
+                    <span>{SIMULATED_ARTIST.firstName}</span>
+                    <span>14:00</span>
+                  </span>
+                </>
+              ) : null}
+            </span>
+          ))}
+        </div>
+        <div className="mt-2.5 flex gap-3.5 text-[12px] text-[rgb(var(--fg-muted))]">
+          <span className="inline-flex items-center gap-1.5">
+            <i className="h-3.5 w-3.5 rounded-[4px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))]" />
+            Your open hours
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <i className="sk-reel-busy h-3.5 w-3.5 rounded-[4px] border border-[rgb(var(--border-subtle))]" />
+            Busy in Google
+          </span>
+        </div>
+      </div>
+      <div
+        className="sk-reel-rise relative inline-flex h-11 items-center gap-2.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pr-[34px] pl-2.5 text-[14px] font-semibold"
+        style={at(2300)}
+      >
+        <span
+          aria-hidden
+          className="font-display grid h-[26px] w-[26px] place-items-center rounded-[7px] border border-[rgb(var(--border-subtle))] text-[13px] font-extrabold text-[#1a73e8]"
+        >
+          G
+        </span>
+        Added to Google Calendar
+        <Stamp ms={2800} small className="top-[-12px] right-[-18px]" />
+      </div>
+    </>
+  );
+}
+
+const WAVE_BARS = previewPeaks(3).filter((_, index) => index % 5 === 0).slice(0, 42);
+
+function SongRow({ title, meta }: { title: string; meta: string }) {
+  return (
+    <>
+      <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+        <Play size={12} fill="currentColor" aria-hidden />
+      </span>
+      <span className="flex-1 truncate text-[15px] font-bold">{title}</span>
+      <span className="font-mono text-[12px] text-[rgb(var(--fg-muted))]">{meta}</span>
+    </>
+  );
+}
+
+function LibraryScene({ model }: { model: SimulationModel }) {
+  const [first, ...rest] = model.library;
+  return (
+    <div className={`sk-reel-rise relative flex w-[320px] max-w-full flex-col gap-2 p-3.5 ${CARD}`} style={at(100)}>
+      <div className="flex items-center gap-2.5 pr-[34px] pb-1.5 pl-1">
+        <Avatar tone="noya" initial="N" size="sm" />
+        <span className="text-[16px] font-bold">{SIMULATED_ARTIST.firstName}&apos;s library</span>
+        <span className="ml-auto text-[13px] text-[rgb(var(--fg-muted))]">
+          {String(model.library.length)} songs
+        </span>
+      </div>
+      <div
+        className="sk-reel-rise rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 pt-2.5 pb-3 shadow-[0_10px_24px_rgb(17_16_9/0.06)]"
+        style={at(400)}
+      >
+        <div className="flex items-center gap-2.5 pb-1">
+          <SongRow
+            title={first?.trackTitle ?? SIMULATED_ARTIST.projectTitle}
+            meta={`${first?.label ?? "v2"} · ${clock(first?.durationMs ?? 0)}`}
+          />
+        </div>
+        <div className="relative mt-4 flex h-[72px] items-center gap-[3px]" aria-hidden>
+          {WAVE_BARS.map((height, index) => (
+            <i
+              key={String(index)}
+              className={`sk-reel-bar flex-1 rounded-[3px] ${
+                index < 18 ? "bg-[rgb(var(--brand-primary))]" : "bg-[rgb(var(--fg-default)/0.18)]"
+              }`}
+              style={at(500 + index * 12, { height: `${String(Math.round(height * 100))}%` })}
+            />
+          ))}
+          <span className="sk-reel-playhead" style={at(900)} />
+          <span className="sk-reel-pin" style={at(1900)} />
+        </div>
+        <div className="mt-1.5 flex justify-between font-mono text-[12px] text-[rgb(var(--fg-muted))]">
+          <span>0:00</span>
+          <span className="font-semibold text-[rgb(var(--brand-primary-dark))]">0:42</span>
+          <span>{clock(first?.durationMs ?? 0)}</span>
+        </div>
+        <div className="sk-reel-rise mt-2.5 flex items-center gap-2.5" style={at(2200)}>
+          <Avatar tone="noya" initial="N" size="sm" />
+          <span className="rounded-[4px_14px_14px_14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-3 py-2 text-[15px] font-medium">
+            <span className="mr-2 font-mono text-[12px] text-[rgb(var(--brand-primary-dark))]">0:42</span>
+            Keep this vocal.
+          </span>
+        </div>
+        <div className="mt-2.5 flex">
+          <Swap
+            ms={3500}
+            before={<span className={CHIP_GREY}>v2 · waiting for approval</span>}
+            after={
+              <span className={CHIP_GREEN}>
+                <Lock size={14} aria-hidden />
+                v2 approved and locked
+              </span>
+            }
+          />
+        </div>
+      </div>
+      {rest.map((row, index) => (
+        <div
+          key={row.id}
+          className="sk-reel-rise flex items-center gap-2.5 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-2.5 py-2"
+          style={at(600 + index * 150)}
+        >
+          <SongRow title={row.trackTitle} meta={`${row.label ?? "v1"} · ${clock(row.durationMs ?? 0)}`} />
+        </div>
+      ))}
+      <Stamp ms={3500} className="top-[-14px] right-[-14px]" />
+    </div>
+  );
+}
+
+function MoneyScene({ model }: { model: SimulationModel }) {
+  const price = formatMoney(model.totalCents, model.currency, {
+    withCents: model.totalCents % 100 !== 0,
+  });
+  return (
+    <>
+      <div className={`sk-reel-rise relative flex w-[320px] max-w-full flex-col gap-3.5 px-5 py-[18px] ${CARD}`} style={at(100)}>
+        <div className="flex min-w-0 items-center gap-2.5 pr-7 text-[15px] text-[rgb(var(--fg-muted))]">
+          <Avatar tone="noya" initial="N" size="sm" />
+          <span className="truncate">{model.product.name}</span>
+        </div>
+        <p className="font-mono text-[44px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
+          {price}
+        </p>
+        <div className="flex items-center">
+          <Swap
+            ms={1900}
+            before={<span className={CHIP_AMBER}>Waiting for payment</span>}
+            after={
+              <span className={CHIP_GREEN}>
+                <CheckIcon />
+                Paid
+              </span>
+            }
+          />
+        </div>
+        <span
+          aria-hidden
+          className="sk-reel-slide sk-reel-receipt absolute top-16 right-[22px] flex h-[68px] w-[54px] items-end justify-center rounded-[8px] border border-[rgb(var(--border-strong))] pb-1.5 text-[10px] font-bold text-[rgb(var(--fg-muted))] shadow-[0_10px_20px_rgb(17_16_9/0.1)]"
+          style={at(1000)}
+        >
+          Receipt
+        </span>
+        <Stamp ms={1900} className="top-[-14px] right-[-14px]" />
+      </div>
+      <div className={`sk-reel-rise flex w-[320px] max-w-full items-center gap-3.5 px-[18px] py-3.5 ${CARD}`} style={at(2500)}>
+        <div className="min-w-0 flex-1">
+          <p className="text-[16px] font-bold">{SIMULATED_ARTIST.projectTitle} · v2</p>
+          <Swap
+            ms={3100}
+            before={<span className="text-[14px] text-[rgb(var(--fg-muted))]">Download locked</span>}
+            after={
+              <span className="text-[14px] font-bold text-[rgb(var(--brand-primary-dark))]">Download open</span>
+            }
+          />
+        </div>
+        <Swap
+          ms={3100}
+          before={
+            <span className="grid h-11 w-11 place-items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))]">
+              <Lock size={20} aria-hidden />
+            </span>
+          }
+          after={
+            <span className="grid h-11 w-11 place-items-center rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.16)] text-[rgb(var(--brand-primary-dark))]">
+              <LockOpen size={20} aria-hidden />
+            </span>
+          }
+        />
+      </div>
+    </>
+  );
+}
+
+const STUDIO_ROWS = [
+  { tone: "noya", initial: "N", title: "Blue Hour", chip: CHIP_GREEN, label: "Paid" },
+  { tone: "amit", initial: "A", title: "Night Drive", chip: CHIP_AMBER, label: "Session Thu" },
+  { tone: "dana", initial: "D", title: "Golden", chip: CHIP_GREY, label: "v3 sent" },
+] as const;
+
+function StudioScene() {
+  return (
+    <>
+      <span
+        className="sk-reel-pop inline-flex h-9 items-center gap-2 rounded-[12px] bg-[rgb(var(--fg-success)/0.12)] px-3.5 text-[15px] font-bold text-[rgb(var(--fg-success-text))]"
+        style={at(1500)}
+      >
+        <i aria-hidden className="ob-alive-dot h-2 w-2 rounded-full bg-[rgb(var(--fg-success))]" />
+        Nothing waiting for you
+      </span>
+      <div className="flex w-[320px] max-w-full flex-col gap-2">
+        {STUDIO_ROWS.map((row, index) => (
+          <div
+            key={row.title}
+            className={`sk-reel-rise flex items-center gap-3 px-3.5 py-3 ${CARD}`}
+            style={at(200 + index * 200)}
+          >
+            <Avatar tone={row.tone} initial={row.initial} size="sm" />
+            <span className="flex-1 text-[16px] font-bold">{row.title}</span>
+            <span className={row.chip}>{row.label}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The shell.
+// ---------------------------------------------------------------------------
+
+/** One phone: edge to edge on phones, a device frame on desktop. */
+function Picture({ children }: { children: ReactNode }) {
   return (
     <div
-      data-reel-focus="delivery"
-      className="mt-4 flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5"
+      data-testid="simulation-picture"
+      className="h-full w-full lg:mx-auto lg:h-[min(80vh,760px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary-text))] text-[rgb(var(--brand-primary-text))]">
-        <AudioLines aria-hidden size={17} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-bold text-[rgb(var(--fg-default))]">
-          {SIMULATED_ARTIST.projectTitle} · v2
-        </p>
-        <p
-          key={unlocked ? "open" : "locked"}
-          className={`sk-reel-rise text-[12.5px] ${
-            unlocked
-              ? "font-bold text-[rgb(var(--brand-primary-dark))]"
-              : "text-[rgb(var(--fg-muted))]"
-          }`}
-        >
-          {unlocked ? `Fully paid · download open for ${artist}` : "Download locked until fully paid"}
-        </p>
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3.5 overflow-hidden bg-[rgb(var(--bg-background))] px-5 text-[rgb(var(--fg-default))] lg:rounded-[37px]">
+        {children}
       </div>
-      <span
-        key={unlocked ? "open" : "locked"}
-        className={`sk-reel-pop grid h-11 w-11 shrink-0 place-items-center rounded-[var(--radius-md)] border ${
-          unlocked
-            ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.16)] text-[rgb(var(--brand-primary-dark))]"
-            : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-default))]"
-        }`}
-        aria-hidden
-      >
-        {unlocked ? <LockOpen size={20} /> : <Lock size={20} />}
-      </span>
     </div>
   );
 }
@@ -493,10 +660,7 @@ function Progress({
         const done = scene.step < current.step || settled;
         const active = scene.id === current.id && !settled;
         return (
-          <li
-            key={scene.id}
-            className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/25"
-          >
+          <li key={scene.id} className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/25">
             <span
               key={active ? `${scene.id}-live` : `${scene.id}-still`}
               className={`block h-full rounded-full bg-white ${active ? "sk-reel-fill" : ""}`}
@@ -514,7 +678,7 @@ function Progress({
   );
 }
 
-function Avatar({ initial, logoUrl }: { initial: string; logoUrl: string | null }) {
+function IdentityAvatar({ initial, logoUrl }: { initial: string; logoUrl: string | null }) {
   if (logoUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={logoUrl} alt="" className="h-7 w-7 rounded-full object-cover" />;
@@ -582,11 +746,7 @@ export function FirstArtistSimulation({
       setIndex((current) => Math.min(lastIndex, current + 1));
     },
   });
-  const phase = phases[Math.min(phaseIndex, phases.length - 1)] ?? phases[0];
-  const state = phase?.state ?? "";
-  const cue = phase?.cue ?? null;
-  const cueKey = `${scene.id}:${String(phaseIndex)}`;
-  const settledOnCta = reduceMotion || state === "cta";
+  const actionReady = isLast && (reduceMotion || phaseIndex >= phases.length - 1);
 
   function goTo(nextIndex: number) {
     setIndex(Math.max(0, Math.min(lastIndex, nextIndex)));
@@ -642,145 +802,19 @@ export function FirstArtistSimulation({
   }
 
   function renderScene(): ReactNode {
-    const { product, producer } = model;
-    const device = { cue, cueKey, settled: reduceMotion };
     switch (scene.id) {
       case "hook":
         return <HookScene publicUrl={links.publicUrl} />;
       case "link":
-        return (
-          <ArtistDevice {...device} tab="store">
-            <div className="space-y-4 px-4 pt-4">
-              <ProducerHero producerName={producer.name} producerLogoUrl={model.producerLogoUrl} />
-              <div data-reel-focus="product">
-                <FocalProductCard
-                  product={{
-                    id: product.id,
-                    name: product.name,
-                    description: product.tagline,
-                    priceCents: product.priceCents,
-                    currency: product.currency,
-                    pricingModel: product.pricingModel,
-                    volumeTiers: product.volumeTiers,
-                    sessionCount: product.sessions,
-                    durationMin: input.product.durationMin,
-                  }}
-                  producerName={producer.name}
-                  taxMode={model.taxMode}
-                  taxRatePct={model.taxRatePct}
-                  onPreviewDetails={() => undefined}
-                />
-              </div>
-            </div>
-          </ArtistDevice>
-        );
+        return <LinkScene model={model} publicUrl={links.publicUrl} />;
       case "booking":
-        return (
-          <ArtistDevice {...device} tab="sessions">
-            <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
-              {state === "booked" ? (
-                <div className="space-y-4 px-4 pt-4">
-                  <div data-reel-focus="booked" className="sk-reel-rise space-y-4 text-center">
-                    <ConfirmationHero session={model.session.item} />
-                    <GoogleCalendarLine />
-                  </div>
-                </div>
-              ) : (
-                <div data-reel-focus="booking" className="h-full">
-                  <BookingClient
-                    activeStudioId={SIMULATION_IDS.studio}
-                    availability={model.booking.availability}
-                    studios={model.booking.studios}
-                    activePackages={model.booking.activePackages}
-                    initialSessionAllowanceId={model.booking.allowanceId}
-                    rescheduleSessionId={null}
-                    onPreviewSubmit={() => undefined}
-                  />
-                </div>
-              )}
-            </RuntimeStatePreviewProvider>
-          </ArtistDevice>
-        );
+        return <BookingScene />;
       case "library":
-        return (
-          <ArtistDevice {...device} tab="music">
-            <RuntimeStatePreviewProvider identity={SIMULATION_ARTIST_IDENTITY}>
-              {state === "list" ? (
-                <div className="px-4 pt-5">
-                  <h1 className="font-display text-[28px] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-                    Music<span className="text-[rgb(var(--brand-primary-dark))]">.</span>
-                  </h1>
-                  <p className="mt-2 mb-5 text-[12.5px] text-[rgb(var(--fg-muted))]">
-                    <span className="font-mono font-bold text-[rgb(var(--fg-default))]">
-                      {String(model.library.length)}
-                    </span>{" "}
-                    songs ·{" "}
-                    <span className="font-bold text-[rgb(var(--brand-primary-dark))]">
-                      1 note waiting
-                    </span>
-                  </p>
-                  <div data-reel-focus="list">
-                    <SongsGrid songs={model.library} role="artist" addSongHref={INERT_HREF} />
-                  </div>
-                </div>
-              ) : (
-                <div data-reel-focus="song">
-                  <SongPage
-                    key={state === "approved" ? "approved" : "reviewing"}
-                    role="artist"
-                    embedded
-                    data={state === "approved" ? model.song.approved : model.song.data}
-                    actions={{
-                      approveVersion: () => Promise.resolve({ ok: true }),
-                    }}
-                  />
-                </div>
-              )}
-            </RuntimeStatePreviewProvider>
-          </ArtistDevice>
-        );
+        return <LibraryScene model={model} />;
       case "money":
-        return (
-          <ProducerWindow {...device}>
-            <div data-reel-focus="proof">
-              <PaymentProofReview
-                key={state === "pending" ? "pending" : "confirmed"}
-                review={state === "pending" ? model.proofReview : model.proofReviewConfirmed}
-                onPreviewDecision={() => undefined}
-              />
-            </div>
-            {state === "delivery" || state === "unlocked" ? (
-              <DeliveryRow unlocked={state === "unlocked"} artist={SIMULATED_ARTIST.firstName} />
-            ) : null}
-          </ProducerWindow>
-        );
+        return <MoneyScene model={model} />;
       case "studio":
-        return (
-          <ProducerWindow {...device} flush>
-            <RuntimeStatePreviewProvider identity={SIMULATION_PRODUCER_IDENTITY}>
-              <div data-reel-focus="overview">
-                <OverviewScreen
-                  displayName={producer.name}
-                  slug={null}
-                  timezone={input.timezone}
-                  pulseStats={model.dashboard.pulseStats}
-                  paymentProofs={[]}
-                  paymentBalances={model.dashboard.paymentBalances}
-                  purchaseRequests={[]}
-                  pendingApprovals={[]}
-                  todaySession={model.dashboard.todaySession}
-                  urgentProjects={[]}
-                  recentUploads={model.dashboard.recentUploads}
-                  unresolvedItems={[]}
-                  dismissals={[]}
-                  showSetupNudge={false}
-                  showAllNeedsYou
-                  now={model.dashboard.now}
-                />
-              </div>
-            </RuntimeStatePreviewProvider>
-          </ProducerWindow>
-        );
+        return <StudioScene />;
       default:
         return null;
     }
@@ -794,8 +828,8 @@ export function FirstArtistSimulation({
 
   const closing = isLast ? (
     <div
-      key={settledOnCta ? "cta" : "waiting"}
-      className={`mt-5 flex flex-col items-center gap-3 lg:items-start ${settledOnCta ? "sk-reel-rise" : "invisible"}`}
+      key={actionReady ? "ready" : "waiting"}
+      className={`mt-5 flex flex-col items-center gap-3 lg:items-start ${actionReady ? "sk-reel-rise" : "invisible"}`}
     >
       <Link
         href={links.bringActiveWork}
@@ -837,7 +871,7 @@ export function FirstArtistSimulation({
         >
           <DialogPrimitive.Title className="sr-only">Watch your first artist</DialogPrimitive.Title>
           <DialogPrimitive.Description id="first-artist-simulation-description" className="sr-only">
-            A short reel of what you and your artists get, played on your real product with a
+            A short reel of what you and your artists get, drawn around your real product with a
             fictional artist. {SIMULATION_LABEL}. Nothing is sent or saved.
           </DialogPrimitive.Description>
 
@@ -848,7 +882,7 @@ export function FirstArtistSimulation({
             </div>
             <div className="flex h-12 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
-                <Avatar initial={identity.initial} logoUrl={identity.logoUrl} />
+                <IdentityAvatar initial={identity.initial} logoUrl={identity.logoUrl} />
                 <div className="flex min-w-0 items-baseline gap-2">
                   <span className="text-[14px] font-semibold text-white">{identity.name}</span>
                   <span className="truncate text-[12px] text-white/50">{SIMULATION_LABEL}</span>
@@ -899,10 +933,7 @@ export function FirstArtistSimulation({
               <div className="relative lg:flex lg:min-h-[420px] lg:flex-col">
                 <div className="hidden lg:block">
                   <Progress scenes={scenes} current={scene} settled={reduceMotion} />
-                  <p
-                    data-testid="simulation-step"
-                    className="mt-3 text-[12px] font-medium text-white/50"
-                  >
+                  <p data-testid="simulation-step" className="mt-3 text-[12px] font-medium text-white/50">
                     {String(scene.step)} / {String(scenes.length)}
                   </p>
                 </div>
@@ -947,10 +978,10 @@ export function FirstArtistSimulation({
               </div>
             </div>
 
-            {/* The screen. */}
+            {/* The picture. */}
             <div className="order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center">
               <div key={scene.id} className="sk-step-enter h-full w-full">
-                {renderScene()}
+                <Picture>{renderScene()}</Picture>
               </div>
             </div>
           </div>

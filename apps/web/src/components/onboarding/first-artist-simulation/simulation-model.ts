@@ -145,10 +145,8 @@ export interface SimulationModel {
   session: SimulationSession;
   dashboard: SimulationDashboard;
   request: SimulationRequest;
-  /** Her library as the live song grid reads it: Blue Hour plus two more demos. */
+  /** Her library: Blue Hour plus two more demos, in the live song-row shape. */
   library: MusicLibraryTrackRow[];
-  /** The same proof after the producer confirms it, for the money scene's payoff. */
-  proofReviewConfirmed: ProducerPaymentProofReview;
   scenes: readonly SimulationScene[];
 }
 
@@ -792,36 +790,36 @@ export function buildScenes(input: { includesStudioTime: boolean }): readonly Si
       id: "link",
       side: "artist",
       headline: "Send your link.",
-      line: "Artists see your services and book you.",
-      durationMs: 5600,
+      line: "Artists sign up and book you.",
+      durationMs: 5200,
     },
     {
       id: "booking",
       side: "artist",
       headline: "They book themselves.",
       line: "Only in your work hours. Synced to Google Calendar.",
-      durationMs: 6000,
+      durationMs: 5400,
     },
     {
       id: "library",
       side: "artist",
       headline: "All demos in one library.",
       line: "Notes on the exact second. Approval locks the version.",
-      durationMs: 7400,
+      durationMs: 5900,
     },
     {
       id: "money",
       side: "producer",
       headline: "Get paid first.",
-      line: "You confirm the receipt. Download opens only after full payment.",
-      durationMs: 6000,
+      line: "Download opens only after full payment. Reminders are automatic.",
+      durationMs: 5600,
     },
     {
       id: "studio",
       side: "producer",
       headline: "Everything in one place.",
       line: "Clients, sessions, songs, money.",
-      durationMs: 5400,
+      durationMs: 5200,
     },
   ];
   const kept = draft.filter((scene) => input.includesStudioTime || scene.id !== "booking");
@@ -969,16 +967,6 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     evidenceExpiresInSeconds: 300,
     history: [proof],
   };
-  const confirmedProof: ProducerPaymentProofReview["proof"] = {
-    ...proof,
-    status: "confirmed",
-    confirmedAt: now,
-  };
-  const proofReviewConfirmed: ProducerPaymentProofReview = {
-    ...proofReview,
-    proof: confirmedProof,
-    history: [confirmedProof],
-  };
 
   // The product is the parent of session time: no studio minutes means the
   // story has nothing to book, so it drops that frame entirely.
@@ -1120,7 +1108,6 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     dashboard,
     request,
     library: buildLibrary({ song, now }),
-    proofReviewConfirmed,
     scenes: buildScenes({ includesStudioTime }),
   };
 }

@@ -81,40 +81,50 @@ describe("buildSimulation", () => {
     expect(model.planOptions[0]?.dueNowCents).toBe(90000);
     expect(model.storyPlans).toEqual([{ kind: "split_50_50" }, { kind: "full" }]);
 
-    expect(model.frames.map((frame) => frame.id)).toEqual([
-      "store",
-      "approve",
-      "agreement",
-      "pay",
-      "verify",
-      "music",
-      "sessions",
-      "dashboard",
-      "closing",
+    expect(model.scenes.map((scene) => scene.id)).toEqual([
+      "hook",
+      "link",
+      "booking",
+      "library",
+      "money",
+      "studio",
     ]);
-    expect(model.frames.map((frame) => frame.step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, null]);
-    expect(model.frames.map((frame) => frame.side)).toEqual([
+    expect(model.scenes.map((scene) => scene.step)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(model.scenes.map((scene) => scene.side)).toEqual([
+      "hook",
       "artist",
-      "producer",
-      "artist",
-      "artist",
-      "producer",
       "artist",
       "artist",
       "producer",
-      "closing",
+      "producer",
     ]);
-    expect(model.frames.every((frame) => frame.caption.length > 0 && frame.detail.length > 0)).toBe(
-      true,
+    // The copy budget for a non-native reader: a headline of at most six
+    // words, one line under ten, every screen a full sentence, and the whole
+    // reel inside half a minute of autoplay.
+    for (const scene of model.scenes) {
+      expect(scene.headline.trim().split(/\s+/).length).toBeLessThanOrEqual(6);
+      expect(scene.line.trim().split(/\s+/).length).toBeLessThanOrEqual(9);
+      expect(scene.headline.endsWith(".")).toBe(true);
+      expect(scene.line.endsWith(".")).toBe(true);
+      expect(scene.durationMs).toBeGreaterThanOrEqual(3900);
+      expect(scene.durationMs).toBeLessThanOrEqual(6000);
+    }
+    expect(model.scenes.reduce((sum, scene) => sum + scene.durationMs, 0)).toBeLessThanOrEqual(
+      32_000,
     );
-    expect(model.frames[0]?.detail).toContain("Signature production");
-    expect(model.frames.find((frame) => frame.id === "pay")?.caption).toContain("₪900");
-    // Only the two producer frames carry a real control that moves the story.
-    expect(model.frames.filter((frame) => frame.interactive).map((frame) => frame.id)).toEqual([
-      "approve",
-      "verify",
-    ]);
-    expect(model.frames.at(-1)?.detail).toContain(SIMULATED_ARTIST.name);
+  });
+
+  it("gives her library three demos in the live song-row shape, Blue Hour first", () => {
+    const { library } = buildSimulation(input(), NOW);
+
+    expect(library.map((row) => row.trackTitle)).toEqual(["Blue Hour", "Night Drive", "Golden"]);
+    expect(library.map((row) => row.label)).toEqual(["v2", "v1", "v3"]);
+    expect(library[0]?.latestVersionId).toBe(SIMULATION_IDS.versionTwo);
+    expect(library[0]?.durationMs).toBe(198_000);
+    expect(library[0]?.unreadComments).toBe(1);
+    expect(library.every((row) => row.clientName === SIMULATED_ARTIST.name)).toBe(true);
+    expect(library.every((row) => row.peaks?.length === 200)).toBe(true);
+    expect(new Set(library.map((row) => row.id)).size).toBe(3);
   });
 
   it("drops the booking frame when the product includes no studio time", () => {
@@ -124,9 +134,9 @@ describe("buildSimulation", () => {
     );
 
     expect(model.includesStudioTime).toBe(false);
-    expect(model.frames.map((frame) => frame.id)).not.toContain("sessions");
-    expect(model.frames.filter((frame) => frame.step !== null)).toHaveLength(7);
-    expect(model.frames.map((frame) => frame.step)).toEqual([1, 2, 3, 4, 5, 6, 7, null]);
+    expect(model.scenes.map((scene) => scene.id)).not.toContain("booking");
+    expect(model.scenes).toHaveLength(5);
+    expect(model.scenes.map((scene) => scene.step)).toEqual([1, 2, 3, 4, 5]);
     expect(model.dashboard.todaySession).toBeNull();
     expect(model.request.snapshot.session).toBeNull();
   });
@@ -220,12 +230,14 @@ describe("buildSimulation", () => {
   it("wakes the producer dashboard up with the story's own numbers", () => {
     const { dashboard } = buildSimulation(input(), NOW);
 
+    // The studio screen is the morning after her last payment: paid in
+    // full, three projects, nothing to chase.
     expect(dashboard.pulseStats).toEqual({
       commercialAvailable: true,
-      thisMonthCents: 90000,
-      outstandingCents: 90000,
+      thisMonthCents: 180000,
+      outstandingCents: 0,
       currency: "ILS",
-      activeProjects: 1,
+      activeProjects: 3,
     });
     expect(dashboard.todaySession?.occurredAt.toISOString()).toBe("2026-09-03T11:00:00.000Z");
     // The frame sits on the morning of her session, so the live "Today" card
@@ -233,7 +245,8 @@ describe("buildSimulation", () => {
     expect(dashboard.now.toISOString()).toBe("2026-09-03T05:00:00.000Z");
     expect(dashboard.recentUploads[0]?.versionLabel).toBe("v2");
     expect(dashboard.recentUploads[0]?.projectClientName).toBe(SIMULATED_ARTIST.name);
-    expect(dashboard.paymentBalances[0]?.clientName).toBe(SIMULATED_ARTIST.name);
+    expect(dashboard.recentUploads[1]?.title).toBe("Night Drive");
+    expect(dashboard.paymentBalances).toEqual([]);
   });
 
   it("describes her request as a proposal on the product's real terms", () => {
@@ -255,15 +268,21 @@ describe("buildSimulation", () => {
     expect(request.artistEmail).toContain("skitza.invalid");
   });
 
-  it("feeds the real producer review screen a pending proof for the first installment", () => {
+  it("keeps a pending proof for the LAST installment, so confirming it really opens the download", () => {
     const { proofReview } = buildSimulation(input(), NOW);
 
     expect(proofReview.proof.artistName).toBe(SIMULATED_ARTIST.name);
     expect(proofReview.proof.projectTitle).toBe(SIMULATED_ARTIST.projectTitle);
     expect(proofReview.proof.productNameSnapshot).toBe("Signature production");
     expect(proofReview.proof.status).toBe("pending");
-    expect(proofReview.proof.installmentPosition).toBe(1);
+    expect(proofReview.proof.installmentPosition).toBe(2);
     expect(proofReview.proof.amountCents).toBe(90000);
+    const monthly = buildSimulation(
+      input({ product: { ...PREVIEW_SIMULATION_INPUT.product, paymentPlans: [{ kind: "monthly", installments: 3 }] } }),
+      NOW,
+    );
+    expect(monthly.proofReview.proof.installmentPosition).toBe(3);
+    expect(monthly.proofReview.proof.amountCents).toBe(60000);
     expect(proofReview.proof.totalCents).toBe(180000);
     expect(proofReview.proof.createdAt).toBe(NOW);
     expect(proofReview.history).toEqual([proofReview.proof]);
@@ -323,7 +342,7 @@ describe("buildSimulation", () => {
   });
 
   it("never claims the artist is real", () => {
-    expect(SIMULATION_LABEL).toBe("Simulation · Noya is not real");
+    expect(SIMULATION_LABEL).toBe("Example · Noya is not a real artist");
     const model = buildSimulation(input({ producerName: "   " }), NOW);
     expect(model.producer.name).toBe("Your studio");
   });

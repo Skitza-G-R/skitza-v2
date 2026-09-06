@@ -205,3 +205,42 @@ describe("Landing CSS reduce-motion gate (Phase 3 v3)", () => {
     expect(reduce).toContain(".sk-float-slow");
   });
 });
+
+// SK-310: the onboarding reel draws six pictures with its own small set of
+// CSS primitives (`.sk-reel-*`), timed from `--sk-reel-t`. Each one must be
+// neutralised in the reduce block so a producer on reduced motion lands on
+// the final frame of every picture instead of watching it play.
+describe("onboarding reel motion primitives", () => {
+  const reduceBlock = extractReduceBlock();
+  const primitives = [
+    ".sk-reel-rise",
+    ".sk-reel-pop",
+    ".sk-reel-ring",
+    ".sk-reel-stamp",
+    ".sk-reel-tile",
+    ".sk-reel-pill",
+    ".sk-reel-swap-a",
+    ".sk-reel-swap-b",
+    ".sk-reel-slide",
+    ".sk-reel-bar",
+    ".sk-reel-playhead",
+    ".sk-reel-pin",
+    ".sk-reel-fill",
+  ];
+
+  it.each(primitives)("declares %s with a delay read from --sk-reel-t or a duration", (selector) => {
+    const block = GLOBALS_CSS.match(new RegExp(`\\${selector}\\s*\\{[^}]*\\}`));
+    expect(block).not.toBeNull();
+    expect(block?.[0]).toMatch(/animation/);
+  });
+
+  it.each(primitives)("respects prefers-reduced-motion for %s", (selector) => {
+    expect(reduceBlock).toContain(selector);
+  });
+
+  it("pauses every reel primitive with the reel", () => {
+    for (const selector of primitives) {
+      expect(GLOBALS_CSS).toContain(`.sk-reel-paused ${selector}`);
+    }
+  });
+});
