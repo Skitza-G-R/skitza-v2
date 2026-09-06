@@ -196,11 +196,11 @@ export function CompleteScreenClient({
               </span>
               Watch your first artist
               <span className="font-mono text-[11px] font-semibold tracking-[0.08em] opacity-70">
-                60 s
+                35 s
               </span>
             </button>
             <p className="mt-2 text-center text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]">
-              Recommended — see exactly what your artists get.
+              Recommended — the 5 things you and your artists get, on your real product.
             </p>
           </>
         ) : null}

@@ -1,5 +1,5 @@
-// "Watch your first artist" (SK-298) — pure model for the render-only
-// simulation shown right after a producer publishes their page.
+// "Watch your first artist" (SK-298, reel since SK-310) — pure model for the
+// render-only reel shown right after a producer publishes their page.
 //
 // Everything here is derived from the producer's REAL first product plus one
 // fictional artist. Nothing is persisted: the overlay renders the live artist
@@ -17,6 +17,7 @@ import type { PaymentDetails } from "~/components/artist/purchase/payment-instru
 import type { Producer, PurchaseProduct } from "~/components/artist/purchase/purchase-data";
 import type { AllowanceSummary, SessionListItem } from "~/components/artist/sessions/book-data";
 import type { VersionDeliveryState } from "~/components/music/delivery-state";
+import type { MusicLibraryTrackRow } from "~/components/music/library-screen";
 import type { SongPageData } from "~/components/music/song-page";
 import { producerHue, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { formatMoney } from "~/lib/format/money";
@@ -32,8 +33,8 @@ export const SIMULATED_ARTIST = {
   proofFileName: "bit-transfer.png",
 } as const;
 
-/** Shown on every frame. Tests pin the exact wording. */
-export const SIMULATION_LABEL = "Simulation · Noya is not real";
+/** Shown on every screen. Tests pin the exact wording. */
+export const SIMULATION_LABEL = "Example · Noya is not a real artist";
 
 // Deterministic, obviously-fake identifiers. They never reach the database;
 // they exist because the reused screens require ids for keys and labels.
@@ -50,6 +51,12 @@ export const SIMULATION_IDS = {
   versionTwo: "00000000-0000-4000-8000-00000000s307",
   commentOne: "00000000-0000-4000-8000-00000000s308",
   commentTwo: "00000000-0000-4000-8000-00000000s309",
+  trackTwo: "00000000-0000-4000-8000-00000000s310",
+  trackThree: "00000000-0000-4000-8000-00000000s311",
+  versionThree: "00000000-0000-4000-8000-00000000s312",
+  versionFour: "00000000-0000-4000-8000-00000000s313",
+  projectTwo: "00000000-0000-4000-8000-00000000s314",
+  projectThree: "00000000-0000-4000-8000-00000000s315",
   studio: "simulation-studio",
   requestRef: "SK-SIM298",
 } as const;
@@ -87,30 +94,25 @@ export interface SimulationInput {
   paymentDetails: PaymentDetails | null;
 }
 
-export type SimulationFrameId =
-  | "store"
-  | "approve"
-  | "agreement"
-  | "pay"
-  | "verify"
-  | "music"
-  | "sessions"
-  | "dashboard"
-  | "closing";
+export type SimulationSceneId = "hook" | "link" | "booking" | "library" | "money" | "studio";
 
-export type SimulationSide = "artist" | "producer" | "closing";
+/** Whose screen the scene plays on; the hook is an illustration with no screen. */
+export type SimulationSide = "hook" | "artist" | "producer";
 
-export interface SimulationFrame {
-  id: SimulationFrameId;
+/**
+ * One screen of the reel. The copy budget is deliberate: a headline of two
+ * to five words and one line under ten, no idioms, digits not words, so a
+ * non-native reader gets it at a glance. The model test counts the words.
+ */
+export interface SimulationScene {
+  id: SimulationSceneId;
   side: SimulationSide;
-  /** 1-based position among the numbered frames; the closing card has none. */
-  step: number | null;
-  /** What Noya (or the producer) does on this frame. */
-  caption: string;
-  /** One supporting line under the caption. */
-  detail: string;
-  /** The producer is expected to act on this frame (a real control advances it). */
-  interactive: boolean;
+  /** 1-based position in the reel. */
+  step: number;
+  headline: string;
+  line: string;
+  /** How long autoplay holds the scene, including its payoff. */
+  durationMs: number;
 }
 
 export interface SimulationModel {
@@ -143,7 +145,11 @@ export interface SimulationModel {
   session: SimulationSession;
   dashboard: SimulationDashboard;
   request: SimulationRequest;
-  frames: readonly SimulationFrame[];
+  /** Her library as the live song grid reads it: Blue Hour plus two more demos. */
+  library: MusicLibraryTrackRow[];
+  /** The same proof after the producer confirms it, for the money scene's payoff. */
+  proofReviewConfirmed: ProducerPaymentProofReview;
+  scenes: readonly SimulationScene[];
 }
 
 /** Her song, before and after she approves the exact version. */
@@ -768,112 +774,117 @@ function buildRequestSnapshot(input: {
   };
 }
 
-function buildFrames(input: {
-  firstName: string;
-  producerName: string;
-  productName: string;
-  projectTitle: string;
-  dueNowLabel: string;
-  totalLabel: string;
-  remainingLabel: string;
-  fullyPaid: boolean;
-  includesStudioTime: boolean;
-}): readonly SimulationFrame[] {
-  const {
-    firstName,
-    producerName,
-    productName,
-    projectTitle,
-    dueNowLabel,
-    totalLabel,
-    remainingLabel,
-    fullyPaid,
-    includesStudioTime,
-  } = input;
-
-  const draft: (Omit<SimulationFrame, "step"> & { step: number })[] = [
+/**
+ * The reel: one hook, four features, one landing screen. Every scene shows
+ * a result, not a process, and ends on the same green check. The booking
+ * scene needs studio time to book, so a product without it drops that scene.
+ */
+export function buildScenes(input: { includesStudioTime: boolean }): readonly SimulationScene[] {
+  const draft: Omit<SimulationScene, "step">[] = [
     {
-      id: "store",
-      side: "artist",
-      step: 0,
-      caption: `${firstName} opens your link and sees your Store.`,
-      detail: `${productName}, exactly as a connected artist sees it.`,
-      interactive: false,
+      id: "hook",
+      side: "hook",
+      headline: "One link instead of 5 apps.",
+      line: "Your studio, your artists, your money. In one place.",
+      durationMs: 3900,
     },
     {
-      id: "approve",
+      id: "link",
+      side: "artist",
+      headline: "Send your link.",
+      line: "Artists see your services and book you.",
+      durationMs: 5600,
+    },
+    {
+      id: "booking",
+      side: "artist",
+      headline: "They book themselves.",
+      line: "Only in your work hours. Synced to Google Calendar.",
+      durationMs: 6000,
+    },
+    {
+      id: "library",
+      side: "artist",
+      headline: "All demos in one library.",
+      line: "Notes on the exact second. Approval locks the version.",
+      durationMs: 7400,
+    },
+    {
+      id: "money",
       side: "producer",
-      step: 0,
-      caption: "She asks to book. It lands with you.",
-      detail: "Your terms, her brief, one tap. No money has moved yet.",
-      interactive: true,
+      headline: "Get paid first.",
+      line: "You confirm the receipt. Download opens only after full payment.",
+      durationMs: 6000,
     },
     {
-      id: "agreement",
-      side: "artist",
-      step: 0,
-      caption: "She accepts your exact agreement.",
-      detail: `${totalLabel} and your terms freeze. Nothing can change quietly later.`,
-      interactive: false,
-    },
-    {
-      id: "pay",
-      side: "artist",
-      step: 0,
-      caption: `She pays ${dueNowLabel} straight to you and sends the receipt.`,
-      detail: "Bit or bank transfer. Skitza never touches the money.",
-      interactive: false,
-    },
-    {
-      id: "verify",
+      id: "studio",
       side: "producer",
-      step: 0,
-      caption: "You check the receipt and confirm.",
-      detail: `Recorded once, on both sides. ${projectTitle} goes active.`,
-      interactive: true,
-    },
-    {
-      id: "music",
-      side: "artist",
-      step: 0,
-      caption: "Her song lives here, and she comments on the exact second.",
-      detail: `Her note at 0:42, your reply, then she approves v2. No more voice notes.`,
-      interactive: false,
-    },
-    {
-      id: "sessions",
-      side: "artist",
-      step: 0,
-      caption: "She books her own studio time.",
-      detail: "Only the hours you opened. No back and forth, no double booking.",
-      interactive: false,
-    },
-    {
-      id: "dashboard",
-      side: "producer",
-      step: 0,
-      caption: "And this is your studio now.",
-      detail: fullyPaid
-        ? `One project, ${dueNowLabel} in, her session booked. Downloads unlocked.`
-        : `One project, ${dueNowLabel} in, ${remainingLabel} tracked. ${producerName} chases nobody.`,
-      interactive: false,
+      headline: "Everything in one place.",
+      line: "Clients, sessions, songs, money.",
+      durationMs: 5400,
     },
   ];
+  const kept = draft.filter((scene) => input.includesStudioTime || scene.id !== "booking");
+  return Object.freeze(kept.map((scene, index) => ({ ...scene, step: index + 1 })));
+}
 
-  const kept = draft.filter((frame) => includesStudioTime || frame.id !== "sessions");
-  const frames: SimulationFrame[] = kept.map((frame, index) => ({
-    ...frame,
-    step: index + 1,
-  }));
-  frames.push({
-    id: "closing",
-    side: "closing",
-    step: null,
-    caption: "That was a simulation.",
-    detail: `${SIMULATED_ARTIST.name} is not real. Who are you actually working with this week?`,
-    interactive: false,
-  });
-  return Object.freeze(frames);
+function buildLibrary(input: { song: SimulationSong; now: Date }): MusicLibraryTrackRow[] {
+  const { now } = input;
+  const latest = input.song.data.versions[0];
+  const base = {
+    producerId: SIMULATION_IDS.studio,
+    clientName: SIMULATED_ARTIST.name,
+    trackArtist: SIMULATED_ARTIST.name,
+    archivedAtIso: null,
+    releasedAtIso: null,
+    audioDeletedAtIso: null,
+    audioUrl: SILENT_AUDIO_DATA_URL,
+    plays: 0,
+  };
+  return [
+    {
+      ...base,
+      id: SIMULATION_IDS.track,
+      trackId: SIMULATION_IDS.track,
+      trackTitle: SIMULATED_ARTIST.projectTitle,
+      projectId: SIMULATION_IDS.project,
+      projectTitle: SIMULATED_ARTIST.projectTitle,
+      label: latest?.label ?? "v2",
+      latestVersionId: SIMULATION_IDS.versionTwo,
+      uploadedAtIso: latest?.uploadedAtIso ?? now.toISOString(),
+      durationMs: SONG_DURATION_MS,
+      peaks: previewPeaks(3),
+      unreadComments: 1,
+    },
+    {
+      ...base,
+      id: SIMULATION_IDS.trackTwo,
+      trackId: SIMULATION_IDS.trackTwo,
+      trackTitle: "Night Drive",
+      projectId: SIMULATION_IDS.projectTwo,
+      projectTitle: "Night Drive",
+      label: "v1",
+      latestVersionId: SIMULATION_IDS.versionThree,
+      uploadedAtIso: new Date(now.getTime() - 9 * DAY_MS).toISOString(),
+      durationMs: 171_000,
+      peaks: previewPeaks(29),
+      unreadComments: 0,
+    },
+    {
+      ...base,
+      id: SIMULATION_IDS.trackThree,
+      trackId: SIMULATION_IDS.trackThree,
+      trackTitle: "Golden",
+      projectId: SIMULATION_IDS.projectThree,
+      projectTitle: "Golden",
+      label: "v3",
+      latestVersionId: SIMULATION_IDS.versionFour,
+      uploadedAtIso: new Date(now.getTime() - 16 * DAY_MS).toISOString(),
+      durationMs: 220_000,
+      peaks: previewPeaks(41),
+      unreadComments: 0,
+    },
+  ];
 }
 
 export function buildSimulation(input: SimulationInput, now: Date): SimulationModel {
@@ -920,19 +931,22 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     hasOwnDetails && input.paymentDetails ? input.paymentDetails : EXAMPLE_PAYMENT_DETAILS;
   const money = (cents: number) => formatMoney(cents, currency, { withCents: cents % 100 !== 0 });
 
+  // The money scene confirms the LAST installment, so "download opens" is
+  // literally true the moment the producer taps Confirm.
+  const finalAmountCents = charges[charges.length - 1] ?? totalCents;
   const proof: ProducerPaymentProofReview["proof"] = {
     proofId: SIMULATION_IDS.proof,
     purchaseId: SIMULATION_IDS.purchase,
     purchaseRequestId: SIMULATION_IDS.purchaseRequest,
     installmentId: SIMULATION_IDS.installment,
-    installmentPosition: 1,
-    installmentAmountCents: dueNowCents,
+    installmentPosition: charges.length,
+    installmentAmountCents: finalAmountCents,
     refNumber: SIMULATION_IDS.requestRef,
     artistName: SIMULATED_ARTIST.name,
     projectId: SIMULATION_IDS.project,
     projectTitle: SIMULATED_ARTIST.projectTitle,
     productNameSnapshot: product.name,
-    amountCents: dueNowCents,
+    amountCents: finalAmountCents,
     totalCents,
     currency,
     originalFileName: SIMULATED_ARTIST.proofFileName,
@@ -949,11 +963,21 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     proof,
     evidenceUrl: svgReceipt({
       producerName: displayName,
-      amountLabel: money(dueNowCents),
+      amountLabel: money(finalAmountCents),
       reference: SIMULATION_IDS.requestRef,
     }),
     evidenceExpiresInSeconds: 300,
     history: [proof],
+  };
+  const confirmedProof: ProducerPaymentProofReview["proof"] = {
+    ...proof,
+    status: "confirmed",
+    confirmedAt: now,
+  };
+  const proofReviewConfirmed: ProducerPaymentProofReview = {
+    ...proofReview,
+    proof: confirmedProof,
+    history: [confirmedProof],
   };
 
   // The product is the parent of session time: no studio minutes means the
@@ -1008,12 +1032,14 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     : now;
   const dashboard: SimulationDashboard = {
     now: dashboardNow,
+    // The studio scene is the morning after her last payment: paid in full,
+    // three projects, nothing to chase.
     pulseStats: {
       commercialAvailable: true,
-      thisMonthCents: dueNowCents,
-      outstandingCents: remainingCents,
+      thisMonthCents: totalCents,
+      outstandingCents: 0,
       currency,
-      activeProjects: 1,
+      activeProjects: 3,
     },
     todaySession: includesStudioTime
       ? {
@@ -1035,21 +1061,19 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
         projectId: SIMULATION_IDS.project,
         projectClientName: SIMULATED_ARTIST.name,
       },
+      {
+        versionId: SIMULATION_IDS.versionThree,
+        trackId: SIMULATION_IDS.trackTwo,
+        title: "Night Drive",
+        versionLabel: "v1",
+        uploadedAt: new Date(now.getTime() - 9 * DAY_MS),
+        durationMs: 171_000,
+        projectId: SIMULATION_IDS.projectTwo,
+        projectClientName: SIMULATED_ARTIST.name,
+      },
     ],
-    // The balance row is what makes "Skitza chases her, not you" visible. A
-    // fully paid story has nothing left to chase, so the queue stays empty.
-    paymentBalances:
-      remainingCents > 0
-        ? [
-            {
-              purchaseId: SIMULATION_IDS.purchase,
-              projectId: SIMULATION_IDS.project,
-              projectTitle: SIMULATED_ARTIST.projectTitle,
-              clientName: SIMULATED_ARTIST.name,
-              purchaseTitle: product.name,
-            },
-          ]
-        : [],
+    // Paid in full, so there is nothing to chase and the queue stays empty.
+    paymentBalances: [],
   };
 
   const request: SimulationRequest = {
@@ -1095,17 +1119,9 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     session,
     dashboard,
     request,
-    frames: buildFrames({
-      firstName: SIMULATED_ARTIST.firstName,
-      producerName: displayName,
-      productName: product.name,
-      projectTitle: SIMULATED_ARTIST.projectTitle,
-      dueNowLabel: money(dueNowCents),
-      totalLabel: money(totalCents),
-      remainingLabel: money(remainingCents),
-      fullyPaid: remainingCents === 0,
-      includesStudioTime,
-    }),
+    library: buildLibrary({ song, now }),
+    proofReviewConfirmed,
+    scenes: buildScenes({ includesStudioTime }),
   };
 }
 
