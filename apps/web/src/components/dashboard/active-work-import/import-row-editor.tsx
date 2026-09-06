@@ -16,6 +16,7 @@ import { SaveIndicator } from "~/components/ui/save-indicator";
 
 import { AgreementEditor } from "./agreement-editor";
 import {
+  applyTemplate,
   isRowReady,
   matchingArchivedClient,
   matchingExistingClient,
@@ -28,6 +29,7 @@ import {
   type WorkspaceImportRow,
 } from "./model";
 import { PaymentHistoryEditor, type ProofUploadView } from "./payment-history-editor";
+import { ProductSummary, ProductTiles } from "./product-picker";
 
 const FIELD_CLASS =
   "sk-native-field min-h-11 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-10 sm:rounded-[var(--radius-md)] sm:text-[13px]";
@@ -38,14 +40,20 @@ export type ImportEditorMemory = {
   revealedSteps: readonly number[];
 };
 
-export const IMPORT_EDITOR_STEPS = ["Client & Project", "Agreement", "Payments"] as const;
+export const IMPORT_EDITOR_STEPS = ["Client", "Project", "Payments"] as const;
 export type ImportEditorStep = (typeof IMPORT_EDITOR_STEPS)[number];
 
+// SK-308: Client is step 1 on its own; the project and its agreement share
+// step 2; money (and the plan, which lives on the Payments step) is step 3.
 function stepIndexForReason(reason: ImportReasonView): number {
-  if (reason.field.startsWith("client.") || reason.field.startsWith("project.")) return 0;
+  if (reason.field.startsWith("client.")) return 0;
   if (reason.field.startsWith("payments") || reason.field === "agreement.plan") return 2;
-  if (reason.field.startsWith("agreement")) return 1;
+  if (reason.field.startsWith("project.") || reason.field.startsWith("agreement")) return 1;
   return 2;
+}
+
+function isAgreementFieldReason(reason: ImportReasonView): boolean {
+  return reason.field.startsWith("agreement") && reason.field !== "agreement.plan";
 }
 
 function reasonsForStep(reasons: readonly ImportReasonView[], index: number) {
@@ -235,6 +243,10 @@ export function ImportRowEditor({
   const [stepBusy, setStepBusy] = useState(false);
   const [paymentEditing, setPaymentEditing] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(() => draft.client.phone.trim().length > 0);
+  const [deadlineOpen, setDeadlineOpen] = useState(false);
+  // The full agreement form, once a Store product filled the draft. Stays
+  // closed until "Edit details" or a reason that points at an agreement field.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [existingClientSearch, setExistingClientSearch] = useState("");
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const editorRef = useRef<HTMLElement>(null);
@@ -272,6 +284,12 @@ export function ImportRowEditor({
     (reason) => activeStepIndex === 2 || reason.field === "row" || reason.field.endsWith(".save"),
   );
   const issueId = (field: string) => `import-${field}-issues-${row.operationKey}`;
+  const selectedTemplate = templates.find(
+    (template) => template.id === draft.agreement.templateProductId,
+  );
+  const deadlineVisible = deadlineOpen || draft.project.deadlineAt.trim().length > 0;
+  const agreementFormOpen = templates.length === 0 || !selectedTemplate || detailsOpen;
+  const agreementReasonShown = visibleReasons.some(isAgreementFieldReason);
 
   useEffect(() => {
     const memory = editorMemory?.get(row.operationKey);
@@ -279,8 +297,13 @@ export function ImportRowEditor({
     setCompletedThrough(memory?.completedThrough ?? -1);
     setRevealedSteps(new Set(memory?.revealedSteps ?? []));
     setPaymentEditing(false);
+    setDetailsOpen(false);
     // editorMemory is a stable ref-backed map; only the row identity matters here.
   }, [editorMemory, row.operationKey]);
+
+  useEffect(() => {
+    if (agreementReasonShown) setDetailsOpen(true);
+  }, [agreementReasonShown]);
 
   useEffect(() => {
     editorMemory?.set(row.operationKey, {
@@ -306,6 +329,10 @@ export function ImportRowEditor({
     patchDraft({ project: { ...draft.project, ...patch } });
   }
 
+  function patchAgreement(patch: Partial<ActiveWorkImportDraft["agreement"]>) {
+    patchDraft({ agreement: { ...draft.agreement, ...patch } });
+  }
+
   function revealStep(stepIndex = activeStepIndex) {
     setRevealedSteps((current) => new Set(current).add(stepIndex));
   }
@@ -314,9 +341,7 @@ export function ImportRowEditor({
     if (stepBusy) return;
     revealStep();
     setStepBusy(true);
-    const reasons = await onContinueStep(
-      IMPORT_EDITOR_STEPS[activeStepIndex] ?? "Client & Project",
-    );
+    const reasons = await onContinueStep(IMPORT_EDITOR_STEPS[activeStepIndex] ?? "Client");
     setStepBusy(false);
     if (reasonsForStep(reasons, activeStepIndex).length > 0) return;
     setCompletedThrough((current) => Math.max(current, activeStepIndex));
@@ -487,8 +512,8 @@ export function ImportRowEditor({
           {activeStepIndex === 0 ? (
             <StepSection
               number="1"
-              title="Client & Project"
-              hint="Choose who this belongs to and name the work. Nothing is sent."
+              title="Client"
+              hint="Who this work belongs to. Nothing is sent."
             >
               <div className="space-y-4">
                 <div
@@ -824,34 +849,44 @@ export function ImportRowEditor({
                   </div>
                 ) : null}
 
-                <div className="border-t border-[rgb(var(--border-subtle))] pt-4">
-                  <h3 className="text-[13px] font-bold text-[rgb(var(--fg-default))]">Project</h3>
-                  <div className="mt-3 grid min-w-0 gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <FieldLabel htmlFor={`import-project-title-${row.operationKey}`}>
-                        Project name
-                      </FieldLabel>
-                      <input
-                        id={`import-project-title-${row.operationKey}`}
-                        value={draft.project.title}
-                        maxLength={200}
-                        onChange={(event) => {
-                          patchProject({ title: event.target.value });
-                        }}
-                        placeholder="Blue Hour"
-                        {...issueAttributes(
-                          visibleReasons,
-                          ["project.title"],
-                          issueId("project-title"),
-                        )}
-                        className={FIELD_CLASS}
-                      />
-                      <FieldIssues
-                        id={issueId("project-title")}
-                        reasons={visibleReasons}
-                        fields={["project.title"]}
-                      />
-                    </div>
+              </div>
+            </StepSection>
+          ) : null}
+
+          {activeStepIndex === 1 ? (
+            <StepSection
+              number="2"
+              title="Project"
+              hint="Name the work and choose the product it was sold as. The details come from the product."
+            >
+              <div className="min-w-0 space-y-5">
+                <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <FieldLabel htmlFor={`import-project-title-${row.operationKey}`}>
+                      Project name
+                    </FieldLabel>
+                    <input
+                      id={`import-project-title-${row.operationKey}`}
+                      value={draft.project.title}
+                      maxLength={200}
+                      onChange={(event) => {
+                        patchProject({ title: event.target.value });
+                      }}
+                      placeholder="Blue Hour"
+                      {...issueAttributes(
+                        visibleReasons,
+                        ["project.title"],
+                        issueId("project-title"),
+                      )}
+                      className={FIELD_CLASS}
+                    />
+                    <FieldIssues
+                      id={issueId("project-title")}
+                      reasons={visibleReasons}
+                      fields={["project.title"]}
+                    />
+                  </div>
+                  {deadlineVisible ? (
                     <div className="space-y-2">
                       <FieldLabel htmlFor={`import-project-deadline-${row.operationKey}`}>
                         Deadline{" "}
@@ -877,22 +912,76 @@ export function ImportRowEditor({
                         fields={["project.deadlineAt"]}
                       />
                     </div>
-                  </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeadlineOpen(true);
+                      }}
+                      className="sk-press inline-flex min-h-11 w-fit items-center gap-2 self-end rounded-[var(--radius-lg)] px-2 text-[12px] font-bold text-[rgb(var(--fg-default))]"
+                    >
+                      <Plus size={15} strokeWidth={2.2} aria-hidden />
+                      Add deadline
+                    </button>
+                  )}
                 </div>
+
+                {templates.length > 0 ? (
+                  <div className="min-w-0 space-y-3 border-t border-[rgb(var(--border-subtle))] pt-4">
+                    <div>
+                      <h3 className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                        Product
+                      </h3>
+                      <p className="mt-0.5 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                        Tap the product this work was sold as. Custom deal keeps everything by
+                        hand. Your Store stays unchanged.
+                      </p>
+                    </div>
+                    <ProductTiles
+                      templates={templates}
+                      selectedId={selectedTemplate ? selectedTemplate.id : null}
+                      onSelect={(template) => {
+                        setDetailsOpen(false);
+                        if (template) onChange(applyTemplate(draft, template));
+                        else patchAgreement({ templateProductId: null });
+                      }}
+                    />
+                    <FieldIssues
+                      id={issueId("agreement-template")}
+                      reasons={visibleReasons}
+                      fields={["agreement.templateProductId"]}
+                    />
+                  </div>
+                ) : null}
+
+                {selectedTemplate ? (
+                  <ProductSummary
+                    template={selectedTemplate}
+                    draft={draft}
+                    operationKey={row.operationKey}
+                    reasons={visibleReasons}
+                    detailsOpen={detailsOpen}
+                    onToggleDetails={() => {
+                      setDetailsOpen((open) => !open);
+                    }}
+                    onChange={onChange}
+                    agreementPdfUpload={agreementPdfUpload}
+                    onUploadAgreementPdf={onUploadAgreementPdf}
+                  />
+                ) : null}
+
+                {agreementFormOpen ? (
+                  <AgreementEditor
+                    draft={draft}
+                    operationKey={row.operationKey}
+                    reasons={visibleReasons}
+                    onChange={onChange}
+                    agreementPdfUpload={agreementPdfUpload}
+                    onUploadAgreementPdf={onUploadAgreementPdf}
+                  />
+                ) : null}
               </div>
             </StepSection>
-          ) : null}
-
-          {activeStepIndex === 1 ? (
-            <AgreementEditor
-              draft={draft}
-              templates={templates}
-              operationKey={row.operationKey}
-              reasons={visibleReasons}
-              onChange={onChange}
-              agreementPdfUpload={agreementPdfUpload}
-              onUploadAgreementPdf={onUploadAgreementPdf}
-            />
           ) : null}
 
           {activeStepIndex === 2 ? (
@@ -953,7 +1042,7 @@ export function ImportRowEditor({
                 : activeStepIndex === 2
                   ? "Finish item"
                   : activeStepIndex === 0
-                    ? "Continue to agreement"
+                    ? "Continue to project"
                     : "Continue to payments"}
             {!stepBusy && row.saveState !== "saving" && activeStepIndex < 2 ? (
               <ChevronRight size={15} strokeWidth={2.2} aria-hidden />

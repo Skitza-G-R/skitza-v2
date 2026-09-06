@@ -685,19 +685,21 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
       "button",
     );
     expect(steps.map((step) => step.textContent.replace(/\s+/g, " ").trim())).toEqual([
-      "01Client & Project",
-      "02Agreement",
+      "01Client",
+      "02Project",
       "03Payments",
     ]);
     expect(document.querySelectorAll("[data-active-import-step]")).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Client & Project" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Client" })).not.toBeNull();
     expect(screen.queryByText("Finish these details")).toBeNull();
-    expect(screen.getByLabelText("Project name")).not.toBeNull();
-    expect(screen.queryByRole("heading", { name: "Agreement" })).toBeNull();
+    expect(screen.getByLabelText("Client name")).not.toBeNull();
+    // SK-308: the project moved to its own step.
+    expect(screen.queryByLabelText("Project name")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Project" })).toBeNull();
     expect(screen.getByLabelText("Import progress").getAttribute("aria-live")).toBe("polite");
   });
 
-  it("keeps Client and Project errors inline and blocks Continue", async () => {
+  it("keeps a Client error inline and blocks Continue to project", async () => {
     const user = userEvent.setup();
     renderWorkspace(
       initialBatch({
@@ -714,25 +716,53 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     );
 
     const clientName = screen.getByLabelText("Client name");
-    const projectName = screen.getByLabelText("Project name");
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
     await screen.findByText("Add the client name.");
 
-    expect(screen.getByRole("heading", { name: "Client & Project" })).not.toBeNull();
-    expect(screen.queryByRole("heading", { name: "Agreement" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Client" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Project" })).toBeNull();
     expect(clientName.getAttribute("aria-invalid")).toBe("true");
-    expect(projectName.getAttribute("aria-invalid")).toBe("true");
     const clientIssueId = clientName.getAttribute("aria-describedby");
-    const projectIssueId = projectName.getAttribute("aria-describedby");
     expect(clientIssueId).not.toBeNull();
-    expect(projectIssueId).not.toBeNull();
     expect(document.getElementById(clientIssueId ?? "")?.textContent).toContain(
       "Add the client name.",
     );
+    // The project reason belongs to step 2 and must not leak onto step 1.
+    expect(screen.queryByText("Add the project name.")).toBeNull();
+    expect(screen.getByRole("button", { name: "02 Project" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
+
+  it("keeps a Project error inline on the Project step and blocks Continue to payments", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+      initialBatch({
+        state: "needs_info",
+        reasons: [
+          {
+            code: "project_title_required",
+            field: "project.title",
+            message: "Add the project name.",
+          },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    const projectName = await screen.findByLabelText("Project name");
+    await user.click(screen.getByRole("button", { name: "Continue to payments" }));
+    await screen.findByText("Add the project name.");
+
+    expect(screen.getByRole("heading", { name: "Project" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Payments" })).toBeNull();
+    expect(projectName.getAttribute("aria-invalid")).toBe("true");
+    const projectIssueId = projectName.getAttribute("aria-describedby");
+    expect(projectIssueId).not.toBeNull();
     expect(document.getElementById(projectIssueId ?? "")?.textContent).toContain(
       "Add the project name.",
     );
-    expect(screen.getByRole("button", { name: "02 Agreement" }).hasAttribute("disabled")).toBe(
+    expect(screen.getByRole("button", { name: "03 Payments" }).hasAttribute("disabled")).toBe(
       true,
     );
   });
@@ -752,12 +782,12 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
-    await user.click(screen.getByRole("button", { name: "01 Client & Project" }));
-    expect(screen.getByRole("heading", { name: "Client & Project" })).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "02 Agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
+    await user.click(screen.getByRole("button", { name: "01 Client" }));
+    expect(screen.getByRole("heading", { name: "Client" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "02 Project" }));
+    await screen.findByRole("heading", { name: "Project" });
     await user.click(screen.getByRole("button", { name: "Continue to payments" }));
     await screen.findByRole("heading", { name: "Payments" });
     await user.click(screen.getByRole("button", { name: "Finish item" }));
@@ -791,8 +821,8 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
 
     act(() => {
       matches = true;
@@ -807,7 +837,7 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
       });
     });
 
-    await screen.findByRole("heading", { name: "Agreement" });
+    await screen.findByRole("heading", { name: "Project" });
     expect(screen.getByText("Step 2 of 3")).not.toBeNull();
     expect(document.querySelectorAll('[aria-label^="Edit item"]')).toHaveLength(1);
   });
@@ -816,8 +846,8 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
     await user.click(screen.getByRole("button", { name: "Save for later" }));
     await waitFor(() => {
       expect(document.querySelectorAll('[aria-label^="Edit item"]')).toHaveLength(0);
@@ -825,7 +855,7 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
 
     const list = screen.getByRole("list", { name: "Active work items" });
     await user.click(within(list).getAllByRole("button")[0] as HTMLButtonElement);
-    await screen.findByRole("heading", { name: "Client & Project" });
+    await screen.findByRole("heading", { name: "Client" });
     expect(screen.getByText("Step 1 of 3")).not.toBeNull();
   });
 
@@ -833,14 +863,14 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
     await user.click(screen.getByRole("button", { name: "Continue to payments" }));
     await screen.findByRole("heading", { name: "Payments" });
 
     const finish = screen.getByRole("button", { name: "Finish item" });
     expect((finish as HTMLButtonElement).disabled).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Record first payment" }));
+    await user.click(screen.getByRole("button", { name: "Add first payment" }));
     await screen.findByRole("group", { name: "Edit Payment 1" });
 
     await waitFor(() => {
@@ -898,12 +928,12 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     expect(within(needsInfo).getByText("Add the service from the agreement.")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Back to items" }));
 
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    expect(await screen.findByRole("heading", { name: "Agreement" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    expect(await screen.findByRole("heading", { name: "Project" })).not.toBeNull();
     expect(screen.getByLabelText("Service")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Continue to payments" }));
-    expect(screen.getByRole("heading", { name: "Agreement" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Project" })).not.toBeNull();
     expect(screen.getByText("Add the service from the agreement.")).not.toBeNull();
     const service = screen.getByLabelText("Service");
     expect(service.getAttribute("aria-invalid")).toBe("true");
@@ -923,14 +953,14 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     await user.click(await screen.findByRole("button", { name: "Continue to payments" }));
     expect(await screen.findByRole("heading", { name: "Payments" })).not.toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "02 Agreement" }));
+    await user.click(screen.getByRole("button", { name: "02 Project" }));
     fireEvent.change(screen.getByLabelText("Service"), { target: { value: "" } });
     await waitFor(() => {
       expect(mocks.saveRow).toHaveBeenCalledTimes(2);
     });
     await user.click(screen.getByRole("button", { name: "03 Payments" }));
     await user.click(screen.getByRole("button", { name: "Finish item" }));
-    expect(screen.getByRole("heading", { name: "Agreement" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Project" })).not.toBeNull();
     expect(screen.getByText("Add the service from the agreement.")).not.toBeNull();
   });
 
@@ -947,8 +977,8 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     );
     renderWorkspace();
 
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
 
     const firstDeliverable = screen.getByLabelText("Deliverables 1");
     if (!(firstDeliverable instanceof HTMLInputElement)) {
@@ -991,7 +1021,7 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     await user.click(screen.getByRole("button", { name: "Finish item" }));
 
     await screen.findByRole("heading", { name: "Active match project" });
-    expect(screen.getByRole("heading", { name: "Client & Project" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Client" })).not.toBeNull();
     expect(
       within(list)
         .getAllByRole("button")
@@ -1062,7 +1092,7 @@ describe("ActiveWorkImportWorkspace three-step item flow", () => {
     });
     expect(mocks.deleteRow).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Select an item from the queue.")).not.toBeNull();
-    expect(screen.queryByRole("heading", { name: "Client & Project" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Client" })).toBeNull();
     expect(within(list).queryAllByRole("button", { current: "true" })).toHaveLength(0);
   });
 });
@@ -1122,8 +1152,8 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     renderWorkspace();
 
     expect(screen.getByLabelText("Import progress").textContent).toContain("1 Ready");
-    const projectName = screen.getByLabelText("Project name");
-    fireEvent.change(projectName, { target: { value: "First local title" } });
+    const clientName = screen.getByLabelText("Client name");
+    fireEvent.change(clientName, { target: { value: "First local title" } });
     expect(screen.getByLabelText("Import progress").textContent).toContain("0 Ready");
 
     await waitFor(
@@ -1132,7 +1162,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
       },
       { timeout: 1_500 },
     );
-    fireEvent.change(projectName, { target: { value: "Latest local title" } });
+    fireEvent.change(clientName, { target: { value: "Latest local title" } });
 
     await act(async () => {
       firstSave.resolve(
@@ -1204,8 +1234,8 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
       );
     renderWorkspace();
 
-    const projectName = screen.getByLabelText("Project name");
-    fireEvent.change(projectName, { target: { value: "Saved despite check failure" } });
+    const clientName = screen.getByLabelText("Client name");
+    fireEvent.change(clientName, { target: { value: "Saved despite check failure" } });
     await waitFor(
       () => {
         expect(screen.getAllByText("Saved, but not checked yet").length).toBeGreaterThan(0);
@@ -1216,7 +1246,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     expect(screen.queryByText("Could not save — try again")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
 
-    fireEvent.change(projectName, { target: { value: "Try the check again" } });
+    fireEvent.change(clientName, { target: { value: "Try the check again" } });
     await waitFor(
       () => {
         expect(mocks.saveRow).toHaveBeenCalledTimes(2);
@@ -1260,7 +1290,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     });
     renderWorkspace();
 
-    fireEvent.change(screen.getByLabelText("Project name"), {
+    fireEvent.change(screen.getByLabelText("Client name"), {
       target: { value: "Edited after a lost response" },
     });
 
@@ -1270,7 +1300,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     expect(mocks.saveRow.mock.calls[0]?.[0]).toMatchObject({ expectedRevision: 1 });
     expect(mocks.saveRow.mock.calls[1]?.[0]).toMatchObject({
       expectedRevision: 5,
-      draftPayload: { project: { title: "Edited after a lost response" } },
+      draftPayload: { client: { name: "Edited after a lost response" } },
     });
     expect(mocks.loadRows).toHaveBeenCalledWith({ batchId });
     await waitFor(() => {
@@ -1361,7 +1391,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     });
     renderWorkspace();
 
-    fireEvent.change(screen.getByLabelText("Project name"), {
+    fireEvent.change(screen.getByLabelText("Client name"), {
       target: { value: "Still conflicting" },
     });
 
@@ -1378,7 +1408,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     mocks.saveRow.mockReturnValue(pendingSave.promise);
     renderWorkspace();
 
-    fireEvent.change(screen.getByLabelText("Project name"), {
+    fireEvent.change(screen.getByLabelText("Client name"), {
       target: { value: "Unsaved title" },
     });
     const remove = screen.getByRole("button", { name: "Remove this draft" });
@@ -1419,7 +1449,7 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    fireEvent.change(screen.getByLabelText("Project name"), {
+    fireEvent.change(screen.getByLabelText("Client name"), {
       target: { value: "Save before leaving" },
     });
     await user.click(screen.getByRole("button", { name: "Clients & Projects" }));
@@ -1437,13 +1467,13 @@ describe("ActiveWorkImportWorkspace draft safety", () => {
     mocks.saveRow.mockReturnValue(pendingSave.promise);
     const view = renderWorkspace();
 
-    fireEvent.change(screen.getByLabelText("Project name"), {
+    fireEvent.change(screen.getByLabelText("Client name"), {
       target: { value: "Save before sidebar navigation" },
     });
 
     expect(mocks.saveRow).toHaveBeenCalledTimes(1);
     expect(mocks.saveRow.mock.calls[0]?.[0]?.draftPayload).toMatchObject({
-      project: { title: "Save before sidebar navigation" },
+      client: { name: "Save before sidebar navigation" },
     });
     view.unmount();
 
@@ -2267,8 +2297,8 @@ describe("ActiveWorkImportWorkspace agreement PDF", () => {
     });
     const user = userEvent.setup();
     renderWorkspace();
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
 
     const zone = screen.getByText("Drop the agreement PDF here").closest("label");
     if (!zone) throw new Error("Expected the agreement PDF drop zone");
@@ -2322,8 +2352,8 @@ describe("ActiveWorkImportWorkspace agreement PDF", () => {
     );
     const user = userEvent.setup();
     renderWorkspace();
-    await user.click(screen.getByRole("button", { name: "Continue to agreement" }));
-    await screen.findByRole("heading", { name: "Agreement" });
+    await user.click(screen.getByRole("button", { name: "Continue to project" }));
+    await screen.findByRole("heading", { name: "Project" });
 
     const zone = screen.getByText("Drop the agreement PDF here").closest("label");
     if (!zone) throw new Error("Expected the agreement PDF drop zone");
@@ -2354,7 +2384,7 @@ describe("ActiveWorkImportWorkspace proof upload errors", () => {
       "listitem",
     )[0];
     if (!first) throw new Error("Expected Payment 1");
-    await user.click(within(first).getByRole("button", { name: "Record" }));
+    await user.click(within(first).getByRole("button", { name: "Add payment" }));
     const input = screen
       .getByText("Drop proof of payment here")
       .closest("label")
@@ -2441,7 +2471,7 @@ describe("ActiveWorkImportWorkspace when Skitza cannot be reached", () => {
     mocks.saveRow.mockRejectedValue(new Error("fetch failed"));
     renderWorkspace();
 
-    fireEvent.change(screen.getByLabelText("Project name"), {
+    fireEvent.change(screen.getByLabelText("Client name"), {
       target: { value: "Typed while offline" },
     });
 
@@ -2903,7 +2933,7 @@ describe.each([360, 390, 768, 1023])("ActiveWorkImportWorkspace below 1024px at 
     expect(workspace?.hasAttribute("inert")).toBe(true);
     expect(workspace?.getAttribute("aria-hidden")).toBe("true");
     const mobileDock = screen
-      .getAllByRole("button", { name: "Continue to agreement" })
+      .getAllByRole("button", { name: "Continue to project" })
       .map((button) => button.closest("footer"))
       .find((footer) => footer?.className.includes("z-[80]"));
     expect(mobileDock?.className).toContain("fixed");
@@ -2913,7 +2943,7 @@ describe.each([360, 390, 768, 1023])("ActiveWorkImportWorkspace below 1024px at 
 
     const back = within(mobileEditor).getByRole("button", { name: "Back to items" });
     const continueButton = within(mobileEditor).getByRole("button", {
-      name: "Continue to agreement",
+      name: "Continue to project",
     });
     await user.tab({ shift: true });
     expect(document.activeElement).toBe(continueButton);

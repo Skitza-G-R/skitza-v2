@@ -7,6 +7,7 @@ import { assessActiveWorkImportDraft } from "~/server/domain/active-work-import/
 
 import {
   IMPORT_NOTICE,
+  agreementMatchesTemplate,
   applyTemplate,
   draftPaymentBalance,
   draftTaxBreakdown,
@@ -31,6 +32,41 @@ const defaults = {
   defaultTaxMode: "tax_added" as const,
   defaultTaxRatePct: 17,
 };
+
+function storeTemplate(): StoreTemplateOption {
+  return {
+    id: "template-1",
+    name: "Album production",
+    kind: "album",
+    service: "Production",
+    deliverables: ["Mixes", "Masters"],
+    subtotalCents: 250_000,
+    currency: "USD",
+    taxMode: "tax_added",
+    taxRatePct: 17,
+    includedSongSpaces: 8,
+    revisionRule: { kind: "fixed", count: 2 },
+    royaltyTerms: {
+      master: { mode: "percentage", bps: 1_500 },
+      composition: {
+        mode: "percentage",
+        bps: 500,
+        role: "composer",
+      },
+    },
+    rights: ["Artist owns the masters"],
+    plans: [{ kind: "split_50_50" }],
+    agreementText: "Existing agreement text",
+    agreementPdf: null,
+    session: {
+      limit: { kind: "fixed", count: 4 },
+      durationMin: 90,
+      locationType: "studio",
+      bufferMinutes: 15,
+      minLeadHours: 24,
+    },
+  };
+}
 
 describe("active-work import model", () => {
   it("keeps the producer notice exact", () => {
@@ -347,37 +383,7 @@ describe("active-work import model", () => {
 
   it("copies a Store template into an editable draft without sharing its arrays", () => {
     const draft = newImportDraft(defaults);
-    const template: StoreTemplateOption = {
-      id: "template-1",
-      name: "Album production",
-      kind: "album",
-      service: "Production",
-      deliverables: ["Mixes", "Masters"],
-      subtotalCents: 250_000,
-      currency: "USD",
-      taxMode: "tax_added",
-      taxRatePct: 17,
-      includedSongSpaces: 8,
-      revisionRule: { kind: "fixed", count: 2 },
-      royaltyTerms: {
-        master: { mode: "percentage", bps: 1_500 },
-        composition: {
-          mode: "percentage",
-          bps: 500,
-          role: "composer",
-        },
-      },
-      rights: ["Artist owns the masters"],
-      plans: [{ kind: "split_50_50" }],
-      agreementText: "Existing agreement text",
-      session: {
-        limit: { kind: "fixed", count: 4 },
-        durationMin: 90,
-        locationType: "studio",
-        bufferMinutes: 15,
-        minLeadHours: 24,
-      },
-    };
+    const template = storeTemplate();
 
     const next = applyTemplate(draft, template);
 
@@ -401,6 +407,44 @@ describe("active-work import model", () => {
     const withoutSessions = applyTemplate(draft, { ...template, session: null });
     expect(withoutSessions.agreement.sessionsMode).toBe("none");
     expect(withoutSessions.agreement.sessionCount).toBe("");
+  });
+
+  // SK-308: the Project step shows "Reset to product" only while the draft
+  // really differs from the Store product it was filled from.
+  it("knows whether the draft still matches its Store product", () => {
+    const template = storeTemplate();
+    const empty = newImportDraft(defaults);
+    expect(agreementMatchesTemplate(empty, template)).toBe(false);
+
+    const applied = applyTemplate(empty, template);
+    expect(agreementMatchesTemplate(applied, template)).toBe(true);
+    expect(
+      agreementMatchesTemplate(
+        parseStoredImportDraft(toServerDraftPayload(applied), defaults),
+        template,
+      ),
+    ).toBe(true);
+
+    const cheaper = { ...applied, agreement: { ...applied.agreement, subtotal: "2400.00" } };
+    expect(agreementMatchesTemplate(cheaper, template)).toBe(false);
+
+    const fewerDeliverables = {
+      ...applied,
+      agreement: { ...applied.agreement, deliverables: ["Mixes"] },
+    };
+    expect(agreementMatchesTemplate(fewerDeliverables, template)).toBe(false);
+
+    // Facts the product never carries (the attached PDF, the first payment
+    // date) are not a difference from the product.
+    const withDraftOnlyFacts = {
+      ...applied,
+      agreement: {
+        ...applied.agreement,
+        agreementPdf: { uploadToken: "signed", fileName: "deal.pdf", sizeBytes: 10 },
+        firstPaymentDueAt: "2026-09-15",
+      },
+    };
+    expect(agreementMatchesTemplate(withDraftOnlyFacts, template)).toBe(true);
   });
 
   it("round-trips included sessions through the server payload and back", () => {

@@ -580,10 +580,10 @@ export function ActiveWorkImportWorkspace({
         {
           code: "save_failed",
           field:
-            step === "Client & Project"
+            step === "Client"
               ? "client.save"
-              : step === "Agreement"
-                ? "agreement.save"
+              : step === "Project"
+                ? "project.save"
                 : "payments",
           message: latest?.saveError ?? "This item could not be saved. Try again.",
         },
