@@ -44,6 +44,57 @@ open, collapsing the document's scrollable range to zero.
 
 Do not re-litigate this. Treat the document-scroll theory as tested and rejected.
 
+## Sharpened prediction: the keyboard-detection arithmetic (2026-09-06)
+
+Still **unconfirmed on a device** — it is a reading of the code, not a finding. But it is
+now a falsifiable prediction with numbers, which the earlier suspects were not.
+
+`calculateNativeViewportMetrics` derives two different things from one subtraction:
+
+```
+obscuredHeight = innerHeight - measuredHeight - viewportOffsetTop
+keyboardOpen   = obscuredHeight >= threshold
+```
+
+That number is **correct** for the action dock. A `fixed; bottom: N` element measures from
+the layout viewport's bottom, and the visible strip's bottom sits exactly
+`innerHeight - height - offsetTop` above it — which is why the pinned `viewportOffsetTop: 59`
+test expects `keyboardInset: 265` and the dock lands right.
+
+It is the wrong number for *"is the keyboard open"*. On iOS `innerHeight` does not change
+when the keyboard appears; the visual viewport shrinks by the keyboard height, so keyboard
+presence is `innerHeight - height`. `offsetTop` is a separate quantity — how far iOS scrolled
+the visual viewport to reveal the focused field — and it ranges over `[0, innerHeight - height]`.
+So as iOS scrolls further, `obscuredHeight` decays toward zero and the answer flips to
+"closed" while the keyboard is plainly up.
+
+At that instant `body:not([data-sk-keyboard="open"]) .sk-native-screen { top: 0 }`
+(`globals.css:2096`) overrides `top: var(--sk-viewport-offset-top)`, and the shell teleports
+up by the whole offset in one frame. The failure is a **cliff, not a slope**:
+
+| innerHeight            | keyboard | flips `closed` once `vv.offsetTop` > | shell `top` at that instant |
+| ---------------------- | -------- | ------------------------------------ | --------------------------- |
+| 844 (installed app)    | 354px    | **203**                              | 203 -> **0** (jumps 203px)  |
+| 745 (Safari with chrome) | 313px  | **179**                              | 179 -> **0** (jumps 179px)  |
+
+The shell keeps `height: var(--sk-viewport-height)` — still the short strip — so it occupies
+layout rows `[0, 490]` while the visible strip is `[203, 693]`. That predicts precisely the
+reported picture: header and step nav above the fold, a couple of fields at the very top,
+then page background down to the dock.
+
+It also explains the two things that made this hard. Shallow fields never push `offsetTop`
+past the threshold, so most of the form behaves. And Chromium never sets a non-zero
+`visualViewport.offsetTop` on focus at all, so no desktop check can see it.
+
+**Candidate fix, not yet applied:** compute `keyboardOpen` from `innerHeight - height` and
+leave `keyboardInset` exactly as it is, so the dock maths is untouched. Checked against the
+four cases pinned in `native-viewport-and-motion.test.ts` — `844/520/0`, `844/520/59`,
+`844/800/0`, `812/770/0` — all four keep their current results. Only `--sk-layout-viewport-top`
+and `--sk-layout-viewport-height` change behaviour alongside `keyboardOpen`, and their sole
+consumer is the full-screen player (`persistent-player.tsx:976`), which has no text input.
+
+Do not apply it until the phone says so. Two confident theories have already been wrong.
+
 ## Leading hypothesis (untested)
 
 **iOS scrolls the `overflow: hidden` editor shell itself.** The shell
@@ -98,9 +149,27 @@ open. It also carries the **shell scroll guard** switch that pins the shell's
 Preview for the branch:
 `https://skitza-v2-web-git-claude-keyboard-h-61be7a-gili-asrafs-projects.vercel.app/dev/sk297-keyboard-lock`
 
-Ask Gili for: a screenshot with the keyboard open and the guard off, then the same with
-the guard on. If the guard settles the screen, hypothesis 1 is confirmed and the fix is
-small. If it does not, the readout names whatever actually moved.
+The panel is now pinned to the *visual* viewport (`translate3d` by the measured offset). It
+was `fixed; top: 0`, which resolves against the layout viewport — so the offset it exists to
+report would have pushed it off the top of the screen, giving a blank photograph and, worse,
+an untappable guard switch. It also remembers the sample with the largest `vv.offsetTop`
+(`PEAK` line, `reset peak` button), so one screenshot still carries the worst instant.
+
+Exact taps to ask for, on the branch preview in iPhone Safari:
+
+1. `reset peak`
+2. scroll to **Project name** (placeholder "Blue Hour") — a field low enough that iOS has to
+   scroll past the threshold; the first field on the form will not trip it
+3. tap into it so the keyboard opens, screenshot
+4. close the keyboard, switch **shell scroll guard** to ON, `reset peak`, tap the field
+   again, screenshot
+
+Reading the result:
+
+- `kbd closed` with a large `vv.offsetTop` (>180 Safari, >203 standalone) -> the arithmetic
+  above is the mechanism; the guard will make no difference.
+- guard ON settles the screen -> iOS is scrolling the shell internally after all.
+- neither -> the readout names whatever actually moved.
 
 Do not ship a third speculative fix. Two have already been wrong.
 
@@ -158,9 +227,11 @@ picture before believing a number.
 
 |                                |                                                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| Branch                         | `claude/keyboard-hiding-content-yy8s2u` @ `d622e24` (content matches `v3-clean` plus the dev page and diagnostics) |
+| Branch                         | `claude/keyboard-hiding-content-yy8s2u` @ `a5e30fc` (content matches `v3-clean` plus the dev page and diagnostics) |
 | `v3-clean`                     | `263635a`                                                                                                          |
 | Fix commit (live, ineffective) | `712dfc9`, PR #417                                                                                                 |
 | Dev preview page               | `263635a`, PR #427, merged                                                                                         |
 | Linear                         | SK-297, In Progress                                                                                                |
-| Gate on `d622e24`              | typecheck, lint clean; 8041 passed / 102 skipped; `packages/db` clean                                              |
+| Gate on `a5e30fc`              | typecheck, lint clean; 8041 passed / 102 skipped; `packages/db` clean                                              |
+| Live preview (readout)         | `skitza-v2-web-git-claude-keyboard-h-61be7a-…vercel.app/dev/sk297-keyboard-lock` — alias verified on `a5e30fc`     |
+| Blocked on                     | one phone measurement; no fix code written                                                                        |
