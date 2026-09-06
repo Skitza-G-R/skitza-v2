@@ -31,9 +31,11 @@ import {
 // about 31 seconds, that show what a producer gets, not the steps to get it.
 // Each screen is one drawn picture with one chain on it: the artist acts, the
 // picture changes, the same green check stamps the payoff. The producer's
-// real product name and price sit inside the pictures. Nothing here reaches
-// the server: the pictures are static markup timed by CSS, and the only links
-// are the two on the last screen.
+// real product name and price sit inside the pictures, and so do the example
+// label and the closing action, so the caption sheet under the picture keeps
+// one height from the first scene to the last. Nothing here reaches the
+// server: the pictures are static markup timed by CSS, and the only links are
+// the two on the last screen.
 
 export interface SimulationLinks {
   bringActiveWork: string;
@@ -209,7 +211,15 @@ function Ring({ ms, large = false }: { ms: number; large?: boolean }) {
 }
 
 /** The payoff: one green check, the same on every screen. */
-function Stamp({ ms, small = false, className = "" }: { ms: number; small?: boolean; className?: string }) {
+function Stamp({
+  ms,
+  small = false,
+  className = "",
+}: {
+  ms: number;
+  small?: boolean;
+  className?: string;
+}) {
   return (
     <span
       role="img"
@@ -249,7 +259,8 @@ function CheckIcon({ size = 14 }: { size?: number }) {
   return <Check size={size} strokeWidth={3} aria-hidden className="shrink-0" />;
 }
 
-const CHIP = "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[14px] font-bold";
+const CHIP =
+  "inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] px-3 text-[14px] font-bold";
 const CHIP_AMBER = `${CHIP} bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]`;
 const CHIP_GREEN = `${CHIP} bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success-text))]`;
 const CHIP_GREY = `${CHIP} border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-muted))]`;
@@ -270,6 +281,11 @@ const HOOK_TILES = [
   { label: "Calendar", x: 48, y: 118, rotate: 7, tone: "#EA4335", delay: 1080 },
   { label: "Contract", x: 176, y: 124, rotate: -9, tone: "#6B6359", delay: 1140 },
 ] as const;
+
+// The producer's link as one dark pill (light on the dark theme): 13px mono
+// keeps a whole `skitza.app/join/…` link inside a 360px phone.
+const PILL =
+  "inline-flex h-12 items-center gap-2.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 font-mono text-[13px] whitespace-nowrap text-[rgb(var(--bg-background))]";
 
 function LinkPill({ publicUrl, className = "" }: { publicUrl: string; className?: string }) {
   return (
@@ -302,7 +318,7 @@ function HookScene({ publicUrl }: { publicUrl: string }) {
         </span>
       ))}
       <span
-        className="sk-reel-pill absolute top-1/2 left-1/2 inline-flex h-[52px] max-w-[300px] items-center gap-2.5 rounded-[14px] bg-[rgb(var(--bg-sidebar))] px-4.5 font-mono text-[15px] whitespace-nowrap text-[rgb(var(--fg-onsidebar))] shadow-[0_16px_36px_rgb(17_16_9/0.28)]"
+        className={`sk-reel-pill absolute top-1/2 left-1/2 max-w-[320px] shadow-[0_16px_36px_rgb(17_16_9/0.28)] ${PILL}`}
         style={at(1650)}
       >
         <LinkPill publicUrl={publicUrl} />
@@ -318,10 +334,7 @@ function LinkScene({ model, publicUrl }: { model: SimulationModel; publicUrl: st
   });
   return (
     <>
-      <div
-        className="sk-reel-rise relative inline-flex h-[52px] max-w-full items-center gap-2.5 rounded-[14px] bg-[rgb(var(--bg-sidebar))] px-4.5 font-mono text-[15px] text-[rgb(var(--fg-onsidebar))]"
-        style={at(100)}
-      >
+      <div className={`sk-reel-rise relative max-w-full ${PILL}`} style={at(100)}>
         <LinkPill publicUrl={publicUrl} />
         <Ring ms={1500} />
       </div>
@@ -347,7 +360,10 @@ function LinkScene({ model, publicUrl }: { model: SimulationModel; publicUrl: st
       >
         <path d="M12 5v14M6 13l6 6 6-6" />
       </svg>
-      <div className={`sk-reel-rise relative flex w-[300px] max-w-full flex-col gap-3 p-[18px] ${CARD}`} style={at(2100)}>
+      <div
+        className={`sk-reel-rise relative flex w-[300px] max-w-full flex-col gap-3 p-[18px] ${CARD}`}
+        style={at(2100)}
+      >
         <p className="text-[13px] font-bold tracking-[0.06em] text-[rgb(var(--fg-muted))] uppercase">
           New request
         </p>
@@ -369,9 +385,21 @@ function LinkScene({ model, publicUrl }: { model: SimulationModel; publicUrl: st
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu"] as const;
 // Row by row: open, busy in Google, or the slot she picks.
 const CELLS: readonly ("open" | "busy" | "pick")[] = [
-  "busy", "open", "open", "open", "open",
-  "open", "busy", "pick", "open", "open",
-  "open", "open", "open", "busy", "open",
+  "busy",
+  "open",
+  "open",
+  "open",
+  "open",
+  "open",
+  "busy",
+  "pick",
+  "open",
+  "open",
+  "open",
+  "open",
+  "open",
+  "busy",
+  "open",
 ];
 
 function BookingScene() {
@@ -387,7 +415,10 @@ function BookingScene() {
       <div className={`sk-reel-rise w-[320px] max-w-full p-3.5 ${CARD}`} style={at(100)}>
         <div className="mb-1.5 grid grid-cols-5 gap-1.5">
           {DAYS.map((day) => (
-            <span key={day} className="text-center text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
+            <span
+              key={day}
+              className="text-center text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+            >
               {day}
             </span>
           ))}
@@ -427,7 +458,7 @@ function BookingScene() {
         </div>
       </div>
       <div
-        className="sk-reel-rise relative inline-flex h-11 items-center gap-2.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pr-[34px] pl-2.5 text-[14px] font-semibold"
+        className="sk-reel-rise relative inline-flex h-11 items-center gap-2.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pr-[34px] pl-2.5 text-[14px] font-semibold"
         style={at(2300)}
       >
         <span
@@ -443,7 +474,9 @@ function BookingScene() {
   );
 }
 
-const WAVE_BARS = previewPeaks(3).filter((_, index) => index % 5 === 0).slice(0, 42);
+const WAVE_BARS = previewPeaks(3)
+  .filter((_, index) => index % 5 === 0)
+  .slice(0, 42);
 
 function SongRow({ title, meta }: { title: string; meta: string }) {
   return (
@@ -460,7 +493,10 @@ function SongRow({ title, meta }: { title: string; meta: string }) {
 function LibraryScene({ model }: { model: SimulationModel }) {
   const [first, ...rest] = model.library;
   return (
-    <div className={`sk-reel-rise relative flex w-[320px] max-w-full flex-col gap-2 p-3.5 ${CARD}`} style={at(100)}>
+    <div
+      className={`sk-reel-rise relative flex w-[320px] max-w-full flex-col gap-2 p-3.5 ${CARD}`}
+      style={at(100)}
+    >
       <div className="flex items-center gap-2.5 pr-[34px] pb-1.5 pl-1">
         <Avatar tone="noya" initial="N" size="sm" />
         <span className="text-[16px] font-bold">{SIMULATED_ARTIST.firstName}&apos;s library</span>
@@ -469,7 +505,7 @@ function LibraryScene({ model }: { model: SimulationModel }) {
         </span>
       </div>
       <div
-        className="sk-reel-rise rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 pt-2.5 pb-3 shadow-[0_10px_24px_rgb(17_16_9/0.06)]"
+        className="sk-reel-rise rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 pt-2.5 pb-3 shadow-[0_10px_24px_rgb(17_16_9/0.06)]"
         style={at(400)}
       >
         <div className="flex items-center gap-2.5 pb-1">
@@ -499,7 +535,9 @@ function LibraryScene({ model }: { model: SimulationModel }) {
         <div className="sk-reel-rise mt-2.5 flex items-center gap-2.5" style={at(2200)}>
           <Avatar tone="noya" initial="N" size="sm" />
           <span className="rounded-[4px_14px_14px_14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-3 py-2 text-[15px] font-medium">
-            <span className="mr-2 font-mono text-[12px] text-[rgb(var(--brand-primary-dark))]">0:42</span>
+            <span className="mr-2 font-mono text-[12px] text-[rgb(var(--brand-primary-dark))]">
+              0:42
+            </span>
             Keep this vocal.
           </span>
         </div>
@@ -519,10 +557,13 @@ function LibraryScene({ model }: { model: SimulationModel }) {
       {rest.map((row, index) => (
         <div
           key={row.id}
-          className="sk-reel-rise flex items-center gap-2.5 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-2.5 py-2"
+          className="sk-reel-rise flex items-center gap-2.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-2.5 py-2"
           style={at(600 + index * 150)}
         >
-          <SongRow title={row.trackTitle} meta={`${row.label ?? "v1"} · ${clock(row.durationMs ?? 0)}`} />
+          <SongRow
+            title={row.trackTitle}
+            meta={`${row.label ?? "v1"} · ${clock(row.durationMs ?? 0)}`}
+          />
         </div>
       ))}
       <Stamp ms={3500} className="top-[-14px] right-[-14px]" />
@@ -536,7 +577,10 @@ function MoneyScene({ model }: { model: SimulationModel }) {
   });
   return (
     <>
-      <div className={`sk-reel-rise relative flex w-[320px] max-w-full flex-col gap-3.5 px-5 py-[18px] ${CARD}`} style={at(100)}>
+      <div
+        className={`sk-reel-rise relative flex w-[320px] max-w-full flex-col gap-3.5 px-5 py-[18px] ${CARD}`}
+        style={at(100)}
+      >
         <div className="flex min-w-0 items-center gap-2.5 pr-7 text-[15px] text-[rgb(var(--fg-muted))]">
           <Avatar tone="noya" initial="N" size="sm" />
           <span className="truncate">{model.product.name}</span>
@@ -565,14 +609,21 @@ function MoneyScene({ model }: { model: SimulationModel }) {
         </span>
         <Stamp ms={1900} className="top-[-14px] right-[-14px]" />
       </div>
-      <div className={`sk-reel-rise flex w-[320px] max-w-full items-center gap-3.5 px-[18px] py-3.5 ${CARD}`} style={at(2500)}>
+      <div
+        className={`sk-reel-rise flex w-[320px] max-w-full items-center gap-3.5 px-[18px] py-3.5 ${CARD}`}
+        style={at(2500)}
+      >
         <div className="min-w-0 flex-1">
           <p className="text-[16px] font-bold">{SIMULATED_ARTIST.projectTitle} · v2</p>
           <Swap
             ms={3100}
-            before={<span className="text-[14px] text-[rgb(var(--fg-muted))]">Download locked</span>}
+            before={
+              <span className="text-[14px] text-[rgb(var(--fg-muted))]">Download locked</span>
+            }
             after={
-              <span className="text-[14px] font-bold text-[rgb(var(--brand-primary-dark))]">Download open</span>
+              <span className="text-[14px] font-bold text-[rgb(var(--brand-primary-dark))]">
+                Download open
+              </span>
             }
           />
         </div>
@@ -604,7 +655,7 @@ function StudioScene() {
   return (
     <>
       <span
-        className="sk-reel-pop inline-flex h-9 items-center gap-2 rounded-[12px] bg-[rgb(var(--fg-success)/0.12)] px-3.5 text-[15px] font-bold text-[rgb(var(--fg-success-text))]"
+        className="sk-reel-pop inline-flex h-9 items-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--fg-success)/0.12)] px-3.5 text-[15px] font-bold text-[rgb(var(--fg-success-text))]"
         style={at(1500)}
       >
         <i aria-hidden className="ob-alive-dot h-2 w-2 rounded-full bg-[rgb(var(--fg-success))]" />
@@ -631,15 +682,28 @@ function StudioScene() {
 // The shell.
 // ---------------------------------------------------------------------------
 
-/** One phone: edge to edge on phones, a device frame on desktop. */
-function Picture({ children }: { children: ReactNode }) {
+/**
+ * One phone: edge to edge on phones, a device frame on desktop. The example
+ * label is drawn on the screen, where it never truncates, and the closing
+ * action rises at the screen's foot, so the caption sheet below keeps its
+ * height on every scene.
+ */
+function Picture({ children, closing }: { children: ReactNode; closing?: ReactNode }) {
   return (
     <div
       data-testid="simulation-picture"
       className="h-full w-full lg:mx-auto lg:h-[min(80vh,760px)] lg:w-[392px] lg:overflow-hidden lg:rounded-[44px] lg:border-[7px] lg:border-[#2a2823] lg:bg-[#2a2823] lg:shadow-[0_40px_90px_rgb(0_0_0/0.55)]"
     >
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3.5 overflow-hidden bg-[rgb(var(--bg-background))] px-5 text-[rgb(var(--fg-default))] lg:rounded-[37px]">
-        {children}
+      <div
+        className={`sk-reel-screen relative flex h-full w-full flex-col items-center justify-center overflow-hidden px-5 pt-10 text-[rgb(var(--fg-default))] lg:rounded-[37px] ${
+          closing ? "pb-[152px]" : ""
+        }`}
+      >
+        <p className="absolute inset-x-0 top-3.5 px-5 text-center text-[11.5px] font-medium text-[rgb(var(--fg-muted))]">
+          {SIMULATION_LABEL}
+        </p>
+        <div className="sk-reel-fit flex w-full flex-col items-center gap-3.5">{children}</div>
+        {closing}
       </div>
     </div>
   );
@@ -824,39 +888,46 @@ export function FirstArtistSimulation({
   const identity =
     scene.side === "producer"
       ? { initial: model.producer.initials.charAt(0), name: "You", logoUrl: model.producerLogoUrl }
-      : { initial: SIMULATED_ARTIST.firstName.charAt(0), name: SIMULATED_ARTIST.firstName, logoUrl: null };
+      : {
+          initial: SIMULATED_ARTIST.firstName.charAt(0),
+          name: SIMULATED_ARTIST.firstName,
+          logoUrl: null,
+        };
 
+  // Rises at the foot of the studio screen once its rows have landed.
   const closing = isLast ? (
     <div
       key={actionReady ? "ready" : "waiting"}
-      className={`mt-5 flex flex-col items-center gap-3 lg:items-start ${actionReady ? "sk-reel-rise" : "invisible"}`}
+      className={`absolute inset-x-0 bottom-0 flex flex-col items-center gap-1.5 px-5 pt-2 pb-5 ${
+        actionReady ? "sk-reel-rise" : "invisible"
+      }`}
     >
       <Link
         href={links.bringActiveWork}
-        className="ob-press sk-reel-shine relative inline-flex min-h-[52px] w-full items-center justify-center gap-2 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[15px] font-bold text-[rgb(var(--bg-sidebar))] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none sm:w-auto sm:min-w-[260px]"
+        className="ob-press sk-reel-shine relative inline-flex min-h-[52px] w-full max-w-[320px] items-center justify-center gap-2 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-6 text-[15px] font-bold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none"
       >
         Add your first client
         <ChevronRight size={18} aria-hidden />
       </Link>
-      <div className="flex items-center gap-5 text-[13.5px] font-semibold text-white/70">
+      <div className="flex items-center gap-5 text-[13.5px] font-semibold text-[rgb(var(--fg-muted))]">
         <button
           type="button"
           onClick={() => {
             void copyLink();
           }}
-          className="inline-flex min-h-11 items-center gap-1.5 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center gap-1.5 transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           {copied ? <Check size={15} aria-hidden /> : null}
           {copied ? "Link copied" : "Copy my link"}
         </button>
         <Link
           href={links.dashboard}
-          className="inline-flex min-h-11 items-center hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           Open dashboard
         </Link>
       </div>
-      <p className="text-[11.5px] text-white/40">Nothing was sent or saved.</p>
+      <p className="text-[11.5px] text-[rgb(var(--fg-muted)/0.75)]">Nothing was sent or saved.</p>
     </div>
   ) : null;
 
@@ -883,10 +954,9 @@ export function FirstArtistSimulation({
             <div className="flex h-12 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
                 <IdentityAvatar initial={identity.initial} logoUrl={identity.logoUrl} />
-                <div className="flex min-w-0 items-baseline gap-2">
-                  <span className="text-[14px] font-semibold text-white">{identity.name}</span>
-                  <span className="truncate text-[12px] text-white/50">{SIMULATION_LABEL}</span>
-                </div>
+                <span className="truncate text-[14px] font-semibold text-white">
+                  {identity.name}
+                </span>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {!reduceMotion && !isLast ? (
@@ -908,7 +978,7 @@ export function FirstArtistSimulation({
                     onClick={() => {
                       goTo(lastIndex);
                     }}
-                    className="ob-press inline-flex h-10 items-center rounded-full px-3 text-[13px] font-semibold text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+                    className="ob-press inline-flex h-10 items-center rounded-[var(--radius-md)] px-3 text-[13px] font-semibold text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
                   >
                     Skip
                   </button>
@@ -927,17 +997,21 @@ export function FirstArtistSimulation({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-center lg:gap-14 lg:px-12 lg:pb-8">
-            {/* Words: bottom on phones, left column on desktop. Two lines,
-                nothing else, and the action once the reel has landed. */}
-            <div className="order-2 shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),12px)] lg:order-1 lg:w-[420px] lg:px-0 lg:pt-0 lg:pb-0">
+            {/* Words: bottom on phones, left column on desktop. Two lines and
+                nothing else; on phones the block reserves two lines of headline
+                so the picture above never changes height between scenes. */}
+            <div className="order-2 shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),12px)] lg:order-1 lg:w-[460px] lg:px-0 lg:pt-0 lg:pb-0">
               <div className="relative lg:flex lg:min-h-[420px] lg:flex-col">
                 <div className="hidden lg:block">
                   <Progress scenes={scenes} current={scene} settled={reduceMotion} />
-                  <p data-testid="simulation-step" className="mt-3 text-[12px] font-medium text-white/50">
+                  <p
+                    data-testid="simulation-step"
+                    className="mt-3 text-[12px] font-medium text-white/50"
+                  >
                     {String(scene.step)} / {String(scenes.length)}
                   </p>
                 </div>
-                <div className="text-center lg:text-left">
+                <div className="min-h-[76px] text-center lg:min-h-0 lg:text-left">
                   <p
                     key={scene.id}
                     data-testid="simulation-caption"
@@ -949,7 +1023,6 @@ export function FirstArtistSimulation({
                   <p className="mt-1.5 text-[13.5px] leading-[1.4] text-balance text-white/60 lg:mt-3 lg:text-[16px] lg:leading-relaxed">
                     {scene.line}
                   </p>
-                  {closing}
                 </div>
                 <div className="mt-3 flex items-center justify-center gap-2 lg:mt-auto lg:justify-start lg:pt-6">
                   <button
@@ -981,7 +1054,7 @@ export function FirstArtistSimulation({
             {/* The picture. */}
             <div className="order-1 min-h-0 flex-1 lg:order-2 lg:flex lg:items-center lg:justify-center">
               <div key={scene.id} className="sk-step-enter h-full w-full">
-                <Picture>{renderScene()}</Picture>
+                <Picture closing={closing}>{renderScene()}</Picture>
               </div>
             </div>
           </div>

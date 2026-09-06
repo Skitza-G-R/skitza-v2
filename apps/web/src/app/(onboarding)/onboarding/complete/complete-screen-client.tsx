@@ -15,7 +15,10 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { FirstArtistSimulation } from "~/components/onboarding/first-artist-simulation/first-artist-simulation";
-import type { SimulationInput } from "~/components/onboarding/first-artist-simulation/simulation-model";
+import {
+  reelSummary,
+  type SimulationInput,
+} from "~/components/onboarding/first-artist-simulation/simulation-model";
 import { ConfettiBurst } from "~/components/onboarding/wizard-shell/confetti-burst";
 import { PushMomentBanner } from "~/components/push/push-moment-banner";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
@@ -51,6 +54,9 @@ export function CompleteScreenClient({
   const fullUrl = buildJoinUrl(slug);
   const displayUrl = fullUrl.replace(/^https?:\/\//, "");
   const previewHref = artistPreviewHref(slug, previewMode);
+  // The button promises the reel's real cut: five features in 31 s, four in
+  // 26 s for a product without studio time.
+  const reel = simulation ? reelSummary(simulation) : null;
   const portfolioHref = completionFollowUpHref("/onboarding/portfolio", previewMode);
   const paymentHref = completionFollowUpHref("/onboarding/payment", previewMode);
 
@@ -179,7 +185,7 @@ export function CompleteScreenClient({
           </div>
         </section>
 
-        {simulation ? (
+        {reel ? (
           <>
             <button
               type="button"
@@ -196,11 +202,12 @@ export function CompleteScreenClient({
               </span>
               Watch your first artist
               <span className="font-mono text-[11px] font-semibold tracking-[0.08em] opacity-70">
-                35 s
+                {reel.seconds} s
               </span>
             </button>
             <p className="mt-2 text-center text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]">
-              Recommended — the 5 things you and your artists get, on your real product.
+              Recommended. The {reel.features} things you and your artists get, on your real
+              product.
             </p>
           </>
         ) : null}

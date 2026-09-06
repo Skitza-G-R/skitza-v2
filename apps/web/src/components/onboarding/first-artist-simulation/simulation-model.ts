@@ -826,6 +826,22 @@ export function buildScenes(input: { includesStudioTime: boolean }): readonly Si
   return Object.freeze(kept.map((scene, index) => ({ ...scene, step: index + 1 })));
 }
 
+/** The product is the parent of session time: no studio minutes means nothing to book. */
+export function includesStudioTime(product: Pick<SimulationProduct, "durationMin">): boolean {
+  return product.durationMin > 0;
+}
+
+/**
+ * What the completion screen promises before the reel opens: how many
+ * features it shows (the hook is not one) and how long it runs, read from the
+ * same scenes the reel plays so the number can never drift from the cut.
+ */
+export function reelSummary(input: SimulationInput): { features: number; seconds: number } {
+  const scenes = buildScenes({ includesStudioTime: includesStudioTime(input.product) });
+  const totalMs = scenes.reduce((sum, scene) => sum + scene.durationMs, 0);
+  return { features: scenes.length - 1, seconds: Math.round(totalMs / 1000) };
+}
+
 function buildLibrary(input: { song: SimulationSong; now: Date }): MusicLibraryTrackRow[] {
   const { now } = input;
   const latest = input.song.data.versions[0];
@@ -970,7 +986,7 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
 
   // The product is the parent of session time: no studio minutes means the
   // story has nothing to book, so it drops that frame entirely.
-  const includesStudioTime = input.product.durationMin > 0;
+  const studioTime = includesStudioTime(input.product);
   const delivery: VersionDeliveryState = {
     purchaseId: SIMULATION_IDS.purchase,
     permission: remainingCents === 0 ? "purchase_fully_paid" : "payment_required",
@@ -1015,9 +1031,7 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
   // The dashboard frame is the studio on the morning of her session, so the
   // live "Today" card is telling the truth. Without studio time there is no
   // session to jump to, and the frame stays on the story's own clock.
-  const dashboardNow = includesStudioTime
-    ? new Date(sessionStartsAt.getTime() - 6 * HOUR_MS)
-    : now;
+  const dashboardNow = studioTime ? new Date(sessionStartsAt.getTime() - 6 * HOUR_MS) : now;
   const dashboard: SimulationDashboard = {
     now: dashboardNow,
     // The studio scene is the morning after her last payment: paid in full,
@@ -1029,7 +1043,7 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
       currency,
       activeProjects: 3,
     },
-    todaySession: includesStudioTime
+    todaySession: studioTime
       ? {
           id: SIMULATION_IDS.session,
           title: `${product.name} with ${SIMULATED_ARTIST.firstName}`,
@@ -1070,7 +1084,7 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
       taxMode: input.taxMode,
       taxRatePct: input.taxRatePct,
       totalCents,
-      includesStudioTime,
+      includesStudioTime: studioTime,
       durationMin: input.product.durationMin,
     }),
     submittedAtLabel: new Intl.DateTimeFormat("en-US", {
@@ -1101,14 +1115,14 @@ export function buildSimulation(input: SimulationInput, now: Date): SimulationMo
     paymentDetails,
     paymentDetailsAreExample: !hasOwnDetails,
     proofReview,
-    includesStudioTime,
+    includesStudioTime: studioTime,
     song,
     booking,
     session,
     dashboard,
     request,
     library: buildLibrary({ song, now }),
-    scenes: buildScenes({ includesStudioTime }),
+    scenes: buildScenes({ includesStudioTime: studioTime }),
   };
 }
 

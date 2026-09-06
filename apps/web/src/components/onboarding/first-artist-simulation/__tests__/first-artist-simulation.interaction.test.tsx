@@ -113,6 +113,8 @@ describe("FirstArtistSimulation (SK-310 reel)", () => {
     expect(headline()).toBe(HEADLINES[0]);
     expect(step()).toBe("1 / 6");
     expect(within(dialog()).getAllByText(SIMULATION_LABEL).length).toBeGreaterThan(0);
+    // The example label is drawn on the screen itself, where it never truncates.
+    expect(picture().textContent).toContain(SIMULATION_LABEL);
     expect(picture().textContent).toContain("skitza.app/join/maya-stone");
     expect(within(dialog()).queryByRole("img", { name: "Done" })).toBeNull();
     expect(within(dialog()).queryByRole("link")).toBeNull();
@@ -136,7 +138,14 @@ describe("FirstArtistSimulation (SK-310 reel)", () => {
     // 4 · Her library, the note at 0:42, the version locked.
     next();
     expect(headline()).toBe(HEADLINES[3]);
-    for (const text of ["Noya's library", "Blue Hour", "Night Drive", "Golden", "0:42", "Keep this vocal."]) {
+    for (const text of [
+      "Noya's library",
+      "Blue Hour",
+      "Night Drive",
+      "Golden",
+      "0:42",
+      "Keep this vocal.",
+    ]) {
       expect(picture().textContent).toContain(text);
     }
     expect(picture().textContent).toContain("v2 · waiting for approval");
@@ -160,15 +169,17 @@ describe("FirstArtistSimulation (SK-310 reel)", () => {
     expect(picture().textContent).toContain("Nothing waiting for you");
     expect(within(dialog()).getByRole("button", { name: "Finish" })).toBeTruthy();
     expect(within(dialog()).queryByRole("button", { name: "Skip" })).toBeNull();
-    const action = await within(dialog()).findByRole(
+    // The action rises inside the studio picture, so the sheet below never
+    // grows and nothing on screen jumps when the last scene lands.
+    const action = await within(picture()).findByRole(
       "link",
       { name: /Add your first client/ },
       { timeout: 4000 },
     );
     expect(action.getAttribute("href")).toBe(LINKS.bringActiveWork);
-    expect(within(dialog()).getByRole("link", { name: "Open dashboard" }).getAttribute("href")).toBe(
-      LINKS.dashboard,
-    );
+    expect(
+      within(picture()).getByRole("link", { name: "Open dashboard" }).getAttribute("href"),
+    ).toBe(LINKS.dashboard);
     await user.click(within(dialog()).getByRole("button", { name: "Copy my link" }));
     expect(writeText).toHaveBeenCalledWith(LINKS.publicUrl);
     await waitFor(() => {
@@ -205,7 +216,9 @@ describe("FirstArtistSimulation (SK-310 reel)", () => {
 
     const pause = within(dialog()).getByRole("button", { name: "Pause" });
     fireEvent.click(pause);
-    expect(within(dialog()).getByRole("button", { name: "Play" }).getAttribute("aria-pressed")).toBe("true");
+    expect(
+      within(dialog()).getByRole("button", { name: "Play" }).getAttribute("aria-pressed"),
+    ).toBe("true");
 
     fireEvent.keyDown(dialog(), { key: "ArrowRight" });
     expect(headline()).toBe(HEADLINES[2]);
@@ -222,7 +235,10 @@ describe("FirstArtistSimulation (SK-310 reel)", () => {
 
     fireEvent.click(within(dialog()).getByRole("button", { name: "Close simulation" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(mocks.capture).toHaveBeenCalledWith("simulation_exited_early", { step: 2, frame: "link" });
+    expect(mocks.capture).toHaveBeenCalledWith("simulation_exited_early", {
+      step: 2,
+      frame: "link",
+    });
 
     cleanup();
     renderReel();

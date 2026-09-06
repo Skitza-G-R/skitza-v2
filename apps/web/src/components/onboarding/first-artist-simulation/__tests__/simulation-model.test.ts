@@ -8,6 +8,7 @@ import {
   civilDateKey,
   nextWorkingDay,
   PREVIEW_SIMULATION_INPUT,
+  reelSummary,
   SIMULATED_ARTIST,
   SIMULATION_IDS,
   SIMULATION_LABEL,
@@ -63,6 +64,21 @@ describe("chooseStoryPlan", () => {
       installments: 3,
     });
     expect(chooseStoryPlan([])).toEqual({ kind: "full" });
+  });
+});
+
+describe("reelSummary", () => {
+  it("promises the reel's measured length and feature count, not a typed number", () => {
+    // Six scenes: 3.9 + 5.2 + 5.4 + 5.9 + 5.6 + 5.2 s; the hook is not a feature.
+    expect(reelSummary(input())).toEqual({ features: 5, seconds: 31 });
+    // Without studio time the booking scene is dropped, and so is its time.
+    expect(
+      reelSummary(
+        input({
+          product: { ...PREVIEW_SIMULATION_INPUT.product, durationMin: 0, sessionCount: 0 },
+        }),
+      ),
+    ).toEqual({ features: 4, seconds: 26 });
   });
 });
 
@@ -253,7 +269,10 @@ describe("buildSimulation", () => {
     const { request } = buildSimulation(input(), NOW);
 
     expect(request.snapshot.selectedPaymentPlan).toBeNull();
-    expect(request.snapshot.offeredPaymentPlans).toEqual([{ kind: "split_50_50" }, { kind: "full" }]);
+    expect(request.snapshot.offeredPaymentPlans).toEqual([
+      { kind: "split_50_50" },
+      { kind: "full" },
+    ]);
     expect(request.snapshot.totalCents).toBe(180000);
     expect(request.snapshot.deliverables).toEqual(["Production", "Mix", "Master"]);
     expect(request.snapshot.session).toEqual({
@@ -278,7 +297,12 @@ describe("buildSimulation", () => {
     expect(proofReview.proof.installmentPosition).toBe(2);
     expect(proofReview.proof.amountCents).toBe(90000);
     const monthly = buildSimulation(
-      input({ product: { ...PREVIEW_SIMULATION_INPUT.product, paymentPlans: [{ kind: "monthly", installments: 3 }] } }),
+      input({
+        product: {
+          ...PREVIEW_SIMULATION_INPUT.product,
+          paymentPlans: [{ kind: "monthly", installments: 3 }],
+        },
+      }),
       NOW,
     );
     expect(monthly.proofReview.proof.installmentPosition).toBe(3);

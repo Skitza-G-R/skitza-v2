@@ -41,7 +41,14 @@ describe("FirstArtistSimulation source contract (SK-310)", () => {
     ]) {
       expect(OVERLAY).not.toContain(`<${component}`);
     }
-    for (const scene of ["HookScene", "LinkScene", "BookingScene", "LibraryScene", "MoneyScene", "StudioScene"]) {
+    for (const scene of [
+      "HookScene",
+      "LinkScene",
+      "BookingScene",
+      "LibraryScene",
+      "MoneyScene",
+      "StudioScene",
+    ]) {
       expect(OVERLAY).toContain(`function ${scene}(`);
     }
   });
@@ -51,6 +58,14 @@ describe("FirstArtistSimulation source contract (SK-310)", () => {
     expect(OVERLAY).toContain("sk-reel-ring");
     // One Stamp per feature scene: link, booking, library, money.
     expect((OVERLAY.match(/<Stamp ms=/g) ?? []).length).toBe(4);
+  });
+
+  it("follows the locked button radius scale (docs/design/buttons.md)", () => {
+    // Chips are 32px tall: small tier. The link pill and the calendar line are
+    // 44px or taller: large tier. No text rectangle is a full pill.
+    expect(OVERLAY).toMatch(/const CHIP =\s*"[^"]*rounded-\[var\(--radius-sm\)\]/);
+    expect(OVERLAY).not.toMatch(/rounded-\[1[0-9]px\][^\n]*(?:Skip|Added to Google Calendar)/);
+    expect(OVERLAY).not.toMatch(/rounded-full[^\n]*\n\s*>\s*\n\s*Skip/);
   });
 
   it("puts the producer's real product and price inside the pictures", () => {

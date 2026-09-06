@@ -7,6 +7,16 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "complete-screen-client.tsx"), "utf8");
 
+describe("onboarding completion reel promise (SK-310)", () => {
+  it("reads the reel's length and feature count from the model instead of typing them", () => {
+    expect(SRC).toContain("reelSummary(");
+    expect(SRC).toMatch(/\{reel\.seconds\}/);
+    expect(SRC).toMatch(/\{reel\.features\}/);
+    expect(SRC).not.toMatch(/\b35 s\b/);
+    expect(SRC).not.toMatch(/the 5 things/);
+  });
+});
+
 describe("onboarding completion Store discovery", () => {
   it("opens the dashboard with the one-time Store cue", () => {
     expect(SRC).toContain('export const COMPLETE_DASHBOARD_HREF = "/dashboard"');

@@ -2096,6 +2096,18 @@
     animation: sk-reel-shine 900ms ease-out 400ms both;
   }
   .sk-reel-fill { animation: sk-reel-fill var(--sk-reel-dur, 5000ms) linear both; }
+  /* The drawn screen: a warm spotlight behind each picture. On short
+     viewports every picture scales down so the tallest (the library) still
+     fits between the example label and the closing action. */
+  .sk-reel-screen {
+    background:
+      radial-gradient(60% 46% at 50% 44%, rgb(var(--brand-primary) / 0.12), transparent 100%),
+      rgb(var(--bg-background));
+  }
+  .sk-reel-fit { transform-origin: center; }
+  @media (max-height: 719px) {
+    .sk-reel-fit { transform: scale(0.8); }
+  }
   .sk-reel-paused .sk-reel-rise,
   .sk-reel-paused .sk-reel-pop,
   .sk-reel-paused .sk-reel-ring,
