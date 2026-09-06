@@ -1283,7 +1283,7 @@ export function MobileFullPlayer({
             the song title. Letting it letterbox is fine — the block is a
             decorative gradient, not a real cover image.
 
-            The slot is also the swipe surface (SK-307): dragging the cover
+            The slot is also the swipe surface: dragging the cover
             sideways moves through the queue, the way every phone music app
             does it. `touch-action: pan-y` keeps vertical gestures with the
             browser while claiming the horizontal axis, so the gesture can

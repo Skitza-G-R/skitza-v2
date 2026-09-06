@@ -6,12 +6,15 @@ import { describe, expect, it } from "vitest";
 import {
   PLAYER_EVENTS,
   SEEK_STEP_MS,
+  blendPointerVelocity,
   clampSeekMs,
   expandHrefForTrack,
   fmtTime,
   isSharedSongPagePathname,
   loopButtonLabel,
   pickDurationMs,
+  resolveArtworkDragOffset,
+  resolveArtworkSwipe,
   sameOriginPeaksUrl,
   shareUrlForTrack,
 } from "./persistent-player";
@@ -525,5 +528,130 @@ describe("mobile dock glass", () => {
     expect(dock).toContain('willChange: hidden ? "transform, opacity" : "auto"');
     // A bare `willChange: "transform..."` would silently kill the blur again.
     expect(dock).not.toMatch(/willChange: "transform/);
+  });
+});
+
+// ─── Artwork swipe ───────────────────────────────────────────────────
+// Dragging the cover sideways moves through the queue, the way every
+// phone music app does it. These pin the decision rules on their own,
+// away from React, so a change of feel has to be a deliberate edit to
+// the numbers rather than a side effect of touching the component.
+
+describe("blendPointerVelocity — shared by the sheet drag and the artwork swipe", () => {
+  // The sheet's collapse drag used to inline this maths. Both gestures
+  // now read the same function, so these cases are what stops the
+  // extraction quietly re-tuning how a flick feels.
+  it("keeps the historic 45/55 blend at a normal 16ms frame", () => {
+    // A fresh sample contributes 55% ...
+    expect(blendPointerVelocity({ previousVelocity: 0, delta: 16, elapsedMs: 16 })).toBeCloseTo(
+      0.55,
+      5,
+    );
+    // ... and the sample it replaces keeps 45%.
+    expect(blendPointerVelocity({ previousVelocity: 1, delta: 0, elapsedMs: 16 })).toBeCloseTo(
+      0.45,
+      5,
+    );
+  });
+
+  it("decays a stale sample further the longer the finger sits still", () => {
+    const oneFrame = blendPointerVelocity({ previousVelocity: 1, delta: 0, elapsedMs: 16 });
+    const fourFrames = blendPointerVelocity({ previousVelocity: 1, delta: 0, elapsedMs: 64 });
+    expect(fourFrames).toBeLessThan(oneFrame);
+    expect(fourFrames).toBeCloseTo(Math.pow(0.45, 4), 5);
+  });
+
+  it("hands ownership to a coordinate that arrives on a tied timestamp", () => {
+    // Timestamps tie when a browser coalesces move and up. The changed
+    // coordinate is then the only fresh direction sample there is, so a
+    // stale opposite velocity must not survive it.
+    expect(blendPointerVelocity({ previousVelocity: 4, delta: -12, elapsedMs: 0 })).toBe(-12);
+  });
+
+  it("ignores a backwards timestamp rather than inverting the blend", () => {
+    expect(blendPointerVelocity({ previousVelocity: 4, delta: -12, elapsedMs: -8 })).toBe(-12);
+  });
+});
+
+describe("resolveArtworkSwipe — which song a released drag reaches for", () => {
+  const still = { deltaY: 0, velocityX: 0, hasNext: true };
+
+  it("commits on deliberate travel alone, with no flick", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -56 })).toBe("next");
+    expect(resolveArtworkSwipe({ ...still, deltaX: 56 })).toBe("previous");
+  });
+
+  it("ignores a short slow drag that never reaches the commit distance", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -40 })).toBeNull();
+  });
+
+  it("commits a short flick when it is fast enough", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -30, velocityX: -0.6 })).toBe("next");
+  });
+
+  it("refuses a flick slower than the threshold", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -30, velocityX: -0.4 })).toBeNull();
+  });
+
+  it("refuses a flick whose velocity opposes where the finger ended up", () => {
+    // The finger threw left, then walked back right of where it started.
+    // Skipping to the song it walked away from would be a wrong guess.
+    expect(resolveArtworkSwipe({ ...still, deltaX: 30, velocityX: -0.9 })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: -30, velocityX: 0.9 })).toBeNull();
+  });
+
+  it("hands a mostly-vertical drag back to the browser", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -60, deltaY: -100 })).toBeNull();
+    // Even a long horizontal run loses to a longer vertical one.
+    expect(resolveArtworkSwipe({ ...still, deltaX: -120, deltaY: -200 })).toBeNull();
+  });
+
+  it("commits when horizontal travel clears vertical by the intent ratio", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -60, deltaY: -20 })).toBe("next");
+  });
+
+  it("refuses next at the end of the queue but always allows previous", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -80, hasNext: false })).toBeNull();
+    // Previous stays live at the top of the queue: the runtime restarts
+    // the current song there, exactly like the Previous button.
+    expect(resolveArtworkSwipe({ ...still, deltaX: 80, hasNext: false })).toBe("previous");
+  });
+
+  it("mirrors under dir=rtl, where the sheet already mirrors its transport row", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: 56, direction: "rtl" })).toBe("next");
+    expect(resolveArtworkSwipe({ ...still, deltaX: -56, direction: "rtl" })).toBe("previous");
+    // The end-of-queue guard mirrors with it.
+    expect(resolveArtworkSwipe({ ...still, deltaX: 80, hasNext: false, direction: "rtl" })).toBeNull();
+  });
+
+  it("resolves nothing for a tap or a non-finite coordinate", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: 0 })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: Number.NaN })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: -80, deltaY: Number.NaN })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: -80, velocityX: Number.NaN })).toBeNull();
+  });
+});
+
+describe("resolveArtworkDragOffset — how far the cover rides the finger", () => {
+  it("tracks one-to-one while there is a song to reach", () => {
+    expect(resolveArtworkDragOffset({ deltaX: -140, hasNext: true })).toBe(-140);
+    expect(resolveArtworkDragOffset({ deltaX: 140, hasNext: true })).toBe(140);
+  });
+
+  it("resists and clamps to a short stretch at the end of the queue", () => {
+    // Felt, not silently ignored — but it never becomes a real travel.
+    expect(resolveArtworkDragOffset({ deltaX: -400, hasNext: false })).toBe(-24);
+    expect(resolveArtworkDragOffset({ deltaX: -50, hasNext: false })).toBe(-10);
+    // Previous is never blocked, so it keeps full travel.
+    expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false })).toBe(400);
+  });
+
+  it("mirrors the boundary stretch under dir=rtl", () => {
+    expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false, direction: "rtl" })).toBe(24);
+    expect(resolveArtworkDragOffset({ deltaX: -400, hasNext: false, direction: "rtl" })).toBe(-400);
+  });
+
+  it("stays put for a non-finite coordinate", () => {
+    expect(resolveArtworkDragOffset({ deltaX: Number.NaN, hasNext: true })).toBe(0);
   });
 });
