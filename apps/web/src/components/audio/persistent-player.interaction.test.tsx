@@ -98,9 +98,13 @@ function dispatchPointer(
 function renderFullPlayer({
   onCollapse = vi.fn(),
   onScrub = vi.fn(),
+  transport,
+  direction,
 }: {
   onCollapse?: () => void;
   onScrub?: (pct: number) => void;
+  transport?: Partial<PlayerTransport>;
+  direction?: "ltr" | "rtl";
 } = {}) {
   const collapseBtnRef = createRef<HTMLButtonElement>();
   const view = render(
@@ -110,11 +114,12 @@ function renderFullPlayer({
       currentMs={9_000}
       durationMs={90_000}
       progressPct={10}
-      {...transportStubs({ onScrub })}
+      {...transportStubs({ onScrub, ...transport })}
       expanded
       onCollapse={onCollapse}
       collapseBtnRef={collapseBtnRef}
       pathname="/dashboard/music"
+      {...(direction === undefined ? {} : { direction })}
     />,
   );
   return { ...view, collapseBtnRef };
@@ -545,6 +550,30 @@ describe("persistent mini-player entrance motion", () => {
       /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.mobile-full-player-sheet[\s\S]*?transition:\s*none/,
     );
   });
+
+  // Same deal for the cover that rides the finger: the spring-back lives
+  // in CSS so reduced motion can switch it off. The gesture itself still
+  // skips the song — only the travelling paint is dropped.
+  it("keeps the artwork swipe's spring-back in CSS so reduced motion can override it", () => {
+    const playerSource = readFileSync(
+      join(process.cwd(), "src/components/audio/persistent-player.tsx"),
+      "utf8",
+    );
+    const globalCss = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+
+    expect(playerSource).toContain("mobile-full-player-artwork");
+    expect(globalCss).toMatch(
+      /\.mobile-full-player-artwork\s*\{[\s\S]*?transition:\s*[\s\S]*?transform 260ms/,
+    );
+    // While the finger owns the cover there must be no transition at all,
+    // or the artwork lags behind the touch instead of sticking to it.
+    expect(globalCss).toMatch(
+      /\.mobile-full-player-artwork\[data-swipe-state="dragging"\]\s*\{\s*transition:\s*none/,
+    );
+    expect(globalCss).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.mobile-full-player-artwork[\s\S]*?transition:\s*none\s*!important/,
+    );
+  });
 });
 
 // ─── Transport wiring (SK player controls) ───────────────────────────
@@ -667,5 +696,181 @@ describe("dock waveform draws the real envelope", () => {
     // arrive, so the dock never shows an empty rail.
     expect(bars()).toHaveLength(64);
     vi.unstubAllGlobals();
+  });
+});
+
+// ─── Artwork swipe (SK-309) ──────────────────────────────────────────
+// Dragging the cover sideways moves through the queue. The pure decision
+// rules are pinned in persistent-player.test.ts; these cases prove the
+// gesture is actually wired to the surface and reaches the transport.
+
+describe("full player artwork swipe", () => {
+  // The swipe surface is the artwork's flex slot, not the cover itself,
+  // so a finger that starts just outside the letterboxed cover still
+  // owns the gesture.
+  function swipeSurface(container: HTMLElement): HTMLElement {
+    const artwork = container.querySelector<HTMLElement>(".aspect-square");
+    const slot = artwork?.parentElement;
+    if (!slot) throw new Error("artwork swipe surface not found");
+    return slot;
+  }
+
+  function artwork(container: HTMLElement): HTMLElement {
+    const cover = container.querySelector<HTMLElement>(".aspect-square");
+    if (!cover) throw new Error("artwork not found");
+    return cover;
+  }
+
+  /** Drags the cover from `from` to `to` on the horizontal axis. */
+  function swipe(
+    surface: HTMLElement,
+    { from, to, clientY = 300, endY = clientY }: {
+      from: number;
+      to: number;
+      clientY?: number;
+      endY?: number;
+    },
+  ): void {
+    const midway = from + (to - from) / 2;
+    dispatchPointer(surface, "pointerdown", { clientX: from, clientY, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: midway, clientY, timeStamp: 1_016 });
+    dispatchPointer(surface, "pointermove", { clientX: to, clientY: endY, timeStamp: 1_032 });
+    dispatchPointer(surface, "pointerup", { clientX: to, clientY: endY, timeStamp: 1_040 });
+  }
+
+  it("moves to the next song when the cover is dragged left", () => {
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+
+    swipe(swipeSurface(container), { from: 240, to: 140 });
+
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onPrevious).not.toHaveBeenCalled();
+  });
+
+  it("moves to the previous song when the cover is dragged right", () => {
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+
+    swipe(swipeSurface(container), { from: 140, to: 240 });
+
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("hands a vertical drag back to the browser instead of skipping a song", () => {
+    // This is the scroll/back-swipe safety net: a finger heading down the
+    // sheet must never be read as a queue move.
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+    const surface = swipeSurface(container);
+    const cover = artwork(container);
+
+    dispatchPointer(surface, "pointerdown", { clientX: 240, clientY: 200, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 210, clientY: 400, timeStamp: 1_016 });
+
+    // Asserted MID-GESTURE on purpose. Checking only after release would
+    // pass even if the cover had grabbed the finger, because release
+    // always settles it back to centre.
+    expect(cover.style.transform).toBe("");
+    expect(cover.getAttribute("data-swipe-state")).toBeNull();
+
+    dispatchPointer(surface, "pointerup", { clientX: 210, clientY: 400, timeStamp: 1_024 });
+
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onPrevious).not.toHaveBeenCalled();
+    expect(cover.style.transform).toBe("");
+  });
+
+  it("refuses to skip past the end of the queue and only stretches the cover", () => {
+    const onNext = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, hasNext: false } });
+    const surface = swipeSurface(container);
+    const cover = artwork(container);
+
+    dispatchPointer(surface, "pointerdown", { clientX: 300, clientY: 300, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 260, clientY: 300, timeStamp: 1_016 });
+    dispatchPointer(surface, "pointermove", { clientX: 100, clientY: 300, timeStamp: 1_032 });
+
+    // 200px of finger travel, and the cover has moved 24px. The wall is
+    // felt, not silently ignored.
+    expect(cover.style.transform).toBe("translateX(-24px)");
+
+    dispatchPointer(surface, "pointerup", { clientX: 100, clientY: 300, timeStamp: 1_040 });
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("does NOT mirror under dir=rtl — left stays next in Hebrew too", () => {
+    // The sheet's buttons mirror, because buttons are read. This gesture
+    // does not, because it is muscle memory: Spotify and Apple Music both
+    // keep left = next in every language, and a bilingual listener should
+    // not have to relearn their thumb when the interface flips.
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({
+      transport: { onNext, onPrevious },
+      direction: "rtl",
+    });
+
+    swipe(swipeSurface(container), { from: 240, to: 140 });
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onPrevious).not.toHaveBeenCalled();
+
+    swipe(swipeSurface(container), { from: 140, to: 240 });
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it("rides the finger while dragging and settles back to centre on release", () => {
+    const { container } = renderFullPlayer();
+    const surface = swipeSurface(container);
+    const cover = artwork(container);
+
+    expect(cover.style.transform).toBe("");
+
+    dispatchPointer(surface, "pointerdown", { clientX: 240, clientY: 300, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 200, clientY: 300, timeStamp: 1_016 });
+
+    // One-to-one with the finger, and marked so CSS drops the transition.
+    expect(cover.style.transform).toBe("translateX(-40px)");
+    expect(cover.getAttribute("data-swipe-state")).toBe("dragging");
+
+    dispatchPointer(surface, "pointerup", { clientX: 200, clientY: 300, timeStamp: 1_024 });
+
+    expect(cover.style.transform).toBe("");
+    expect(cover.getAttribute("data-swipe-state")).toBeNull();
+  });
+
+  it("ignores travel below the slop distance so a tap on the cover does nothing", () => {
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+    const surface = swipeSurface(container);
+
+    const cover = artwork(container);
+
+    dispatchPointer(surface, "pointerdown", { clientX: 240, clientY: 300, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 236, clientY: 300, timeStamp: 1_016 });
+
+    // 4px is finger noise, not a swipe: the cover must not have moved yet.
+    // Checked here rather than after release, which resets it regardless.
+    expect(cover.style.transform).toBe("");
+    expect(cover.getAttribute("data-swipe-state")).toBeNull();
+
+    dispatchPointer(surface, "pointerup", { clientX: 236, clientY: 300, timeStamp: 1_024 });
+
+    expect(cover.style.transform).toBe("");
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onPrevious).not.toHaveBeenCalled();
+  });
+
+  it("keeps the horizontal axis away from the browser without blocking vertical scroll", () => {
+    const { container } = renderFullPlayer();
+    // `touch-action: pan-y` is what stops the swipe racing iOS's edge
+    // back-gesture while leaving the sheet scrollable.
+    expect(swipeSurface(container).className).toContain("touch-pan-y");
   });
 });

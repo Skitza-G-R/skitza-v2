@@ -198,6 +198,138 @@ export function shouldCollapsePlayerDrag({
   return safeOffset >= distanceThreshold || (safeOffset >= 24 && safeVelocity >= 0.55);
 }
 
+/**
+ * Exponentially-weighted pointer velocity in px/ms.
+ *
+ * Shared by the sheet's collapse drag and the artwork swipe so both
+ * gestures settle with the same feel. A normal 16ms frame keeps the
+ * historic 45/55 blend; a stationary hold decays the stale sample
+ * toward zero; and a coordinate that arrives on a tied (or backwards)
+ * timestamp is the only fresh direction sample, so it takes ownership.
+ */
+export function blendPointerVelocity({
+  previousVelocity,
+  delta,
+  elapsedMs,
+}: {
+  previousVelocity: number;
+  delta: number;
+  elapsedMs: number;
+}): number {
+  const elapsed = Math.max(0, elapsedMs);
+  const instantaneous = delta / Math.max(1, elapsed);
+  const hasImmediateCoordinate = elapsedMs <= 0 && delta !== 0;
+  const retention = hasImmediateCoordinate ? 0 : Math.pow(0.45, elapsed / 16);
+  return previousVelocity * retention + instantaneous * (1 - retention);
+}
+
+// ─── Artwork swipe — song skips on the cover ─────────────────────────
+//
+// Spotify's gesture: drag the cover sideways to move through the queue.
+// The thresholds are the ones useTabSwipe already uses for every other
+// horizontal gesture in the app, so committing a swipe costs the same
+// travel here as it does on a tab strip.
+
+/** Deliberate travel that commits regardless of speed. */
+export const ARTWORK_SWIPE_MIN_DISTANCE = 56;
+/** Shorter travel a fast flick is allowed to commit on. */
+export const ARTWORK_SWIPE_MIN_FLICK_DISTANCE = 24;
+/** px/ms a flick has to reach at that shorter distance. */
+export const ARTWORK_SWIPE_MIN_VELOCITY = 0.55;
+/** How much more horizontal than vertical the gesture has to be. */
+const ARTWORK_SWIPE_INTENT_RATIO = 1.25;
+/** Travel before a drag claims a direction (and the pointer). */
+const ARTWORK_SWIPE_INTENT_DISTANCE = 12;
+/** Rubber band for a drag toward a song the queue does not have. */
+const ARTWORK_SWIPE_BOUNDARY_RESISTANCE = 0.2;
+const ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET = 24;
+
+export type ArtworkSwipeIntent = "next" | "previous";
+
+/**
+ * Which song a horizontal drag is reaching for.
+ *
+ * The direction is PHYSICAL, not linguistic: dragging the cover left is
+ * always "next", in every language. Spotify and Apple Music both do it
+ * this way — the gesture is muscle memory attached to the hand, not to
+ * the reading order, so mirroring it under `dir="rtl"` would fight what
+ * a bilingual listener already knows. The transport row above still
+ * mirrors, because buttons are read, not felt.
+ */
+export function artworkSwipeIntent(deltaX: number): ArtworkSwipeIntent {
+  return deltaX < 0 ? "next" : "previous";
+}
+
+/**
+ * Resolves a released artwork drag to a song skip, or to nothing.
+ *
+ * A gesture commits on deliberate travel, or on a short flick whose
+ * velocity agrees with where the finger actually ended up — a reversed
+ * flick must not skip to a song the finger walked back from. "Previous"
+ * stays live at the top of the queue: the runtime restarts the current
+ * song there, exactly like the Previous button.
+ */
+export function resolveArtworkSwipe({
+  deltaX,
+  deltaY,
+  velocityX,
+  hasNext,
+}: {
+  deltaX: number;
+  deltaY: number;
+  velocityX: number;
+  hasNext: boolean;
+}): ArtworkSwipeIntent | null {
+  if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(velocityX)) {
+    return null;
+  }
+  const horizontal = Math.abs(deltaX);
+  const vertical = Math.abs(deltaY);
+  if (deltaX === 0 || horizontal <= vertical * ARTWORK_SWIPE_INTENT_RATIO) return null;
+
+  const flicked =
+    horizontal >= ARTWORK_SWIPE_MIN_FLICK_DISTANCE &&
+    Math.abs(velocityX) >= ARTWORK_SWIPE_MIN_VELOCITY &&
+    Math.sign(velocityX) === Math.sign(deltaX);
+  if (horizontal < ARTWORK_SWIPE_MIN_DISTANCE && !flicked) return null;
+
+  const intent = artworkSwipeIntent(deltaX);
+  // End of the queue with repeat off — there is nothing to hand over to.
+  if (intent === "next" && !hasNext) return null;
+  return intent;
+}
+
+/**
+ * How far the cover travels with the finger: one-to-one while there is
+ * a song to reach, and a short resisted stretch when there is not, so
+ * the end of the queue is felt rather than silently ignored.
+ */
+export function resolveArtworkDragOffset({
+  deltaX,
+  hasNext,
+}: {
+  deltaX: number;
+  hasNext: boolean;
+}): number {
+  if (!Number.isFinite(deltaX)) return 0;
+  if (artworkSwipeIntent(deltaX) === "next" && !hasNext) {
+    const resisted = deltaX * ARTWORK_SWIPE_BOUNDARY_RESISTANCE;
+    return Math.max(
+      -ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET,
+      Math.min(ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET, resisted),
+    );
+  }
+  return deltaX;
+}
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/** Motion-sensitive users get the skip, never the travelling cover. */
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia(REDUCED_MOTION_QUERY).matches;
+}
+
 // ─── Component ───────────────────────────────────────────────────────
 
 export function PersistentPlayer() {
@@ -845,6 +977,8 @@ export function MobileFullPlayer({
   const [dragOffsetY, setDragOffsetY] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [scrubPreviewPct, setScrubPreviewPct] = useState<number | null>(null);
+  const [artworkOffsetX, setArtworkOffsetX] = useState(0);
+  const [artworkSwiping, setArtworkSwiping] = useState(false);
   const suppressHandleClickRef = useRef(false);
   const dragRef = useRef<{
     pointerId: number;
@@ -854,13 +988,26 @@ export function MobileFullPlayer({
     velocityY: number;
     moved: boolean;
   } | null>(null);
+  const artworkDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastAt: number;
+    velocityX: number;
+    horizontal: boolean;
+    reducedMotion: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (expanded) return;
     dragRef.current = null;
+    artworkDragRef.current = null;
     setDragging(false);
     setDragOffsetY(0);
     setScrubPreviewPct(null);
+    setArtworkSwiping(false);
+    setArtworkOffsetX(0);
   }, [expanded]);
 
   function pointerOffset(clientY: number): number {
@@ -895,16 +1042,11 @@ export function MobileFullPlayer({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const offsetY = pointerOffset(event.clientY);
-    const moveDeltaY = event.clientY - drag.lastY;
-    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
-    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
-    const instantaneousVelocity = moveDeltaY / Math.max(1, elapsedSinceLastMove);
-    const hasImmediateCoordinate = rawElapsedSinceLastMove <= 0 && moveDeltaY !== 0;
-    const velocityRetention = hasImmediateCoordinate
-      ? 0
-      : Math.pow(0.45, elapsedSinceLastMove / 16);
-    drag.velocityY =
-      drag.velocityY * velocityRetention + instantaneousVelocity * (1 - velocityRetention);
+    drag.velocityY = blendPointerVelocity({
+      previousVelocity: drag.velocityY,
+      delta: event.clientY - drag.lastY,
+      elapsedMs: event.timeStamp - drag.lastAt,
+    });
     drag.lastY = event.clientY;
     drag.lastAt = event.timeStamp;
     drag.moved ||= Math.abs(event.clientY - drag.startY) >= 5;
@@ -916,20 +1058,11 @@ export function MobileFullPlayer({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const offsetY = pointerOffset(event.clientY);
-    const releaseDeltaY = event.clientY - drag.lastY;
-    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
-    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
-    const releaseVelocity = releaseDeltaY / Math.max(1, elapsedSinceLastMove);
-    const hasImmediateFinalCoordinate = rawElapsedSinceLastMove <= 0 && releaseDeltaY !== 0;
-    // Keep the existing 45/55 velocity blend at a normal 16ms frame,
-    // but let a stationary hold decay the old sample before release.
-    // If timestamps tie or go backwards, a changed final coordinate
-    // is the only fresh direction sample and must take ownership.
-    const velocityRetention = hasImmediateFinalCoordinate
-      ? 0
-      : Math.pow(0.45, elapsedSinceLastMove / 16);
-    const velocityY =
-      drag.velocityY * velocityRetention + releaseVelocity * (1 - velocityRetention);
+    const velocityY = blendPointerVelocity({
+      previousVelocity: drag.velocityY,
+      delta: event.clientY - drag.lastY,
+      elapsedMs: event.timeStamp - drag.lastAt,
+    });
     const moved = drag.moved || Math.abs(event.clientY - drag.startY) >= 5;
     dragRef.current = null;
     setDragging(false);
@@ -962,6 +1095,96 @@ export function MobileFullPlayer({
     setDragOffsetY(0);
   }
 
+  // ── Artwork swipe ──
+  // The cover is the only surface here that owns horizontal travel, so
+  // the gesture waits for the finger to declare itself: a vertical drag
+  // is handed straight back to the browser rather than fighting it.
+
+  function onArtworkPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || event.button !== 0) return;
+    artworkDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastAt: event.timeStamp,
+      velocityX: 0,
+      horizontal: false,
+      reducedMotion: prefersReducedMotion(),
+    };
+  }
+
+  function onArtworkPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = artworkDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+
+    if (!drag.horizontal) {
+      if (
+        Math.abs(deltaX) < ARTWORK_SWIPE_INTENT_DISTANCE &&
+        Math.abs(deltaY) < ARTWORK_SWIPE_INTENT_DISTANCE
+      ) {
+        return;
+      }
+      if (Math.abs(deltaX) <= Math.abs(deltaY) * ARTWORK_SWIPE_INTENT_RATIO) {
+        artworkDragRef.current = null;
+        return;
+      }
+      drag.horizontal = true;
+      setArtworkSwiping(true);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Older Safari builds can expose pointer capture before it works.
+      }
+    }
+
+    event.preventDefault();
+    drag.velocityX = blendPointerVelocity({
+      previousVelocity: drag.velocityX,
+      delta: event.clientX - drag.lastX,
+      elapsedMs: event.timeStamp - drag.lastAt,
+    });
+    drag.lastX = event.clientX;
+    drag.lastAt = event.timeStamp;
+    if (drag.reducedMotion) return;
+    setArtworkOffsetX(resolveArtworkDragOffset({ deltaX, hasNext }));
+  }
+
+  function finishArtworkDrag(event: React.PointerEvent<HTMLDivElement>, cancelled: boolean) {
+    const drag = artworkDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    artworkDragRef.current = null;
+    setArtworkSwiping(false);
+    // Always settle the cover back to centre: a committed swipe repaints
+    // it with the next song's identity gradient in the same frame.
+    setArtworkOffsetX(0);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Losing capture to a system gesture is safe; the cover settled above.
+    }
+    if (!drag.horizontal || cancelled) return;
+
+    event.preventDefault();
+    const intent = resolveArtworkSwipe({
+      deltaX: event.clientX - drag.startX,
+      deltaY: event.clientY - drag.startY,
+      velocityX: blendPointerVelocity({
+        previousVelocity: drag.velocityX,
+        delta: event.clientX - drag.lastX,
+        elapsedMs: event.timeStamp - drag.lastAt,
+      }),
+      hasNext,
+    });
+    if (intent === "next") onNext();
+    if (intent === "previous") onPrevious();
+  }
+
+  // A cover mid-gesture dims a little as it leaves, so the hand-off to
+  // the next song reads as travel rather than a slab sliding about.
+  const artworkTravelling = artworkOffsetX !== 0;
   const displayedProgressPct = scrubPreviewPct ?? progressPct;
   const displayedCurrentMs =
     scrubPreviewPct !== null && durationMs
@@ -1052,14 +1275,41 @@ export function MobileFullPlayer({
             a viewport fraction knows nothing about the chrome stacked below,
             so on a short phone the cover overflowed the slot and painted over
             the song title. Letting it letterbox is fine — the block is a
-            decorative gradient, not a real cover image. */}
-        <div className="flex min-h-0 flex-1 items-center justify-center py-3">
+            decorative gradient, not a real cover image.
+
+            The slot is also the swipe surface (SK-309): dragging the cover
+            sideways moves through the queue, the way every phone music app
+            does it. `touch-action: pan-y` keeps vertical gestures with the
+            browser while claiming the horizontal axis, so the gesture can
+            never race iOS's edge back-swipe. */}
+        <div
+          className="flex min-h-0 flex-1 touch-pan-y items-center justify-center py-3 select-none"
+          onPointerDown={onArtworkPointerDown}
+          onPointerMove={onArtworkPointerMove}
+          onPointerUp={(event) => {
+            finishArtworkDrag(event, false);
+          }}
+          onPointerCancel={(event) => {
+            finishArtworkDrag(event, true);
+          }}
+          onLostPointerCapture={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (artworkDragRef.current?.pointerId === event.pointerId) {
+              finishArtworkDrag(event, true);
+            }
+          }}
+        >
           <div
             aria-hidden
-            className="relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
+            data-swipe-state={artworkSwiping ? "dragging" : undefined}
+            className="mobile-full-player-artwork relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
             style={{
               background: tint,
               maxHeight: "min(360px, 100%)",
+              transform: artworkTravelling ? `translateX(${String(artworkOffsetX)}px)` : undefined,
+              opacity: artworkTravelling
+                ? Math.max(0.55, 1 - Math.abs(artworkOffsetX) / 640)
+                : undefined,
             }}
           >
             <span
