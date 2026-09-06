@@ -45,8 +45,8 @@ describe("AppShell + DashboardTopBar wiring", () => {
     );
   });
 
-  it("mounts shell elasticity with refresh gated to Producer Home", () => {
-    expect(SRC).toContain('<HomePullToRefresh homePath="/dashboard" />');
+  it("mounts shell elasticity with refresh on every producer main screen", () => {
+    expect(SRC).toContain('<PullToRefresh shell="producer" />');
   });
 
   it("threads unreadCount into the topbar (matches the bell dot guard)", () => {

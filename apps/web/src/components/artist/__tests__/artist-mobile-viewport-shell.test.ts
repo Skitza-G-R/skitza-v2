@@ -44,8 +44,8 @@ describe("artist mobile viewport shell", () => {
     expect(mainSource).toContain("lg:overflow-visible");
   });
 
-  it("mounts standing-page elasticity with refresh gated to Artist Home", () => {
-    expect(mainSource).toContain('<HomePullToRefresh homePath="/artist" enabled={!focused} />');
+  it("mounts standing-page elasticity with refresh on every artist main screen", () => {
+    expect(mainSource).toContain('<PullToRefresh shell="artist" enabled={!focused} />');
   });
 
   it("suppresses the native colored boundary affordance on every native page scroller", () => {
@@ -74,9 +74,18 @@ describe("artist mobile viewport shell", () => {
     );
   });
 
-  it("keeps the live artist menu in the non-scrolling shell footer", () => {
-    expect(navSource).toContain('position="in-flow"');
+  // SK-306: the bar overlays the scroller instead of sitting below it, so page
+  // content passes under the glass. It stays absolute inside the shell column
+  // (never `fixed` to the document viewport), which is what keeps iOS
+  // rubber-band from carrying it away.
+  it("overlays the live artist menu on the scroller without leaving the shell", () => {
+    expect(navSource).toContain('position="overlay"');
     expect(navSource).not.toContain('position="fixed"');
+    expect(shellSource).toContain('<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">');
+    expect(mainSource).toContain("sk-bottom-nav-inset");
+    expect(globalsCss).toMatch(
+      /\.sk-bottom-nav-inset\s*\{[\s\S]*?padding-bottom:\s*calc\(\s*var\(--sk-bottom-nav-inset, 0px\) \+ var\(--sk-dock-inset, 0px\)\s*\);/,
+    );
 
     const mainAt = shellSource.indexOf("<ArtistShellMain>");
     const mainCloseAt = shellSource.indexOf("</TopBarBreadcrumbProvider>", mainAt);

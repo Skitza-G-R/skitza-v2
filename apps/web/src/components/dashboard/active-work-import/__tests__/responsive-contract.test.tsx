@@ -8,6 +8,7 @@ const editorSource = readFileSync(join(here, "..", "import-row-editor.tsx"), "ut
 const listSource = readFileSync(join(here, "..", "import-row-list.tsx"), "utf8");
 const agreementSource = readFileSync(join(here, "..", "agreement-editor.tsx"), "utf8");
 const paymentSource = readFileSync(join(here, "..", "payment-history-editor.tsx"), "utf8");
+const productSource = readFileSync(join(here, "..", "product-picker.tsx"), "utf8");
 const reviewSource = readFileSync(join(here, "..", "review-and-finish.tsx"), "utf8");
 const workspaceSource = readFileSync(join(here, "..", "active-work-import-workspace.tsx"), "utf8");
 const globalsCss = readFileSync(
@@ -105,10 +106,9 @@ describe("active-work import semantics", () => {
   });
 
   it("renders one three-step surface and keeps the mobile dock clear of content", () => {
-    expect(editorSource).toContain(
-      'IMPORT_EDITOR_STEPS = ["Client & Project", "Agreement", "Payments"]',
-    );
-    expect(editorSource).not.toContain('"Client", "Project"');
+    expect(editorSource).toContain('IMPORT_EDITOR_STEPS = ["Client", "Project", "Payments"]');
+    expect(editorSource).not.toContain('"Client & Project"');
+    expect(editorSource).not.toContain('"Agreement", "Payments"');
     expect(editorSource).toContain("data-active-import-step");
     expect(editorSource).toContain("pb-36");
     expect(editorSource).toContain("Finish item");
@@ -118,12 +118,19 @@ describe("active-work import semantics", () => {
   it("uses the compact desktop queue and keeps optional agreement details collapsed", () => {
     expect(listSource).toContain('data-active-import-queue="compact-table"');
     expect(listSource).toContain("lg:min-h-[64px]");
-    expect(editorSource).toContain('title="Client & Project"');
+    expect(editorSource).toContain('title="Client"');
+    expect(editorSource).toContain('title="Project"');
     expect(editorSource).toContain("Add phone");
-    expect(editorSource).toContain("Continue to agreement");
+    expect(editorSource).toContain("Add deadline");
+    expect(editorSource).toContain("Continue to project");
     expect(editorSource).toContain("Continue to payments");
+    expect(editorSource).not.toContain("Continue to agreement");
     expect(agreementSource).toContain("More agreement details");
-    expect(agreementSource).toContain("Step 2 of 3");
+    // SK-308: the agreement form lives inside the Project step, so it carries
+    // neither its own step header nor the old template dropdown.
+    expect(agreementSource).not.toContain("Step 2 of 3");
+    expect(agreementSource).not.toContain("Store template");
+    expect(agreementSource).not.toContain("data-active-import-step");
     expect(agreementSource).not.toMatch(/Service[\s\S]{0,80}\(optional\)/);
     expect(agreementSource).toContain("Press Enter to add another.");
     expect(agreementSource).toContain("resizeAgreementTerms");
@@ -158,6 +165,26 @@ describe("active-work import semantics", () => {
       .join("\n")
       .match(/font-syne/g);
     expect(displayTypeUses ?? []).toHaveLength(1);
+  });
+
+  // SK-308: product tiles reuse the Store's kind mapping with flat icons, and
+  // the Payments step names its actions "Add payment" with a paid-progress bar.
+  it("builds product tiles from the Store kinds and keeps the plain payment actions", () => {
+    expect(productSource).toContain("kindToTile");
+    expect(productSource).not.toMatch(/gradient/i);
+    expect(productSource).toContain("aria-pressed");
+    expect(productSource).toContain("Custom deal");
+    expect(productSource).toContain("Edit details");
+    expect(productSource).toContain("Reset to product");
+    expect(productSource).toContain("agreementMatchesTemplate");
+    expect(paymentSource).toContain('role="progressbar"');
+    expect(paymentSource).toContain('"Add payment"');
+    expect(paymentSource).toContain('"Add first payment"');
+    expect(paymentSource).toContain('"Add another payment"');
+    expect(paymentSource).not.toContain('"Record"');
+    expect(paymentSource).not.toContain("Record first payment");
+    expect(paymentSource).not.toContain("When is the first payment due?");
+    expect(paymentSource).not.toMatch(/framer-motion|motion\//);
   });
 
   it("lets the inline payment editor own the only primary action", () => {

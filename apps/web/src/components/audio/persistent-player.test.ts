@@ -5,11 +5,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   PLAYER_EVENTS,
+  SEEK_STEP_MS,
+  artworkSwipeIntent,
+  blendPointerVelocity,
   clampSeekMs,
   expandHrefForTrack,
   fmtTime,
   isSharedSongPagePathname,
+  loopButtonLabel,
   pickDurationMs,
+  resolveArtworkDragOffset,
+  resolveArtworkSwipe,
+  sameOriginPeaksUrl,
+  shareUrlForTrack,
 } from "./persistent-player";
 
 // Source-grep helper — reads persistent-player.tsx so we can pin the
@@ -19,6 +27,10 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const PLAYER_PATH = join(here, "persistent-player.tsx");
 const playerSrc = readFileSync(PLAYER_PATH, "utf8");
+const globalsCss = readFileSync(
+  join(dirname(PLAYER_PATH), "..", "..", "app", "globals.css"),
+  "utf8",
+);
 
 // ─── fmtTime ─────────────────────────────────────────────────────────
 // fmtTime renders the "1:23 / 4:56" ticker in the persistent player
@@ -147,11 +159,67 @@ describe("isSharedSongPagePathname — hide the dock only on shared SongPage rou
   });
 });
 
-describe("clampSeekMs — fixed 15 second transport", () => {
+describe("clampSeekMs — fixed 10 second transport", () => {
   it("clamps fixed millisecond jumps to the track boundaries", () => {
-    expect(clampSeekMs(8_000, -15_000, 180_000)).toBe(0);
-    expect(clampSeekMs(60_000, 15_000, 180_000)).toBe(75_000);
-    expect(clampSeekMs(175_000, 15_000, 180_000)).toBe(180_000);
+    expect(clampSeekMs(8_000, -SEEK_STEP_MS, 180_000)).toBe(0);
+    expect(clampSeekMs(60_000, SEEK_STEP_MS, 180_000)).toBe(70_000);
+    expect(clampSeekMs(175_000, SEEK_STEP_MS, 180_000)).toBe(180_000);
+  });
+});
+
+// ─── Share ───────────────────────────────────────────────────────────
+// The dock's share button hands out the same brand-canonical Song page
+// address the Song page's own share control does, so a link copied from
+// the player never points at a preview deployment.
+
+describe("shareUrlForTrack", () => {
+  it("builds a skitza.app producer address on dashboard routes", () => {
+    expect(shareUrlForTrack(baseTrack, "/dashboard/music")).toBe(
+      "https://skitza.app/dashboard/music/v-42",
+    );
+  });
+
+  it("builds a skitza.app artist address on artist routes", () => {
+    expect(shareUrlForTrack(baseTrack, "/artist/music")).toBe(
+      "https://skitza.app/artist/music/song/v-42",
+    );
+  });
+});
+
+describe("loopButtonLabel", () => {
+  it("names the current repeat state for assistive tech", () => {
+    expect(loopButtonLabel("off")).toBe("Repeat off");
+    expect(loopButtonLabel("all")).toBe("Repeat all");
+    expect(loopButtonLabel("one")).toBe("Repeat this song");
+  });
+});
+
+// ─── Real waveform source ────────────────────────────────────────────
+// The dock decodes audio for its envelope only when the browser can
+// actually fetch the bytes. Cross-origin object URLs have no CORS grant
+// for our origins, so decoding them would fail on every track.
+
+describe("sameOriginPeaksUrl", () => {
+  const origin = "https://app.skitza.test";
+
+  it("accepts the same-origin stream route and returns it unchanged", () => {
+    // Unchanged matters: the string is the decode cache key shared with
+    // the Song page hero, which passes this exact relative URL.
+    expect(sameOriginPeaksUrl("/api/audio/stream/v-42", origin)).toBe("/api/audio/stream/v-42");
+    expect(sameOriginPeaksUrl(`${origin}/api/audio/stream/v-42`, origin)).toBe(
+      `${origin}/api/audio/stream/v-42`,
+    );
+  });
+
+  it("rejects cross-origin audio (public R2 URLs have no CORS grant)", () => {
+    expect(sameOriginPeaksUrl("https://r2.example/audio.mp3", origin)).toBeNull();
+  });
+
+  it("rejects blob, data and missing sources", () => {
+    expect(sameOriginPeaksUrl("blob:https://app.skitza.test/abc", origin)).toBeNull();
+    expect(sameOriginPeaksUrl("data:audio/mp3;base64,AAAA", origin)).toBeNull();
+    expect(sameOriginPeaksUrl(null, origin)).toBeNull();
+    expect(sameOriginPeaksUrl("/api/audio/stream/v-42", null)).toBeNull();
   });
 });
 
@@ -245,11 +313,37 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     expect(playerSrc.match(/prefetch=\{false\}/g)).toHaveLength(4);
   });
 
-  it("renders fixed 15-second back / forward controls with aria-labels", () => {
-    expect(playerSrc).toContain('aria-label="Back 15 seconds"');
-    expect(playerSrc).toContain('aria-label="Forward 15 seconds"');
-    expect(playerSrc).toContain("onSkip(-15_000)");
-    expect(playerSrc).toContain("onSkip(15_000)");
+  // The founder reported the arrow next to play jumping 15 seconds
+  // instead of moving to the next song. Track skips now own the
+  // triangle-and-bar arrows; fine seeking moved to its own ±10 second
+  // pair with the step drawn inside the icon.
+  it("renders song skips, not a seek, on the triangle-and-bar arrows", () => {
+    expect(playerSrc).toContain('aria-label="Previous song"');
+    expect(playerSrc).toContain('aria-label="Next song"');
+    expect(playerSrc).toContain("onNext");
+    expect(playerSrc).toContain("onPrevious");
+    // No surface may label a fixed seek as a track skip again.
+    expect(playerSrc).not.toMatch(/aria-label="(?:Back|Forward) 15 seconds"/);
+    expect(playerSrc).not.toContain("onSkip(15_000)");
+    expect(playerSrc).not.toContain("onSkip(-15_000)");
+  });
+
+  it("renders fixed 10-second back / forward seek controls with aria-labels", () => {
+    expect(playerSrc).toContain('aria-label="Back 10 seconds"');
+    expect(playerSrc).toContain('aria-label="Forward 10 seconds"');
+    expect(playerSrc).toContain("onSkip(-SEEK_STEP_MS)");
+    expect(playerSrc).toContain("onSkip(SEEK_STEP_MS)");
+    expect(SEEK_STEP_MS).toBe(10_000);
+  });
+
+  it("renders shuffle, repeat and share controls on the dock", () => {
+    expect(playerSrc).toContain('aria-label="Shuffle"');
+    expect(playerSrc).toContain("loopButtonLabel(loop)");
+    expect(playerSrc).toContain('aria-label="Share song"');
+    // Repeat is tri-state and shuffle is a toggle — both must report
+    // their state to assistive tech, not just recolor.
+    expect(playerSrc).toContain("aria-pressed={shuffle}");
+    expect(playerSrc).toContain('aria-pressed={loop !== "off"}');
   });
 
   it("keeps every compact dock transport target at least 44px", () => {
@@ -259,12 +353,28 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     );
 
     expect(compactDockSrc).not.toMatch(/\bh-[89]\s+w-[89]\b/);
-    expect(compactDockSrc).toMatch(
-      /aria-label="Back 15 seconds"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
-    );
-    expect(compactDockSrc).toMatch(
-      /aria-label="Forward 15 seconds"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
-    );
+    // Read each control's own <button> block so a neighbour's sizing
+    // can never stand in for a control that lost its 44px target.
+    function transportButton(label: string): string {
+      const blocks = compactDockSrc
+        .split("<button")
+        .filter((block) => block.includes(`aria-label="${label}"`));
+      expect(blocks).toHaveLength(1);
+      const block = blocks[0] ?? "";
+      return block.slice(0, block.indexOf("</button>"));
+    }
+
+    for (const label of [
+      "Previous song",
+      "Next song",
+      "Back 10 seconds",
+      "Forward 10 seconds",
+      "Shuffle",
+    ]) {
+      expect(transportButton(label)).toContain("min-h-11");
+      expect(transportButton(label)).toContain("min-w-11");
+    }
+    expect(transportButton("Share song")).toMatch(/h-11[^"]*w-11/);
     expect(
       compactDockSrc.match(/aria-label="Close player"[\s\S]{0,240}className="[^"]*h-11[^"]*w-11/g),
     ).toHaveLength(2);
@@ -339,10 +449,21 @@ describe("PersistentPlayer source — dock progress visual is a mini waveform, n
     expect(playerSrc).toMatch(/MiniWaveform[\s\S]*?\.map\(/);
   });
 
-  it("mini waveform is seeded by the track id so each track has a stable visual fingerprint", () => {
-    // Same convention as Waveform50.seed — deterministic heights from
-    // the track id. Two different tracks → distinguishable docks.
+  it("draws the REAL envelope: payload peaks first, then a shared decode", () => {
+    // The founder asked for a real waveform. Pre-computed peaks ride
+    // down with the track and win outright; otherwise the dock decodes
+    // the same-origin audio through the cache the L3 hero already
+    // fills, so a track drawn once is never decoded twice.
+    expect(playerSrc).toContain("track.peaks");
+    expect(playerSrc).toContain("useAudioPeaks(decodeUrl, barCount, supplied ?? fallback)");
+    expect(playerSrc).toContain("sameOriginPeaksUrl(track.audioUrl, origin)");
+  });
+
+  it("keeps the seeded pattern only as the pre-decode fallback", () => {
+    // Deterministic heights from the track id, so the strip never
+    // renders empty while the real envelope is still decoding.
     expect(playerSrc).toMatch(/seededBars\(|seededHeights\(/);
+    expect(playerSrc).toContain("seededBars(seed, barCount)");
   });
 
   it("mini waveform stays clickable for scrub (founder still needs to seek from the dock)", () => {
@@ -372,5 +493,170 @@ describe("PersistentPlayer source — duration fallback (the 0:00 bug)", () => {
     // user reported in the screenshot.
     expect(playerSrc).toMatch(/pickDurationMs\(/);
     expect(playerSrc).toContain(".duration"); // audio element ref
+  });
+});
+
+describe("mobile dock glass", () => {
+  // The mini player is the same material as the tab row it floats above, so it
+  // reads the same recipe rather than carrying a second copy of the numbers.
+  it("shares the tab row's glass recipe instead of a hardcoded pill", () => {
+    expect(globalsCss).toMatch(
+      /\.liquid-glass-bottom-nav__stack,\n\s+\.persistent-player-dock__glass \{/,
+    );
+    expect(globalsCss).toMatch(
+      /\.persistent-player-dock__glass \{[\s\S]*?backdrop-filter: blur\(20px\) saturate\(var\(--sk-nav-glass-bleed\)\)/,
+    );
+    expect(playerSrc).toContain("persistent-player-dock__glass");
+    // The old opaque pill and its hardcoded white ink are gone, so the dock
+    // follows the theme the way the tab row does.
+    expect(playerSrc).not.toContain('background: "#1A1A1A"');
+  });
+
+  // Anything that establishes a backdrop root hides the page from a
+  // `backdrop-filter` beneath it, and THREE properties do that: `filter`,
+  // `transform`, and `will-change` naming either. Measured with a hard colour
+  // edge behind the bar, an identity `transform` left on the wrapper produced
+  // 0.0px of blur while the computed style still read `blur(20px)` — the glass
+  // was inert and nothing said so. All three are therefore conditional, and the
+  // wrapper is completely untouched while the dock is visible.
+  it("keeps the mobile dock's wrapper inert while it is visible", () => {
+    const dock = playerSrc.slice(
+      playerSrc.indexOf("export function MobileDock("),
+      playerSrc.indexOf("export function MobileFullPlayer("),
+    );
+    expect(dock).not.toContain("filter: hidden");
+    expect(dock).toContain('transform: hidden ? "translateY(120%) scale(0.98)" : "none"');
+    expect(dock).toContain('willChange: hidden ? "transform, opacity" : "auto"');
+    // A bare `willChange: "transform..."` would silently kill the blur again.
+    expect(dock).not.toMatch(/willChange: "transform/);
+  });
+});
+
+// ─── Artwork swipe (SK-309) ──────────────────────────────────────────
+// Dragging the cover sideways moves through the queue, the way every
+// phone music app does it. These pin the decision rules on their own,
+// away from React, so a change of feel has to be a deliberate edit to
+// the numbers rather than a side effect of touching the component.
+
+describe("blendPointerVelocity — shared by the sheet drag and the artwork swipe", () => {
+  // The sheet's collapse drag used to inline this maths. Both gestures
+  // now read the same function, so these cases are what stops the
+  // extraction quietly re-tuning how a flick feels.
+  it("keeps the historic 45/55 blend at a normal 16ms frame", () => {
+    // A fresh sample contributes 55% ...
+    expect(blendPointerVelocity({ previousVelocity: 0, delta: 16, elapsedMs: 16 })).toBeCloseTo(
+      0.55,
+      5,
+    );
+    // ... and the sample it replaces keeps 45%.
+    expect(blendPointerVelocity({ previousVelocity: 1, delta: 0, elapsedMs: 16 })).toBeCloseTo(
+      0.45,
+      5,
+    );
+  });
+
+  it("decays a stale sample further the longer the finger sits still", () => {
+    const oneFrame = blendPointerVelocity({ previousVelocity: 1, delta: 0, elapsedMs: 16 });
+    const fourFrames = blendPointerVelocity({ previousVelocity: 1, delta: 0, elapsedMs: 64 });
+    expect(fourFrames).toBeLessThan(oneFrame);
+    expect(fourFrames).toBeCloseTo(Math.pow(0.45, 4), 5);
+  });
+
+  it("hands ownership to a coordinate that arrives on a tied timestamp", () => {
+    // Timestamps tie when a browser coalesces move and up. The changed
+    // coordinate is then the only fresh direction sample there is, so a
+    // stale opposite velocity must not survive it.
+    expect(blendPointerVelocity({ previousVelocity: 4, delta: -12, elapsedMs: 0 })).toBe(-12);
+  });
+
+  it("ignores a backwards timestamp rather than inverting the blend", () => {
+    expect(blendPointerVelocity({ previousVelocity: 4, delta: -12, elapsedMs: -8 })).toBe(-12);
+  });
+});
+
+describe("resolveArtworkSwipe — which song a released drag reaches for", () => {
+  const still = { deltaY: 0, velocityX: 0, hasNext: true };
+
+  it("commits on deliberate travel alone, with no flick", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -56 })).toBe("next");
+    expect(resolveArtworkSwipe({ ...still, deltaX: 56 })).toBe("previous");
+  });
+
+  it("ignores a short slow drag that never reaches the commit distance", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -40 })).toBeNull();
+  });
+
+  it("commits a short flick when it is fast enough", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -30, velocityX: -0.6 })).toBe("next");
+  });
+
+  it("refuses a flick slower than the threshold", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -30, velocityX: -0.4 })).toBeNull();
+  });
+
+  it("refuses a flick whose velocity opposes where the finger ended up", () => {
+    // The finger threw left, then walked back right of where it started.
+    // Skipping to the song it walked away from would be a wrong guess.
+    expect(resolveArtworkSwipe({ ...still, deltaX: 30, velocityX: -0.9 })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: -30, velocityX: 0.9 })).toBeNull();
+  });
+
+  it("hands a mostly-vertical drag back to the browser", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -60, deltaY: -100 })).toBeNull();
+    // Even a long horizontal run loses to a longer vertical one.
+    expect(resolveArtworkSwipe({ ...still, deltaX: -120, deltaY: -200 })).toBeNull();
+  });
+
+  it("commits when horizontal travel clears vertical by the intent ratio", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -60, deltaY: -20 })).toBe("next");
+  });
+
+  it("refuses next at the end of the queue but always allows previous", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: -80, hasNext: false })).toBeNull();
+    // Previous stays live at the top of the queue: the runtime restarts
+    // the current song there, exactly like the Previous button.
+    expect(resolveArtworkSwipe({ ...still, deltaX: 80, hasNext: false })).toBe("previous");
+  });
+
+  it("keeps the physical direction fixed — left is next in every language", () => {
+    // Deliberately NOT mirrored under RTL. Spotify and Apple Music both
+    // keep this gesture attached to the hand rather than the reading
+    // order, so a bilingual listener does not have to relearn it when
+    // the interface language changes.
+    expect(artworkSwipeIntent(-56)).toBe("next");
+    expect(artworkSwipeIntent(56)).toBe("previous");
+  });
+
+  it("resolves nothing for a tap or a non-finite coordinate", () => {
+    expect(resolveArtworkSwipe({ ...still, deltaX: 0 })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: Number.NaN })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: -80, deltaY: Number.NaN })).toBeNull();
+    expect(resolveArtworkSwipe({ ...still, deltaX: -80, velocityX: Number.NaN })).toBeNull();
+  });
+});
+
+describe("resolveArtworkDragOffset — how far the cover rides the finger", () => {
+  it("tracks one-to-one while there is a song to reach", () => {
+    expect(resolveArtworkDragOffset({ deltaX: -140, hasNext: true })).toBe(-140);
+    expect(resolveArtworkDragOffset({ deltaX: 140, hasNext: true })).toBe(140);
+  });
+
+  it("resists and clamps to a short stretch at the end of the queue", () => {
+    // Felt, not silently ignored — but it never becomes a real travel.
+    expect(resolveArtworkDragOffset({ deltaX: -400, hasNext: false })).toBe(-24);
+    expect(resolveArtworkDragOffset({ deltaX: -50, hasNext: false })).toBe(-10);
+    // Previous is never blocked, so it keeps full travel.
+    expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false })).toBe(400);
+  });
+
+  it("stretches at the same physical end of the queue whatever the language", () => {
+    // The wall is on the left, because left is next. It does not move
+    // when the interface flips to Hebrew.
+    expect(resolveArtworkDragOffset({ deltaX: -400, hasNext: false })).toBe(-24);
+    expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false })).toBe(400);
+  });
+
+  it("stays put for a non-finite coordinate", () => {
+    expect(resolveArtworkDragOffset({ deltaX: Number.NaN, hasNext: true })).toBe(0);
   });
 });

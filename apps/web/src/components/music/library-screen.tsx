@@ -6,7 +6,12 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
-import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
+import {
+  playerPlay,
+  playerToggle,
+  useNowPlaying,
+  type PlayerTrack,
+} from "~/components/audio/persistent-player";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProjectCover } from "./project-cover";
@@ -70,6 +75,12 @@ export interface MusicLibraryTrackRow extends MusicLibraryItemBase {
   uploadedAtIso: string | null;
   audioUrl: string | null;
   durationMs: number | null;
+  /**
+   * Pre-computed waveform peaks for the latest version (200 normalized RMS
+   * floats 0..1), so a Library play paints the real envelope on the first
+   * frame instead of fetching and decoding the audio to find it.
+   */
+  peaks?: number[] | null;
   unreadComments: number;
   plays: number;
   /** A real upload/add-version destination for a zero-audio song. */
@@ -203,6 +214,46 @@ export function isMusicLibraryTrackPlayable(row: MusicLibraryTrackRow): boolean 
     row.audioUrl !== null &&
     latestVersionIdForLibraryTrack(row) !== null
   );
+}
+
+/**
+ * PlayerTrack for one Library row. Extracted so the grid and the table
+ * dispatch identical payloads, and so the queue below is built from the
+ * exact same mapping the clicked row uses.
+ */
+export function libraryRowToPlayerTrack(
+  row: MusicLibraryTrackRow,
+  role: MusicLibraryRole,
+): PlayerTrack | null {
+  const versionId = latestVersionIdForLibraryTrack(row);
+  if (!isMusicLibraryTrackPlayable(row) || !row.audioUrl || !versionId) return null;
+  return {
+    id: versionId,
+    songId: row.trackId,
+    audioUrl: row.audioUrl,
+    title: row.trackTitle,
+    subtitle: `${row.trackArtist ?? row.clientName ?? row.projectTitle} · ${row.label ?? "No version"}`,
+    durationMs: row.durationMs,
+    ...(row.peaks && row.peaks.length > 0 ? { peaks: row.peaks } : {}),
+    ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
+  };
+}
+
+/**
+ * Playback context handed to the dock when a row starts: every playable
+ * song in the list, in the order the producer sees them. That is what
+ * makes the player's next / previous buttons move through the Library
+ * instead of dead-ending on one song.
+ */
+export function libraryPlayQueue(
+  rows: readonly MusicLibraryRow[],
+  role: MusicLibraryRole,
+): PlayerTrack[] {
+  return rows.flatMap((row) => {
+    if (!isMusicLibraryTrack(row)) return [];
+    const track = libraryRowToPlayerTrack(row, role);
+    return track ? [track] : [];
+  });
 }
 
 function rowTitle(row: MusicLibraryRow): string {
@@ -1214,21 +1265,13 @@ export function SongsGrid({
   const nowPlaying = useNowPlaying();
 
   function handlePlay(song: MusicLibraryTrackRow) {
-    const versionId = latestVersionIdForLibraryTrack(song);
-    if (!isMusicLibraryTrackPlayable(song) || !song.audioUrl || !versionId) return;
-    if (nowPlaying.trackId === versionId) {
+    const track = libraryRowToPlayerTrack(song, role);
+    if (!track) return;
+    if (nowPlaying.trackId === track.id) {
       playerToggle();
       return;
     }
-    playerPlay({
-      id: versionId,
-      songId: song.trackId,
-      audioUrl: song.audioUrl,
-      title: song.trackTitle,
-      subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
-      durationMs: song.durationMs,
-      ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
-    });
+    playerPlay(track, { queue: libraryPlayQueue(songs, role) });
   }
 
   return (
@@ -1560,21 +1603,13 @@ function SongsTable({
   const cols = "44px 40px minmax(0,2fr) minmax(0,1fr) 70px 60px 64px 104px";
 
   function handlePlay(song: MusicLibraryTrackRow) {
-    const versionId = latestVersionIdForLibraryTrack(song);
-    if (!isMusicLibraryTrackPlayable(song) || !song.audioUrl || !versionId) return;
-    if (nowPlaying.trackId === versionId) {
+    const track = libraryRowToPlayerTrack(song, role);
+    if (!track) return;
+    if (nowPlaying.trackId === track.id) {
       playerToggle();
       return;
     }
-    playerPlay({
-      id: versionId,
-      songId: song.trackId,
-      audioUrl: song.audioUrl,
-      title: song.trackTitle,
-      subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
-      durationMs: song.durationMs,
-      ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
-    });
+    playerPlay(track, { queue: libraryPlayQueue(songs, role) });
   }
 
   return (

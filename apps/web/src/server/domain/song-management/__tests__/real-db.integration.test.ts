@@ -9,6 +9,7 @@ import {
   renameSongVersion,
   setProducerFinalVersion,
   setSongArchiveState,
+  setSongLyrics,
   tombstoneStoredAudioVersion,
   updateSongMetadata,
 } from "../db";
@@ -191,7 +192,23 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         "released_at" timestamptz,
         "archived_at" timestamptz,
         "portfolio_published_at" timestamptz,
-        "created_at" timestamptz not null
+        "created_at" timestamptz not null,
+        "lyrics" text,
+        "lyrics_updated_at" timestamptz,
+        "lyrics_updated_by" text,
+        constraint "project_tracks_lyrics_stamp_shape" check (
+          (
+            (
+              ("lyrics_updated_at" is null and "lyrics_updated_by" is null)
+              or ("lyrics_updated_at" is not null and "lyrics_updated_by" is not null)
+            )
+            and ("lyrics" is null or "lyrics_updated_at" is not null)
+            and ("lyrics" is null or char_length("lyrics") <= 8000)
+          ) is true
+        ),
+        constraint "project_tracks_lyrics_updated_by_allowed" check (
+          "lyrics_updated_by" is null or "lyrics_updated_by" in ('producer', 'artist')
+        )
       )`,
       `create function ${schema}."skitza_guard_song_release_state"()
         returns trigger as $function$
@@ -1289,5 +1306,150 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       where "id" = ${song.trackId}
     `);
     expect(stored.rows[0]?.portfolio_published_at).toBeNull();
+  }, 30_000);
+  it("saves a lyrics sheet, then refuses a save that started from a stale one", async () => {
+    const song = await createSong();
+
+    const first = await setSongLyrics(activeTransactionDbA(), {
+      producerId: song.producerId,
+      trackId: song.trackId,
+      projectId: song.projectId,
+      lyrics: "  אין פה ציפייה לנצח\r\nזה משהו שרציתי  ",
+      expectedUpdatedAt: null,
+      updatedBy: "producer",
+      changedAt: new Date("2026-09-04T10:00:00.000Z"),
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error("expected the first save to win");
+    expect(first.lyrics).toBe("אין פה ציפייה לנצח\nזה משהו שרציתי");
+    expect(first.lyricsUpdatedBy).toBe("producer");
+
+    // The artist opened the popup before the producer saved, so they still
+    // hold the original null stamp. Their save must not replace the sheet.
+    const stale = await setSongLyrics(activeTransactionDbA(), {
+      producerId: song.producerId,
+      trackId: song.trackId,
+      projectId: song.projectId,
+      lyrics: "totally different words",
+      expectedUpdatedAt: null,
+      updatedBy: "artist",
+      changedAt: new Date("2026-09-04T10:01:00.000Z"),
+    });
+    expect(stale.ok).toBe(false);
+    if (stale.ok) throw new Error("expected the stale save to be refused");
+    expect(stale.reason).toBe("stale");
+    expect(stale.lyrics).toBe("אין פה ציפייה לנצח\nזה משהו שרציתי");
+    expect(stale.lyricsUpdatedBy).toBe("producer");
+
+    const untouched = await activeAdminDb().execute<{ lyrics: string | null }>(sql`
+      select "lyrics"
+      from ${sql.raw(qualifiedTestTable("project_tracks"))}
+      where "id" = ${song.trackId}
+    `);
+    expect(untouched.rows[0]?.lyrics).toBe("אין פה ציפייה לנצח\nזה משהו שרציתי");
+
+    // Re-sending with the stamp the refusal handed back is "save mine anyway".
+    const retry = await setSongLyrics(activeTransactionDbA(), {
+      producerId: song.producerId,
+      trackId: song.trackId,
+      projectId: song.projectId,
+      lyrics: "totally different words",
+      expectedUpdatedAt: stale.lyricsUpdatedAt,
+      updatedBy: "artist",
+      changedAt: new Date("2026-09-04T10:02:00.000Z"),
+    });
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) throw new Error("expected the override to win");
+    expect(retry.lyrics).toBe("totally different words");
+    expect(retry.lyricsUpdatedBy).toBe("artist");
+  }, 30_000);
+
+  it("clearing the sheet keeps the stamps so we still know who emptied it", async () => {
+    const song = await createSong();
+    const written = await setSongLyrics(activeTransactionDbA(), {
+      producerId: song.producerId,
+      trackId: song.trackId,
+      lyrics: "words",
+      expectedUpdatedAt: null,
+      updatedBy: "producer",
+      changedAt: new Date("2026-09-04T11:00:00.000Z"),
+    });
+    if (!written.ok) throw new Error("expected the write to win");
+
+    const cleared = await setSongLyrics(activeTransactionDbA(), {
+      producerId: song.producerId,
+      trackId: song.trackId,
+      lyrics: "   \n  ",
+      expectedUpdatedAt: written.lyricsUpdatedAt,
+      updatedBy: "artist",
+      changedAt: new Date("2026-09-04T11:01:00.000Z"),
+    });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) throw new Error("expected the clear to win");
+    expect(cleared.lyrics).toBeNull();
+    expect(cleared.lyricsUpdatedBy).toBe("artist");
+
+    const stored = await activeAdminDb().execute<{
+      lyrics: string | null;
+      lyrics_updated_by: string | null;
+    }>(sql`
+      select "lyrics", "lyrics_updated_by"
+      from ${sql.raw(qualifiedTestTable("project_tracks"))}
+      where "id" = ${song.trackId}
+    `);
+    expect(stored.rows[0]?.lyrics).toBeNull();
+    expect(stored.rows[0]?.lyrics_updated_by).toBe("artist");
+  }, 30_000);
+
+  it("never lets another producer read or replace a song's lyrics", async () => {
+    const song = await createSong();
+    const strangerProducerId = await createProducer();
+    await setSongLyrics(activeTransactionDbA(), {
+      producerId: song.producerId,
+      trackId: song.trackId,
+      lyrics: "mine",
+      expectedUpdatedAt: null,
+      updatedBy: "producer",
+      changedAt: new Date("2026-09-04T12:00:00.000Z"),
+    });
+
+    await expect(
+      setSongLyrics(activeTransactionDbA(), {
+        producerId: strangerProducerId,
+        trackId: song.trackId,
+        lyrics: "stolen",
+        expectedUpdatedAt: null,
+        updatedBy: "producer",
+        changedAt: new Date("2026-09-04T12:01:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const stored = await activeAdminDb().execute<{ lyrics: string | null }>(sql`
+      select "lyrics"
+      from ${sql.raw(qualifiedTestTable("project_tracks"))}
+      where "id" = ${song.trackId}
+    `);
+    expect(stored.rows[0]?.lyrics).toBe("mine");
+  }, 30_000);
+
+  it("refuses a sheet past the cap instead of storing a truncated song", async () => {
+    const song = await createSong();
+    await expect(
+      setSongLyrics(activeTransactionDbA(), {
+        producerId: song.producerId,
+        trackId: song.trackId,
+        lyrics: "x".repeat(8001),
+        expectedUpdatedAt: null,
+        updatedBy: "producer",
+        changedAt: new Date("2026-09-04T13:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+
+    const stored = await activeAdminDb().execute<{ lyrics: string | null }>(sql`
+      select "lyrics"
+      from ${sql.raw(qualifiedTestTable("project_tracks"))}
+      where "id" = ${song.trackId}
+    `);
+    expect(stored.rows[0]?.lyrics).toBeNull();
   }, 30_000);
 });

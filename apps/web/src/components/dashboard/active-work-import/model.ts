@@ -57,6 +57,12 @@ export type StoreTemplateOption = Readonly<{
   rights: readonly string[];
   plans: readonly PaymentPlan[];
   agreementText: string;
+  /**
+   * SK-308: the product's stored agreement PDF, name and size only. The import
+   * cannot reuse the stored file without server work, so the Project step can
+   * only tell the producer to attach the same PDF again.
+   */
+  agreementPdf: Readonly<{ fileName: string; sizeBytes: number }> | null;
   /** Frozen session terms of the template product; null = not bookable. */
   session: ImportSessionTerms | null;
 }>;
@@ -1012,6 +1018,30 @@ export function applyTemplate(
         : draft.agreement.sessionMinLeadHours,
     },
   };
+}
+
+/**
+ * SK-308: true while applying the product again would change nothing, so the
+ * Project step knows when to offer "Reset to product". Facts the product never
+ * carries (the attached PDF, the first payment date) are kept by applyTemplate
+ * and therefore never count as a difference.
+ */
+export function agreementMatchesTemplate(
+  draft: ActiveWorkImportDraft,
+  template: StoreTemplateOption,
+): boolean {
+  const applied = applyTemplate(draft, template).agreement;
+  const current = draft.agreement;
+  return (Object.keys(applied) as (keyof typeof applied)[]).every((key) => {
+    const expected = applied[key];
+    const actual = current[key];
+    if (Array.isArray(expected) && Array.isArray(actual)) {
+      return (
+        expected.length === actual.length && expected.every((value, index) => value === actual[index])
+      );
+    }
+    return expected === actual;
+  });
 }
 
 /** One line for the review card: "4 sessions · 120 min" / "Unlimited sessions · 90 min" / "None". */

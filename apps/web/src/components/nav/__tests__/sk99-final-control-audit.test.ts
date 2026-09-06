@@ -75,11 +75,13 @@ describe("SK-99 final navigation", () => {
     expect(accountRoleMenu).toContain("href={model.settingsHref}");
   });
 
+  // SK-306 swapped the fifth producer tab: Store took Payments' slot, and
+  // Payments moved into the mobile account sheet behind the avatar.
   it("keeps the approved producer mobile tabs and desktop Store, Payments, and Settings", () => {
-    for (const label of ["Today", "Clients", "Music", "Calendar", "Payments"]) {
+    for (const label of ["Today", "Clients", "Music", "Calendar", "Store"]) {
       expect(producerMobileNav).toContain(`label: "${label}"`);
     }
-    expect(producerMobileNav).not.toContain('label: "Store"');
+    expect(producerMobileNav).not.toContain('label: "Payments"');
     expect(producerMobileNav).not.toContain('label: "Settings"');
     expect(producerDesktopNav).toContain('label: "Payments"');
     expect(producerDesktopNav).toContain('label: "Store"');

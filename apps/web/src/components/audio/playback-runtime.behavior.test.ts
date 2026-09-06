@@ -43,7 +43,7 @@ describe("playback restoration", () => {
     expect(SOURCE).toContain('audio?.removeAttribute("src")');
     expect(SOURCE).toContain("clearPlaybackMediaSessionForPrivacy()");
     expect(SOURCE).toContain("emitPlayback({ ...EMPTY_PLAYBACK, volume: playbackSnapshot.volume })");
-    expect(SOURCE.match(/if \(!desktopAudioAllowedRef\.current\) return;/g)).toHaveLength(6);
+    expect(SOURCE.match(/if \(!desktopAudioAllowedRef\.current\) return;/g)).toHaveLength(8);
     expect(SOURCE).toContain("setResolvedSource(null)");
   });
 
@@ -108,6 +108,10 @@ describe("playback restoration", () => {
       currentMs: 0,
       audioDurationSec: null,
       volume: 1,
+      queue: [],
+      loop: "off",
+      shuffle: false,
+      shuffleOrder: [],
     });
   });
 
@@ -156,6 +160,10 @@ describe("playback restoration", () => {
       currentMs: 5_000,
       audioDurationSec: 20,
       volume: 1,
+      queue: [],
+      loop: "off",
+      shuffle: false,
+      shuffleOrder: [],
     };
     vi.stubGlobal("localStorage", {
       setItem: (key: string, value: string) => values.set(key, value),
@@ -207,6 +215,10 @@ describe("playback restoration", () => {
       currentMs: 2_000,
       audioDurationSec: 20,
       volume: 1,
+      queue: [],
+      loop: "off",
+      shuffle: false,
+      shuffleOrder: [],
     };
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => values.get(key) ?? null,
@@ -306,6 +318,10 @@ describe("playback event reducer", () => {
     currentMs: 0,
     audioDurationSec: null,
     volume: 1,
+    queue: [],
+    loop: "off",
+    shuffle: false,
+    shuffleOrder: [],
   };
   const track: PlayerTrack = {
     id: VERSION_ID,

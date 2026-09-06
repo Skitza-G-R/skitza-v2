@@ -54,6 +54,9 @@ const baseTrack = {
   releasedAtIso: null as string | null,
   workflowStage: "mixing" as const,
   artistApprovalLocked: false,
+  lyrics: null,
+  lyricsUpdatedAtIso: null,
+  lyricsUpdatedBy: null,
 };
 
 function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {

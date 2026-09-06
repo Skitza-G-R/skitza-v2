@@ -36,6 +36,7 @@ vi.mock("../actions", () => ({
   l3AddComment: vi.fn(),
   l3ApproveVersion: vi.fn(),
   l3ResolveComment: vi.fn(),
+  l3SetSongLyrics: vi.fn(),
 }));
 
 import ArtistSongPage from "../page";

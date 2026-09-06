@@ -6,12 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import type { ProofUploadView } from "./payment-history-editor";
 
 import {
-  applyTemplate,
   draftTaxBreakdown,
   formatImportMoney,
   type ActiveWorkImportDraft,
   type ImportReasonView,
-  type StoreTemplateOption,
 } from "./model";
 
 const FIELD_CLASS =
@@ -181,36 +179,148 @@ function formatFileSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function AgreementEditor({
-  draft,
-  templates,
-  operationKey,
-  reasons,
-  onChange,
-  agreementPdfUpload,
-  onUploadAgreementPdf,
-}: {
+type AgreementPdfFieldProps = {
   draft: ActiveWorkImportDraft;
-  templates: readonly StoreTemplateOption[];
   operationKey: string;
   reasons: readonly ImportReasonView[];
   onChange: (draft: ActiveWorkImportDraft) => void;
   agreementPdfUpload?: ProofUploadView | undefined;
   onUploadAgreementPdf?: ((file: File) => void) | undefined;
-}) {
+};
+
+/**
+ * The agreement PDF drop zone on its own, so the Project step's product
+ * summary can ask for the product's PDF without opening the whole form.
+ */
+export function AgreementPdfField({
+  draft,
+  operationKey,
+  reasons,
+  onChange,
+  agreementPdfUpload,
+  onUploadAgreementPdf,
+}: AgreementPdfFieldProps) {
+  const agreement = draft.agreement;
+  const issueId = (field: string) => `import-${field}-issues-${operationKey}`;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+        Agreement PDF{" "}
+        <span className="font-normal text-[rgb(var(--fg-muted))]">(optional)</span>
+      </p>
+      <label
+        data-agreement-pdf-drop-zone
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (agreementPdfUpload?.status === "uploading") return;
+          const file = event.dataTransfer.files[0];
+          if (file) onUploadAgreementPdf?.(file);
+        }}
+        className={`flex min-h-[4.5rem] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] border border-dashed px-4 py-3 text-center transition-colors duration-150 motion-reduce:transition-none ${
+          agreement.agreementPdf
+            ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+            : "border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] hover:bg-[rgb(var(--bg-overlay))]"
+        }`}
+      >
+        {agreementPdfUpload?.status === "uploading" ? (
+          <span className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+            Uploading PDF…
+          </span>
+        ) : agreement.agreementPdf ? (
+          <>
+            <span
+              title={agreement.agreementPdf.fileName}
+              className="inline-flex max-w-full items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]"
+            >
+              <FileUp
+                size={14}
+                strokeWidth={2.1}
+                aria-hidden
+                className="shrink-0 text-[rgb(var(--fg-success-text))]"
+              />
+              <span className="min-w-0 truncate">{agreement.agreementPdf.fileName}</span>
+              <span className="font-normal text-[rgb(var(--fg-muted))]">
+                · {formatFileSize(agreement.agreementPdf.sizeBytes)} · Private
+              </span>
+            </span>
+            <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+              Drop a new PDF or click to replace it
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+              <FileUp size={14} strokeWidth={2.1} aria-hidden />
+              Drop the agreement PDF here
+            </span>
+            <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+              or click to choose a file
+            </span>
+            <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+              PDF only · up to 15 MB · the Artist sees the exact frozen copy
+            </span>
+          </>
+        )}
+        <input
+          type="file"
+          className="sr-only"
+          accept="application/pdf,.pdf"
+          disabled={agreementPdfUpload?.status === "uploading"}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) onUploadAgreementPdf?.(file);
+          }}
+        />
+      </label>
+      {agreement.agreementPdf && agreementPdfUpload?.status !== "uploading" ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              onChange({ ...draft, agreement: { ...agreement, agreementPdf: null } });
+            }}
+            className="sk-press min-h-11 rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+          >
+            Remove PDF
+          </button>
+        </div>
+      ) : null}
+      {agreementPdfUpload?.status === "error" && agreementPdfUpload.error ? (
+        <p role="alert" className="text-[11px] leading-relaxed text-[rgb(var(--fg-danger-text))]">
+          {agreementPdfUpload.error}
+        </p>
+      ) : null}
+      <FieldIssues
+        id={issueId("agreement-pdf")}
+        reasons={reasons}
+        fields={["agreement.agreementPdf"]}
+      />
+    </div>
+  );
+}
+
+// SK-308: the form has no header of its own any more. It sits inside the
+// Project step, hidden behind "Edit details" once a Store product filled it.
+export function AgreementEditor({
+  draft,
+  operationKey,
+  reasons,
+  onChange,
+  agreementPdfUpload,
+  onUploadAgreementPdf,
+}: AgreementPdfFieldProps) {
   const agreement = draft.agreement;
   const tax = draftTaxBreakdown(draft);
-  const selectedTemplate = templates.find(
-    (template) => template.id === agreement.templateProductId,
-  );
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(!selectedTemplate);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const agreementTermsRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    setTemplatePickerOpen(!selectedTemplate);
     setDetailsOpen(false);
-  }, [operationKey, selectedTemplate]);
+  }, [operationKey]);
 
   useEffect(() => {
     if (
@@ -243,74 +353,8 @@ export function AgreementEditor({
   const issueId = (field: string) => `import-${field}-issues-${operationKey}`;
 
   return (
-    <section data-active-import-step="Agreement" className="min-w-0 py-1">
-      <header className="mb-3 border-b border-[rgb(var(--border-subtle))] pb-3">
-        <p className="font-mono text-[9px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-          Step 2 of 3
-        </p>
-        <h2 className="mt-1 text-[19px] font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-          Agreement
-        </h2>
-        <p className="mt-0.5 max-w-[58ch] text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Record the exact outside agreement. The Artist sees it as history, not a new request.
-        </p>
-      </header>
-
+    <div data-agreement-form className="min-w-0">
       <div className="min-w-0 space-y-4">
-        {selectedTemplate && !templatePickerOpen ? (
-          <div className="flex min-w-0 items-center justify-between gap-3 border-y border-[rgb(var(--border-subtle))] py-2">
-            <p className="min-w-0 truncate text-[12px] text-[rgb(var(--fg-muted))]">
-              Filled from{" "}
-              <strong className="text-[rgb(var(--fg-default))]">{selectedTemplate.name}</strong>
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setTemplatePickerOpen(true);
-              }}
-              className="sk-press min-h-11 shrink-0 rounded-[var(--radius-lg)] px-2 text-[12px] font-bold text-[rgb(var(--fg-default))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
-            >
-              Change template
-            </button>
-          </div>
-        ) : (
-          <div className="min-w-0 border-b border-[rgb(var(--border-subtle))] pb-3">
-            <Label htmlFor={`import-template-${operationKey}`}>
-              Store template <span className="normal-case">(optional)</span>
-            </Label>
-            <select
-              id={`import-template-${operationKey}`}
-              value={agreement.templateProductId ?? ""}
-              onChange={(event) => {
-                const template = templates.find((item) => item.id === event.target.value);
-                if (template) onChange(applyTemplate(draft, template));
-                else patch({ templateProductId: null });
-              }}
-              {...issueAttributes(
-                reasons,
-                ["agreement.templateProductId"],
-                issueId("agreement-template"),
-              )}
-              className={`${FIELD_CLASS} mt-2`}
-            >
-              <option value="">Start without a template</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-[rgb(var(--fg-muted))]">
-              This only fills the draft. Your Store stays unchanged.
-            </p>
-            <FieldIssues
-              id={issueId("agreement-template")}
-              reasons={reasons}
-              fields={["agreement.templateProductId"]}
-            />
-          </div>
-        )}
-
         <section aria-labelledby={`agreement-essentials-${operationKey}`}>
           <h3
             id={`agreement-essentials-${operationKey}`}
@@ -624,106 +668,14 @@ export function AgreementEditor({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <p className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
-            Agreement PDF{" "}
-            <span className="font-normal text-[rgb(var(--fg-muted))]">(optional)</span>
-          </p>
-          <label
-            data-agreement-pdf-drop-zone
-            onDragOver={(event) => {
-              event.preventDefault();
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (agreementPdfUpload?.status === "uploading") return;
-              const file = event.dataTransfer.files[0];
-              if (file) onUploadAgreementPdf?.(file);
-            }}
-            className={`flex min-h-[4.5rem] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] border border-dashed px-4 py-3 text-center transition-colors duration-150 motion-reduce:transition-none ${
-              agreement.agreementPdf
-                ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
-                : "border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] hover:bg-[rgb(var(--bg-overlay))]"
-            }`}
-          >
-            {agreementPdfUpload?.status === "uploading" ? (
-              <span className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
-                Uploading PDF…
-              </span>
-            ) : agreement.agreementPdf ? (
-              <>
-                <span
-                  title={agreement.agreementPdf.fileName}
-                  className="inline-flex max-w-full items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]"
-                >
-                  <FileUp
-                    size={14}
-                    strokeWidth={2.1}
-                    aria-hidden
-                    className="shrink-0 text-[rgb(var(--fg-success-text))]"
-                  />
-                  <span className="min-w-0 truncate">{agreement.agreementPdf.fileName}</span>
-                  <span className="font-normal text-[rgb(var(--fg-muted))]">
-                    · {formatFileSize(agreement.agreementPdf.sizeBytes)} · Private
-                  </span>
-                </span>
-                <span className="text-[11px] text-[rgb(var(--fg-muted))]">
-                  Drop a new PDF or click to replace it
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))]">
-                  <FileUp size={14} strokeWidth={2.1} aria-hidden />
-                  Drop the agreement PDF here
-                </span>
-                <span className="text-[11px] text-[rgb(var(--fg-muted))]">
-                  or click to choose a file
-                </span>
-                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
-                  PDF only · up to 15 MB · the Artist sees the exact frozen copy
-                </span>
-              </>
-            )}
-            <input
-              type="file"
-              className="sr-only"
-              accept="application/pdf,.pdf"
-              disabled={agreementPdfUpload?.status === "uploading"}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) onUploadAgreementPdf?.(file);
-              }}
-            />
-          </label>
-          {agreement.agreementPdf && agreementPdfUpload?.status !== "uploading" ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  patch({ agreementPdf: null });
-                }}
-                className="sk-press min-h-11 rounded-[var(--radius-lg)] px-2 text-[11px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
-              >
-                Remove PDF
-              </button>
-            </div>
-          ) : null}
-          {agreementPdfUpload?.status === "error" && agreementPdfUpload.error ? (
-            <p
-              role="alert"
-              className="text-[11px] leading-relaxed text-[rgb(var(--fg-danger-text))]"
-            >
-              {agreementPdfUpload.error}
-            </p>
-          ) : null}
-          <FieldIssues
-            id={issueId("agreement-pdf")}
-            reasons={reasons}
-            fields={["agreement.agreementPdf"]}
-          />
-        </div>
+        <AgreementPdfField
+          draft={draft}
+          operationKey={operationKey}
+          reasons={reasons}
+          onChange={onChange}
+          agreementPdfUpload={agreementPdfUpload}
+          onUploadAgreementPdf={onUploadAgreementPdf}
+        />
 
         <details
           open={detailsOpen}
@@ -964,6 +916,6 @@ export function AgreementEditor({
           </div>
         </details>
       </div>
-    </section>
+    </div>
   );
 }

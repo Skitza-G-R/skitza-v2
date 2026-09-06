@@ -34,6 +34,7 @@ import {
   MobileFullPlayer,
   shouldCollapsePlayerDrag,
   type PlayerTrack,
+  type PlayerTransport,
 } from "./persistent-player";
 
 const track: PlayerTrack = {
@@ -43,6 +44,26 @@ const track: PlayerTrack = {
   subtitle: "Lital Ohayon · V1",
   durationMs: 90_000,
 };
+
+// Every surface takes the same transport bag; these tests only exercise
+// gesture behaviour, so the handlers are stubs unless a case overrides one.
+function transportStubs(overrides: Partial<PlayerTransport> = {}): PlayerTransport {
+  return {
+    loop: "off",
+    shuffle: false,
+    hasNext: true,
+    onTogglePlay: vi.fn(),
+    onScrub: vi.fn(),
+    onSkip: vi.fn(),
+    onNext: vi.fn(),
+    onPrevious: vi.fn(),
+    onCycleLoop: vi.fn(),
+    onToggleShuffle: vi.fn(),
+    onShare: vi.fn(),
+    sharing: false,
+    ...overrides,
+  };
+}
 
 function dispatchPointer(
   target: Element,
@@ -77,9 +98,13 @@ function dispatchPointer(
 function renderFullPlayer({
   onCollapse = vi.fn(),
   onScrub = vi.fn(),
+  transport,
+  direction,
 }: {
   onCollapse?: () => void;
   onScrub?: (pct: number) => void;
+  transport?: Partial<PlayerTransport>;
+  direction?: "ltr" | "rtl";
 } = {}) {
   const collapseBtnRef = createRef<HTMLButtonElement>();
   const view = render(
@@ -89,13 +114,12 @@ function renderFullPlayer({
       currentMs={9_000}
       durationMs={90_000}
       progressPct={10}
-      onTogglePlay={vi.fn()}
-      onScrub={onScrub}
-      onSkip={vi.fn()}
+      {...transportStubs({ onScrub, ...transport })}
       expanded
       onCollapse={onCollapse}
       collapseBtnRef={collapseBtnRef}
       pathname="/dashboard/music"
+      {...(direction === undefined ? {} : { direction })}
     />,
   );
   return { ...view, collapseBtnRef };
@@ -120,9 +144,7 @@ describe("full player direct manipulation", () => {
         currentMs={9_000}
         durationMs={90_000}
         progressPct={10}
-        onTogglePlay={vi.fn()}
-        onScrub={vi.fn()}
-        onSkip={vi.fn()}
+        {...transportStubs()}
         expanded={false}
         onCollapse={vi.fn()}
         collapseBtnRef={collapseBtnRef}
@@ -137,6 +159,27 @@ describe("full player direct manipulation", () => {
     expect(dialog.style.top).toBe("var(--sk-layout-viewport-top, 0px)");
     expect(dialog.style.bottom).toBe("auto");
     expect(dialog.style.height).toBe("var(--sk-layout-viewport-height, 100dvh)");
+  });
+
+  // Regression: the artwork used to cap its height at a slice of the viewport
+  // (min(360px, 46vh)). That figure took no account of the chrome stacked below
+  // it, so once the transport grew a shuffle/repeat row and a ±10s row, a short
+  // phone (360x640) had the cover overflowing its flex slot and painting on top
+  // of the song title. The cap has to follow the space the artwork is actually
+  // given, which is what 100% of its flex parent means.
+  it("caps the artwork against its own slot, never a slice of the viewport", () => {
+    const { container } = renderFullPlayer();
+
+    const artwork = container.querySelector<HTMLElement>(".aspect-square");
+    expect(artwork).not.toBeNull();
+    expect(artwork?.style.maxHeight).toBe("min(360px, 100%)");
+    expect(artwork?.style.maxHeight).not.toContain("vh");
+
+    // The slot itself must still be allowed to shrink below the artwork's
+    // natural size, or the cap has nothing smaller to resolve against.
+    const slot = artwork?.parentElement;
+    expect(slot?.className).toContain("min-h-0");
+    expect(slot?.className).toContain("flex-1");
   });
 
   it("follows a downward finger, reverses upward, and settles open without firing the tap action", () => {
@@ -318,9 +361,7 @@ describe("full player route lifecycle", () => {
           currentMs={9_000}
           durationMs={90_000}
           progressPct={10}
-          onTogglePlay={vi.fn()}
-          onScrub={vi.fn()}
-          onSkip={vi.fn()}
+          {...transportStubs()}
           hidden={hidden}
           pathname="/dashboard/music"
         />
@@ -385,7 +426,7 @@ describe("full player waveform scrubbing", () => {
 
   it("keeps tap and keyboard seeking accessible", () => {
     const onScrub = vi.fn();
-    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    render(<MiniWaveform track={track} progressPct={20} onScrub={onScrub} tall />);
     const waveform = screen.getByRole("slider", { name: "Seek" });
     Object.defineProperty(waveform, "getBoundingClientRect", {
       configurable: true,
@@ -412,7 +453,7 @@ describe("full player waveform scrubbing", () => {
 
   it("ignores descendant capture loss and completes waveform scrubbing on its owning slider", () => {
     const onScrub = vi.fn();
-    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    render(<MiniWaveform track={track} progressPct={20} onScrub={onScrub} tall />);
     const waveform = screen.getByRole("slider", { name: "Seek" });
     const bar = waveform.querySelector("span");
     expect(bar).not.toBeNull();
@@ -444,7 +485,7 @@ describe("full player waveform scrubbing", () => {
 
   it("cancels waveform scrubbing when its owning slider actually loses capture", () => {
     const onScrub = vi.fn();
-    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    render(<MiniWaveform track={track} progressPct={20} onScrub={onScrub} tall />);
     const waveform = screen.getByRole("slider", { name: "Seek" });
     const bar = waveform.querySelector("span");
     expect(bar).not.toBeNull();
@@ -508,5 +549,328 @@ describe("persistent mini-player entrance motion", () => {
     expect(globalCss).toMatch(
       /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.mobile-full-player-sheet[\s\S]*?transition:\s*none/,
     );
+  });
+
+  // Same deal for the cover that rides the finger: the spring-back lives
+  // in CSS so reduced motion can switch it off. The gesture itself still
+  // skips the song — only the travelling paint is dropped.
+  it("keeps the artwork swipe's spring-back in CSS so reduced motion can override it", () => {
+    const playerSource = readFileSync(
+      join(process.cwd(), "src/components/audio/persistent-player.tsx"),
+      "utf8",
+    );
+    const globalCss = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+
+    expect(playerSource).toContain("mobile-full-player-artwork");
+    expect(globalCss).toMatch(
+      /\.mobile-full-player-artwork\s*\{[\s\S]*?transition:\s*[\s\S]*?transform 260ms/,
+    );
+    // While the finger owns the cover there must be no transition at all,
+    // or the artwork lags behind the touch instead of sticking to it.
+    expect(globalCss).toMatch(
+      /\.mobile-full-player-artwork\[data-swipe-state="dragging"\]\s*\{\s*transition:\s*none/,
+    );
+    expect(globalCss).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.mobile-full-player-artwork[\s\S]*?transition:\s*none\s*!important/,
+    );
+  });
+});
+
+// ─── Transport wiring (SK player controls) ───────────────────────────
+// The founder's report: "the next song button is not next song, it is
+// next 15 seconds". Song skips and fine seeking are now separate
+// controls, so each one has to reach a different handler.
+
+describe("full player transport controls", () => {
+  function button(name: string): HTMLButtonElement {
+    return screen.getByRole<HTMLButtonElement>("button", { name });
+  }
+
+  function renderTransport(overrides: Partial<PlayerTransport> = {}) {
+    const collapseBtnRef = createRef<HTMLButtonElement>();
+    const transport = transportStubs(overrides);
+    render(
+      <MobileFullPlayer
+        track={track}
+        playing
+        currentMs={9_000}
+        durationMs={90_000}
+        progressPct={10}
+        {...transport}
+        expanded
+        onCollapse={vi.fn()}
+        collapseBtnRef={collapseBtnRef}
+        pathname="/dashboard/music"
+      />,
+    );
+    return transport;
+  }
+
+  it("moves to the next and previous SONG, never a seek", () => {
+    const transport = renderTransport();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next song" }));
+    fireEvent.click(screen.getByRole("button", { name: "Previous song" }));
+
+    expect(transport.onNext).toHaveBeenCalledTimes(1);
+    expect(transport.onPrevious).toHaveBeenCalledTimes(1);
+    expect(transport.onSkip).not.toHaveBeenCalled();
+  });
+
+  it("nudges playback by exactly ten seconds in both directions", () => {
+    const transport = renderTransport();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back 10 seconds" }));
+    fireEvent.click(screen.getByRole("button", { name: "Forward 10 seconds" }));
+
+    expect(transport.onSkip).toHaveBeenNthCalledWith(1, -10_000);
+    expect(transport.onSkip).toHaveBeenNthCalledWith(2, 10_000);
+    expect(transport.onNext).not.toHaveBeenCalled();
+  });
+
+  it("disables next only at the end of the queue", () => {
+    renderTransport({ hasNext: false });
+    expect(button("Next song").disabled).toBe(true);
+    // Previous always stays live: at the top of a queue it restarts the
+    // song, which is what every music player does.
+    expect(button("Previous song").disabled).toBe(false);
+  });
+
+  it("exposes shuffle and repeat state, not just a color change", () => {
+    cleanup();
+    const off = renderTransport();
+    expect(button("Shuffle").getAttribute("aria-pressed")).toBe("false");
+    expect(button("Repeat off").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button("Shuffle"));
+    fireEvent.click(button("Repeat off"));
+    expect(off.onToggleShuffle).toHaveBeenCalledTimes(1);
+    expect(off.onCycleLoop).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    renderTransport({ shuffle: true, loop: "one" });
+    expect(button("Shuffle").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Repeat this song").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("offers a share control that reports progress while the sheet is open", () => {
+    const transport = renderTransport();
+    fireEvent.click(screen.getByRole("button", { name: "Share song" }));
+    expect(transport.onShare).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    renderTransport({ sharing: true });
+    expect(button("Share song").disabled).toBe(true);
+  });
+});
+
+// ─── Real waveform ───────────────────────────────────────────────────
+
+describe("dock waveform draws the real envelope", () => {
+  function bars(): HTMLElement[] {
+    const slider = screen.getByRole("slider", { name: "Seek" });
+    return Array.from(slider.querySelectorAll<HTMLElement>("span"));
+  }
+
+  it("renders pre-computed peaks instead of the seeded placeholder", () => {
+    // 64 values map 1:1 onto the full-screen player's bar count, so the
+    // rendered heights are the supplied envelope with no resampling.
+    const peaks = Array.from({ length: 64 }, (_, i) => (i === 0 ? 1 : 0.5));
+    render(
+      <MiniWaveform track={{ ...track, peaks }} progressPct={0} onScrub={vi.fn()} tall />,
+    );
+
+    const rendered = bars();
+    expect(rendered).toHaveLength(64);
+    expect(rendered[0]?.style.height).toBe("100%");
+    expect(rendered[1]?.style.height).toBe("50%");
+  });
+
+  it("never fetches cross-origin audio to decode (no CORS grant for our origins)", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    // The fixture's audio lives on another origin, like a public R2 URL.
+    render(<MiniWaveform track={track} progressPct={0} onScrub={vi.fn()} tall />);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Still drawn: the seeded envelope holds the strip until real peaks
+    // arrive, so the dock never shows an empty rail.
+    expect(bars()).toHaveLength(64);
+    vi.unstubAllGlobals();
+  });
+});
+
+// ─── Artwork swipe (SK-309) ──────────────────────────────────────────
+// Dragging the cover sideways moves through the queue. The pure decision
+// rules are pinned in persistent-player.test.ts; these cases prove the
+// gesture is actually wired to the surface and reaches the transport.
+
+describe("full player artwork swipe", () => {
+  // The swipe surface is the artwork's flex slot, not the cover itself,
+  // so a finger that starts just outside the letterboxed cover still
+  // owns the gesture.
+  function swipeSurface(container: HTMLElement): HTMLElement {
+    const artwork = container.querySelector<HTMLElement>(".aspect-square");
+    const slot = artwork?.parentElement;
+    if (!slot) throw new Error("artwork swipe surface not found");
+    return slot;
+  }
+
+  function artwork(container: HTMLElement): HTMLElement {
+    const cover = container.querySelector<HTMLElement>(".aspect-square");
+    if (!cover) throw new Error("artwork not found");
+    return cover;
+  }
+
+  /** Drags the cover from `from` to `to` on the horizontal axis. */
+  function swipe(
+    surface: HTMLElement,
+    { from, to, clientY = 300, endY = clientY }: {
+      from: number;
+      to: number;
+      clientY?: number;
+      endY?: number;
+    },
+  ): void {
+    const midway = from + (to - from) / 2;
+    dispatchPointer(surface, "pointerdown", { clientX: from, clientY, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: midway, clientY, timeStamp: 1_016 });
+    dispatchPointer(surface, "pointermove", { clientX: to, clientY: endY, timeStamp: 1_032 });
+    dispatchPointer(surface, "pointerup", { clientX: to, clientY: endY, timeStamp: 1_040 });
+  }
+
+  it("moves to the next song when the cover is dragged left", () => {
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+
+    swipe(swipeSurface(container), { from: 240, to: 140 });
+
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onPrevious).not.toHaveBeenCalled();
+  });
+
+  it("moves to the previous song when the cover is dragged right", () => {
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+
+    swipe(swipeSurface(container), { from: 140, to: 240 });
+
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("hands a vertical drag back to the browser instead of skipping a song", () => {
+    // This is the scroll/back-swipe safety net: a finger heading down the
+    // sheet must never be read as a queue move.
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+    const surface = swipeSurface(container);
+    const cover = artwork(container);
+
+    dispatchPointer(surface, "pointerdown", { clientX: 240, clientY: 200, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 210, clientY: 400, timeStamp: 1_016 });
+
+    // Asserted MID-GESTURE on purpose. Checking only after release would
+    // pass even if the cover had grabbed the finger, because release
+    // always settles it back to centre.
+    expect(cover.style.transform).toBe("");
+    expect(cover.getAttribute("data-swipe-state")).toBeNull();
+
+    dispatchPointer(surface, "pointerup", { clientX: 210, clientY: 400, timeStamp: 1_024 });
+
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onPrevious).not.toHaveBeenCalled();
+    expect(cover.style.transform).toBe("");
+  });
+
+  it("refuses to skip past the end of the queue and only stretches the cover", () => {
+    const onNext = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, hasNext: false } });
+    const surface = swipeSurface(container);
+    const cover = artwork(container);
+
+    dispatchPointer(surface, "pointerdown", { clientX: 300, clientY: 300, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 260, clientY: 300, timeStamp: 1_016 });
+    dispatchPointer(surface, "pointermove", { clientX: 100, clientY: 300, timeStamp: 1_032 });
+
+    // 200px of finger travel, and the cover has moved 24px. The wall is
+    // felt, not silently ignored.
+    expect(cover.style.transform).toBe("translateX(-24px)");
+
+    dispatchPointer(surface, "pointerup", { clientX: 100, clientY: 300, timeStamp: 1_040 });
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("does NOT mirror under dir=rtl — left stays next in Hebrew too", () => {
+    // The sheet's buttons mirror, because buttons are read. This gesture
+    // does not, because it is muscle memory: Spotify and Apple Music both
+    // keep left = next in every language, and a bilingual listener should
+    // not have to relearn their thumb when the interface flips.
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({
+      transport: { onNext, onPrevious },
+      direction: "rtl",
+    });
+
+    swipe(swipeSurface(container), { from: 240, to: 140 });
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onPrevious).not.toHaveBeenCalled();
+
+    swipe(swipeSurface(container), { from: 140, to: 240 });
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it("rides the finger while dragging and settles back to centre on release", () => {
+    const { container } = renderFullPlayer();
+    const surface = swipeSurface(container);
+    const cover = artwork(container);
+
+    expect(cover.style.transform).toBe("");
+
+    dispatchPointer(surface, "pointerdown", { clientX: 240, clientY: 300, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 200, clientY: 300, timeStamp: 1_016 });
+
+    // One-to-one with the finger, and marked so CSS drops the transition.
+    expect(cover.style.transform).toBe("translateX(-40px)");
+    expect(cover.getAttribute("data-swipe-state")).toBe("dragging");
+
+    dispatchPointer(surface, "pointerup", { clientX: 200, clientY: 300, timeStamp: 1_024 });
+
+    expect(cover.style.transform).toBe("");
+    expect(cover.getAttribute("data-swipe-state")).toBeNull();
+  });
+
+  it("ignores travel below the slop distance so a tap on the cover does nothing", () => {
+    const onNext = vi.fn();
+    const onPrevious = vi.fn();
+    const { container } = renderFullPlayer({ transport: { onNext, onPrevious } });
+    const surface = swipeSurface(container);
+
+    const cover = artwork(container);
+
+    dispatchPointer(surface, "pointerdown", { clientX: 240, clientY: 300, timeStamp: 1_000 });
+    dispatchPointer(surface, "pointermove", { clientX: 236, clientY: 300, timeStamp: 1_016 });
+
+    // 4px is finger noise, not a swipe: the cover must not have moved yet.
+    // Checked here rather than after release, which resets it regardless.
+    expect(cover.style.transform).toBe("");
+    expect(cover.getAttribute("data-swipe-state")).toBeNull();
+
+    dispatchPointer(surface, "pointerup", { clientX: 236, clientY: 300, timeStamp: 1_024 });
+
+    expect(cover.style.transform).toBe("");
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onPrevious).not.toHaveBeenCalled();
+  });
+
+  it("keeps the horizontal axis away from the browser without blocking vertical scroll", () => {
+    const { container } = renderFullPlayer();
+    // `touch-action: pan-y` is what stops the swipe racing iOS's edge
+    // back-gesture while leaving the sheet scrollable.
+    expect(swipeSurface(container).className).toContain("touch-pan-y");
   });
 });

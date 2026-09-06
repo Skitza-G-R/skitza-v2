@@ -8,17 +8,20 @@ import {
   FolderInput,
   Landmark,
   Link2,
+  Play,
   Share2,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { FirstArtistSimulation } from "~/components/onboarding/first-artist-simulation/first-artist-simulation";
+import type { SimulationInput } from "~/components/onboarding/first-artist-simulation/simulation-model";
 import { ConfettiBurst } from "~/components/onboarding/wizard-shell/confetti-burst";
 import { PushMomentBanner } from "~/components/push/push-moment-banner";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { buildJoinUrl } from "~/lib/share/public-url";
 
-export const COMPLETE_DASHBOARD_HREF = "/dashboard?storeTip=1" as const;
+export const COMPLETE_DASHBOARD_HREF = "/dashboard" as const;
 
 type FollowUpRoute = "/onboarding/portfolio" | "/onboarding/payment";
 
@@ -34,12 +37,16 @@ export function artistPreviewHref(slug: string, previewMode: boolean): string {
 export function CompleteScreenClient({
   slug,
   previewMode = false,
+  simulation = null,
 }: {
   slug: string;
   previewMode?: boolean;
+  /** SK-298: the producer's live product mapped for "Watch your first artist"; null hides it. */
+  simulation?: SimulationInput | null;
 }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [canShare, setCanShare] = useState(false);
+  const [simulationOpen, setSimulationOpen] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fullUrl = buildJoinUrl(slug);
   const displayUrl = fullUrl.replace(/^https?:\/\//, "");
@@ -172,9 +179,37 @@ export function CompleteScreenClient({
           </div>
         </section>
 
+        {simulation ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setSimulationOpen(true);
+              }}
+              className="ob-press mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <span
+                aria-hidden
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--bg-sidebar)/0.16)]"
+              >
+                <Play size={12} strokeWidth={3} fill="currentColor" />
+              </span>
+              Watch your first artist
+              <span className="font-mono text-[11px] font-semibold tracking-[0.08em] opacity-70">
+                60 s
+              </span>
+            </button>
+            <p className="mt-2 text-center text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]">
+              Recommended — see exactly what your artists get.
+            </p>
+          </>
+        ) : null}
+
         <Link
           href={COMPLETE_DASHBOARD_HREF}
-          className="ob-press mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+          className={`ob-press inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 text-[14px] font-extrabold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none ${
+            simulation ? "mt-3" : "mt-5"
+          }`}
         >
           Open dashboard
           <ArrowRight aria-hidden size={17} />
@@ -182,15 +217,40 @@ export function CompleteScreenClient({
 
         <PushMomentBanner message="Get an alert when clients book, pay, or comment." />
 
-        <Link
-          href={previewHref}
-          target={previewMode ? undefined : "_blank"}
-          rel={previewMode ? undefined : "noopener noreferrer"}
-          className="ob-press mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[13px] font-bold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary)/0.6)] hover:bg-[rgb(var(--brand-primary)/0.06)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-        >
-          Preview as artist
-          <ExternalLink aria-hidden size={14} />
-        </Link>
+        {simulation ? (
+          <Link
+            href={previewHref}
+            target={previewMode ? undefined : "_blank"}
+            rel={previewMode ? undefined : "noopener noreferrer"}
+            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          >
+            Open public page
+            <ExternalLink aria-hidden size={13} />
+          </Link>
+        ) : (
+          <Link
+            href={previewHref}
+            target={previewMode ? undefined : "_blank"}
+            rel={previewMode ? undefined : "noopener noreferrer"}
+            className="ob-press mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[13px] font-bold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary)/0.6)] hover:bg-[rgb(var(--brand-primary)/0.06)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          >
+            Preview as artist
+            <ExternalLink aria-hidden size={14} />
+          </Link>
+        )}
+
+        {simulation ? (
+          <FirstArtistSimulation
+            open={simulationOpen}
+            onOpenChange={setSimulationOpen}
+            input={simulation}
+            links={{
+              bringActiveWork: "/dashboard/clients-projects/bring-active-work",
+              dashboard: COMPLETE_DASHBOARD_HREF,
+              publicUrl: fullUrl,
+            }}
+          />
+        ) : null}
 
         {canShare ? (
           <button

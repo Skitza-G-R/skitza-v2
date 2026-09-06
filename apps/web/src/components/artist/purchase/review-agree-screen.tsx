@@ -15,6 +15,7 @@ import { useOnlineStatus } from "~/components/runtime-state/online-required-link
 import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import { applyTaxToCents, type TaxMode } from "~/lib/tax-mode";
 import { agreementPdfFromCommercialSnapshot } from "~/lib/agreement-pdf";
 import { acceptPurchaseAction } from "./actions";
 import { paymentPlanLabel } from "./pay-data";
@@ -35,6 +36,10 @@ type ExactReviewProps = {
   producer?: never;
   terms?: never;
   previewSentHref?: never;
+  previewReference?: never;
+  previewTax?: never;
+  defaultAccepted?: never;
+  onPreviewAccept?: never;
 };
 
 type GalleryReviewProps = {
@@ -42,6 +47,21 @@ type GalleryReviewProps = {
   producer: Producer;
   terms: AgreementTerm[];
   previewSentHref: string;
+  /** Gallery/simulation label shown as the agreement reference. */
+  previewReference?: string | undefined;
+  /** Gallery/simulation tax treatment; defaults to tax free. */
+  previewTax?: { mode: TaxMode; ratePct: number } | undefined;
+  /**
+   * Gallery/simulation only: start with the agreement already accepted, so a
+   * storyboard can show the enabled call to action instead of the empty
+   * checkbox. Never available on the live acceptance route.
+   */
+  defaultAccepted?: boolean | undefined;
+  /**
+   * Gallery/simulation only: takes the acceptance instead of navigating to
+   * `previewSentHref`, so the screen can be pressed for real inside a frame.
+   */
+  onPreviewAccept?: (() => void) | undefined;
   studioId?: never;
   preview?: never;
   purchaseRequestId?: never;
@@ -77,9 +97,10 @@ function splitSchedule(totalCents: number, plan: PaymentPlan): number[] {
 // server-authored preview and cannot use this local representation to accept.
 function galleryPreview(props: GalleryReviewProps): PurchaseAcceptancePreview {
   const selectedPaymentPlan = props.product.paymentPlans[0] ?? null;
-  const amounts = selectedPaymentPlan
-    ? splitSchedule(props.product.priceCents, selectedPaymentPlan)
-    : [];
+  const taxMode = props.previewTax?.mode ?? "tax_free";
+  const taxRatePct = props.previewTax?.ratePct ?? 0;
+  const totalCents = applyTaxToCents(props.product.priceCents, taxMode, taxRatePct);
+  const amounts = selectedPaymentPlan ? splitSchedule(totalCents, selectedPaymentPlan) : [];
   const snapshot: PurchaseCommercialSnapshot = {
     version: 1,
     productOrOfferName: props.product.name,
@@ -97,8 +118,12 @@ function galleryPreview(props: GalleryReviewProps): PurchaseAcceptancePreview {
     listSubtotalCents: props.product.priceCents,
     discountCents: 0,
     subtotalCents: props.product.priceCents,
-    tax: { mode: "tax_free", ratePct: 0, amountCents: 0 },
-    totalCents: props.product.priceCents,
+    tax: {
+      mode: taxMode,
+      ratePct: taxMode === "tax_free" ? 0 : taxRatePct,
+      amountCents: totalCents - props.product.priceCents,
+    },
+    totalCents,
     currency: props.product.currency,
     includedSongSpaces: props.product.pricingModel === "per_song" ? 1 : 0,
     session: {
@@ -133,7 +158,7 @@ function galleryPreview(props: GalleryReviewProps): PurchaseAcceptancePreview {
     status: "approved",
     target: { kind: "new" },
     snapshot,
-    snapshotDigest: "development-gallery-preview",
+    snapshotDigest: props.previewReference ?? "development-gallery-preview",
     schedule: amounts.map((amountCents, index) => ({
       label: index === 0 ? "Due at acceptance" : `Payment ${String(index + 1)}`,
       amountCents,
@@ -174,7 +199,7 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
     ? props.preview
     : galleryPreview(props);
   const { snapshot } = preview;
-  const [accepted, setAccepted] = useState(false);
+  const [accepted, setAccepted] = useState(!isExactReview(props) && props.defaultAccepted === true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operationKeyRef = useRef<string | null>(null);
@@ -185,7 +210,8 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
   async function acceptExactAgreement() {
     if (!accepted || sending) return;
     if (!isExactReview(props)) {
-      router.push(props.previewSentHref);
+      if (props.onPreviewAccept) props.onPreviewAccept();
+      else router.push(props.previewSentHref);
       return;
     }
     if (!online) {

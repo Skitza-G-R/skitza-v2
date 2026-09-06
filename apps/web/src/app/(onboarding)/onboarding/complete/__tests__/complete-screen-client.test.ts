@@ -9,7 +9,7 @@ const SRC = readFileSync(join(here, "..", "complete-screen-client.tsx"), "utf8")
 
 describe("onboarding completion Store discovery", () => {
   it("opens the dashboard with the one-time Store cue", () => {
-    expect(SRC).toContain('export const COMPLETE_DASHBOARD_HREF = "/dashboard?storeTip=1"');
+    expect(SRC).toContain('export const COMPLETE_DASHBOARD_HREF = "/dashboard"');
     expect(SRC).toContain("href={COMPLETE_DASHBOARD_HREF}");
     expect(SRC).toContain("Open dashboard");
   });

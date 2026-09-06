@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { ProducerBottomNav } from "~/components/nav/producer-bottom-nav";
 import { ProducerSidebar } from "~/components/nav/producer-sidebar";
-import { HomePullToRefresh } from "~/components/native/home-pull-to-refresh";
+import { PullToRefresh } from "~/components/native/pull-to-refresh";
 import { RuntimeNavigationBridge } from "~/components/runtime-state/runtime-navigation-bridge";
 import { RuntimeStateProvider } from "~/components/runtime-state/runtime-state-provider";
 import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
@@ -87,8 +87,13 @@ export async function AppShell({ children }: { children: ReactNode }) {
           scrolling region. Keeping the topbar outside that elastic
           scroller prevents iOS rubber-band from pulling the breadcrumb
           away from the physical viewport edge. Desktop keeps its existing
-          document-scroll layout. */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          document-scroll layout.
+
+          `relative` anchors the overlaid tab bar (SK-306). The bar used to
+          be an in-flow sibling below the scroller, which ended the scroll
+          box at the bar's top edge — the screen read as chopped off there
+          and nothing could pass under the glass. */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {/* The provider emits no DOM, so the topbar and main remain direct
             sibling flex items. Deep pages can still publish client,
             project, and song crumbs to the single topbar surface. */}
@@ -104,9 +109,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <main
             id="main-content"
             tabIndex={-1}
-            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-none lg:overflow-visible lg:overscroll-auto"
+            className="sk-bottom-nav-inset min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-none lg:overflow-visible lg:overscroll-auto"
           >
-            <HomePullToRefresh homePath="/dashboard" />
+            <PullToRefresh shell="producer" />
             {children}
           </main>
         </TopBarBreadcrumbProvider>

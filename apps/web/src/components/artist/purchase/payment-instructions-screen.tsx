@@ -29,6 +29,7 @@ export function PaymentInstructionsScreen({
   proofUploadsAvailable = true,
   proofHref,
   previewProofHref,
+  onPreviewProof,
   summaryHref,
 }: {
   studioId?: string | undefined;
@@ -43,6 +44,11 @@ export function PaymentInstructionsScreen({
   proofUploadsAvailable?: boolean | undefined;
   proofHref?: string | undefined;
   previewProofHref?: string | undefined;
+  /**
+   * Gallery/simulation only: takes the tap instead of navigating, so the
+   * screen can be pressed for real inside a frame.
+   */
+  onPreviewProof?: (() => void) | undefined;
   summaryHref?: string | undefined;
 }) {
   const router = useRouter();
@@ -58,6 +64,10 @@ export function PaymentInstructionsScreen({
 
   function openProofUpload() {
     if (uploadDisabled) return;
+    if (onPreviewProof) {
+      onPreviewProof();
+      return;
+    }
     const destination = previewProofHref ?? proofHref;
     if (destination) router.push(destination);
   }

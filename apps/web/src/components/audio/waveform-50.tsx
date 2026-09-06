@@ -2,13 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { rmsPeaks } from "~/lib/audio/rms-peaks";
+import {
+  resampleWaveformHeights,
+  rmsPeaks,
+  WAVEFORM_MAX_BAR_COUNT,
+  WAVEFORM_MIN_BAR_COUNT,
+} from "~/lib/audio/rms-peaks";
+import { useAudioPeaks } from "~/lib/audio/use-audio-peaks";
 
 import { PLAYER_EVENTS, playerSeek, useNowPlaying } from "./persistent-player";
 
-// Re-export so prior callers that imported rmsPeaks from this module keep
-// working. New code should import from ~/lib/audio/rms-peaks directly.
-export { rmsPeaks };
+// Re-export so prior callers that imported rmsPeaks / resampleWaveformHeights
+// from this module keep working. New code should import them from
+// ~/lib/audio/rms-peaks directly.
+export { resampleWaveformHeights, rmsPeaks };
 
 // ─── Pure helpers ────────────────────────────────────────────────────
 
@@ -52,8 +59,8 @@ export function pickWaveformTime(input: {
 const BAR_COUNT = 200;
 const GLOW_RANGE = 6;
 const STUDIO_MOBILE_BAR_COUNT = 96;
-const MIN_BAR_COUNT = 24;
-const MAX_BAR_COUNT = 320;
+const MIN_BAR_COUNT = WAVEFORM_MIN_BAR_COUNT;
+const MAX_BAR_COUNT = WAVEFORM_MAX_BAR_COUNT;
 
 export type WaveformAppearance = "default" | "studio";
 
@@ -163,33 +170,6 @@ export function resolveWaveformDensity(
   };
 }
 
-/**
- * Resize a peak envelope without changing its overall shape. Linear
- * interpolation keeps the responsive mobile and desktop layers aligned.
- */
-export function resampleWaveformHeights(heights: readonly number[], barCount: number): number[] {
-  const targetCount = Number.isFinite(barCount)
-    ? Math.min(MAX_BAR_COUNT, Math.max(1, Math.round(barCount)))
-    : BAR_COUNT;
-  if (heights.length === 0) {
-    return Array.from({ length: targetCount }, () => 0.12);
-  }
-  if (heights.length === targetCount) return [...heights];
-  if (heights.length === 1) {
-    return Array.from({ length: targetCount }, () => heights[0] ?? 0.12);
-  }
-
-  return Array.from({ length: targetCount }, (_, index) => {
-    const position = targetCount === 1 ? 0 : (index / (targetCount - 1)) * (heights.length - 1);
-    const leftIndex = Math.floor(position);
-    const rightIndex = Math.min(heights.length - 1, Math.ceil(position));
-    const mix = position - leftIndex;
-    const left = heights[leftIndex] ?? 0.12;
-    const right = heights[rightIndex] ?? left;
-    return left + (right - left) * mix;
-  });
-}
-
 export function clampWaveformInitialMs(initialMs: number, durationMs: number): number {
   if (!Number.isFinite(initialMs) || !Number.isFinite(durationMs) || durationMs <= 0) {
     return 0;
@@ -197,139 +177,19 @@ export function clampWaveformInitialMs(initialMs: number, durationMs: number): n
   return Math.min(durationMs, Math.max(0, initialMs));
 }
 
-// ─── Real-peak decoding (client-side fallback) ───────────────────────
+// ─── Real-peak decoding ──────────────────────────────────────────────
 //
 // When pre-computed peaks ride down with the page payload (initialPeaks
-// prop), this whole code path is skipped — Waveform50 just renders the
+// prop), no decode happens at all — Waveform50 just renders the
 // envelope on first frame. When peaks are null (legacy versions before
 // the backfill, or formats audio-decode couldn't parse server-side),
-// the hook below fetches the audio via /api/download/<id>, decodes via
-// the browser's Web Audio API, and replaces the flat loading baseline.
-// Same rmsPeaks math runs both server-side and here, so the visual is
-// bit-identical regardless of which path produced the array.
-
-// Module-level cache. Same URL → same peaks, so we only decode each
-// audio file once per session. Cleared on full page reload.
-const peaksCache = new Map<string, number[]>();
-
-// Lazy singleton AudioContext — created on first decode so SSR doesn't
-// trip on `new AudioContext()`. We never play through it, just decode.
-let _audioCtx: AudioContext | null = null;
-function getAudioContext(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  if (_audioCtx) return _audioCtx;
-  // lib.dom.d.ts types `window.AudioContext` as non-nullable, but it
-  // genuinely is undefined in some legacy / Safari preview contexts —
-  // cast through `unknown` so ESLint's `no-unnecessary-condition`
-  // doesn't trip on the runtime fallback.
-  const w = window as unknown as {
-    AudioContext?: typeof AudioContext;
-    webkitAudioContext?: typeof AudioContext;
-  };
-  const Ctor = w.AudioContext ?? w.webkitAudioContext;
-  if (!Ctor) return null;
-  _audioCtx = new Ctor();
-  return _audioCtx;
-}
-
-/**
- * Fetch + decode `url` into N peaks. Falls back to `fallback` until
- * resolved, and silently keeps the fallback if decode fails.
- */
-function useAudioPeaks(
-  url: string | null | undefined,
-  barCount: number,
-  fallback: number[],
-): number[] {
-  const [peaks, setPeaks] = useState<number[]>(() => {
-    if (url && peaksCache.has(url)) return peaksCache.get(url) ?? fallback;
-    return fallback;
-  });
-
-  // Keep peaks in sync with seed changes when no URL is provided.
-  // (When URL changes, the effect below overrides this with the cache
-  // hit or the decode result.)
-  useEffect(() => {
-    if (!url) {
-      setPeaks(fallback);
-    }
-    // fallback is recomputed per seed by the parent useMemo; safe to
-    // depend on its identity.
-  }, [url, fallback]);
-
-  useEffect(() => {
-    if (!url) return;
-    const cached = peaksCache.get(url);
-    if (cached) {
-      setPeaks(cached);
-      return;
-    }
-    // Object-wrapped flag so ESLint's no-unnecessary-condition can't
-    // statically conclude `cancelled` never flips — the cleanup
-    // function below mutates `flag.cancelled` after the closure
-    // captures it.
-    const flag = { cancelled: false };
-    void (async () => {
-      try {
-        const ctx = getAudioContext();
-        if (!ctx) {
-          console.warn("[waveform peaks] AudioContext unavailable");
-          return;
-        }
-        // The cookie-based session needs to travel with same-origin
-        // fetch. Defaults are 'same-origin' but explicit is safer.
-        const res = await fetch(url, { credentials: "same-origin" });
-        if (!res.ok) {
-          console.warn(`[waveform peaks] fetch ${String(res.status)} for ${url}`);
-          return;
-        }
-        const buf = await res.arrayBuffer();
-        // decodeAudioData in older Safari is callback-only; the Promise
-        // form throws TypeError. Use the universally-supported callback
-        // form wrapped in a Promise so both code paths work.
-        const audio = await new Promise<AudioBuffer>((resolve, reject) => {
-          // Some browsers (Safari) detach the buffer on decode; give a
-          // fresh copy in case anything else wants the bytes. The
-          // returned Promise IS the one we wrap — `void` silences the
-          // floating-promise lint since the callbacks settle our outer
-          // Promise instead.
-          void ctx.decodeAudioData(
-            buf.slice(0),
-            (decoded) => {
-              resolve(decoded);
-            },
-            (err) => {
-              reject(err instanceof Error ? err : new Error(String(err)));
-            },
-          );
-        });
-        if (flag.cancelled) return;
-        const computed = rmsPeaks(audio.getChannelData(0), barCount);
-        peaksCache.set(url, computed);
-        setPeaks(computed);
-        if (typeof window !== "undefined") {
-          // Soft signal for the song page (or anyone curious) to verify
-          // peaks landed — listen with:
-          //   addEventListener('skitza:waveform:peaks', e => console.log(e.detail))
-          window.dispatchEvent(
-            new CustomEvent("skitza:waveform:peaks", {
-              detail: { url, sampleRate: audio.sampleRate, duration: audio.duration },
-            }),
-          );
-        }
-      } catch (err) {
-        // Surface the failure so dev tools shows WHY peaks didn't load,
-        // but keep the seeded fallback so the UI never breaks.
-        console.warn("[waveform peaks] decode failed:", err);
-      }
-    })();
-    return () => {
-      flag.cancelled = true;
-    };
-  }, [url, barCount]);
-
-  return peaks;
-}
+// useAudioPeaks fetches the audio via the same-origin stream route,
+// decodes via the browser's Web Audio API, and replaces the flat
+// loading baseline. The same rmsPeaks math runs server-side and in the
+// browser, so the visual is bit-identical regardless of which path
+// produced the array — and the decode cache is shared with the
+// floating player, so the dock strip and this hero never decode the
+// same file twice.
 
 // Tiny mulberry32 PRNG so each version's bars are stable across renders.
 // Heights skew toward the middle with sine harmonics so the silhouette

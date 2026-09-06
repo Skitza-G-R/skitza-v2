@@ -46,6 +46,7 @@ export function PurchaseRequestReview({
   submittedAt,
   reference,
   brief,
+  onPreviewDecision,
   children,
 }: {
   id: string;
@@ -61,6 +62,12 @@ export function PurchaseRequestReview({
   submittedAt: string;
   reference: string;
   brief: string | null;
+  /**
+   * Development gallery and the onboarding simulation only: takes the decision
+   * instead of the server action, so the screen shows its own decided state
+   * without creating or changing anything. Mirrors `PaymentProofReview`.
+   */
+  onPreviewDecision?: ((decision: "approve" | "decline") => void) | undefined;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -99,14 +106,6 @@ export function PurchaseRequestReview({
     toast(message, "error");
   };
 
-  const openConfirmation = (decision: "approve" | "decline") => {
-    if (document.activeElement instanceof HTMLElement) {
-      dialogReturnFocusRef.current = document.activeElement;
-    }
-    setError(null);
-    setConfirmation(decision);
-  };
-
   const restoreDialogTrigger = (event: Event) => {
     event.preventDefault();
     dialogReturnFocusRef.current?.focus();
@@ -117,6 +116,12 @@ export function PurchaseRequestReview({
     setError(null);
     if (!online) {
       showActionError("Reconnect to approve this request.");
+      return;
+    }
+    if (onPreviewDecision) {
+      setStatus("approved");
+      setConfirmation(null);
+      onPreviewDecision("approve");
       return;
     }
     startTransition(async () => {
@@ -147,6 +152,12 @@ export function PurchaseRequestReview({
       showActionError("Reconnect to decline this request.");
       return;
     }
+    if (onPreviewDecision) {
+      setStatus("declined");
+      setConfirmation(null);
+      onPreviewDecision("decline");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await declinePurchaseRequest({ id });
@@ -163,6 +174,23 @@ export function PurchaseRequestReview({
         showActionError();
       }
     });
+  };
+
+  const openConfirmation = (decision: "approve" | "decline") => {
+    // The onboarding simulation renders this screen inside its own full-screen
+    // overlay. A nested dialog would open beneath that overlay and could not be
+    // reached, and the story is one tap per frame anyway, so the preview seam
+    // decides straight away instead of asking twice.
+    if (onPreviewDecision) {
+      if (decision === "approve") runApprove();
+      else runDecline();
+      return;
+    }
+    if (document.activeElement instanceof HTMLElement) {
+      dialogReturnFocusRef.current = document.activeElement;
+    }
+    setError(null);
+    setConfirmation(decision);
   };
 
   const runTargetCorrection = () => {

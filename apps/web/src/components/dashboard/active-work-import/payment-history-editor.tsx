@@ -4,12 +4,16 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Circle,
   CircleAlert,
+  CircleArrowUp,
+  CircleDashed,
   FileUp,
   LockKeyhole,
   Minus,
   Plus,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -130,6 +134,63 @@ function installmentState(
   return "Not paid";
 }
 
+type InstallmentState = ReturnType<typeof installmentState>;
+
+// SK-308: every state gets an icon and a colour so the row reads at a glance
+// without the English word: green check = paid, amber = something to finish,
+// muted = nothing yet, lock = waits for the Artist.
+const STATE_CHIP: Record<InstallmentState, Readonly<{ Icon: LucideIcon; className: string }>> = {
+  Paid: {
+    Icon: Check,
+    className: "bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success-text))]",
+  },
+  Partial: {
+    Icon: CircleDashed,
+    className: "bg-[rgb(var(--fg-warning)/0.12)] text-[rgb(var(--fg-warning-text))]",
+  },
+  "Needs info": {
+    Icon: CircleAlert,
+    className: "bg-[rgb(var(--fg-warning)/0.12)] text-[rgb(var(--fg-warning-text))]",
+  },
+  Overpaid: {
+    Icon: CircleArrowUp,
+    className: "bg-[rgb(var(--fg-warning)/0.12)] text-[rgb(var(--fg-warning-text))]",
+  },
+  "Not paid": {
+    Icon: Circle,
+    className: "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))]",
+  },
+  Locked: {
+    Icon: LockKeyhole,
+    className: "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))]",
+  },
+};
+
+function StatusChip({ state }: { state: InstallmentState }) {
+  const { Icon, className } = STATE_CHIP[state];
+  return (
+    <span
+      data-installment-state={state}
+      className={`inline-flex min-h-6 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-1.5 text-[10.5px] font-bold whitespace-nowrap ${className}`}
+    >
+      <Icon size={12} strokeWidth={2.4} aria-hidden />
+      {state}
+    </span>
+  );
+}
+
+const PLAN_OPTIONS = [
+  ["full", "Full"],
+  ["split_50_50", "50/50"],
+  ["monthly", "Monthly"],
+] as const;
+
+function planBlocks(draft: ActiveWorkImportDraft, kind: ImportPlanKind): number {
+  if (kind === "full") return 1;
+  if (kind === "split_50_50") return 2;
+  return monthlyCount(draft);
+}
+
 function firstIncompletePayment(
   payments: readonly ImportPaymentDraft[],
   schedule: readonly DraftInstallment[],
@@ -186,6 +247,12 @@ export function PaymentHistoryEditor({
   const balance = draftPaymentBalance(draft);
   const importedPaidCents = balance.paidCents;
   const remainingCents = balance.remainingCents ?? 0;
+  // Share of the scheduled total that is settled. Overpayment never pushes
+  // this past 100 because remaining is per installment, floored at zero.
+  const progressPct =
+    totalCents !== null && totalCents > 0 && balance.remainingCents !== null
+      ? Math.round(Math.max(0, Math.min(1, (totalCents - remainingCents) / totalCents)) * 100)
+      : 0;
   const currency = draft.agreement.currency || "USD";
   const blockingIncomplete = firstIncompletePayment(draft.payments, schedule);
   const [activeEditor, setActiveEditor] = useState<ActivePaymentEditor | null>(() =>
@@ -489,78 +556,88 @@ export function PaymentHistoryEditor({
       </header>
 
       <div className="min-w-0 space-y-3">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-[rgb(var(--border-subtle))] pb-3">
-          <div
-            role="group"
-            aria-label="Agreed payment plan"
-            className="grid min-w-0 grid-cols-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-0.5 sm:w-[19rem]"
-          >
-            {(
-              [
-                ["full", "Full"],
-                ["split_50_50", "50/50"],
-                ["monthly", "Monthly"],
-              ] as const
-            ).map(([kind, label]) => (
-              <button
-                key={kind}
-                type="button"
-                aria-pressed={draft.agreement.planKind === kind}
-                onClick={() => {
-                  changePlan(kind);
-                }}
-                className={`sk-press min-h-11 rounded-[var(--radius-lg)] px-2 text-[12px] font-bold transition-colors duration-150 motion-reduce:transition-none sm:min-h-9 sm:rounded-[var(--radius-md)] ${
-                  draft.agreement.planKind === kind
-                    ? "border border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.11)] text-[rgb(var(--fg-default))]"
-                    : "border border-transparent text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        <div className="min-w-0 space-y-2 border-b border-[rgb(var(--border-subtle))] pb-3">
+          <div role="group" aria-label="Agreed payment plan" className="grid min-w-0 grid-cols-3 gap-2">
+            {PLAN_OPTIONS.map(([kind, label]) => {
+              const selected = draft.agreement.planKind === kind;
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => {
+                    changePlan(kind);
+                  }}
+                  className={`sk-press flex min-h-11 min-w-0 flex-col justify-between gap-2 rounded-[var(--radius-lg)] border p-2.5 text-left transition-colors duration-150 motion-reduce:transition-none sm:p-3 ${
+                    selected
+                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.09)] text-[rgb(var(--fg-default))]"
+                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))]"
+                  }`}
+                >
+                  <span aria-hidden data-plan-split className="flex h-2 w-full gap-0.5">
+                    {Array.from({ length: planBlocks(draft, kind) }, (_, index) => (
+                      <span
+                        key={index}
+                        className={`h-full min-w-0 flex-1 rounded-[2px] ${
+                          selected
+                            ? "bg-[rgb(var(--brand-primary))]"
+                            : "bg-[rgb(var(--fg-faint))]"
+                        }`}
+                      />
+                    ))}
+                  </span>
+                  <span className="text-[12px] font-bold">{label}</span>
+                </button>
+              );
+            })}
           </div>
 
           {draft.agreement.planKind === "monthly" ? (
-            <div
-              role="group"
-              aria-label="Monthly payment count controls"
-              className="flex min-h-11 items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-0.5 sm:min-h-9 sm:rounded-[var(--radius-md)]"
-            >
-              <button
-                type="button"
-                aria-label="Use one fewer monthly payment"
-                disabled={monthlyCount(draft) <= 2}
-                onClick={() => {
-                  changeMonthlyCount(-1);
-                }}
-                className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] disabled:opacity-30 sm:h-9 sm:w-9"
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <p className="text-[12px] font-semibold text-[rgb(var(--fg-default))]">
+                Monthly payments
+              </p>
+              <div
+                role="group"
+                aria-label="Monthly payment count controls"
+                className="flex min-h-11 items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-0.5 sm:min-h-9 sm:rounded-[var(--radius-md)]"
               >
-                <Minus size={14} strokeWidth={2.3} aria-hidden />
-              </button>
-              <output
-                aria-label="Monthly payment count"
-                className="font-amount min-w-6 text-center text-[14px] font-bold text-[rgb(var(--fg-default))]"
-              >
-                {String(monthlyCount(draft))}
-              </output>
-              <button
-                type="button"
-                aria-label="Use one more monthly payment"
-                disabled={monthlyCount(draft) >= 12}
-                onClick={() => {
-                  changeMonthlyCount(1);
-                }}
-                className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] disabled:opacity-30 sm:h-9 sm:w-9"
-              >
-                <Plus size={14} strokeWidth={2.3} aria-hidden />
-              </button>
+                <button
+                  type="button"
+                  aria-label="Use one fewer monthly payment"
+                  disabled={monthlyCount(draft) <= 2}
+                  onClick={() => {
+                    changeMonthlyCount(-1);
+                  }}
+                  className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] disabled:opacity-30 sm:h-9 sm:w-9"
+                >
+                  <Minus size={14} strokeWidth={2.3} aria-hidden />
+                </button>
+                <output
+                  aria-label="Monthly payment count"
+                  className="font-amount min-w-6 text-center text-[14px] font-bold text-[rgb(var(--fg-default))]"
+                >
+                  {String(monthlyCount(draft))}
+                </output>
+                <button
+                  type="button"
+                  aria-label="Use one more monthly payment"
+                  disabled={monthlyCount(draft) >= 12}
+                  onClick={() => {
+                    changeMonthlyCount(1);
+                  }}
+                  className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] disabled:opacity-30 sm:h-9 sm:w-9"
+                >
+                  <Plus size={14} strokeWidth={2.3} aria-hidden />
+                </button>
+              </div>
             </div>
           ) : null}
         </div>
 
         <div className="grid min-w-0 gap-1.5 border-b border-[rgb(var(--border-subtle))] pb-3 sm:max-w-[19rem]">
           <Label htmlFor={`import-first-payment-due-${operationKey}`}>
-            When is the first payment due?{" "}
+            First payment due{" "}
             <span className="font-normal text-[rgb(var(--fg-muted))]">(optional)</span>
           </Label>
           <input
@@ -585,18 +662,15 @@ export function PaymentHistoryEditor({
 
         <div
           data-payment-summary
-          className="grid min-w-0 gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 py-2.5 sm:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(5rem,0.7fr))] sm:items-center sm:gap-3 sm:px-4 sm:py-3"
+          className="min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 py-2.5 sm:px-4 sm:py-3"
         >
-          <div className="min-w-0">
-            <p className="text-[12px] font-bold text-[rgb(var(--fg-default))]">
+          <div className="flex min-w-0 items-baseline justify-between gap-2">
+            <p className="truncate text-[12px] font-bold text-[rgb(var(--fg-default))]">
               {planSummary(draft, schedule)}
             </p>
-            <p className="mt-0.5 text-[10px] text-[rgb(var(--fg-muted))]">Confirmed by producer</p>
+            <p className="shrink-0 text-[10px] text-[rgb(var(--fg-muted))]">Confirmed by producer</p>
           </div>
-          <dl
-            data-payment-summary-metrics
-            className="grid grid-cols-3 gap-2 border-t border-[rgb(var(--border-subtle))] pt-2 sm:contents"
-          >
+          <dl data-payment-summary-metrics className="mt-2 grid grid-cols-3 gap-2">
             {[
               ["Total", totalCents === null ? "—" : formatImportMoney(totalCents, currency)],
               ["Paid", formatImportMoney(importedPaidCents, currency)],
@@ -605,16 +679,29 @@ export function PaymentHistoryEditor({
                 totalCents === null ? "—" : formatImportMoney(remainingCents, currency),
               ],
             ].map(([label, value]) => (
-              <div key={label} className="min-w-0 text-center sm:text-right">
+              <div key={label} className="min-w-0">
                 <dt className="font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
                   {label}
                 </dt>
-                <dd className="font-amount mt-0.5 truncate text-[13px] font-bold text-[rgb(var(--fg-default))] sm:text-[14px]">
+                <dd className="font-amount mt-0.5 truncate text-[14px] font-bold text-[rgb(var(--fg-default))] sm:text-[15px]">
                   {value}
                 </dd>
               </div>
             ))}
           </dl>
+          <div
+            role="progressbar"
+            aria-label="Paid so far"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPct}
+            className="mt-2.5 h-1.5 w-full overflow-hidden rounded-[var(--radius-sm)] bg-[rgb(var(--border-subtle))]"
+          >
+            <div
+              className="h-full rounded-[var(--radius-sm)] bg-[rgb(var(--fg-success))] transition-[width] duration-300 motion-reduce:transition-none"
+              style={{ width: `${String(progressPct)}%` }}
+            />
+          </div>
         </div>
 
         {planHistoryWarning ? (
@@ -673,15 +760,84 @@ export function PaymentHistoryEditor({
               const canRecord =
                 !locked && !blockedByIncomplete && earliest?.position === installment.position;
               const latest = payments.at(-1) ?? null;
+              const receivedLine =
+                received > 0
+                  ? `${formatImportMoney(received, currency)} received · ${
+                      dates.length === 1
+                        ? paymentDateLabel(dates[0] ?? "")
+                        : dates.length > 1
+                          ? `${String(dates.length)} dates`
+                          : "no date"
+                    }`
+                  : null;
+              const action = locked ? null : active ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveEditor(null);
+                    setEditorError(null);
+                  }}
+                  className="sk-press inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] px-2 text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]"
+                >
+                  Close <ChevronUp size={13} strokeWidth={2.2} aria-hidden />
+                </button>
+              ) : hasIncomplete || canRecord || latest ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    openInstallment(installment);
+                  }}
+                  disabled={
+                    blockedByIncomplete ||
+                    (!hasIncomplete && !canRecord && state !== "Paid" && state !== "Overpaid")
+                  }
+                  className="sk-press inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 text-[11.5px] font-bold text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:border-transparent disabled:text-[rgb(var(--fg-faint))]"
+                >
+                  {blockedByIncomplete ? (
+                    "Waiting"
+                  ) : hasIncomplete ? (
+                    "Continue"
+                  ) : canRecord ? (
+                    <>
+                      <Plus size={13} strokeWidth={2.4} aria-hidden />
+                      {"Add payment"}
+                    </>
+                  ) : state === "Paid" || state === "Overpaid" ? (
+                    "Edit"
+                  ) : (
+                    "Waiting"
+                  )}
+                  {blockedByIncomplete || hasIncomplete || (!canRecord && state !== "Paid" && state !== "Overpaid") ? null : (
+                    <ChevronDown size={13} strokeWidth={2.2} aria-hidden />
+                  )}
+                </button>
+              ) : null;
               return (
                 <article
                   role="listitem"
                   key={installment.position}
                   className="min-w-0 border-t border-[rgb(var(--border-subtle))] first:border-t-0"
                 >
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 py-2.5 sm:grid-cols-[minmax(0,1.4fr)_minmax(5.2rem,0.7fr)_minmax(6.4rem,0.85fr)_auto] sm:px-4">
+                  <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:px-4">
+                    <span
+                      aria-hidden
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-sm)] font-mono text-[10px] font-bold ${
+                        locked
+                          ? "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-faint))]"
+                          : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
+                      }`}
+                    >
+                      {String(installment.position).padStart(2, "0")}
+                    </span>
                     <div className="min-w-0">
-                      <p className="truncate text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                      <p
+                        className={`font-amount text-[16px] leading-tight font-bold tracking-[-0.02em] ${
+                          locked ? "text-[rgb(var(--fg-muted))]" : "text-[rgb(var(--fg-default))]"
+                        }`}
+                      >
+                        {formatImportMoney(installment.amountCents, currency)}
+                      </p>
+                      <p className="mt-0.5 truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
                         {scheduleLabel(installment.position, installment.trigger)}
                       </p>
                       {locked ? (
@@ -689,82 +845,18 @@ export function PaymentHistoryEditor({
                           Final 50% starts after Artist approval.
                         </p>
                       ) : null}
-                    </div>
-                    <div className="text-right sm:text-left">
-                      <p className="font-amount text-[13px] font-bold text-[rgb(var(--fg-default))]">
-                        {formatImportMoney(installment.amountCents, currency)}
-                      </p>
-                      <p className="text-[9.5px] text-[rgb(var(--fg-muted))]">Scheduled</p>
-                    </div>
-                    <div className="min-w-0 sm:text-left">
-                      <p className="font-amount truncate text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
-                        {received > 0 ? formatImportMoney(received, currency) : "—"}
-                      </p>
-                      <p className="truncate text-[9.5px] text-[rgb(var(--fg-muted))]">
-                        {dates.length === 1
-                          ? paymentDateLabel(dates[0] ?? "")
-                          : dates.length > 1
-                            ? `${String(dates.length)} recorded dates`
-                            : "No date"}
-                      </p>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-1.5 justify-self-end">
-                      <span
-                        className={`inline-flex min-h-6 items-center gap-1 text-[10.5px] font-bold ${
-                          state === "Paid"
-                            ? "text-[rgb(var(--fg-success-text))]"
-                            : state === "Locked"
-                              ? "text-[rgb(var(--fg-muted))]"
-                              : "text-[rgb(var(--fg-warning-text))]"
-                        }`}
-                      >
-                        {state === "Paid" ? (
-                          <Check size={12} strokeWidth={2.5} aria-hidden />
-                        ) : null}
-                        {state === "Locked" ? (
-                          <LockKeyhole size={12} strokeWidth={2.2} aria-hidden />
-                        ) : null}
-                        {state}
-                      </span>
-                      {locked ? null : active ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveEditor(null);
-                            setEditorError(null);
-                          }}
-                          className="sk-press inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] px-1.5 text-[11px] font-semibold text-[rgb(var(--fg-muted))]"
-                        >
-                          Close <ChevronUp size={13} strokeWidth={2.2} aria-hidden />
-                        </button>
-                      ) : hasIncomplete || canRecord || latest ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            openInstallment(installment);
-                          }}
-                          disabled={
-                            blockedByIncomplete ||
-                            (!hasIncomplete &&
-                              !canRecord &&
-                              state !== "Paid" &&
-                              state !== "Overpaid")
-                          }
-                          className="sk-press inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] px-1.5 text-[11px] font-semibold text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:text-[rgb(var(--fg-faint))]"
-                        >
-                          {blockedByIncomplete
-                            ? "Waiting"
-                            : hasIncomplete
-                              ? "Continue"
-                              : canRecord
-                                ? "Record"
-                                : state === "Paid" || state === "Overpaid"
-                                  ? "Edit"
-                                  : "Waiting"}
-                          <ChevronDown size={13} strokeWidth={2.2} aria-hidden />
-                        </button>
+                      {receivedLine ? (
+                        <p className="font-amount mt-0.5 truncate text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">
+                          {receivedLine}
+                        </p>
                       ) : null}
                     </div>
+                    <div className="justify-self-end">
+                      <StatusChip state={state} />
+                    </div>
+                    {action ? (
+                      <div className="col-span-3 flex justify-end sm:col-span-1">{action}</div>
+                    ) : null}
                   </div>
 
                   {active ? (
@@ -1054,8 +1146,8 @@ export function PaymentHistoryEditor({
             {blockingIncomplete
               ? `Continue Payment ${String(blockingIncomplete.installmentPosition)}`
               : draft.payments.length > 0
-                ? "Record another payment"
-                : "Record first payment"}
+                ? "Add another payment"
+                : "Add first payment"}
           </button>
         ) : null}
       </div>

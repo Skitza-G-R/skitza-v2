@@ -2,39 +2,64 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { resampleWaveformHeights } from "~/lib/audio/rms-peaks";
+import { useAudioPeaks } from "~/lib/audio/use-audio-peaks";
+import { shareNative } from "~/lib/native/share";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
+import { useToast } from "~/components/ui/toast";
 import {
   PLAYER_EVENTS,
   clampSeekMs,
+  nextLoopMode,
   playerClose,
   playerLoad,
+  playerNext,
   playerPlay,
+  playerPrevious,
   playerSeek,
+  playerSetLoop,
+  playerSetShuffle,
   playerSetVolume,
   playerToggle,
   publishNowPlaying,
+  queueNeighbors,
   useNowPlaying,
   usePlaybackSnapshot,
+  type LoopMode,
   type PlayerTrack,
 } from "./playback-runtime";
 
 export {
   PLAYER_EVENTS,
   clampSeekMs,
+  nextLoopMode,
   playerClose,
   playerLoad,
+  playerNext,
   playerPlay,
+  playerPrevious,
   playerSeek,
+  playerSetLoop,
+  playerSetShuffle,
   playerSetVolume,
   playerToggle,
   publishNowPlaying,
+  queueNeighbors,
   useNowPlaying,
   usePlaybackSnapshot,
 };
-export type { PlayerLoadOptions, PlayerTrack } from "./playback-runtime";
+export type { LoopMode, PlayerLoadOptions, PlayerTrack } from "./playback-runtime";
+
+/**
+ * Fixed seek step for the ±10 second transport buttons. Track skips are
+ * a separate control now — the founder reported the old "next" arrow
+ * jumping 15 seconds instead of moving to the next song.
+ */
+export const SEEK_STEP_MS = 10_000;
 
 const UUID_PATH_SEGMENT = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const PRODUCER_SHARED_SONG_PATH = new RegExp(`^/dashboard/music/${UUID_PATH_SEGMENT}/?$`, "i");
@@ -114,6 +139,45 @@ export function expandHrefForTrack(track: PlayerTrack, pathname: string | null):
   return `/dashboard/music/${track.id}`;
 }
 
+/**
+ * Brand-canonical address for the currently-playing track, so a shared
+ * link always reads as skitza.app/... regardless of which deployment
+ * the producer happens to be viewing from. Mirrors the Song page's own
+ * share control (canonicalSongPageAddress).
+ */
+export function shareUrlForTrack(track: PlayerTrack, pathname: string | null): string {
+  return `${PUBLIC_BRAND_ORIGIN}${expandHrefForTrack(track, pathname)}`;
+}
+
+/** Accessible name for the tri-state repeat button. */
+export function loopButtonLabel(mode: LoopMode): string {
+  if (mode === "all") return "Repeat all";
+  if (mode === "one") return "Repeat this song";
+  return "Repeat off";
+}
+
+/**
+ * Only decode audio the browser can actually fetch: the same-origin
+ * stream route carries the session cookie, while a raw R2 URL has no
+ * CORS grant for our origins and would fail every time. Returns the URL
+ * unchanged (not normalized) so the decode cache key matches the one
+ * the Song page hero already uses for the same track.
+ */
+export function sameOriginPeaksUrl(
+  audioUrl: string | null | undefined,
+  origin: string | null,
+): string | null {
+  if (!audioUrl || !origin) return null;
+  try {
+    const base = new URL(origin);
+    const url = new URL(audioUrl, base);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.origin === base.origin ? audioUrl : null;
+  } catch {
+    return null;
+  }
+}
+
 export function shouldCollapsePlayerDrag({
   offsetY,
   velocityY,
@@ -134,12 +198,146 @@ export function shouldCollapsePlayerDrag({
   return safeOffset >= distanceThreshold || (safeOffset >= 24 && safeVelocity >= 0.55);
 }
 
+/**
+ * Exponentially-weighted pointer velocity in px/ms.
+ *
+ * Shared by the sheet's collapse drag and the artwork swipe so both
+ * gestures settle with the same feel. A normal 16ms frame keeps the
+ * historic 45/55 blend; a stationary hold decays the stale sample
+ * toward zero; and a coordinate that arrives on a tied (or backwards)
+ * timestamp is the only fresh direction sample, so it takes ownership.
+ */
+export function blendPointerVelocity({
+  previousVelocity,
+  delta,
+  elapsedMs,
+}: {
+  previousVelocity: number;
+  delta: number;
+  elapsedMs: number;
+}): number {
+  const elapsed = Math.max(0, elapsedMs);
+  const instantaneous = delta / Math.max(1, elapsed);
+  const hasImmediateCoordinate = elapsedMs <= 0 && delta !== 0;
+  const retention = hasImmediateCoordinate ? 0 : Math.pow(0.45, elapsed / 16);
+  return previousVelocity * retention + instantaneous * (1 - retention);
+}
+
+// ─── Artwork swipe — song skips on the cover ─────────────────────────
+//
+// Spotify's gesture: drag the cover sideways to move through the queue.
+// The thresholds are the ones useTabSwipe already uses for every other
+// horizontal gesture in the app, so committing a swipe costs the same
+// travel here as it does on a tab strip.
+
+/** Deliberate travel that commits regardless of speed. */
+export const ARTWORK_SWIPE_MIN_DISTANCE = 56;
+/** Shorter travel a fast flick is allowed to commit on. */
+export const ARTWORK_SWIPE_MIN_FLICK_DISTANCE = 24;
+/** px/ms a flick has to reach at that shorter distance. */
+export const ARTWORK_SWIPE_MIN_VELOCITY = 0.55;
+/** How much more horizontal than vertical the gesture has to be. */
+const ARTWORK_SWIPE_INTENT_RATIO = 1.25;
+/** Travel before a drag claims a direction (and the pointer). */
+const ARTWORK_SWIPE_INTENT_DISTANCE = 12;
+/** Rubber band for a drag toward a song the queue does not have. */
+const ARTWORK_SWIPE_BOUNDARY_RESISTANCE = 0.2;
+const ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET = 24;
+
+export type ArtworkSwipeIntent = "next" | "previous";
+
+/**
+ * Which song a horizontal drag is reaching for.
+ *
+ * The direction is PHYSICAL, not linguistic: dragging the cover left is
+ * always "next", in every language. Spotify and Apple Music both do it
+ * this way — the gesture is muscle memory attached to the hand, not to
+ * the reading order, so mirroring it under `dir="rtl"` would fight what
+ * a bilingual listener already knows. The transport row above still
+ * mirrors, because buttons are read, not felt.
+ */
+export function artworkSwipeIntent(deltaX: number): ArtworkSwipeIntent {
+  return deltaX < 0 ? "next" : "previous";
+}
+
+/**
+ * Resolves a released artwork drag to a song skip, or to nothing.
+ *
+ * A gesture commits on deliberate travel, or on a short flick whose
+ * velocity agrees with where the finger actually ended up — a reversed
+ * flick must not skip to a song the finger walked back from. "Previous"
+ * stays live at the top of the queue: the runtime restarts the current
+ * song there, exactly like the Previous button.
+ */
+export function resolveArtworkSwipe({
+  deltaX,
+  deltaY,
+  velocityX,
+  hasNext,
+}: {
+  deltaX: number;
+  deltaY: number;
+  velocityX: number;
+  hasNext: boolean;
+}): ArtworkSwipeIntent | null {
+  if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(velocityX)) {
+    return null;
+  }
+  const horizontal = Math.abs(deltaX);
+  const vertical = Math.abs(deltaY);
+  if (deltaX === 0 || horizontal <= vertical * ARTWORK_SWIPE_INTENT_RATIO) return null;
+
+  const flicked =
+    horizontal >= ARTWORK_SWIPE_MIN_FLICK_DISTANCE &&
+    Math.abs(velocityX) >= ARTWORK_SWIPE_MIN_VELOCITY &&
+    Math.sign(velocityX) === Math.sign(deltaX);
+  if (horizontal < ARTWORK_SWIPE_MIN_DISTANCE && !flicked) return null;
+
+  const intent = artworkSwipeIntent(deltaX);
+  // End of the queue with repeat off — there is nothing to hand over to.
+  if (intent === "next" && !hasNext) return null;
+  return intent;
+}
+
+/**
+ * How far the cover travels with the finger: one-to-one while there is
+ * a song to reach, and a short resisted stretch when there is not, so
+ * the end of the queue is felt rather than silently ignored.
+ */
+export function resolveArtworkDragOffset({
+  deltaX,
+  hasNext,
+}: {
+  deltaX: number;
+  hasNext: boolean;
+}): number {
+  if (!Number.isFinite(deltaX)) return 0;
+  if (artworkSwipeIntent(deltaX) === "next" && !hasNext) {
+    const resisted = deltaX * ARTWORK_SWIPE_BOUNDARY_RESISTANCE;
+    return Math.max(
+      -ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET,
+      Math.min(ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET, resisted),
+    );
+  }
+  return deltaX;
+}
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/** Motion-sensitive users get the skip, never the travelling cover. */
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia(REDUCED_MOTION_QUERY).matches;
+}
+
 // ─── Component ───────────────────────────────────────────────────────
 
 export function PersistentPlayer() {
   const state = usePlaybackSnapshot();
   const currentMs = state.currentMs;
   const audioDurationSec = state.audioDurationSec;
+  const { toast } = useToast();
+  const [sharing, setSharing] = useState(false);
   // Reactive pathname — re-renders on navigation. Drives
   // expandHrefForTrack so the dock's title / cover / expand button
   // route to the right L3 (artist vs producer) without each caller
@@ -168,6 +366,7 @@ export function PersistentPlayer() {
 
   if (!state.track) return null;
 
+  const neighbors = queueNeighbors(state);
   const dbDurationMs = state.track.durationMs;
   const effectiveDurationMs = pickDurationMs(dbDurationMs, audioDurationSec);
   const progressPct =
@@ -189,6 +388,55 @@ export function PersistentPlayer() {
     playerToggle();
   }
 
+  async function onShare() {
+    const track = state.track;
+    if (!track || sharing) return;
+    setSharing(true);
+    try {
+      const url = shareUrlForTrack(track, pathname);
+      const result = await shareNative({
+        title: track.title,
+        text: `Listen to ${track.title} on Skitza`,
+        url,
+        fallbackText: url,
+      });
+      if (result.status === "shared") toast("Song shared", "success");
+      if (result.status === "copied") toast("Song link copied", "success");
+      if (result.status === "unavailable") {
+        toast("Could not share this song. Try again.", "error");
+      }
+    } catch {
+      toast("Could not share this song. Try again.", "error");
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  const transport = {
+    loop: state.loop,
+    shuffle: state.shuffle,
+    hasNext: neighbors.next !== null,
+    onTogglePlay,
+    onScrub,
+    onSkip,
+    onNext: () => {
+      playerNext();
+    },
+    onPrevious: () => {
+      playerPrevious();
+    },
+    onCycleLoop: () => {
+      playerSetLoop(nextLoopMode(state.loop));
+    },
+    onToggleShuffle: () => {
+      playerSetShuffle(!state.shuffle);
+    },
+    onShare: () => {
+      void onShare();
+    },
+    sharing,
+  };
+
   return (
     <>
       {/* Desktop dock — md+ */}
@@ -198,11 +446,9 @@ export function PersistentPlayer() {
         currentMs={currentMs}
         durationMs={effectiveDurationMs}
         progressPct={progressPct}
-        onTogglePlay={onTogglePlay}
-        onScrub={onScrub}
-        onSkip={onSkip}
         hidden={dockHidden}
         pathname={pathname}
+        {...transport}
       />
       {/* Mobile dock — <md, sits above the bottom nav. Tapping it
           expands into the full-screen player (SK-55), so it needs the
@@ -213,14 +459,34 @@ export function PersistentPlayer() {
         currentMs={currentMs}
         durationMs={effectiveDurationMs}
         progressPct={progressPct}
-        onTogglePlay={onTogglePlay}
-        onScrub={onScrub}
-        onSkip={onSkip}
         hidden={dockHidden}
         pathname={pathname}
+        {...transport}
       />
     </>
   );
+}
+
+// ─── Shared transport contract ───────────────────────────────────────
+//
+// Every surface (desktop dock, mobile mini bar, full-screen player)
+// drives the same runtime, so they share one prop bag rather than each
+// re-deriving queue position and repeat state.
+
+export interface PlayerTransport {
+  loop: LoopMode;
+  shuffle: boolean;
+  /** False at the end of the queue with repeat off — the button disables. */
+  hasNext: boolean;
+  onTogglePlay: () => void;
+  onScrub: (pct: number) => void;
+  onSkip: (deltaMs: number) => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onCycleLoop: () => void;
+  onToggleShuffle: () => void;
+  onShare: () => void;
+  sharing: boolean;
 }
 
 // ─── Desktop dock ────────────────────────────────────────────────────
@@ -231,23 +497,29 @@ function DesktopDock({
   currentMs,
   durationMs,
   progressPct,
+  hidden = false,
+  pathname,
+  loop,
+  shuffle,
+  hasNext,
   onTogglePlay,
   onScrub,
   onSkip,
-  hidden = false,
-  pathname,
+  onNext,
+  onPrevious,
+  onCycleLoop,
+  onToggleShuffle,
+  onShare,
+  sharing,
 }: {
   track: PlayerTrack;
   playing: boolean;
   currentMs: number;
   durationMs: number | null;
   progressPct: number;
-  onTogglePlay: () => void;
-  onScrub: (pct: number) => void;
-  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
-}) {
+} & PlayerTransport) {
   return (
     <div
       role="region"
@@ -322,17 +594,40 @@ function DesktopDock({
             to render — without it the waveform collapses (regression
             the founder flagged: "no waveform bar on the floating
             player"). */}
-        <div className="hidden min-w-[360px] flex-col items-center gap-1.5 lg:flex">
-          <div className="flex items-center justify-center gap-4">
+        <div className="hidden min-w-[420px] flex-col items-center gap-1.5 lg:flex">
+          <div className="flex items-center justify-center gap-1">
             <button
               type="button"
-              aria-label="Back 15 seconds"
-              onClick={() => {
-                onSkip(-15_000);
-              }}
+              aria-label="Shuffle"
+              aria-pressed={shuffle}
+              title="Shuffle"
+              onClick={onToggleShuffle}
+              className={[
+                "sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-lg)]",
+                shuffle ? "text-[rgb(var(--brand-primary))]" : "text-white/55 hover:text-white",
+              ].join(" ")}
+            >
+              <ShuffleIcon />
+            </button>
+            <button
+              type="button"
+              aria-label="Previous song"
+              title="Previous song"
+              onClick={onPrevious}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
               <SkipBackIcon />
+            </button>
+            <button
+              type="button"
+              aria-label="Back 10 seconds"
+              title="Back 10 seconds"
+              onClick={() => {
+                onSkip(-SEEK_STEP_MS);
+              }}
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
+            >
+              <Seek10Icon direction="back" />
             </button>
             <button
               type="button"
@@ -344,18 +639,42 @@ function DesktopDock({
             </button>
             <button
               type="button"
-              aria-label="Forward 15 seconds"
+              aria-label="Forward 10 seconds"
+              title="Forward 10 seconds"
               onClick={() => {
-                onSkip(15_000);
+                onSkip(SEEK_STEP_MS);
               }}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
+              <Seek10Icon direction="forward" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next song"
+              title="Next song"
+              onClick={onNext}
+              disabled={!hasNext}
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white disabled:cursor-not-allowed disabled:text-white/20 disabled:hover:text-white/20"
+            >
               <SkipForwardIcon />
+            </button>
+            <button
+              type="button"
+              aria-label={loopButtonLabel(loop)}
+              aria-pressed={loop !== "off"}
+              title={loopButtonLabel(loop)}
+              onClick={onCycleLoop}
+              className={[
+                "sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-lg)]",
+                loop === "off" ? "text-white/55 hover:text-white" : "text-[rgb(var(--brand-primary))]",
+              ].join(" ")}
+            >
+              <LoopIcon single={loop === "one"} />
             </button>
           </div>
           <div className="flex w-full items-center gap-2.5 font-mono text-[10px] text-white/40">
             <span className="w-8 text-right tabular-nums">{fmtTime(currentMs)}</span>
-            <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} />
+            <MiniWaveform track={track} progressPct={progressPct} onScrub={onScrub} />
             <span className="w-8 tabular-nums">
               {durationMs == null ? "—" : fmtTime(durationMs)}
             </span>
@@ -380,6 +699,17 @@ function DesktopDock({
             1fr column on the left mirrors this so the center auto
             column stays at true geometric center. */}
         <div className="flex items-center justify-end gap-1 justify-self-end border-s border-white/10 ps-3">
+          <button
+            type="button"
+            aria-label="Share song"
+            title="Share song"
+            aria-busy={sharing}
+            disabled={sharing}
+            onClick={onShare}
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/55 hover:text-white disabled:opacity-50"
+          >
+            <ShareIcon />
+          </button>
           <Link
             href={expandHrefForTrack(track, pathname)}
             prefetch={false}
@@ -414,23 +744,19 @@ export function MobileDock({
   currentMs,
   durationMs,
   progressPct,
-  onTogglePlay,
-  onScrub,
-  onSkip,
   hidden = false,
   pathname,
+  ...transport
 }: {
   track: PlayerTrack;
   playing: boolean;
   currentMs: number;
   durationMs: number | null;
   progressPct: number;
-  onTogglePlay: () => void;
-  onScrub: (pct: number) => void;
-  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
-}) {
+} & PlayerTransport) {
+  const { onTogglePlay } = transport;
   // SK-55 — tapping the mini bar expands a full-screen player (the
   // Spotify/Apple-Music pattern). One state flag toggles the
   // `.expanded` class on the overlay; CSS transitions do the motion.
@@ -491,23 +817,28 @@ export function MobileDock({
           hidden ? "pointer-events-none" : "",
         ].join(" ")}
         style={{
-          transform: hidden ? "translateY(120%) scale(0.98)" : "translateY(0) scale(1)",
+          // This wrapper must be *completely inert* while the dock is visible.
+          //
+          // An element that establishes a backdrop root hides the page from any
+          // `backdrop-filter` beneath it — the pill would sample this wrapper,
+          // which paints nothing, and blur nothing. `filter` does that, and so
+          // do `transform` and `will-change: transform`, which is why all three
+          // are conditional. Measured with a hard colour edge behind the bar:
+          // with an identity `transform` still set, the edge came through at
+          // 0.0px spread — no blur at all, even though the computed style read
+          // `blur(20px)`. The tab row escapes this because its transform sits on
+          // the blurred layer itself, not on an ancestor.
+          //
+          // `none` -> `translateY(120%)` still animates, so the exit is intact.
+          transform: hidden ? "translateY(120%) scale(0.98)" : "none",
           opacity: hidden ? 0 : 1,
-          filter: hidden ? "blur(6px)" : "blur(0px)",
           transition: hidden
-            ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 380ms cubic-bezier(0.16, 1, 0.3, 1)"
-            : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms cubic-bezier(0.16, 1, 0.3, 1)",
-          willChange: "transform, opacity, filter",
+            ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)"
+            : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+          willChange: hidden ? "transform, opacity" : "auto",
         }}
       >
-        <div
-          className="sk-toast-in flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"
-          style={{
-            background: "#1A1A1A",
-            borderColor: "rgba(255,255,255,0.08)",
-            color: "#fff",
-          }}
-        >
+        <div className="persistent-player-dock__glass sk-toast-in flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]">
           {/* Cover + title is one tappable surface → expands the
               full-screen player (Spotify/Apple-Music mini-bar
               behavior). The song PAGE stays reachable from inside the
@@ -523,8 +854,15 @@ export function MobileDock({
           >
             <Cover track={track} size={38} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-bold tracking-[-0.01em]">{track.title}</p>
-              <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
+              <p className="persistent-player-dock__ink truncate text-[13px] font-bold tracking-[-0.01em]">
+                {track.title}
+              </p>
+              {/* Neutral, not brand amber. Over a warm cover the amber
+                  subtitle sat on a wash of its own hue and washed out in both
+                  themes — the one place the glass genuinely cost legibility.
+                  It stays secondary through size and weight, the same way the
+                  tab row below dropped its own tint. */}
+              <p className="persistent-player-dock__ink truncate text-[11px] font-semibold text-[rgb(var(--sk-nav-glass-ink)/0.72)]">
                 {track.subtitle}
               </p>
             </div>
@@ -533,7 +871,7 @@ export function MobileDock({
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={onTogglePlay}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--sk-nav-glass-ink))] text-[rgb(var(--sk-nav-glass-tint))]"
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -544,7 +882,7 @@ export function MobileDock({
             onClick={() => {
               setExpanded(true);
             }}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--sk-nav-glass-ink)/0.72)] hover:text-[rgb(var(--sk-nav-glass-ink))]"
           >
             <ExpandIcon />
           </button>
@@ -555,7 +893,7 @@ export function MobileDock({
             onClick={() => {
               playerClose();
             }}
-            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-white/[0.06] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--sk-nav-glass-ink)/0.08)] text-[rgb(var(--sk-nav-glass-ink)/0.72)] hover:text-[rgb(var(--sk-nav-glass-ink))]"
           >
             <CloseIcon />
           </button>
@@ -570,9 +908,7 @@ export function MobileDock({
               currentMs={currentMs}
               durationMs={durationMs}
               progressPct={progressPct}
-              onTogglePlay={onTogglePlay}
-              onScrub={onScrub}
-              onSkip={onSkip}
+              {...transport}
               expanded={expanded}
               onCollapse={() => {
                 setExpanded(false);
@@ -603,9 +939,18 @@ export function MobileFullPlayer({
   currentMs,
   durationMs,
   progressPct,
+  loop,
+  shuffle,
+  hasNext,
   onTogglePlay,
   onScrub,
   onSkip,
+  onNext,
+  onPrevious,
+  onCycleLoop,
+  onToggleShuffle,
+  onShare,
+  sharing,
   expanded,
   onCollapse,
   collapseBtnRef,
@@ -618,16 +963,13 @@ export function MobileFullPlayer({
   currentMs: number;
   durationMs: number | null;
   progressPct: number;
-  onTogglePlay: () => void;
-  onScrub: (pct: number) => void;
-  onSkip: (deltaMs: number) => void;
   expanded: boolean;
   onCollapse: () => void;
   collapseBtnRef: React.RefObject<HTMLButtonElement | null>;
   pathname: string | null;
   direction?: "ltr" | "rtl";
   language?: string | undefined;
-}) {
+} & PlayerTransport) {
   // Tint the top of the sheet with the track's identity gradient —
   // same producerGradient hash the covers use, so mini → full reads
   // as the same object growing.
@@ -635,6 +977,8 @@ export function MobileFullPlayer({
   const [dragOffsetY, setDragOffsetY] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [scrubPreviewPct, setScrubPreviewPct] = useState<number | null>(null);
+  const [artworkOffsetX, setArtworkOffsetX] = useState(0);
+  const [artworkSwiping, setArtworkSwiping] = useState(false);
   const suppressHandleClickRef = useRef(false);
   const dragRef = useRef<{
     pointerId: number;
@@ -644,13 +988,26 @@ export function MobileFullPlayer({
     velocityY: number;
     moved: boolean;
   } | null>(null);
+  const artworkDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastAt: number;
+    velocityX: number;
+    horizontal: boolean;
+    reducedMotion: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (expanded) return;
     dragRef.current = null;
+    artworkDragRef.current = null;
     setDragging(false);
     setDragOffsetY(0);
     setScrubPreviewPct(null);
+    setArtworkSwiping(false);
+    setArtworkOffsetX(0);
   }, [expanded]);
 
   function pointerOffset(clientY: number): number {
@@ -685,16 +1042,11 @@ export function MobileFullPlayer({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const offsetY = pointerOffset(event.clientY);
-    const moveDeltaY = event.clientY - drag.lastY;
-    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
-    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
-    const instantaneousVelocity = moveDeltaY / Math.max(1, elapsedSinceLastMove);
-    const hasImmediateCoordinate = rawElapsedSinceLastMove <= 0 && moveDeltaY !== 0;
-    const velocityRetention = hasImmediateCoordinate
-      ? 0
-      : Math.pow(0.45, elapsedSinceLastMove / 16);
-    drag.velocityY =
-      drag.velocityY * velocityRetention + instantaneousVelocity * (1 - velocityRetention);
+    drag.velocityY = blendPointerVelocity({
+      previousVelocity: drag.velocityY,
+      delta: event.clientY - drag.lastY,
+      elapsedMs: event.timeStamp - drag.lastAt,
+    });
     drag.lastY = event.clientY;
     drag.lastAt = event.timeStamp;
     drag.moved ||= Math.abs(event.clientY - drag.startY) >= 5;
@@ -706,20 +1058,11 @@ export function MobileFullPlayer({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const offsetY = pointerOffset(event.clientY);
-    const releaseDeltaY = event.clientY - drag.lastY;
-    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
-    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
-    const releaseVelocity = releaseDeltaY / Math.max(1, elapsedSinceLastMove);
-    const hasImmediateFinalCoordinate = rawElapsedSinceLastMove <= 0 && releaseDeltaY !== 0;
-    // Keep the existing 45/55 velocity blend at a normal 16ms frame,
-    // but let a stationary hold decay the old sample before release.
-    // If timestamps tie or go backwards, a changed final coordinate
-    // is the only fresh direction sample and must take ownership.
-    const velocityRetention = hasImmediateFinalCoordinate
-      ? 0
-      : Math.pow(0.45, elapsedSinceLastMove / 16);
-    const velocityY =
-      drag.velocityY * velocityRetention + releaseVelocity * (1 - velocityRetention);
+    const velocityY = blendPointerVelocity({
+      previousVelocity: drag.velocityY,
+      delta: event.clientY - drag.lastY,
+      elapsedMs: event.timeStamp - drag.lastAt,
+    });
     const moved = drag.moved || Math.abs(event.clientY - drag.startY) >= 5;
     dragRef.current = null;
     setDragging(false);
@@ -752,6 +1095,96 @@ export function MobileFullPlayer({
     setDragOffsetY(0);
   }
 
+  // ── Artwork swipe ──
+  // The cover is the only surface here that owns horizontal travel, so
+  // the gesture waits for the finger to declare itself: a vertical drag
+  // is handed straight back to the browser rather than fighting it.
+
+  function onArtworkPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || event.button !== 0) return;
+    artworkDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastAt: event.timeStamp,
+      velocityX: 0,
+      horizontal: false,
+      reducedMotion: prefersReducedMotion(),
+    };
+  }
+
+  function onArtworkPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = artworkDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+
+    if (!drag.horizontal) {
+      if (
+        Math.abs(deltaX) < ARTWORK_SWIPE_INTENT_DISTANCE &&
+        Math.abs(deltaY) < ARTWORK_SWIPE_INTENT_DISTANCE
+      ) {
+        return;
+      }
+      if (Math.abs(deltaX) <= Math.abs(deltaY) * ARTWORK_SWIPE_INTENT_RATIO) {
+        artworkDragRef.current = null;
+        return;
+      }
+      drag.horizontal = true;
+      setArtworkSwiping(true);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Older Safari builds can expose pointer capture before it works.
+      }
+    }
+
+    event.preventDefault();
+    drag.velocityX = blendPointerVelocity({
+      previousVelocity: drag.velocityX,
+      delta: event.clientX - drag.lastX,
+      elapsedMs: event.timeStamp - drag.lastAt,
+    });
+    drag.lastX = event.clientX;
+    drag.lastAt = event.timeStamp;
+    if (drag.reducedMotion) return;
+    setArtworkOffsetX(resolveArtworkDragOffset({ deltaX, hasNext }));
+  }
+
+  function finishArtworkDrag(event: React.PointerEvent<HTMLDivElement>, cancelled: boolean) {
+    const drag = artworkDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    artworkDragRef.current = null;
+    setArtworkSwiping(false);
+    // Always settle the cover back to centre: a committed swipe repaints
+    // it with the next song's identity gradient in the same frame.
+    setArtworkOffsetX(0);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Losing capture to a system gesture is safe; the cover settled above.
+    }
+    if (!drag.horizontal || cancelled) return;
+
+    event.preventDefault();
+    const intent = resolveArtworkSwipe({
+      deltaX: event.clientX - drag.startX,
+      deltaY: event.clientY - drag.startY,
+      velocityX: blendPointerVelocity({
+        previousVelocity: drag.velocityX,
+        delta: event.clientX - drag.lastX,
+        elapsedMs: event.timeStamp - drag.lastAt,
+      }),
+      hasNext,
+    });
+    if (intent === "next") onNext();
+    if (intent === "previous") onPrevious();
+  }
+
+  // A cover mid-gesture dims a little as it leaves, so the hand-off to
+  // the next song reads as travel rather than a slab sliding about.
+  const artworkTravelling = artworkOffsetX !== 0;
   const displayedProgressPct = scrubPreviewPct ?? progressPct;
   const displayedCurrentMs =
     scrubPreviewPct !== null && durationMs
@@ -836,14 +1269,47 @@ export function MobileFullPlayer({
         {/* Artwork — square, screen-width minus gutters, capped so it
             never starves the transport on short phones. Soft radial
             highlight over the identity gradient (Samply's airbrushed
-            cover feel) instead of a flat color slab. */}
-        <div className="flex min-h-0 flex-1 items-center justify-center py-3">
+            cover feel) instead of a flat color slab.
+
+            The cap is 100% of this flex slot, not a slice of the viewport:
+            a viewport fraction knows nothing about the chrome stacked below,
+            so on a short phone the cover overflowed the slot and painted over
+            the song title. Letting it letterbox is fine — the block is a
+            decorative gradient, not a real cover image.
+
+            The slot is also the swipe surface (SK-309): dragging the cover
+            sideways moves through the queue, the way every phone music app
+            does it. `touch-action: pan-y` keeps vertical gestures with the
+            browser while claiming the horizontal axis, so the gesture can
+            never race iOS's edge back-swipe. */}
+        <div
+          className="flex min-h-0 flex-1 touch-pan-y items-center justify-center py-3 select-none"
+          onPointerDown={onArtworkPointerDown}
+          onPointerMove={onArtworkPointerMove}
+          onPointerUp={(event) => {
+            finishArtworkDrag(event, false);
+          }}
+          onPointerCancel={(event) => {
+            finishArtworkDrag(event, true);
+          }}
+          onLostPointerCapture={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (artworkDragRef.current?.pointerId === event.pointerId) {
+              finishArtworkDrag(event, true);
+            }
+          }}
+        >
           <div
             aria-hidden
-            className="relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
+            data-swipe-state={artworkSwiping ? "dragging" : undefined}
+            className="mobile-full-player-artwork relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
             style={{
               background: tint,
-              maxHeight: "min(360px, 46vh)",
+              maxHeight: "min(360px, 100%)",
+              transform: artworkTravelling ? `translateX(${String(artworkOffsetX)}px)` : undefined,
+              opacity: artworkTravelling
+                ? Math.max(0.55, 1 - Math.abs(artworkOffsetX) / 640)
+                : undefined,
             }}
           >
             <span
@@ -876,6 +1342,17 @@ export function MobileFullPlayer({
               {track.subtitle}
             </p>
           </Link>
+          <button
+            type="button"
+            aria-label="Share song"
+            title="Share song"
+            aria-busy={sharing}
+            disabled={sharing}
+            onClick={onShare}
+            className="sk-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/85 hover:bg-white/[0.14] hover:text-white disabled:opacity-50"
+          >
+            <ShareIcon />
+          </button>
           <Link
             href={expandHrefForTrack(track, pathname)}
             prefetch={false}
@@ -892,7 +1369,7 @@ export function MobileFullPlayer({
         <div className="mt-4">
           <div className="flex items-center">
             <MiniWaveform
-              seed={track.id}
+              track={track}
               progressPct={displayedProgressPct}
               onScrub={onScrub}
               onPreview={setScrubPreviewPct}
@@ -905,14 +1382,25 @@ export function MobileFullPlayer({
           </div>
         </div>
 
-        {/* Transport — 64px play/pause flanked by fixed ±15 second skips. */}
-        <div className="mt-2 flex items-center justify-center gap-9">
+        {/* Transport — 64px play/pause between song skips, with shuffle
+            and repeat on the outside (Spotify / Apple Music order). */}
+        <div className="mt-2 flex items-center justify-center gap-3">
           <button
             type="button"
-            aria-label="Back 15 seconds"
-            onClick={() => {
-              onSkip(-15_000);
-            }}
+            aria-label="Shuffle"
+            aria-pressed={shuffle}
+            onClick={onToggleShuffle}
+            className={[
+              "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
+              shuffle ? "text-[rgb(var(--brand-primary))]" : "text-white/60 hover:text-white",
+            ].join(" ")}
+          >
+            <ShuffleIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="Previous song"
+            onClick={onPrevious}
             className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
           >
             <SkipBackIcon />
@@ -927,13 +1415,49 @@ export function MobileFullPlayer({
           </button>
           <button
             type="button"
-            aria-label="Forward 15 seconds"
-            onClick={() => {
-              onSkip(15_000);
-            }}
-            className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
+            aria-label="Next song"
+            onClick={onNext}
+            disabled={!hasNext}
+            className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white disabled:cursor-not-allowed disabled:text-white/25 disabled:hover:text-white/25"
           >
             <SkipForwardIcon />
+          </button>
+          <button
+            type="button"
+            aria-label={loopButtonLabel(loop)}
+            aria-pressed={loop !== "off"}
+            onClick={onCycleLoop}
+            className={[
+              "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
+              loop === "off" ? "text-white/60 hover:text-white" : "text-[rgb(var(--brand-primary))]",
+            ].join(" ")}
+          >
+            <LoopIcon single={loop === "one"} />
+          </button>
+        </div>
+
+        {/* Fine seek — the ±10 second nudges live on their own row so
+            the song skips above never get mistaken for them again. */}
+        <div className="mt-1.5 flex items-center justify-center gap-3">
+          <button
+            type="button"
+            aria-label="Back 10 seconds"
+            onClick={() => {
+              onSkip(-SEEK_STEP_MS);
+            }}
+            className="sk-press inline-flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-white/60 hover:text-white"
+          >
+            <Seek10Icon direction="back" />
+          </button>
+          <button
+            type="button"
+            aria-label="Forward 10 seconds"
+            onClick={() => {
+              onSkip(SEEK_STEP_MS);
+            }}
+            className="sk-press inline-flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-white/60 hover:text-white"
+          >
+            <Seek10Icon direction="forward" />
           </button>
         </div>
 
@@ -983,13 +1507,25 @@ function Cover({ track, size }: { track: PlayerTrack; size: number }) {
 }
 
 // ─── Mini waveform (dock progress visual) ────────────────────────────
-// Replaces the flat ScrubBar with a row of seeded bars matching the
-// L3 hero waveform aesthetic — same "this is a music app" visual
-// language. Played bars render solid white, unplayed bars sit at
-// 12% white. Click anywhere on the strip to seek (the founder still
-// expects scrubbing to work from the dock).
+// A row of bars matching the L3 hero waveform aesthetic — same "this is
+// a music app" visual language. Played bars render solid white,
+// unplayed bars sit at 20% white. Click anywhere on the strip to seek
+// (the founder still expects scrubbing to work from the dock).
+//
+// The envelope is the REAL audio, in this order:
+//
+//   1. track.peaks — pre-computed server-side at upload and shipped
+//      down with the page payload. No fetch, correct on first frame.
+//   2. a client decode of the same-origin stream URL, sharing the
+//      module cache with the L3 hero waveform, so a track that was
+//      already drawn on the Song page costs nothing here.
+//   3. the seeded pseudo-envelope below — only while a decode is in
+//      flight, or when the audio can't be decoded at all (offline,
+//      exotic container, cross-origin public URL).
 
 const MINI_BAR_COUNT = 32;
+/** The full-screen player is wider and taller — give it finer detail. */
+const FULL_BAR_COUNT = 64;
 
 // 32-bit FNV-1a + tiny PRNG, derived from `seededHeights` in
 // waveform-50.tsx. Same input → same bar pattern, every render.
@@ -1016,24 +1552,43 @@ function seededBars(seed: string, n: number): number[] {
 }
 
 export function MiniWaveform({
-  seed,
+  track,
   progressPct,
   onScrub,
   onPreview,
   tall = false,
 }: {
-  seed: string;
+  track: PlayerTrack;
   progressPct: number;
   onScrub: (pct: number) => void;
   onPreview?: (pct: number | null) => void;
   /** Full-screen player variant — taller strip, thicker bars. */
   tall?: boolean;
 }) {
-  const heights = seededBars(seed, MINI_BAR_COUNT);
+  const barCount = tall ? FULL_BAR_COUNT : MINI_BAR_COUNT;
+  const seed = track.id;
+  const fallback = useMemo(() => seededBars(seed, barCount), [seed, barCount]);
+  // Peaks that rode down with the page payload win outright — no fetch,
+  // no decode, right envelope on the first painted frame.
+  const supplied = useMemo(
+    () =>
+      track.peaks && track.peaks.length > 0
+        ? resampleWaveformHeights(track.peaks, barCount)
+        : null,
+    [track.peaks, barCount],
+  );
+  // Read the origin after mount so the server-rendered markup and the
+  // first client render agree; the decode is an effect either way.
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+  const decodeUrl = supplied ? null : sameOriginPeaksUrl(track.audioUrl, origin);
+  const heights = useAudioPeaks(decodeUrl, barCount, supplied ?? fallback);
   const [pointerPreviewPct, setPointerPreviewPct] = useState<number | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const displayedProgressPct = pointerPreviewPct ?? progressPct;
-  const playedBars = Math.floor((displayedProgressPct / 100) * MINI_BAR_COUNT);
+  const playedBars = Math.floor((displayedProgressPct / 100) * heights.length);
 
   function percentAt(clientX: number, element: HTMLDivElement): number {
     const rect = element.getBoundingClientRect();
@@ -1206,6 +1761,116 @@ function SkipForwardIcon() {
     >
       <polygon points="5 3 11 8 5 13" fill="currentColor" stroke="none" />
       <line x1="13" y1="3" x2="13" y2="13" />
+    </svg>
+  );
+}
+
+function ShuffleIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={17}
+      height={17}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" y1="20" x2="21" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" y1="15" x2="21" y2="21" />
+      <line x1="4" y1="4" x2="9" y2="9" />
+    </svg>
+  );
+}
+
+/** Repeat. `single` adds the "1" that marks repeat-this-song. */
+function LoopIcon({ single = false }: { single?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={17}
+      height={17}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="17 2 21 6 17 10" />
+      <path d="M3 12V10a4 4 0 0 1 4-4h14" />
+      <polyline points="7 22 3 18 7 14" />
+      <path d="M21 12v2a4 4 0 0 1-4 4H3" />
+      {single ? (
+        <text
+          x="12"
+          y="15.4"
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="800"
+          fill="currentColor"
+          stroke="none"
+        >
+          1
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
+/**
+ * Circular seek arrow with the step printed inside — the Apple Podcasts
+ * / Spotify convention that makes "this nudges 10 seconds" unmistakable
+ * next to the triangular song-skip arrows.
+ */
+function Seek10Icon({ direction }: { direction: "back" | "forward" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={19} height={19} aria-hidden>
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        {...(direction === "forward" ? { transform: "translate(24,0) scale(-1,1)" } : {})}
+      >
+        <path d="M12 4.6a7.6 7.6 0 1 1-7.2 5.2" />
+        <polygon points="12,1.9 12,7.3 8.4,4.6" fill="currentColor" stroke="none" />
+      </g>
+      <text
+        x="12"
+        y="16.2"
+        textAnchor="middle"
+        fontSize="8.4"
+        fontWeight="800"
+        fill="currentColor"
+        stroke="none"
+      >
+        10
+      </text>
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 10V2" />
+      <path d="m5 5 3-3 3 3" />
+      <path d="M4 7.5h-.5A1.5 1.5 0 0 0 2 9v3.5A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5V9a1.5 1.5 0 0 0-1.5-1.5H12" />
     </svg>
   );
 }

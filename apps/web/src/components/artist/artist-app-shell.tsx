@@ -100,8 +100,10 @@ export function ArtistAppShell({
 
         {/* Main column — top bar (mobile only) + content + bottom nav
             (mobile only). Flex-column so the top bar sits flush above
-            scrolling content. */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            scrolling content. `relative` anchors the overlaid tab bar so
+            page content scrolls beneath the glass instead of stopping at
+            its top edge (SK-306). */}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <ArtistShellChrome>
             <ArtistMobileTopBar
               studios={studios}
@@ -128,8 +130,10 @@ export function ArtistAppShell({
                 <ArtistTopBar initialUnreadCount={notificationUnreadCount} />
               </div>
             </ArtistShellChrome>
-            {/* The in-flow mobile tab bar owns its Home Indicator inset,
-                while this scroll surface keeps a 16px content buffer.
+            {/* The overlaid mobile tab bar floats above this scroller, so
+                `.sk-bottom-nav-inset` reserves its height and the Home
+                Indicator inset — content scrolls under the glass and the
+                last row still clears it.
                 `lg:pb-12` keeps desktop spacing unchanged where there's
                 no bar. `pt-6 lg:pt-10` matches the design's top spacing.
                 `mx-auto max-w-2xl` keeps the artist content column

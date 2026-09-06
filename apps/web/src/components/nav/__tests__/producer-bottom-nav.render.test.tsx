@@ -56,7 +56,7 @@ describe("ProducerBottomNav rendered behavior", () => {
       { label: "Music", href: "/dashboard/music" },
       { label: "Clients", href: "/dashboard/clients-projects" },
       { label: "Calendar", href: "/dashboard/calendar?tab=sessions" },
-      { label: "Payments", href: "/dashboard/payments" },
+      { label: "Store", href: "/dashboard/store" },
     ]);
     expect(tabs).toHaveLength(5);
     expect(tabs[0]).toMatchObject({ label: "Today", href: "/dashboard" });
@@ -76,7 +76,7 @@ describe("ProducerBottomNav rendered behavior", () => {
     ["/dashboard/music", "Music"],
     ["/dashboard/clients-projects", "Clients"],
     ["/dashboard/calendar", "Calendar"],
-    ["/dashboard/payments", "Payments"],
+    ["/dashboard/store", "Store"],
   ])("marks exactly one active tab for %s", (pathname, activeLabel) => {
     const { tabs } = renderTabs(pathname);
     const activeTabs = tabs.filter(
@@ -89,5 +89,14 @@ describe("ProducerBottomNav rendered behavior", () => {
     expect(
       tabs.filter(({ attributes }) => attributes.includes('data-active="false"')),
     ).toHaveLength(4);
+  });
+
+  it("leaves Payments out of the bar and marks no tab active on its route", () => {
+    const { tabs } = renderTabs("/dashboard/payments");
+
+    expect(tabs.map(({ href }) => href)).not.toContain("/dashboard/payments");
+    expect(
+      tabs.filter(({ attributes }) => attributes.includes('aria-current="page"')),
+    ).toHaveLength(0);
   });
 });

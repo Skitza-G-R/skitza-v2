@@ -50,6 +50,8 @@ export type MusicLatestVersion = Readonly<{
   label: string;
   audioUrl: string | null;
   durationMs: number | null;
+  /** Pre-computed waveform peaks so Library rows never decode audio to draw it. */
+  peaks: number[] | null;
   uploadedAt: Date;
 }>;
 
@@ -402,6 +404,7 @@ async function buildProjectReadModels(
             audioUrl: trackVersions.audioUrl,
             audioDeletedAt: trackVersions.audioDeletedAt,
             durationMs: trackVersions.durationMs,
+            peaks: trackVersions.peaks,
             uploadedAt: trackVersions.uploadedAt,
           })
           .from(trackVersions)
@@ -440,6 +443,7 @@ async function buildProjectReadModels(
         label: version.label,
         audioUrl: version.audioUrl,
         durationMs: version.durationMs,
+        peaks: version.peaks ?? null,
         uploadedAt: version.uploadedAt,
       });
     }
