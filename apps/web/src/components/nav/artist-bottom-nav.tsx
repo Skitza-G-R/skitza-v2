@@ -61,7 +61,7 @@ export function ArtistBottomNav({
     <LiquidGlassBottomNav
       ariaLabel="Artist app tabs"
       tabs={tabs}
-      position="in-flow"
+      position="overlay"
       frameClassName="artist-bottom-nav-frame"
       onTabClick={(event) => {
         captureRuntimeMainNavigationTarget(event.currentTarget);

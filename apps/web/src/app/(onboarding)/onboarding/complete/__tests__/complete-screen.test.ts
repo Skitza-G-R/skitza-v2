@@ -24,7 +24,7 @@ describe("producer onboarding completion screen", () => {
   });
 
   it("opens the main dashboard with the Store tip", () => {
-    expect(COMPLETE_DASHBOARD_HREF).toBe("/dashboard?storeTip=1");
+    expect(COMPLETE_DASHBOARD_HREF).toBe("/dashboard");
     expect(clientSource).toContain("Open dashboard");
   });
 

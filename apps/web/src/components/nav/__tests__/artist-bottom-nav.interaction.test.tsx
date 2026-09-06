@@ -94,11 +94,11 @@ describe("ArtistBottomNav liquid-glass adapter", () => {
     render(<ArtistBottomNav studios={[...STUDIOS]} initialStudioId="studio-1" />);
 
     const nav = screen.getByRole("navigation", { name: "Artist app tabs" });
-    const frame = nav.parentElement;
+    const frame = nav.closest<HTMLElement>("[data-liquid-glass-bottom-nav-frame]");
     const tabs = [...nav.querySelectorAll<HTMLAnchorElement>("[data-liquid-glass-nav-tab]")];
 
-    expect(frame?.dataset.liquidGlassBottomNavFrame).toBe("in-flow");
-    expect(frame?.className).toContain("relative");
+    expect(frame?.dataset.liquidGlassBottomNavFrame).toBe("overlay");
+    expect(frame?.className).toContain("absolute inset-x-0 bottom-0");
     expect(frame?.className).not.toContain("fixed");
     expect(frame?.className).not.toContain("top-[var(--sk-viewport-offset-top,0px)]");
     expect(nav.className).not.toContain("pointer-events-auto");

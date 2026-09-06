@@ -217,76 +217,32 @@ afterEach(() => {
 });
 
 describe("ProducerMobileActions account sheet interaction", () => {
-  it("consumes the post-onboarding cue once and dismisses it when the avatar opens", async () => {
+  it("no longer shows a post-onboarding cue on the avatar", async () => {
     mocks.search = "storeTip=1";
     window.history.replaceState(null, "", "/dashboard?storeTip=1");
-
-    const { rerender } = render(<ProducerMobileActions producerSlug={null} />);
-
-    expect(await screen.findByText("Manage your Store from your profile photo.")).not.toBeNull();
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/dashboard");
-      expect(window.location.search).toBe("");
-    });
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Open account menu",
-      }),
-    );
-    expect(screen.queryByTestId("producer-store-tip")).toBeNull();
-    expect(screen.getByTestId("account-sheet")).not.toBeNull();
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    rerender(<ProducerMobileActions producerSlug={null} />);
-    expect(screen.queryByTestId("producer-store-tip")).toBeNull();
-  });
-
-  it("preserves unrelated query state and the hash when consuming the cue", async () => {
-    mocks.search = "project=active&storeTip=1";
-    window.history.replaceState(
-      null,
-      "",
-      "/dashboard?project=active&storeTip=1#recent",
-    );
 
     render(<ProducerMobileActions producerSlug={null} />);
 
-    expect(await screen.findByText("Manage your Store from your profile photo.")).not.toBeNull();
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/dashboard");
-      expect(window.location.search).toBe("?project=active");
-      expect(window.location.hash).toBe("#recent");
+      expect(screen.getByRole("button", { name: "Open account menu" })).not.toBeNull();
     });
+    expect(screen.queryByTestId("producer-store-tip")).toBeNull();
+    expect(screen.queryByText("Manage your Store from your profile photo.")).toBeNull();
+    expect(window.location.search).toBe("?storeTip=1");
   });
 
-  it("dismisses the post-onboarding cue when navigation changes", async () => {
-    mocks.search = "storeTip=1";
-    window.history.replaceState(null, "", "/dashboard?storeTip=1");
-
-    const { rerender } = render(<ProducerMobileActions producerSlug={null} />);
-    expect(await screen.findByText("Manage your Store from your profile photo.")).not.toBeNull();
-
-    mocks.pathname = "/dashboard/music";
-    mocks.search = "";
-    rerender(<ProducerMobileActions producerSlug={null} />);
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("producer-store-tip")).toBeNull();
-    });
-  });
-
-  it("renders Store first in a one-column account menu with its helper", () => {
+  it("renders Payments first in a one-column account menu with its helper", () => {
     render(<ProducerMobileActions producerSlug={null} />);
     openAccountSheet();
 
     const links = screen.getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      "/dashboard/store",
+      "/dashboard/payments",
       "/dashboard/settings",
     ]);
-    expect(links[0]?.textContent).toContain("Store");
-    expect(links[0]?.textContent).toContain("Products and private offers");
+    expect(links[0]?.textContent).toContain("Payments");
+    expect(links[0]?.textContent).toContain("Proofs, installments and reminders");
+    expect(links.map((link) => link.getAttribute("href"))).not.toContain("/dashboard/store");
     expect(screen.getByRole("button", { name: /Install Skitza/ })).not.toBeNull();
     const profileLinks = screen.getByTestId("producer-mobile-profile-links");
     expect(profileLinks.classList.contains("grid-cols-1")).toBe(true);

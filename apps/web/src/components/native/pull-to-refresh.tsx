@@ -4,14 +4,14 @@ import { RefreshCw } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
+import { isRefreshablePath, type PullToRefreshShell } from "./refreshable-path";
+
 const REFRESH_THRESHOLD_PX = 72;
 const HORIZONTAL_CANCEL_RATIO = 1;
 const INDICATOR_RESISTANCE = 0.65;
 const INDICATOR_MAX_OFFSET_PX = 52;
 const INDICATOR_FADE_START_PX = 8;
 const INDICATOR_FADE_DISTANCE_PX = 16;
-
-type HomePath = "/artist" | "/dashboard";
 
 interface PullGesture {
   startX: number;
@@ -22,21 +22,36 @@ function firstTouch(event: TouchEvent): Touch | null {
   return event.touches[0] ?? null;
 }
 
-function normalizedPath(pathname: string): string {
-  return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+/**
+ * True when the gesture started inside a scroller nested under the shell
+ * scroller — Calendar's sessions list, its week grid, its availability
+ * panel. Those own their own vertical scrolling, so a pull inside one is
+ * the user scrolling that list, not asking the page to reload.
+ */
+function startedInsideNestedScroller(target: EventTarget | null, surface: HTMLElement): boolean {
+  let node = target instanceof Element ? target : null;
+  while (node && node !== surface) {
+    if (node instanceof HTMLElement && node.scrollHeight > node.clientHeight) {
+      const overflowY = window.getComputedStyle(node).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
 }
 
 /**
  * Gives the parent shell scroller one consistent elastic pull affordance.
- * Artist Home and Producer Home also refresh after the release threshold;
- * other standing pages only move with the finger and settle back into place.
+ * Every main screen — each bottom-nav tab plus the producer Payments and
+ * Requests workspaces — refreshes after the release threshold. Detail and
+ * edit pages only move with the finger and settle back into place.
  * Focused flows disable this controller because they own a nested scroller.
  */
-export function HomePullToRefresh({
-  homePath,
+export function PullToRefresh({
+  shell,
   enabled = true,
 }: {
-  homePath: HomePath;
+  shell: PullToRefreshShell;
   enabled?: boolean;
 }) {
   const pathname = usePathname();
@@ -46,7 +61,7 @@ export function HomePullToRefresh({
   const pullDistanceRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
   const [isPending, startTransition] = useTransition();
-  const homeRefreshEnabled = normalizedPath(pathname) === homePath;
+  const refreshEnabled = isRefreshablePath(pathname, shell);
 
   useEffect(() => {
     if (!enabled) return;
@@ -61,7 +76,13 @@ export function HomePullToRefresh({
 
     const onTouchStart = (event: TouchEvent) => {
       const touch = firstTouch(event);
-      if (isPending || event.touches.length !== 1 || !touch || surface.scrollTop > 0) {
+      if (
+        isPending ||
+        event.touches.length !== 1 ||
+        !touch ||
+        surface.scrollTop > 0 ||
+        startedInsideNestedScroller(event.target, surface)
+      ) {
         resetPull();
         return;
       }
@@ -95,7 +116,7 @@ export function HomePullToRefresh({
 
     const onTouchEnd = () => {
       const shouldRefresh =
-        homeRefreshEnabled &&
+        refreshEnabled &&
         gestureRef.current !== null &&
         pullDistanceRef.current >= REFRESH_THRESHOLD_PX &&
         surface.scrollTop <= 0 &&
@@ -118,14 +139,14 @@ export function HomePullToRefresh({
       surface.removeEventListener("touchend", onTouchEnd);
       surface.removeEventListener("touchcancel", resetPull);
     };
-  }, [enabled, homeRefreshEnabled, isPending, router, startTransition]);
+  }, [enabled, refreshEnabled, isPending, router, startTransition]);
 
   if (!enabled) return null;
 
   const state =
-    homeRefreshEnabled && isPending
+    refreshEnabled && isPending
       ? "refreshing"
-      : homeRefreshEnabled && pullDistance >= REFRESH_THRESHOLD_PX
+      : refreshEnabled && pullDistance >= REFRESH_THRESHOLD_PX
         ? "ready"
         : pullDistance > 0
           ? "pulling"
@@ -146,16 +167,16 @@ export function HomePullToRefresh({
   return (
     <div
       ref={markerRef}
-      data-testid="home-pull-to-refresh"
+      data-testid="pull-to-refresh"
       data-state={state}
-      data-home-refresh={homeRefreshEnabled ? "true" : "false"}
+      data-can-refresh={refreshEnabled ? "true" : "false"}
       className={`pointer-events-none relative z-[35] flex shrink-0 justify-center overflow-visible ${state === "idle" ? "transition-[height] duration-200 ease-out motion-reduce:transition-none" : ""}`}
       style={{ height: `${String(indicatorOffset)}px` }}
-      role={homeRefreshEnabled ? "status" : undefined}
-      aria-live={homeRefreshEnabled ? "polite" : undefined}
-      aria-hidden={!homeRefreshEnabled || state === "idle"}
+      role={refreshEnabled ? "status" : undefined}
+      aria-live={refreshEnabled ? "polite" : undefined}
+      aria-hidden={!refreshEnabled || state === "idle"}
     >
-      {homeRefreshEnabled ? (
+      {refreshEnabled ? (
         <div
           className="absolute top-2 inline-flex h-9 items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.96)] px-3 text-[11px] font-semibold text-[rgb(var(--fg-secondary))] shadow-[var(--shadow-md)] backdrop-blur-lg transition-[opacity,transform] duration-150 motion-reduce:transition-none"
           style={{

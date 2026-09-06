@@ -90,9 +90,9 @@ describe("producer mobile account + public-link controls", () => {
     expect(ACTIONS_SRC).toContain('window.matchMedia(REDUCED_MOTION_QUERY).matches');
   });
 
-  it("keeps Store and Settings reachable from the mobile account sheet", () => {
+  it("keeps Payments and Settings reachable from the mobile account sheet", () => {
     expect(ACTIONS_SRC).toContain('data-testid="producer-mobile-profile-links"');
-    expect(ACTIONS_SRC).toContain('href="/dashboard/store"');
+    expect(ACTIONS_SRC).toContain('href="/dashboard/payments"');
     expect(ACTIONS_SRC).toContain('href="/dashboard/settings"');
     expect(ACTIONS_SRC).toContain('aria-label="Producer account links"');
     expect(ACTIONS_SRC.match(/prefetch=\{false\}/g)).toHaveLength(2);
@@ -111,26 +111,26 @@ describe("producer mobile account + public-link controls", () => {
     expect(ACTIONS_SRC).toContain("renderAccountRoleMenuItems(accountMenuModel");
   });
 
-  it("keeps Store first in a stacked account menu with its agreed helper", () => {
+  it("keeps Payments first in a stacked account menu with its agreed helper", () => {
     const linksStart = ACTIONS_SRC.indexOf('data-testid="producer-mobile-profile-links"');
-    const storeStart = ACTIONS_SRC.indexOf('href="/dashboard/store"', linksStart);
+    const paymentsStart = ACTIONS_SRC.indexOf('href="/dashboard/payments"', linksStart);
     const settingsStart = ACTIONS_SRC.indexOf('href="/dashboard/settings"', linksStart);
 
     expect(linksStart).toBeGreaterThanOrEqual(0);
-    expect(storeStart).toBeGreaterThan(linksStart);
-    expect(settingsStart).toBeGreaterThan(storeStart);
+    expect(paymentsStart).toBeGreaterThan(linksStart);
+    expect(settingsStart).toBeGreaterThan(paymentsStart);
     expect(ACTIONS_SRC).toContain("grid-cols-1");
-    expect(ACTIONS_SRC).toContain("Products and private offers");
+    expect(ACTIONS_SRC).toContain("Proofs, installments and reminders");
     expect(ACTIONS_SRC).not.toContain("grid-cols-2");
   });
 
-  it("consumes the post-onboarding Store cue from the URL", () => {
-    expect(ACTIONS_SRC).toMatch(/searchParams\.get\("storeTip"\)\s*!==\s*"1"/);
-    expect(ACTIONS_SRC).toContain('nextParams.delete("storeTip")');
-    expect(ACTIONS_SRC).toContain("window.history.replaceState");
-    expect(ACTIONS_SRC).toContain("Manage your Store from your profile photo.");
-    expect(ACTIONS_SRC).toContain('data-testid="producer-store-tip"');
-    expect(ACTIONS_SRC).toContain('aria-label="Dismiss Store tip"');
+  // SK-306: the cue only existed because Store was hidden behind the avatar.
+  // Store now sits in the bottom tab bar, so the cue taught nothing.
+  it("no longer carries the post-onboarding Store cue", () => {
+    expect(ACTIONS_SRC).not.toContain("storeTip");
+    expect(ACTIONS_SRC).not.toContain("Manage your Store from your profile photo.");
+    expect(ACTIONS_SRC).not.toContain('data-testid="producer-store-tip"');
+    expect(ACTIONS_SRC).not.toContain("/dashboard/store");
   });
 
   it("keeps the accepted target mounted until the exact href actually commits", () => {
@@ -146,10 +146,10 @@ describe("producer mobile account + public-link controls", () => {
       /onClick=\{\(event\) => \{\s*captureRuntimeMainNavigationTarget\(event\.currentTarget\);[\s\S]{0,80}requestAccountSheetClose\(\)/,
     );
     expect(ACTIONS_SRC).not.toMatch(
-      /if \(pathname === "\/dashboard\/(?:store|settings)"\) requestAccountSheetClose\(\)/,
+      /if \(pathname === "\/dashboard\/(?:payments|settings)"\) requestAccountSheetClose\(\)/,
     );
     expect(ACTIONS_SRC).toContain(
-      'if (currentHref === "/dashboard/store") requestAccountSheetClose()',
+      'if (currentHref === "/dashboard/payments") requestAccountSheetClose()',
     );
     expect(ACTIONS_SRC).toContain(
       'if (currentHref === "/dashboard/settings") requestAccountSheetClose()',

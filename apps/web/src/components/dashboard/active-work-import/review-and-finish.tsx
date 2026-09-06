@@ -1,6 +1,5 @@
 "use client";
 
-import { PostImportSummary } from "./post-import-summary";
 import {
   ArrowLeft,
   CalendarClock,
@@ -36,9 +35,6 @@ import {
   type SetupOptionsView,
   type WorkspaceImportRow,
 } from "./model";
-
-const SURFACE_CLASS =
-  "sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[70] flex min-w-0 flex-col overflow-hidden bg-[rgb(var(--bg-background))] lg:static lg:h-full lg:max-h-full lg:min-h-0 lg:w-full lg:flex-1 lg:self-stretch lg:rounded-[var(--radius-lg)] lg:border lg:border-[rgb(var(--border-subtle))] lg:bg-[rgb(var(--bg-elevated))] lg:shadow-[var(--shadow-sm)]";
 
 function dateLabel(value: string | null): string {
   if (!value) return "No deadline";
@@ -648,12 +644,8 @@ export function ReviewAndFinish({
   onReloadSetup,
   onToggleClient,
   onDone,
-  producerSlug,
-  producerName,
-  onShared,
-  onLeaveToDashboard,
 }: {
-  stage: "review" | "setup" | "done";
+  stage: "review" | "setup";
   rows: readonly WorkspaceImportRow[];
   clients: readonly ExistingClientOption[];
   archivedClients: readonly ArchivedClientOption[];
@@ -673,11 +665,6 @@ export function ReviewAndFinish({
   onReloadSetup: () => void;
   onToggleClient: (id: string, selected: boolean) => void;
   onDone: () => void;
-  producerSlug: string;
-  producerName: string;
-  onShared?: (channel: "whatsapp" | "copy") => void;
-  /** Leave the finished import for the dashboard. */
-  onLeaveToDashboard: () => void;
 }) {
   const [requestedExpandedOperationKey, setRequestedExpandedOperationKey] = useState<string | null>(
     null,
@@ -755,31 +742,10 @@ export function ReviewAndFinish({
         ? "These items failed to create before. Check the saved details, then retry. Nobody is contacted."
         : "These exact details will be frozen. Creating them contacts nobody.";
 
-  // The import is finished: the producer sees what they now have, and leaves
-  // for the dashboard when they choose to. Everything below belongs to the
-  // stages before this one.
-  if (stage === "done") {
-    return (
-      <section data-review-finish-surface className={SURFACE_CLASS}>
-        <div className="sk-native-scroll min-h-0 w-full flex-1 px-4 pt-6 pb-28 sm:px-6 lg:overflow-y-auto lg:pb-6">
-          <PostImportSummary
-            rows={rows}
-            installments={setupOptions?.installments ?? []}
-            clients={setupOptions?.clients ?? []}
-            producerSlug={producerSlug}
-            producerName={producerName}
-            {...(onShared ? { onShared } : {})}
-            onDone={onLeaveToDashboard}
-          />
-        </div>
-      </section>
-    );
-  }
-
   return (
     <section
       data-review-finish-surface
-      className={SURFACE_CLASS}
+      className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[70] flex min-w-0 flex-col overflow-hidden bg-[rgb(var(--bg-background))] lg:static lg:h-full lg:max-h-full lg:min-h-0 lg:w-full lg:flex-1 lg:self-stretch lg:rounded-[var(--radius-lg)] lg:border lg:border-[rgb(var(--border-subtle))] lg:bg-[rgb(var(--bg-elevated))] lg:shadow-[var(--shadow-sm)]"
     >
       <header className="flex shrink-0 items-start gap-2 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-4 sm:px-6">
         {canReturnToItems ? (

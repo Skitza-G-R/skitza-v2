@@ -96,7 +96,7 @@ vi.mock("~/components/artist/purchase/actions", () => ({
 
 const LINKS = {
   bringActiveWork: "/dashboard/clients-projects/bring-active-work",
-  dashboard: "/dashboard?storeTip=1",
+  dashboard: "/dashboard",
   publicUrl: "https://skitza.app/join/maya-stone",
 };
 
