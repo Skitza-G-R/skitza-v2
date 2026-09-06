@@ -1,7 +1,8 @@
 # SK-297 handoff — the keyboard pushes the phone import editor off screen
 
-**Status: not fixed.** One fix shipped and is live; it did not solve the bug. The next
-session starts by reading real numbers off Gili's iPhone, not by writing more code.
+**Status: FIXED 2026-09-06**, measured and verified on a simulated iPhone. See the
+resolved section below; the hypotheses further down are kept only as a record and two of
+them are wrong.
 
 Linear: [SK-297](https://linear.app/raz-stamper/issue/SK-297/bring-your-work-on-mobile-the-keyboard-pushes-the-whole-editor-off) (In Progress)
 
@@ -44,58 +45,83 @@ open, collapsing the document's scrollable range to zero.
 
 Do not re-litigate this. Treat the document-scroll theory as tested and rejected.
 
-## Sharpened prediction: the keyboard-detection arithmetic (2026-09-06)
+## RESOLVED 2026-09-06 — measured on a simulated iPhone, then fixed
 
-Still **unconfirmed on a device** — it is a reading of the code, not a finding. But it is
-now a falsifiable prediction with numbers, which the earlier suspects were not.
+Reproduced, mechanism confirmed, fix verified on the device. Two earlier entries in this
+document are **wrong** and are corrected below; read this section before either of them.
 
-`calculateNativeViewportMetrics` derives two different things from one subtraction:
+### How it was measured without Gili's phone
+
+The native simulator MCP tool refuses (`xcode-select` gate), AppleScript needs Accessibility
+permission, `simctl` has no tap, and Homebrew no longer ships `idb-companion` — so nothing
+could tap the screen. A programmatic `focus()` will not raise the iOS keyboard in Safari, but
+it will inside a `WKWebView` you own.
+
+So: a ~90-line Swift app (`scratchpad/kbharness/main.swift`), built with
+`xcrun -sdk iphonesimulator swiftc`, bundled by hand, `simctl install` + `launch`. It loads
+the dev page, focuses a named field, and prints the viewport numbers as **text** at each step.
+That last detail matters — the first reading was taken off a screenshot, the Dynamic Island
+covered a digit, `478` was read as `778`, and an entire wrong theory was built on it.
+
+Two traps: `WKWebView` caches the dev server's chunk URLs across edits, so use
+`WKWebsiteDataStore.nonPersistent()` and `.reloadIgnoringLocalAndRemoteCacheData` or you will
+measure the pre-fix bundle and think your fix did nothing. And a parallel session overwrote
+`.claude/launch.json`, deleting the port-3297 entry mid-run.
+
+### What iOS actually does (iPhone 17, iOS 26.2)
+
+| state                        | innerH | vv.height | vv.offsetTop | `kbd` before fix | shell top |
+| ---------------------------- | ------ | --------- | ------------ | ---------------- | --------- |
+| closed                       | 778    | 778       | 0            | closed           | 0         |
+| shallow field (Client name)  | 663    | 471       | 115          | closed           | −115      |
+| deep field, keyboard already up | 670 | 471       | 108          | closed           | −108      |
+| **deep field from closed**   | **478**| 471       | **300**      | **closed**       | **−300**  |
+
+The last row is the reported bug, and it is a settled state — held unchanged over 15s.
+
+**`innerHeight` does NOT stay constant across an iOS keyboard.** It collapses onto the visual
+viewport (478 against a height of 471) while `position: fixed` still resolves against a layout
+viewport ~771 tall. So `innerHeight - height - offsetTop` = 478 − 471 − 300 = **0** obscured,
+far under the 120px threshold, and `keyboardOpen` reads false while the keyboard fills half
+the screen. `globals.css:2096` then pins `.sk-native-screen { top: 0 }`, and the shell — whose
+height is already the 471px strip — sits at layout rows `[0, 471]` while the visible strip is
+`[300, 771]`. Header and step nav above the fold, page background below. Exactly the report.
+
+Note `--sk-viewport-offset-top` was **already correct at 300px** throughout. Nothing needed
+recomputing; the only broken thing was the boolean deciding whether to honour it.
+
+### The fix
+
+`keyboardOpen` also accepts a focused text-entry control, gated on the viewport having
+actually moved or shrunk so a hardware keyboard cannot trip it:
 
 ```
-obscuredHeight = innerHeight - measuredHeight - viewportOffsetTop
-keyboardOpen   = obscuredHeight >= threshold
+viewportDisplaced = offsetTop > 0 || innerHeight - measuredHeight >= keyboardThreshold
+keyboardOpen      = obscuredHeight >= keyboardThreshold || (textEntryFocused && viewportDisplaced)
 ```
 
-That number is **correct** for the action dock. A `fixed; bottom: N` element measures from
-the layout viewport's bottom, and the visible strip's bottom sits exactly
-`innerHeight - height - offsetTop` above it — which is why the pinned `viewportOffsetTop: 59`
-test expects `keyboardInset: 265` and the dock lands right.
+`obscuredHeight` is untouched and still feeds `keyboardInset`, so the action dock's maths is
+unchanged. This is not a new idea: `globals.css` already hides the bottom nav on the same
+focus signal, and says why — *"some routes shrink innerHeight and visualViewport together and
+therefore report no measurable keyboard inset."* That is this bug, already written down.
+`NativeViewportSync` now resamples on `focusin`/`focusout` and exports
+`TEXT_ENTRY_FOCUS_SELECTOR` so the CSS and the metrics read the keyboard the same way.
 
-It is the wrong number for *"is the keyboard open"*. On iOS `innerHeight` does not change
-when the keyboard appears; the visual viewport shrinks by the keyboard height, so keyboard
-presence is `innerHeight - height`. `offsetTop` is a separate quantity — how far iOS scrolled
-the visual viewport to reveal the focused field — and it ranges over `[0, innerHeight - height]`.
-So as iOS scrolls further, `obscuredHeight` decays toward zero and the answer flips to
-"closed" while the keyboard is plainly up.
+Verified on the device: same iOS numbers, `kbd: open`, shell top **0** instead of −300, stable
+across six samples. All four previously pinned metrics cases keep their exact results.
 
-At that instant `body:not([data-sk-keyboard="open"]) .sk-native-screen { top: 0 }`
-(`globals.css:2096`) overrides `top: var(--sk-viewport-offset-top)`, and the shell teleports
-up by the whole offset in one frame. The failure is a **cliff, not a slope**:
+### Corrections to the rest of this document
 
-| innerHeight            | keyboard | flips `closed` once `vv.offsetTop` > | shell `top` at that instant |
-| ---------------------- | -------- | ------------------------------------ | --------------------------- |
-| 844 (installed app)    | 354px    | **203**                              | 203 -> **0** (jumps 203px)  |
-| 745 (Safari with chrome) | 313px  | **179**                              | 179 -> **0** (jumps 179px)  |
+1. **The "leading hypothesis" below — iOS scrolling the `overflow: hidden` shell — is
+   REFUTED.** `article.scrollTop` measured `0` in every sample, broken and fixed alike. The
+   shell never scrolled; it was positioned wrong. The guard switch could never have helped.
+2. **A "sharpened prediction" written earlier on 2026-09-06 was wrong.** It claimed iOS holds
+   `innerHeight` constant so the keyboard could be detected from `innerHeight - height`, and
+   quoted thresholds of 203/179. Measurement killed it: the shrink is 7px, that rule still
+   reports "closed", and the fix built on it changed nothing on the device. It has been
+   removed rather than left to mislead. Third wrong theory, caught before shipping.
 
-The shell keeps `height: var(--sk-viewport-height)` — still the short strip — so it occupies
-layout rows `[0, 490]` while the visible strip is `[203, 693]`. That predicts precisely the
-reported picture: header and step nav above the fold, a couple of fields at the very top,
-then page background down to the dock.
-
-It also explains the two things that made this hard. Shallow fields never push `offsetTop`
-past the threshold, so most of the form behaves. And Chromium never sets a non-zero
-`visualViewport.offsetTop` on focus at all, so no desktop check can see it.
-
-**Candidate fix, not yet applied:** compute `keyboardOpen` from `innerHeight - height` and
-leave `keyboardInset` exactly as it is, so the dock maths is untouched. Checked against the
-four cases pinned in `native-viewport-and-motion.test.ts` — `844/520/0`, `844/520/59`,
-`844/800/0`, `812/770/0` — all four keep their current results. Only `--sk-layout-viewport-top`
-and `--sk-layout-viewport-height` change behaviour alongside `keyboardOpen`, and their sole
-consumer is the full-screen player (`persistent-player.tsx:976`), which has no text input.
-
-Do not apply it until the phone says so. Two confident theories have already been wrong.
-
-## Leading hypothesis (untested)
+## Leading hypothesis (untested) — REFUTED, see the resolved section above
 
 **iOS scrolls the `overflow: hidden` editor shell itself.** The shell
 (`import-row-editor.tsx:370`) is:
@@ -225,13 +251,12 @@ picture before believing a number.
 
 ## State as of this handoff
 
-|                                |                                                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| Branch                         | `claude/keyboard-hiding-content-yy8s2u` @ `a5e30fc` (content matches `v3-clean` plus the dev page and diagnostics) |
-| `v3-clean`                     | `263635a`                                                                                                          |
-| Fix commit (live, ineffective) | `712dfc9`, PR #417                                                                                                 |
-| Dev preview page               | `263635a`, PR #427, merged                                                                                         |
-| Linear                         | SK-297, In Progress                                                                                                |
-| Gate on `a5e30fc`              | typecheck, lint clean; 8041 passed / 102 skipped; `packages/db` clean                                              |
-| Live preview (readout)         | `skitza-v2-web-git-claude-keyboard-h-61be7a-…vercel.app/dev/sk297-keyboard-lock` — alias verified on `a5e30fc`     |
-| Blocked on                     | one phone measurement; no fix code written                                                                        |
+|                                |                                                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Status                         | Fixed and verified on a simulated iPhone 17 / iOS 26.2. Not merged — waiting on Gili.               |
+| Fix                            | `components/native/native-viewport.tsx` — focus fallback for `keyboardOpen`                          |
+| Tests                          | 3 added in `native-viewport-and-motion.test.ts`; 2 fail without the fix, all from measured numbers    |
+| Earlier live fix               | `712dfc9` (PR #417) body scroll lock — ineffective, left in place, removing it is a separate call     |
+| Branch                         | `claude/keyboard-hiding-content-yy8s2u`                                                              |
+| Linear                         | SK-297                                                                                               |
+| Measurement rig                | `scratchpad/kbharness/` — throwaway WKWebView app, not committed                                      |

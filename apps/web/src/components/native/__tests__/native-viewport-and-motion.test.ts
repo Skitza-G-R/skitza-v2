@@ -97,6 +97,60 @@ describe("native viewport metrics", () => {
     });
   });
 
+  it("stays open when iOS lifts a focused field and collapses innerHeight with it", () => {
+    // Measured on an iPhone 17 (iOS 26.2 WebKit), focusing "Project name" in the
+    // phone import editor while the keyboard was closed. iOS scrolled the visual
+    // viewport 300px to lift the field above the keyboard and collapsed
+    // innerHeight onto the visual viewport at the same time, so the obscured-gap
+    // sum saw 478 - 471 - 300 = 0 and reported "closed" while the keyboard filled
+    // half the screen. globals.css then pinned `.sk-native-screen { top: 0 }` and
+    // the editor sat 300px above the visible strip, taking its header and step
+    // nav off the screen — SK-297. Held for 15s, so this is a settled state.
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 478,
+        viewportHeight: 471,
+        viewportOffsetTop: 300,
+        textEntryFocused: true,
+      }),
+    ).toEqual({
+      height: 471,
+      layoutTop: 300,
+      layoutHeight: 471,
+      offsetTop: 300,
+      keyboardInset: 0,
+      keyboardOpen: true,
+    });
+  });
+
+  it("keeps following a shallower field, where iOS scrolls less", () => {
+    // Same device, focusing "Client name": iOS lifted it 115px and left 77px of
+    // measurable gap — under the 120px threshold, so geometry alone still called
+    // it closed and dropped the action dock behind the keyboard.
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 663,
+        viewportHeight: 471,
+        viewportOffsetTop: 115,
+        textEntryFocused: true,
+      }),
+    ).toMatchObject({ layoutTop: 115, keyboardInset: 77, keyboardOpen: true });
+  });
+
+  it("does not let a still viewport with a focused field imply a keyboard", () => {
+    // A hardware keyboard leaves the viewport whole. Without this guard the
+    // focus fallback would report a keyboard on every focused field and shrink
+    // the full-screen player through the Home Indicator gap.
+    expect(
+      calculateNativeViewportMetrics({
+        innerHeight: 812,
+        viewportHeight: 770,
+        viewportOffsetTop: 0,
+        textEntryFocused: true,
+      }),
+    ).toMatchObject({ layoutTop: 0, layoutHeight: 812, keyboardInset: 0, keyboardOpen: false });
+  });
+
   it("does not mistake small browser chrome changes for a keyboard", () => {
     expect(
       calculateNativeViewportMetrics({
