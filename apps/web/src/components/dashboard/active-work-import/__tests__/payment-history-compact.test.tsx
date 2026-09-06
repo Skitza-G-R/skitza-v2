@@ -81,7 +81,7 @@ function installmentRows(): HTMLElement[] {
 async function openFirstPayment(user: ReturnType<typeof userEvent.setup>) {
   const first = installmentRows()[0];
   if (!first) throw new Error("Expected Payment 1");
-  await user.click(within(first).getByRole("button", { name: "Record" }));
+  await user.click(within(first).getByRole("button", { name: "Add payment" }));
   return screen.getByRole("group", { name: "Edit Payment 1" });
 }
 
@@ -108,18 +108,38 @@ afterEach(() => {
 });
 
 describe("compact active-work payment history", () => {
-  it("keeps the base payment plan and Total, Paid, Remaining summary compact", () => {
+  // SK-308: the plan is three cards with a split picture (one block, two
+  // halves, N blocks) so the choice reads without English; the money summary
+  // keeps its three metrics and gains a thin paid-progress bar.
+  it("shows the payment plan as three split cards and the Total, Paid, Remaining summary with a progress bar", async () => {
+    const user = userEvent.setup();
     render(<Harness initialDraft={paymentDraft()} />);
 
     const plan = screen.getByRole("group", { name: "Agreed payment plan" });
+    const cards = within(plan).getAllByRole("button");
+    expect(cards.map((card) => card.textContent.trim())).toEqual(["Full", "50/50", "Monthly"]);
+    expect(cards.map((card) => card.getAttribute("aria-pressed"))).toEqual([
+      "false",
+      "false",
+      "true",
+    ]);
+    expect(
+      cards.map((card) => card.querySelectorAll("[data-plan-split] > *").length),
+    ).toEqual([1, 2, 2]);
+    for (const card of cards) {
+      expect(card.className).toContain("min-h-11");
+      expect(card.className).not.toContain("border-strong");
+      expect(card.className).not.toContain("rounded-full");
+    }
+    expect(cards[0]?.className).toContain("border-subtle");
+    expect(cards[2]?.className).toContain("border-[rgb(var(--brand-primary))]");
     const monthlyControls = screen.getByRole("group", {
       name: "Monthly payment count controls",
     });
-    expect(plan.parentElement?.classList.contains("grid-cols-[minmax(0,1fr)_auto]")).toBe(true);
-    expect(plan.className).toContain("border-subtle");
-    expect(plan.className).not.toContain("border-strong");
     expect(monthlyControls.className).toContain("border-subtle");
     expect(monthlyControls.className).not.toContain("border-strong");
+    await user.click(screen.getByRole("button", { name: "Use one more monthly payment" }));
+    expect(cards[2]?.querySelectorAll("[data-plan-split] > *")).toHaveLength(3);
 
     const summary = document.querySelector("[data-payment-summary]");
     const metrics = document.querySelector("[data-payment-summary-metrics]");
@@ -129,6 +149,45 @@ describe("compact active-work payment history", () => {
     expect(within(summary as HTMLElement).getByText("Total")).not.toBeNull();
     expect(within(summary as HTMLElement).getByText("Paid")).not.toBeNull();
     expect(within(summary as HTMLElement).getByText("Remaining")).not.toBeNull();
+    const progress = within(summary as HTMLElement).getByRole("progressbar", {
+      name: "Paid so far",
+    });
+    expect(progress.getAttribute("aria-valuenow")).toBe("0");
+    expect(progress.getAttribute("aria-valuemax")).toBe("100");
+  });
+
+  it("numbers each installment with a mono badge and shows an icon status chip", () => {
+    const draft = paymentDraft("split_50_50");
+    draft.payments = [
+      {
+        operationKey: "half-of-first",
+        installmentPosition: 1,
+        amount: "250.00",
+        paidAt: "2020-01-02",
+        note: "",
+        proofUploadToken: null,
+        proofFileName: null,
+      },
+    ];
+    render(<Harness initialDraft={draft} />);
+
+    const [first, second] = installmentRows();
+    if (!first || !second) throw new Error("Expected two installment rows");
+    const badge = within(first).getByText("01");
+    expect(badge.className).toContain("font-mono");
+    expect(within(second).getByText("02").className).toContain("font-mono");
+    const partial = first.querySelector("[data-installment-state]");
+    expect(partial?.getAttribute("data-installment-state")).toBe("Partial");
+    expect(partial?.textContent).toContain("Partial");
+    expect(partial?.querySelector("svg")).not.toBeNull();
+    expect(partial?.className).toContain("fg-warning");
+    const locked = second.querySelector("[data-installment-state]");
+    expect(locked?.getAttribute("data-installment-state")).toBe("Locked");
+    expect(locked?.querySelector("svg")).not.toBeNull();
+    const progress = screen.getByRole("progressbar", { name: "Paid so far" });
+    expect(progress.getAttribute("aria-valuenow")).toBe("25");
+    expect(screen.getByLabelText(/First payment due/)).not.toBeNull();
+    expect(screen.queryByLabelText(/When is the first payment due/)).toBeNull();
   });
 
   it("reports editor hierarchy changes and leaves mustard to Save payment", async () => {
@@ -139,7 +198,7 @@ describe("compact active-work payment history", () => {
     expect(onEditingChange.mock.calls.map(([editing]) => editing)).toEqual([false]);
     const first = installmentRows()[0];
     if (!first) throw new Error("Expected Payment 1");
-    const record = within(first).getByRole("button", { name: "Record" });
+    const record = within(first).getByRole("button", { name: "Add payment" });
     expect(record.className).not.toContain("brand-primary-text");
     await user.click(record);
 
@@ -367,7 +426,7 @@ describe("compact active-work payment history", () => {
     await user.click(screen.getByRole("button", { name: "Save payment" }));
 
     expect(screen.queryByLabelText("Amount received")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Record another payment" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add another payment" })).toBeNull();
     expect(screen.getByText("Payment 1 saved.")).not.toBeNull();
     expect(currentDraft().payments).toHaveLength(1);
   });
@@ -499,6 +558,6 @@ describe("compact active-work payment history", () => {
     expect(screen.getByText("Overpaid")).not.toBeNull();
     expect(screen.getByText(/This purchase is overpaid by \$200/)).not.toBeNull();
     expect(screen.getByText(/The excess stays on this purchase/)).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Record another payment" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add another payment" })).toBeNull();
   });
 });
