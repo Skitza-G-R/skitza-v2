@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   PLAYER_EVENTS,
   SEEK_STEP_MS,
+  artworkSwipeIntent,
   blendPointerVelocity,
   clampSeekMs,
   expandHrefForTrack,
@@ -531,7 +532,7 @@ describe("mobile dock glass", () => {
   });
 });
 
-// ─── Artwork swipe ───────────────────────────────────────────────────
+// ─── Artwork swipe (SK-309) ──────────────────────────────────────────
 // Dragging the cover sideways moves through the queue, the way every
 // phone music app does it. These pin the decision rules on their own,
 // away from React, so a change of feel has to be a deliberate edit to
@@ -617,11 +618,13 @@ describe("resolveArtworkSwipe — which song a released drag reaches for", () =>
     expect(resolveArtworkSwipe({ ...still, deltaX: 80, hasNext: false })).toBe("previous");
   });
 
-  it("mirrors under dir=rtl, where the sheet already mirrors its transport row", () => {
-    expect(resolveArtworkSwipe({ ...still, deltaX: 56, direction: "rtl" })).toBe("next");
-    expect(resolveArtworkSwipe({ ...still, deltaX: -56, direction: "rtl" })).toBe("previous");
-    // The end-of-queue guard mirrors with it.
-    expect(resolveArtworkSwipe({ ...still, deltaX: 80, hasNext: false, direction: "rtl" })).toBeNull();
+  it("keeps the physical direction fixed — left is next in every language", () => {
+    // Deliberately NOT mirrored under RTL. Spotify and Apple Music both
+    // keep this gesture attached to the hand rather than the reading
+    // order, so a bilingual listener does not have to relearn it when
+    // the interface language changes.
+    expect(artworkSwipeIntent(-56)).toBe("next");
+    expect(artworkSwipeIntent(56)).toBe("previous");
   });
 
   it("resolves nothing for a tap or a non-finite coordinate", () => {
@@ -646,9 +649,11 @@ describe("resolveArtworkDragOffset — how far the cover rides the finger", () =
     expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false })).toBe(400);
   });
 
-  it("mirrors the boundary stretch under dir=rtl", () => {
-    expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false, direction: "rtl" })).toBe(24);
-    expect(resolveArtworkDragOffset({ deltaX: -400, hasNext: false, direction: "rtl" })).toBe(-400);
+  it("stretches at the same physical end of the queue whatever the language", () => {
+    // The wall is on the left, because left is next. It does not move
+    // when the interface flips to Hebrew.
+    expect(resolveArtworkDragOffset({ deltaX: -400, hasNext: false })).toBe(-24);
+    expect(resolveArtworkDragOffset({ deltaX: 400, hasNext: false })).toBe(400);
   });
 
   it("stays put for a non-finite coordinate", () => {

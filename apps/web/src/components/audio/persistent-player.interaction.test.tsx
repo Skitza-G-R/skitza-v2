@@ -699,7 +699,7 @@ describe("dock waveform draws the real envelope", () => {
   });
 });
 
-// ─── Artwork swipe ───────────────────────────────────────────────────
+// ─── Artwork swipe (SK-309) ──────────────────────────────────────────
 // Dragging the cover sideways moves through the queue. The pure decision
 // rules are pinned in persistent-player.test.ts; these cases prove the
 // gesture is actually wired to the surface and reaches the transport.
@@ -803,7 +803,11 @@ describe("full player artwork swipe", () => {
     expect(onNext).not.toHaveBeenCalled();
   });
 
-  it("mirrors the gesture under dir=rtl, matching the transport row above it", () => {
+  it("does NOT mirror under dir=rtl — left stays next in Hebrew too", () => {
+    // The sheet's buttons mirror, because buttons are read. This gesture
+    // does not, because it is muscle memory: Spotify and Apple Music both
+    // keep left = next in every language, and a bilingual listener should
+    // not have to relearn their thumb when the interface flips.
     const onNext = vi.fn();
     const onPrevious = vi.fn();
     const { container } = renderFullPlayer({
@@ -811,11 +815,13 @@ describe("full player artwork swipe", () => {
       direction: "rtl",
     });
 
-    // Dragging RIGHT is "next" in a right-to-left reading order.
-    swipe(swipeSurface(container), { from: 140, to: 240 });
-
+    swipe(swipeSurface(container), { from: 240, to: 140 });
     expect(onNext).toHaveBeenCalledTimes(1);
     expect(onPrevious).not.toHaveBeenCalled();
+
+    swipe(swipeSurface(container), { from: 140, to: 240 });
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    expect(onNext).toHaveBeenCalledTimes(1);
   });
 
   it("rides the finger while dragging and settles back to centre on release", () => {

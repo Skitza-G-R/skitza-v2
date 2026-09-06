@@ -247,17 +247,17 @@ const ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET = 24;
 export type ArtworkSwipeIntent = "next" | "previous";
 
 /**
- * Which song a horizontal drag is reaching for. The queue reads with
- * the writing direction: in LTR, dragging the cover left pulls the next
- * song in from the right; under `dir="rtl"` — where the sheet already
- * mirrors its own transport row — that flips.
+ * Which song a horizontal drag is reaching for.
+ *
+ * The direction is PHYSICAL, not linguistic: dragging the cover left is
+ * always "next", in every language. Spotify and Apple Music both do it
+ * this way — the gesture is muscle memory attached to the hand, not to
+ * the reading order, so mirroring it under `dir="rtl"` would fight what
+ * a bilingual listener already knows. The transport row above still
+ * mirrors, because buttons are read, not felt.
  */
-export function artworkSwipeIntent(
-  deltaX: number,
-  direction: "ltr" | "rtl" = "ltr",
-): ArtworkSwipeIntent {
-  const towardsNext = direction === "rtl" ? deltaX > 0 : deltaX < 0;
-  return towardsNext ? "next" : "previous";
+export function artworkSwipeIntent(deltaX: number): ArtworkSwipeIntent {
+  return deltaX < 0 ? "next" : "previous";
 }
 
 /**
@@ -274,13 +274,11 @@ export function resolveArtworkSwipe({
   deltaY,
   velocityX,
   hasNext,
-  direction = "ltr",
 }: {
   deltaX: number;
   deltaY: number;
   velocityX: number;
   hasNext: boolean;
-  direction?: "ltr" | "rtl";
 }): ArtworkSwipeIntent | null {
   if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(velocityX)) {
     return null;
@@ -295,7 +293,7 @@ export function resolveArtworkSwipe({
     Math.sign(velocityX) === Math.sign(deltaX);
   if (horizontal < ARTWORK_SWIPE_MIN_DISTANCE && !flicked) return null;
 
-  const intent = artworkSwipeIntent(deltaX, direction);
+  const intent = artworkSwipeIntent(deltaX);
   // End of the queue with repeat off — there is nothing to hand over to.
   if (intent === "next" && !hasNext) return null;
   return intent;
@@ -309,14 +307,12 @@ export function resolveArtworkSwipe({
 export function resolveArtworkDragOffset({
   deltaX,
   hasNext,
-  direction = "ltr",
 }: {
   deltaX: number;
   hasNext: boolean;
-  direction?: "ltr" | "rtl";
 }): number {
   if (!Number.isFinite(deltaX)) return 0;
-  if (artworkSwipeIntent(deltaX, direction) === "next" && !hasNext) {
+  if (artworkSwipeIntent(deltaX) === "next" && !hasNext) {
     const resisted = deltaX * ARTWORK_SWIPE_BOUNDARY_RESISTANCE;
     return Math.max(
       -ARTWORK_SWIPE_MAX_BOUNDARY_OFFSET,
@@ -978,7 +974,6 @@ export function MobileFullPlayer({
   // same producerGradient hash the covers use, so mini → full reads
   // as the same object growing.
   const tint = producerGradient(track.subtitle);
-  const swipeDirection = direction === "rtl" ? "rtl" : "ltr";
   const [dragOffsetY, setDragOffsetY] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [scrubPreviewPct, setScrubPreviewPct] = useState<number | null>(null);
@@ -1154,7 +1149,7 @@ export function MobileFullPlayer({
     drag.lastX = event.clientX;
     drag.lastAt = event.timeStamp;
     if (drag.reducedMotion) return;
-    setArtworkOffsetX(resolveArtworkDragOffset({ deltaX, hasNext, direction: swipeDirection }));
+    setArtworkOffsetX(resolveArtworkDragOffset({ deltaX, hasNext }));
   }
 
   function finishArtworkDrag(event: React.PointerEvent<HTMLDivElement>, cancelled: boolean) {
@@ -1182,7 +1177,6 @@ export function MobileFullPlayer({
         elapsedMs: event.timeStamp - drag.lastAt,
       }),
       hasNext,
-      direction: swipeDirection,
     });
     if (intent === "next") onNext();
     if (intent === "previous") onPrevious();
@@ -1283,7 +1277,7 @@ export function MobileFullPlayer({
             the song title. Letting it letterbox is fine — the block is a
             decorative gradient, not a real cover image.
 
-            The slot is also the swipe surface: dragging the cover
+            The slot is also the swipe surface (SK-309): dragging the cover
             sideways moves through the queue, the way every phone music app
             does it. `touch-action: pan-y` keeps vertical gestures with the
             browser while claiming the horizontal axis, so the gesture can
